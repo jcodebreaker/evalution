@@ -31,7 +31,7 @@ Matching, grading, analysis, the agent and the page only need two things from th
 
 **Model calls (Grader, filler, analysis, agent) use evalution's own model connection.** One OpenAI-compatible or Anthropic endpoint, set in its config. The app's model picks are never used.
 
-**Cases are files in evalution's `sets/` folder, one folder per target.** That keeps them reviewable in pull requests.
+**Cases are files, one folder per target, under `sets_dir`.** That keeps them reviewable in pull requests, in the repo you point it at. evalution's own repo ignores them, apart from the `my-bot` example.
 
 ## Considered options
 

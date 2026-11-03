@@ -12,3 +12,6 @@ targets.yaml
 model.yaml
 targets/
 backups/
+# Your apps' tests stay out of this repo; point sets_dir at your own to review them.
+sets/*
+!sets/my-bot/

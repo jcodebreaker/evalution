@@ -417,7 +417,7 @@ uv run --project server evalution adapter new my_app            # a starter for 
 
 | Path | Holds | In git? |
 |---|---|---|
-| `sets/<app>/<set>/` | Your tests and fixtures | Yes, they're worth reviewing |
+| `sets/<app>/<set>/` | Your tests and fixtures | Not in this repo: set `sets_dir` to a folder in your own |
 | `library/` | Ready-made tests | Yes |
 | `targets/<app>/` | What it learned, fingerprints, change state | Your choice |
 | `data/runs/<run>.json` | Run results, one file each | No |
