@@ -6,8 +6,9 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   one per target and set. Besides the contract's fields, a session keeps the model transcript, the
   cases it wrote, and when it last showed a plan.
 * **The loop** runs in a background task on the strong model of evalution's own connection
-  (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, or after
-  :data:`MAX_STEPS` tool calls.
+  (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
+  :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
+  :data:`SAME_CALL_TIMES` times in a row. A person can always say go on.
 * **Tools** (:mod:`evalution.writer.tools`) run in process over the functions the routes use; the
   model speaks only through ``reply``, so the page gets ``plan`` and ``review`` as data. Every tool
   result reaches the model fenced as data. Code is read only through the target's ``code`` scope
@@ -47,10 +48,15 @@ _logger = logging.getLogger(__name__)
 
 #: Tool calls one admin message may lead to.
 MAX_STEPS = 40
+#: How long one admin message may keep it working.
+MAX_SECONDS = 20 * 60
+#: The same call this many times in a row is a loop: the last isn't run.
+SAME_CALL_TIMES = 3
 #: Activity lines the page gets: what the agent did last, newest at the end.
 ACTIVITY_SHOWN = 12
-#: Past this, the oldest tool results in the transcript are cut.
+#: Past this, the oldest tool results in the transcript are cut, then the oldest exchanges.
 HISTORY_CHARS = 300_000
+EARLIER_CUT = "(Earlier conversation was cut to save room.)"
 #: The set's cases go into the instructions in full up to this; past it, by name.
 CASES_CHARS = 30_000
 PROFILE_CHARS = 20_000
@@ -85,13 +91,15 @@ def _repair(history: list[dict[str, Any]]) -> None:
                     {
                         "role": "tool",
                         "tool_call_id": call["id"],
-                        "content": "(stopped by the admin)",
+                        "content": "(stopped before it finished)",
                     },
                 )
 
 
 def _trim(history: list[dict[str, Any]]) -> None:
-    """Cut the oldest tool results until the transcript is under :data:`HISTORY_CHARS`."""
+    """Get the transcript under :data:`HISTORY_CHARS`: the oldest tool results go first, then the
+    oldest exchanges whole, so that it still starts on a person's message. The page's chat is kept
+    apart and loses nothing."""
     size = len(json.dumps(history, ensure_ascii=False))
     for message in history:
         if size <= HISTORY_CHARS:
@@ -99,6 +107,13 @@ def _trim(history: list[dict[str, Any]]) -> None:
         if message.get("role") == "tool" and len(message["content"]) > 40:
             size -= len(message["content"])
             message["content"] = "(cut to save room)"
+    while size > HISTORY_CHARS:
+        start = 1 if history[0].get("content") == EARLIER_CUT else 0
+        later = [i for i, m in enumerate(history) if i > start and m.get("role") == "user"]
+        if not later:
+            return
+        history[: later[0]] = [{"role": "user", "content": EARLIER_CUT}]
+        size = len(json.dumps(history, ensure_ascii=False))
 
 
 class Agent:
@@ -264,42 +279,65 @@ class Agent:
         history.append({"role": "user", "content": text})
         turn = AgentTurn(session)
         steps = 0
+        last_call, same = None, 0
+        limit = asyncio.timeout(MAX_SECONDS)
         try:
             if not self.llm:
                 say(session, "agent", "No model is set up yet: choose one in Settings, Model.")
                 session["status"] = "idle"
                 return
             instructions = await asyncio.to_thread(self._instructions, session)
-            while True:
-                _trim(history)
-                reply = await self.llm.chat("strong", instructions, copy.deepcopy(history), TOOLS)
-                session["model_usd"] = float(session["model_usd"]) + reply.usd
-                history.append(
-                    {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
-                )
-                if not reply.tool_calls:
-                    if reply.text and not turn.replied:
-                        say(session, "agent", reply.text)
-                    break
-                for call in reply.tool_calls:
-                    output = await self._call(turn, call["name"], call["arguments"])
-                    history.append({"role": "tool", "tool_call_id": call["id"], "content": output})
-                    steps += 1
-                for said in session.pop("inbox", []):
-                    history.append(
-                        {"role": "user", "content": f"The admin says, while you work: {said}"}
+            async with limit:
+                while True:
+                    _trim(history)
+                    reply = await self.llm.chat(
+                        "strong", instructions, copy.deepcopy(history), TOOLS
                     )
-                await self._save(session)
-                if steps >= MAX_STEPS:
-                    say(session, "agent", f"I stopped after {MAX_STEPS} steps. Say go on.")
-                    break
+                    session["model_usd"] = float(session["model_usd"]) + reply.usd
+                    history.append(
+                        {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
+                    )
+                    if not reply.tool_calls:
+                        if reply.text and not turn.replied:
+                            say(session, "agent", reply.text)
+                        break
+                    stopped = None
+                    for call in reply.tool_calls:
+                        this = json.dumps([call["name"], call["arguments"]], sort_keys=True)
+                        same = same + 1 if this == last_call else 1
+                        last_call = this
+                        if same >= SAME_CALL_TIMES:
+                            stopped = (
+                                "I stopped: I kept repeating the same step. What should I try?"
+                            )
+                            break
+                        output = await self._call(turn, call["name"], call["arguments"])
+                        history.append(
+                            {"role": "tool", "tool_call_id": call["id"], "content": output}
+                        )
+                        steps += 1
+                        if steps >= MAX_STEPS:
+                            stopped = f"I stopped after {MAX_STEPS} steps. Say go on."
+                            break
+                    for said in session.pop("inbox", []):
+                        history.append(
+                            {"role": "user", "content": f"The admin says, while you work: {said}"}
+                        )
+                    await self._save(session)
+                    if stopped:
+                        say(session, "agent", stopped)
+                        break
             session["status"] = "idle"
         except asyncio.CancelledError:
             session["status"] = "stopped"
             raise
         except Exception as exc:
-            _logger.warning("agent: session %s failed", session["id"], exc_info=True)
-            say(session, "agent", f"Something went wrong: {cut(str(exc), 300)}")
+            if limit.expired():
+                minutes = round(MAX_SECONDS / 60)
+                say(session, "agent", f"I stopped after {minutes} minutes. Say go on.")
+            else:
+                _logger.warning("agent: session %s failed", session["id"], exc_info=True)
+                say(session, "agent", f"Something went wrong: {cut(str(exc), 300)}")
             session["status"] = "idle"
         finally:
             # Saved before it leaves the live ones: a reader then goes to the file, so that must
