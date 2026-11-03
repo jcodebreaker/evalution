@@ -33,7 +33,7 @@ On the model-judged rows the broken agent passes too, because the stub was told 
 
 ## What it can't show
 
-- That any model catches any of these bugs. Six of the ten library tests, and the reply half of the other four, rest on a model's verdict, and no model runs here.
+- That any model catches any of these bugs ([accuracy.md](accuracy.md) measures that). Six of the ten library tests, and the reply half of the other four, rest on a model's verdict, and no model runs here.
 - That a real agent behaves like this one. Its bugs are seeded by whoever wrote the checks, in the shapes the checks look for.
 - Anything about the adapters that talk to real apps, Phoenix as a source, or how real instrumentation exports spans.
 - That a passing test means a healthy agent. The xfail is one way it doesn't, and a pass judged by a model only rests on that model.
