@@ -1,12 +1,10 @@
 import { ArrowUp, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
-import { dollars, usd } from "../../lib/format";
+import { usd } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
-import { Group } from "../shared/group";
 import type { Agent } from "./agent";
-import { RAISE_USD } from "./agent";
 import { onEnter, TEXTAREA, useAsk } from "./ask";
 import { Bubble } from "./Bubble";
 import { Working } from "./Working";
@@ -74,7 +72,6 @@ export function WriterPanel({
     ? [...session.messages].reverse().find((message) => message.role === "agent")
     : undefined;
   const canAct = !working && !busy && !approval.busy;
-  const next = session ? dollars(session.budget_usd + RAISE_USD) : "";
 
   return (
     <aside
@@ -86,7 +83,7 @@ export function WriterPanel({
           <h2 className="m-0 truncate text-[15px] font-semibold tracking-[-0.2px]">Test writer</h2>
           {session ? (
             <span className="truncate text-[12px] text-ink-3 tabular-nums">
-              {usd(session.spent_usd)} of {dollars(session.budget_usd)}
+              {usd(session.spent_usd)}
             </span>
           ) : null}
         </div>
@@ -128,16 +125,6 @@ export function WriterPanel({
           {queued.map((entry, index) => (
             <Bubble key={`queued-${index}`} text={entry.text} waiting />
           ))}
-          {session?.status === "waiting_budget" ? (
-            <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13px]">
-              <span className="min-w-0 flex-1 text-ink-2">
-                Over the {dollars(session.budget_usd)} budget
-              </span>
-              <Button size="sm" onClick={() => void agent.raise()}>
-                Raise to {next}
-              </Button>
-            </Group>
-          ) : null}
           <div ref={end} />
         </div>
       </div>

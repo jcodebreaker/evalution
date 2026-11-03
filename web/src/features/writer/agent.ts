@@ -6,9 +6,6 @@ import { useVisiblePoll } from "../../lib/use-load";
 
 const WORKING_POLL_MS = 2_000;
 
-/** Raise adds the default budget again. */
-export const RAISE_USD = 10;
-
 /** One thread per app. */
 const storageKey = ({ target }: Scope) => `evalution.writer.${target}`;
 
@@ -120,17 +117,13 @@ export function useAgent(scope: Scope | null) {
     [key],
   );
 
-  const raise = useCallback(async () => {
-    if (!session) return;
-    setSession(await api.agent.budget(session.id, session.budget_usd + RAISE_USD));
-  }, [session]);
   const stop = useCallback(async () => {
     if (!session) return;
     setQueued([]);
     setSession(await api.agent.stop(session.id));
   }, [session]);
 
-  return { session, queued, ask, approve, adopt, refresh, raise, stop };
+  return { session, queued, ask, approve, adopt, refresh, stop };
 }
 
 export type Agent = ReturnType<typeof useAgent>;

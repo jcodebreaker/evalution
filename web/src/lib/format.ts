@@ -18,9 +18,6 @@ export const usd = (value: number) => `$${value.toFixed(value > 0 && value < 0.1
 /** What was recorded as spent; `null` when nothing was, which isn't the same as free. */
 export const spent = (value: number) => (value ? `${usd(value)} spent` : null);
 
-/** A budget: whole dollars without cents (`$10`), else as `usd`. */
-export const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : usd(value));
-
 /** `1 test`, `3 tests`. */
 export const count = (n: number, one: string, other = `${one}s`) => `${n} ${n === 1 ? one : other}`;
 

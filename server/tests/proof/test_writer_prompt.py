@@ -32,7 +32,7 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
 
     model = WriterModel()
     agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), model)
-    opened = await agent.create(TARGET, SET, 3.0)
+    opened = await agent.create(TARGET, SET)
     shown = await agent.message(opened["id"], "What can you test?")
     for task in list(agent._tasks.values()):
         await task
@@ -45,7 +45,7 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
     assert "capabilities: conversation_break, isolation, reset, sections, state" in prompt
     assert "a try starts clean of" in prompt
     assert "asks every test to start clean" not in prompt, "by default it asks for nothing"
-    assert "Budget $3.00" in prompt and "Drift: 1 change(s)" in prompt
+    assert "Spent $0.00" in prompt and "Drift: 1 change(s)" in prompt
     assert "what the person sends, what should happen, and what must not happen" in " ".join(
         prompt.split()
     )
@@ -67,7 +67,7 @@ async def test_the_run_a_question_is_about_goes_beside_the_words(make_rig) -> No
     rig = make_rig()
     model = WriterModel()
     agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), model)
-    opened = await agent.create(TARGET, SET, 3.0)
+    opened = await agent.create(TARGET, SET)
     shown = await agent.message(opened["id"], "About Run 2: why?", "20261102-013042-c33e")
     for task in list(agent._tasks.values()):
         await task

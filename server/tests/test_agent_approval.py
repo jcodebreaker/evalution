@@ -42,7 +42,7 @@ async def agent(tmp_path):
 
 
 async def _shown(agent: Agent) -> tuple[dict, str]:
-    opened = await agent.create("bot", "main", None)
+    opened = await agent.create("bot", "main")
     session = await agent._session(opened["id"])
     await agent.tools.reply(AgentTurn(session), {"text": "Here is the plan", "plan": PLAN})
     plan_id = session["messages"][-1]["plan"]["id"]
@@ -112,7 +112,7 @@ async def test_the_writer_drafts_from_a_past_conversation(agent, monkeypatch) ->
         assert (session_id, trace_id) == ("s1", None)
         return [{"message": "find shoes"}], [Call("c1", "search", {}, 0.0, 1.0)], 4.0, "ok", "x"
 
-    opened = await agent.create("bot", "main", None)
+    opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
     refused = await agent._call(turn, "draft_from_conversation", {"session_id": "s1"})
     assert refused == "Error: this app has no traces to read conversations from"

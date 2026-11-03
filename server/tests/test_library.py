@@ -156,7 +156,7 @@ async def test_the_agent_adapts_only_what_fits(tmp_path) -> None:
     agent = Agent(
         Runs(Targets(config), FileStore(config.data_dir), None), SessionFiles(tmp_path), None
     )
-    opened = await agent.create("bot", "main", None)
+    opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
     rows = {r["id"]: r["fit"]["label"] for r in await agent.tools.list_library(turn, {})}
     assert rows["preference-across-conversations"] == "Needs new conversations"

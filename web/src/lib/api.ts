@@ -324,8 +324,6 @@ export const api = {
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/messages`, { text, run }),
     approve: (id: string, plan_id: string) =>
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/approve`, { plan_id }),
-    budget: (id: string, budget_usd: number) =>
-      post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/budget`, { budget_usd }),
     stop: (id: string) => post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/stop`),
   },
 };

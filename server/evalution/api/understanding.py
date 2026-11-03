@@ -132,7 +132,7 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
                 set_name = body.get("set") or (sets[0] if sets else None)
                 if not isinstance(set_name, str):
                     raise invalid("set: this app has no test set")
-                session_id = (await agent.create(name, set_name, None))["id"]
+                session_id = (await agent.create(name, set_name))["id"]
             return await agent.message(session_id, text)
         except LookupError as exc:
             raise not_found("Test writer session or test set") from exc

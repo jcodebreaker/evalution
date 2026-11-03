@@ -200,7 +200,7 @@ def test_a_fourth_adapter_is_one_module(fourth_adapter, tmp_path) -> None:
         rows = client.get("/v1/targets").json()["data"]
         assert rows[0]["capabilities"] == ["isolation", "parallel"] and not rows[0]["error"]
         writer = Agent(client.app.state.runs, SessionFiles(tmp_path), None)
-        session = {"target": "app", "set": "main", "budget_usd": 1.0, "model_usd": 0.0}
+        session = {"target": "app", "set": "main", "model_usd": 0.0}
         said = writer._instructions(session)
         assert "adapter 'echo', capabilities: isolation, parallel" in said
 

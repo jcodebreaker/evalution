@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from fastapi import APIRouter
@@ -10,17 +9,6 @@ from fastapi import APIRouter
 from evalution.api.deps import invalid, not_found, set_root, target_name
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
-
-
-def _budget(value: Any) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value <= 0
-    ):
-        raise invalid("budget_usd: must be a number above 0")
-    return float(value)
 
 
 def writer_router(targets: Targets, agent: Agent) -> APIRouter:
@@ -33,8 +21,7 @@ def writer_router(targets: Targets, agent: Agent) -> APIRouter:
         if not isinstance(set_name, str) or not set_name:
             raise invalid("set: required")
         set_root(targets, name, set_name)
-        budget = body.get("budget_usd")
-        return await agent.create(name, set_name, None if budget is None else _budget(budget))
+        return await agent.create(name, set_name)
 
     @router.get("/evals/agent/sessions/{session_id}")
     async def get_agent(session_id: str) -> dict[str, Any]:
@@ -65,14 +52,6 @@ def writer_router(targets: Targets, agent: Agent) -> APIRouter:
             return await agent.approve(session_id, plan_id)
         except LookupError as exc:
             raise not_found("Plan") from exc
-
-    @router.post("/evals/agent/sessions/{session_id}/budget")
-    async def budget_agent(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        budget = _budget(body.get("budget_usd"))
-        try:
-            return await agent.budget(session_id, budget)
-        except LookupError as exc:
-            raise not_found("Test writer session") from exc
 
     @router.post("/evals/agent/sessions/{session_id}/stop")
     async def stop_agent(session_id: str) -> dict[str, Any]:

@@ -6,8 +6,8 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   one per target and set. Besides the contract's fields, a session keeps the model transcript, the
   cases it wrote, and when it last showed a plan.
 * **The loop** runs in a background task on the strong model of evalution's own connection
-  (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
-  :data:`MAX_STEPS` tool calls, or when its spend reaches the budget (``waiting_budget``).
+  (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, or after
+  :data:`MAX_STEPS` tool calls.
 * **Tools** (:mod:`evalution.writer.tools`) run in process over the functions the routes use; the
   model speaks only through ``reply``, so the page gets ``plan`` and ``review`` as data. Every tool
   result reaches the model fenced as data. Code is read only through the target's ``code`` scope
@@ -45,8 +45,7 @@ from evalution.writer.tools import HANDLERS, OUTPUT_CHARS, AgentTurn, Tools, act
 
 _logger = logging.getLogger(__name__)
 
-DEFAULT_BUDGET_USD = 10.0
-#: Tool calls one admin message (or a budget raise) may lead to.
+#: Tool calls one admin message may lead to.
 MAX_STEPS = 40
 #: Activity lines the page gets: what the agent did last, newest at the end.
 ACTIVITY_SHOWN = 12
@@ -68,7 +67,6 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "target": session["target"],
         "set": session["set"],
         "status": session["status"],
-        "budget_usd": session["budget_usd"],
         "spent_usd": round(float(session["model_usd"]), 4),
         "messages": session["messages"],
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
@@ -123,7 +121,7 @@ class Agent:
         async with self._lock:
             await asyncio.to_thread(self.files.write, snapshot)
 
-    async def create(self, target: str, set_name: str, budget_usd: float | None) -> dict:
+    async def create(self, target: str, set_name: str) -> dict:
         """Open a session on *set_name* of *target*.
 
         :raises LookupError: An unknown target or set.
@@ -136,7 +134,6 @@ class Agent:
             "set": set_name,
             "created_at": time.time(),
             "status": "idle",
-            "budget_usd": DEFAULT_BUDGET_USD if budget_usd is None else float(budget_usd),
             "model_usd": 0.0,
             "messages": [],
             "cases": [],
@@ -150,8 +147,9 @@ class Agent:
         session = self._live.get(session_id) or await asyncio.to_thread(self.files.load, session_id)
         if session is None:
             raise LookupError(session_id)
-        if session["status"] == "working" and session_id not in self._tasks:
-            session["status"] = "idle"  # its loop went with an earlier server process
+        # Its loop went with an earlier server process, or stopped on a spending limit, now gone.
+        if session["status"] in ("working", "waiting_budget") and session_id not in self._tasks:
+            session["status"] = "idle"
         return session
 
     async def get(self, session_id: str) -> dict[str, Any]:
@@ -198,19 +196,6 @@ class Agent:
             self._start(session, text)
         await self._save(session)
 
-    async def budget(self, session_id: str, budget_usd: float) -> dict[str, Any]:
-        """Set the budget; a session waiting on it goes on."""
-        session = await self._session(session_id)
-        session["budget_usd"] = float(budget_usd)
-        if session["status"] == "waiting_budget" and session_id not in self._tasks:
-            self._start(
-                session,
-                f"The admin set the budget to ${budget_usd:.2f}; "
-                f"${session['model_usd']:.2f} is spent. Go on.",
-            )
-        await self._save(session)
-        return public(session)
-
     async def stop(self, session_id: str) -> dict[str, Any]:
         session = await self._session(session_id)
         task = self._tasks.get(session_id)
@@ -232,7 +217,7 @@ class Agent:
         )
 
     def _instructions(self, session: Mapping[str, Any]) -> str:
-        """The instructions, with this session's target, set, budget, profile and cases."""
+        """The instructions, with this session's target, set, profile and cases."""
         root = self.targets.sets(session["target"])
         cases, broken = [], []
         for path in sorted((root / session["set"]).glob(f"*{CASE_SUFFIX}")):
@@ -266,8 +251,8 @@ class Agent:
                 if required
                 else ""
             )
-            + f"Budget ${session['budget_usd']:.2f}, "
-            f"spent ${session['model_usd']:.2f}. Drift: {changes} change(s) since the profile.\n\n"
+            + f"Spent ${session['model_usd']:.2f}. "
+            f"Drift: {changes} change(s) since the profile.\n\n"
             + fenced("the target's profile", cut(profile, PROFILE_CHARS) or "(none yet)")
             + "\n\n"
             + fenced("the set's cases", full or "(none yet)")
@@ -292,16 +277,6 @@ class Agent:
                 history.append(
                     {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
                 )
-                if session["model_usd"] >= session["budget_usd"]:
-                    say(
-                        session,
-                        "agent",
-                        f"I've used the ${session['budget_usd']:.2f} "
-                        "budget on this. Raise it to let me go on.",
-                    )
-                    session["status"] = "waiting_budget"
-                    _repair(history)
-                    return
                 if not reply.tool_calls:
                     if reply.text and not turn.replied:
                         say(session, "agent", reply.text)

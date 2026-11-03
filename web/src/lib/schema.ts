@@ -738,8 +738,7 @@ export const AgentSessionSchema = z.object({
   id: z.string(),
   target: z.string().nullable().default(null),
   set: z.string(),
-  status: z.enum(["idle", "working", "waiting_budget", "stopped"]),
-  budget_usd: z.number(),
+  status: z.enum(["idle", "working", "stopped"]),
   spent_usd: z.number(),
   messages: z.array(AgentMessageSchema),
   /** What the agent did last, newest at the end: shown while it works. */

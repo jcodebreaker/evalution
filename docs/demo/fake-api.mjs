@@ -258,7 +258,7 @@ export function startFakeApi({ port, webRoot }) {
     ["POST", /^\/v1\/evals\/runs$/, () => summary(startRun())],
     ["GET", /^\/v1\/evals\/runs\/([^/]+)$/, (_, [id]) => detail(state.runs.find((run) => run.id === id))],
     ["POST", /^\/v1\/evals\/agent\/sessions$/, (body) => {
-      state.session = { id: "writer-1", target: body.target, set: body.set, status: "idle", budget_usd: 10, spent_usd: 0, messages: [], activity: [] };
+      state.session = { id: "writer-1", target: body.target, set: body.set, status: "idle", spent_usd: 0, messages: [], activity: [] };
       return state.session;
     }],
     ["GET", /^\/v1\/evals\/agent\/sessions\/[^/]+$/, () => state.session],
