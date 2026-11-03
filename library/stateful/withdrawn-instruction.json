@@ -1,0 +1,41 @@
+{
+  "title": "A withdrawn instruction no longer applies",
+  "checks": "Once the person takes an instruction back, later replies stop following it.",
+  "why": "Instructions that stick after being withdrawn make the assistant feel stubborn and hard to steer.",
+  "needs": [],
+  "est_turns": 5,
+  "case": {
+    "name": "A withdrawn instruction no longer applies",
+    "about": "After the person withdraws it, replies stop following the instruction to {{preference}}.",
+    "turns": [
+      {
+        "message": "From now on, please {{preference}}.",
+        "fresh": true
+      },
+      {
+        "message": "{{ask}}"
+      },
+      {
+        "message": "You can drop that instruction about how to answer. Go back to your normal style."
+      },
+      {
+        "filler": 2,
+        "about": "{{filler_topic}}"
+      },
+      {
+        "message": "{{ask}}"
+      }
+    ],
+    "reply": {
+      "reference": "Handles the request in its normal style; the withdrawn instruction is gone.",
+      "rubric": [
+        "It is not true that the reply {{effect}}",
+        "Handles the request"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

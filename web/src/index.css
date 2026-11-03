@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+/*
+ * The design tokens: ink on a soft grey, white cards, one indigo for what holds (tint, success),
+ * orange for what needs attention (warning), red for failures and errors (destructive).
+ */
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #14161a;
+  --card: #ffffff;
+  --card-foreground: #14161a;
+  --popover: #ffffff;
+  --popover-foreground: #14161a;
+  --primary: #14161a;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(20, 22, 26, 0.06);
+  --secondary-foreground: #14161a;
+  --muted: #eef0f3;
+  --muted-foreground: #5b6170;
+  --destructive: #d92d20;
+  --destructive-foreground: #ffffff;
+  --border: #e4e6eb;
+  --input: #dadde3;
+  --ring: rgba(59, 75, 219, 0.45);
+  --success: #3b4bdb;
+  --warning: #c2570c;
+  --overlay: rgba(17, 18, 22, 0.32);
+  --scrollbar: #d6d8dc;
+  --window: #f4f5f7;
+  --content: #f4f5f7;
+  --glass: #ffffff;
+  --glass-line: #e4e6eb;
+  --group: #ffffff;
+  --separator: #e4e6eb;
+  --selection-strong: #eef0ff;
+  --tint: #3b4bdb;
+  --ink: #14161a;
+  --ink-2: #5b6170;
+  --ink-3: #8a90a0;
+  --bubble: #eef0f3;
+  --selection: rgba(20, 22, 26, 0.05);
+  --mid: #7b83a6;
+  --radius: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: #15171c;
+    --foreground: #eceef2;
+    --card: #1c1f26;
+    --card-foreground: #eceef2;
+    --popover: #22262e;
+    --popover-foreground: #eceef2;
+    --primary: #eceef2;
+    --primary-foreground: #15171c;
+    --secondary: rgba(255, 255, 255, 0.08);
+    --secondary-foreground: #eceef2;
+    --muted: #262a33;
+    --muted-foreground: #a3a9b6;
+    --destructive: #ff6b5e;
+    --destructive-foreground: #ffffff;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: rgba(255, 255, 255, 0.14);
+    --ring: rgba(139, 151, 255, 0.5);
+    --success: #8b97ff;
+    --warning: #ff9f5a;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --scrollbar: #2c3038;
+    --window: #111318;
+    --content: #111318;
+    --glass: #181b21;
+    --glass-line: rgba(255, 255, 255, 0.09);
+    --group: #1c1f26;
+    --separator: rgba(255, 255, 255, 0.09);
+    --selection-strong: rgba(139, 151, 255, 0.16);
+    --tint: #9aa5ff;
+    --ink: #eceef2;
+    --ink-2: #a3a9b6;
+    --ink-3: #7f8696;
+    --bubble: #262a33;
+    --selection: rgba(255, 255, 255, 0.06);
+    --mid: #8a91b0;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #15171c;
+  --foreground: #eceef2;
+  --card: #1c1f26;
+  --card-foreground: #eceef2;
+  --popover: #22262e;
+  --popover-foreground: #eceef2;
+  --primary: #eceef2;
+  --primary-foreground: #15171c;
+  --secondary: rgba(255, 255, 255, 0.08);
+  --secondary-foreground: #eceef2;
+  --muted: #262a33;
+  --muted-foreground: #a3a9b6;
+  --destructive: #ff6b5e;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: rgba(139, 151, 255, 0.5);
+  --success: #8b97ff;
+  --warning: #ff9f5a;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --scrollbar: #2c3038;
+  --window: #111318;
+  --content: #111318;
+  --glass: #181b21;
+  --glass-line: rgba(255, 255, 255, 0.09);
+  --group: #1c1f26;
+  --separator: rgba(255, 255, 255, 0.09);
+  --selection-strong: rgba(139, 151, 255, 0.16);
+  --tint: #9aa5ff;
+  --ink: #eceef2;
+  --ink-2: #a3a9b6;
+  --ink-3: #7f8696;
+  --bubble: #262a33;
+  --selection: rgba(255, 255, 255, 0.06);
+  --mid: #8a91b0;
+}
+
+@theme inline {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "Manrope", "Inter", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-overlay: var(--overlay);
+  --color-window: var(--window);
+  --color-content: var(--content);
+  --color-glass: var(--glass);
+  --color-glass-line: var(--glass-line);
+  --color-group: var(--group);
+  --color-separator: var(--separator);
+  --color-selection-strong: var(--selection-strong);
+  --color-tint: var(--tint);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-bubble: var(--bubble);
+  --color-selection: var(--selection);
+  --color-mid: var(--mid);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--window);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    letter-spacing: -0.05px;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2 {
+    font-family: var(--font-display);
+  }
+  button {
+    cursor: default;
+  }
+  * {
+    scrollbar-color: var(--scrollbar) transparent;
+  }
+}
+
+@layer components {
+  /* An inset grouped list: one rounded card, rows split by hairlines. */
+  .group-card {
+    background-color: var(--group);
+    border-radius: 14px;
+    box-shadow: 0 0 0 1px var(--separator);
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  .shimmer {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* A label that shimmers while work goes on. */
+.shimmer {
+  background:
+    linear-gradient(
+      90deg,
+      var(--ink-2) 0%,
+      var(--ink-2) 40%,
+      var(--foreground) 50%,
+      var(--ink-2) 60%,
+      var(--ink-2) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}

@@ -1,0 +1,892 @@
+{
+ "case_detail": {
+  "test-a": {
+   "about": "Fake about 1.",
+   "basis": "model_only",
+   "case": "test-a",
+   "expected": {
+    "expected": [],
+    "extras": true,
+    "never": [
+     "tool_a"
+    ],
+    "order": "any_order"
+   },
+   "finding": null,
+   "label": "Passed",
+   "name": "Fake test 1",
+   "originally": null,
+   "reply_rubric": [
+    "Fake rubric line 1.",
+    "Fake rubric line 2.",
+    "Fake rubric line 3."
+   ],
+   "source": "scenario matrix",
+   "stale": null,
+   "tries": [
+    {
+     "analysis": null,
+     "basis": "model_only",
+     "called": true,
+     "checks": [
+      {
+       "cut": 0,
+       "decided_by": "code",
+       "evidence": [],
+       "id": "never:tool_a",
+       "kind": "never",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "tool_a was not called"
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 1.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:0",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 1."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [],
+       "id": "rubric:1",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 2."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 2.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:2",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 3."
+      }
+     ],
+     "context": [
+      {
+       "model": "fake-model",
+       "n": 1,
+       "sections": [
+        {
+         "name": "section-1",
+         "preview": "Fake preview 1.",
+         "tokens": 4648
+        },
+        {
+         "name": "section-2",
+         "preview": "Fake preview 2.",
+         "tokens": 12821
+        },
+        {
+         "name": "section-3",
+         "preview": "Fake preview 3.",
+         "tokens": 328
+        },
+        {
+         "name": "section-4",
+         "preview": "Fake preview 4.",
+         "tokens": 266
+        }
+       ],
+       "span": "529f09ac59f557a1",
+       "tokens_in": 26109
+      }
+     ],
+     "different_route": false,
+     "error": null,
+     "label": "Passed",
+     "limits_broken": [],
+     "n": 1,
+     "outcome": "passed",
+     "passed": true,
+     "reason": null,
+     "reply": 0.95,
+     "reply_text": "Fake reply 1.",
+     "retried": [],
+     "route": "expected",
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "reason": "Fake reason 1.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 2.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "quotes": [],
+       "reason": "Fake reason 3.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 4.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "reason": "Fake reason 5.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 6.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      }
+     ],
+     "seconds": 4.2,
+     "steps": [
+      {
+       "actual": "tool_b(arg=value)",
+       "expected": null,
+       "reason": "not in the case; allowed",
+       "span": "9160920057b5a21b",
+       "status": "extra"
+      }
+     ],
+     "timeline": [
+      {
+       "id": "b9321ab3dfd5fdcf",
+       "kind": "agent",
+       "name": "span-1",
+       "parent": null,
+       "seconds": 0.24,
+       "start": 0.0
+      },
+      {
+       "id": "e08b72c533f0c46b",
+       "kind": "agent",
+       "name": "span-2",
+       "parent": "b9321ab3dfd5fdcf",
+       "seconds": 0.0,
+       "start": 0.0
+      }
+     ],
+     "tokens": 52668,
+     "tools": 1.0,
+     "trace_url": "http://traces.test/trace/2813f0c9a6d86ec3668cef2108041096",
+     "trajectory": [
+      {
+       "actor": "helper",
+       "kind": "called",
+       "span": "9160920057b5a21b",
+       "t": 2.75,
+       "text": "Fake step 1."
+      },
+      {
+       "actor": "helper",
+       "kind": "said",
+       "span": "529f09ac59f557a1",
+       "t": 2.87,
+       "text": "Fake step 2."
+      },
+      {
+       "actor": "helper",
+       "kind": "result",
+       "span": "9160920057b5a21b",
+       "t": 3.07,
+       "text": "Fake step 3."
+      }
+     ],
+     "usd": 0.078817
+    },
+    {
+     "analysis": null,
+     "basis": "model_only",
+     "called": true,
+     "checks": [
+      {
+       "cut": 0,
+       "decided_by": "code",
+       "evidence": [],
+       "id": "never:tool_a",
+       "kind": "never",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "tool_a was not called"
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 1.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:0",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 1."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [],
+       "id": "rubric:1",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 2."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 3.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:2",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 3."
+      }
+     ],
+     "context": [
+      {
+       "model": "fake-model",
+       "n": 1,
+       "sections": [
+        {
+         "name": "section-1",
+         "preview": "Fake preview 1.",
+         "tokens": 4648
+        },
+        {
+         "name": "section-2",
+         "preview": "Fake preview 2.",
+         "tokens": 12821
+        },
+        {
+         "name": "section-3",
+         "preview": "Fake preview 3.",
+         "tokens": 328
+        },
+        {
+         "name": "section-4",
+         "preview": "Fake preview 4.",
+         "tokens": 266
+        }
+       ],
+       "span": "eeac3893771e7c4d",
+       "tokens_in": 26109
+      }
+     ],
+     "different_route": false,
+     "error": null,
+     "label": "Passed",
+     "limits_broken": [],
+     "n": 2,
+     "outcome": "passed",
+     "passed": true,
+     "reason": null,
+     "reply": 0.95,
+     "reply_text": "Fake reply 1.",
+     "retried": [],
+     "route": "expected",
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "reason": "Fake reason 7.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 8.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "quotes": [],
+       "reason": "Fake reason 9.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 10.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 3."
+       ],
+       "reason": "Fake reason 11.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 12.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      }
+     ],
+     "seconds": 4.3,
+     "steps": [
+      {
+       "actual": "tool_b(arg=value)",
+       "expected": null,
+       "reason": "not in the case; allowed",
+       "span": "a1e8126a8574cd01",
+       "status": "extra"
+      }
+     ],
+     "timeline": [
+      {
+       "id": "43daa50f62be6a9b",
+       "kind": "agent",
+       "name": "span-3",
+       "parent": null,
+       "seconds": 0.08,
+       "start": 0.12
+      },
+      {
+       "id": "f0db854d9a6dbb75",
+       "kind": "agent",
+       "name": "span-2",
+       "parent": "43daa50f62be6a9b",
+       "seconds": 0.0,
+       "start": 0.12
+      }
+     ],
+     "tokens": 52668,
+     "tools": 1.0,
+     "trace_url": "http://traces.test/trace/b35ddb50a4c6932f1690abc7955dde50",
+     "trajectory": [
+      {
+       "actor": "helper",
+       "kind": "said",
+       "span": "eeac3893771e7c4d",
+       "t": 2.87,
+       "text": "Fake step 4."
+      },
+      {
+       "actor": "helper",
+       "kind": "called",
+       "span": "a1e8126a8574cd01",
+       "t": 2.88,
+       "text": "Fake step 5."
+      },
+      {
+       "actor": "helper",
+       "kind": "result",
+       "span": "a1e8126a8574cd01",
+       "t": 3.15,
+       "text": "Fake step 3."
+      }
+     ],
+     "usd": 0.071296
+    },
+    {
+     "analysis": null,
+     "basis": "model_only",
+     "called": true,
+     "checks": [
+      {
+       "cut": 0,
+       "decided_by": "code",
+       "evidence": [],
+       "id": "never:tool_a",
+       "kind": "never",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "tool_a was not called"
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 1.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:0",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 1."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [],
+       "id": "rubric:1",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 2."
+      },
+      {
+       "cut": 0,
+       "decided_by": "model",
+       "evidence": [
+        {
+         "quote": "Fake quote 2.",
+         "ref": "reply",
+         "verified": null
+        }
+       ],
+       "id": "rubric:2",
+       "kind": "rubric",
+       "outcome": "passed",
+       "role": "must",
+       "score": null,
+       "unjudged": null,
+       "why": "Fake rubric line 3."
+      }
+     ],
+     "context": [
+      {
+       "model": "fake-model",
+       "n": 1,
+       "sections": [
+        {
+         "name": "section-1",
+         "preview": "Fake preview 1.",
+         "tokens": 4648
+        },
+        {
+         "name": "section-2",
+         "preview": "Fake preview 2.",
+         "tokens": 12821
+        },
+        {
+         "name": "section-3",
+         "preview": "Fake preview 3.",
+         "tokens": 328
+        },
+        {
+         "name": "section-4",
+         "preview": "Fake preview 4.",
+         "tokens": 266
+        }
+       ],
+       "span": "0e30f5dc539cb6bc",
+       "tokens_in": 26109
+      }
+     ],
+     "different_route": false,
+     "error": null,
+     "label": "Passed",
+     "limits_broken": [],
+     "n": 3,
+     "outcome": "passed",
+     "passed": true,
+     "reason": null,
+     "reply": 0.95,
+     "reply_text": "Fake reply 1.",
+     "retried": [],
+     "route": "expected",
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "reason": "Fake reason 2.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 13.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "quotes": [],
+       "reason": "Fake reason 14.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 15.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "reason": "Fake reason 16.",
+       "second": {
+        "pass": true,
+        "reason": "Fake reason 17.",
+        "sure": true
+       },
+       "split": false,
+       "sure": true
+      }
+     ],
+     "seconds": 4.1,
+     "steps": [
+      {
+       "actual": "tool_b(arg=value)",
+       "expected": null,
+       "reason": "not in the case; allowed",
+       "span": "1413f43e523ab4c3",
+       "status": "extra"
+      }
+     ],
+     "timeline": [
+      {
+       "id": "c58ec421691a7c0d",
+       "kind": "agent",
+       "name": "span-3",
+       "parent": null,
+       "seconds": 0.01,
+       "start": 0.13
+      },
+      {
+       "id": "87989cf0f7fa2c3f",
+       "kind": "agent",
+       "name": "span-2",
+       "parent": "c58ec421691a7c0d",
+       "seconds": 0.0,
+       "start": 0.13
+      }
+     ],
+     "tokens": 52668,
+     "tools": 1.0,
+     "trace_url": "http://traces.test/trace/8e0f801c9b49d9c19963d7d53d16e336",
+     "trajectory": [
+      {
+       "actor": "assistant",
+       "kind": "said",
+       "span": "0e30f5dc539cb6bc",
+       "t": 2.75,
+       "text": "Fake step 2."
+      },
+      {
+       "actor": "assistant",
+       "kind": "called",
+       "span": "1413f43e523ab4c3",
+       "t": 2.76,
+       "text": "Fake step 1."
+      },
+      {
+       "actor": "assistant",
+       "kind": "result",
+       "span": "1413f43e523ab4c3",
+       "t": 3.05,
+       "text": "Fake step 3."
+      }
+     ],
+     "usd": 0.064856
+    }
+   ],
+   "turns": [
+    {
+     "files": [
+      "fixtures/sample.csv"
+     ],
+     "message": "Fake message 1."
+    }
+   ],
+   "unjudged": [],
+   "verdict": "pass"
+  }
+ },
+ "case_detail_unknown": null,
+ "detail": {
+  "analysis": null,
+  "analysis_error": null,
+  "analyzing": false,
+  "base": null,
+  "case_ids": [
+   "test-a"
+  ],
+  "cases": [
+   {
+    "about": "Fake about 1.",
+    "basis": "model_only",
+    "called": [
+     true,
+     true,
+     true
+    ],
+    "case": "test-a",
+    "different": 0,
+    "label": "Passed",
+    "labels": [
+     "Passed",
+     "Passed",
+     "Passed"
+    ],
+    "last_at": 1793572986.018167,
+    "last_run": "20261101-224306-aaaa",
+    "name": "Fake test 1",
+    "originally": null,
+    "reasons": [
+     null,
+     null,
+     null
+    ],
+    "reply": 0.95,
+    "seconds": 4.2,
+    "source": "scenario matrix",
+    "stale": null,
+    "tokens": 52668,
+    "tools": 1.0,
+    "tries": [
+     "passed",
+     "passed",
+     "passed"
+    ],
+    "unjudged": [],
+    "usd": 0.072,
+    "verdict": "pass"
+   }
+  ],
+  "commit": null,
+  "delta": null,
+  "ended_at": 1793573033.552806,
+  "error": null,
+  "history": [
+   {
+    "prompt": "d4607fa1",
+    "run": "20261101-224306-aaaa",
+    "verdicts": {
+     "test-a": "pass"
+    }
+   }
+  ],
+  "interrupted": false,
+  "judge": {
+   "key": "strong",
+   "model": null,
+   "prompt_hash": null
+  },
+  "pass_marks": {
+   "reply": 0.7,
+   "tools": 0.8
+  },
+  "progress": {
+   "current": null,
+   "done": 3,
+   "tests_done": 1,
+   "tests_total": 1,
+   "total": 3
+  },
+  "prompt": "d4607fa1",
+  "rules": 1,
+  "run": "20261101-224306-aaaa",
+  "scope": "all",
+  "set": "main",
+  "started_at": 1793572986.018167,
+  "status": "done",
+  "stop_reason": null,
+  "target": "demo-bot",
+  "tests": [
+   {
+    "basis": "model_only",
+    "case": "test-a",
+    "different": 0,
+    "label": "Passed",
+    "name": "Fake test 1",
+    "originally": null,
+    "passed": 3,
+    "reason": null,
+    "tries": 3,
+    "unjudged": [],
+    "usd": 0.215,
+    "verdict": "pass"
+   }
+  ],
+  "totals": {
+   "cases": 1,
+   "median_seconds": 4.2,
+   "passed": 1,
+   "passed_checked": 0,
+   "passed_model_only": 1,
+   "reply": 0.95,
+   "tokens": 158004,
+   "tools": 1.0,
+   "unjudged": 0,
+   "usd": 0.215
+  }
+ },
+ "latest_rows": [
+  {
+   "about": "Fake about 1.",
+   "basis": "model_only",
+   "called": [
+    true,
+    true,
+    true
+   ],
+   "case": "test-a",
+   "different": 0,
+   "label": "Passed",
+   "labels": [
+    "Passed",
+    "Passed",
+    "Passed"
+   ],
+   "last_at": 1793583042.105848,
+   "last_run": "20261102-013042-bbbb",
+   "name": "Fake test 1",
+   "originally": null,
+   "reasons": [
+    null,
+    null,
+    null
+   ],
+   "reply": 0.963,
+   "seconds": 6.933,
+   "source": "scenario matrix",
+   "stale": "tool_a was removed (drift c1)",
+   "tokens": 52667,
+   "tools": 1.0,
+   "tries": [
+    "passed",
+    "passed",
+    "passed"
+   ],
+   "unjudged": [],
+   "usd": 0.173,
+   "verdict": "pass"
+  }
+ ],
+ "summary": {
+  "analysis_error": null,
+  "analyzing": false,
+  "case_ids": [
+   "test-a"
+  ],
+  "commit": null,
+  "ended_at": 1793573033.552806,
+  "error": null,
+  "interrupted": false,
+  "judge": {
+   "key": "strong",
+   "model": null,
+   "prompt_hash": null
+  },
+  "pass_marks": {
+   "reply": 0.7,
+   "tools": 0.8
+  },
+  "progress": {
+   "current": null,
+   "done": 3,
+   "tests_done": 1,
+   "tests_total": 1,
+   "total": 3
+  },
+  "prompt": "d4607fa1",
+  "rules": 1,
+  "run": "20261101-224306-aaaa",
+  "scope": "all",
+  "set": "main",
+  "started_at": 1793572986.018167,
+  "status": "done",
+  "stop_reason": null,
+  "target": "demo-bot",
+  "tests": [
+   {
+    "basis": "model_only",
+    "case": "test-a",
+    "different": 0,
+    "label": "Passed",
+    "name": "Fake test 1",
+    "originally": null,
+    "passed": 3,
+    "reason": null,
+    "tries": 3,
+    "unjudged": [],
+    "usd": 0.215,
+    "verdict": "pass"
+   }
+  ],
+  "totals": {
+   "cases": 1,
+   "median_seconds": 4.2,
+   "passed": 1,
+   "passed_checked": 0,
+   "passed_model_only": 1,
+   "reply": 0.95,
+   "tokens": 158004,
+   "tools": 1.0,
+   "unjudged": 0,
+   "usd": 0.215
+  }
+ }
+}

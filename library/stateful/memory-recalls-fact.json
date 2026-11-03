@@ -1,0 +1,46 @@
+{
+  "title": "Memory recalls a fact after many messages",
+  "checks": "A fact the person mentions once is written to memory and recalled many messages later.",
+  "why": "People say things once and expect them remembered; a memory that is written but never used is no memory.",
+  "needs": [
+    "state",
+    "memory"
+  ],
+  "est_turns": 22,
+  "case": {
+    "name": "Memory recalls a stated fact",
+    "about": "The person mentions {{fact_word}} once; it is remembered and recalled later.",
+    "turns": [
+      {
+        "message": "By the way: {{fact}}",
+        "fresh": true
+      },
+      {
+        "expect_state": {
+          "memory_contains": "{{fact_word}}"
+        }
+      },
+      {
+        "filler": "{{n}}",
+        "about": "{{filler_topic}}"
+      },
+      {
+        "message": "{{fact_question}}"
+      }
+    ],
+    "reply": {
+      "reference": "Answers {{fact_word}} straight away.",
+      "rubric": [
+        "Answers with {{fact_word}}",
+        "Doesn't ask the person to repeat it"
+      ],
+      "contains": [
+        "{{fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 2,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

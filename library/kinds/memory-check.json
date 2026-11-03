@@ -1,0 +1,49 @@
+{
+  "kind": "memory",
+  "title": "Memory",
+  "checks": "What the person says is kept, and is there in a new conversation.",
+  "why": "A try that finds an earlier try's memory proves nothing, so it starts clean and looks at the memory itself.",
+  "needs": [
+    "state",
+    "conversation_break",
+    "memory"
+  ],
+  "est_turns": 2,
+  "case": {
+    "name": "{{test_name}}",
+    "needs_clean": [
+      "memory"
+    ],
+    "turns": [
+      {
+        "message": "{{prompt}}",
+        "fresh": true
+      },
+      {
+        "expect_state": {
+          "memory_contains": "{{exact}}"
+        }
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "message": "{{fact_question}}"
+      }
+    ],
+    "reply": {
+      "reference": "{{outcome}}",
+      "rubric": [
+        "{{outcome}}",
+        "Avoids this: {{must_not}}"
+      ],
+      "contains": [
+        "{{exact}}"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

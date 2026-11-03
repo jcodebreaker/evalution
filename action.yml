@@ -1,0 +1,35 @@
+name: evalution
+description: Test your agent, and fail the pull request only when something got worse.
+inputs:
+  config:
+    description: Your evalution config
+    default: evalution.yaml
+  target:
+    description: The app to test, as named in the config
+    required: true
+  set:
+    description: The test set
+    default: main
+  baseline:
+    description: A saved run to compare with (made with `evalution run --save`). Left out, any test that doesn't pass fails.
+    default: ""
+  tries:
+    description: Tries per test, instead of each test's own
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+    - shell: bash
+      env:
+        EVALUTION_CONFIG: ${{ inputs.config }}
+        EVALUTION_TARGET: ${{ inputs.target }}
+        EVALUTION_SET: ${{ inputs.set }}
+        EVALUTION_BASELINE: ${{ inputs.baseline }}
+        EVALUTION_TRIES: ${{ inputs.tries }}
+        EVALUTION_SOURCE: ${{ github.action_path }}/server
+      run: |
+        args=(--config "$EVALUTION_CONFIG" run --target "$EVALUTION_TARGET" --set "$EVALUTION_SET" --yes)
+        [ -n "$EVALUTION_BASELINE" ] && args+=(--against "$EVALUTION_BASELINE")
+        [ -n "$EVALUTION_TRIES" ] && args+=(--tries "$EVALUTION_TRIES")
+        uvx --from "$EVALUTION_SOURCE" evalution "${args[@]}"

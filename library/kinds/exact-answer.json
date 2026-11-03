@@ -1,0 +1,30 @@
+{
+  "kind": "exact",
+  "title": "Exact answer",
+  "checks": "The reply holds the exact words or figure it must, and does what the person asked.",
+  "why": "Some answers are right or wrong to the letter, and code can check those without a model's opinion.",
+  "needs": [],
+  "est_turns": 1,
+  "case": {
+    "name": "{{test_name}}",
+    "turns": [
+      {
+        "message": "{{prompt}}"
+      }
+    ],
+    "reply": {
+      "reference": "{{outcome}}",
+      "rubric": [
+        "{{outcome}}",
+        "Avoids this: {{must_not}}"
+      ],
+      "contains": [
+        "{{exact}}"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

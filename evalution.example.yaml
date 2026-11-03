@@ -1,0 +1,45 @@
+# evalution's config. Copy to evalution.yaml. No secrets here: every *_env key names the env var
+# that holds the secret.
+data_dir: ./data                 # runs, agent sessions
+# sets_dir: ./sets               # cases: sets/<target>/<set>/
+# targets_dir: ./targets         # profiles, fingerprints, drift: targets/<target>/
+filler_usd: 0.04                 # cost of one generated message, for estimates
+# allowed_hosts: [evals.example.test]  # more names it answers under, say behind a proxy; $EVALUTION_ALLOWED_HOSTS wins
+
+traces:                          # evalution runs its own Phoenix: pip install 'evalution[traces]'
+  managed: true                  # false: each target's own Phoenix, as set on the target
+                                 # builtin: no Phoenix; apps send OTLP to this server's /v1/traces
+  # keep_days: 14                # builtin: spans older than this go
+  # keep_mb: 500                 # builtin: past this the oldest go, plain spans first
+  # settle_seconds: 6             # a try's spans must hold still this long before they count as all
+  port: 6007                     # the UI and OTLP over HTTP; the next free port when taken
+  # grpc: 4317                   # also take OTLP over gRPC (off unless set)
+
+# evalution's own model. Set it on the page (Settings, Model), or uncomment this: a model here wins
+# over the page, which then can't change it.
+# model:
+#   kind: anthropic                # or openai (any OpenAI-compatible base_url, e.g. .../v1)
+#   base_url: https://api.anthropic.com
+#   api_key_env: EVALUTION_MODEL_KEY
+#   models: {strong: claude-opus-5-5, light: claude-haiku-5-5}  # judge: optional, grades; else strong
+#   prices:                        # USD per million tokens; overrides the built-in table
+#     claude-opus-5-5: {input: 4, output: 20}
+#     claude-haiku-5-5: {input: 0.1, output: 0.5}
+
+# The apps to test. Connect one on the page, or uncomment this: one set here can't be edited there.
+# targets:
+#   my-bot:
+#     adapter: http
+#     phoenix: {url: http://127.0.0.1:6006, project: my-bot}   # api_key_env, public_url, mirror
+#     code: {path: ../my-bot}      # every source file is watched; ignore: ["generated/**"] leaves some out
+#     http:
+#       send: {method: POST, url: "http://localhost:3000/chat", body: {"message": "{message}", "session": "{session}"}}
+#       reply: "$.reply"           # JSON path into the response
+#       session_header: null       # or a header name that carries the session id
+#       done: response             # or {poll: {url: "http://localhost:3000/status/{session}", until: "$.status == 'idle'"}}
+#       trace_attribute: session.id
+#   my-agent:
+#     adapter: langgraph
+#     url: http://127.0.0.1:2024
+#     assistant_id: agent
+#     phoenix: {url: http://127.0.0.1:6006, project: default, api_key_env: PHOENIX_API_KEY}

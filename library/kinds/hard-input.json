@@ -1,0 +1,27 @@
+{
+  "kind": "hard_input",
+  "title": "Bad or odd input",
+  "checks": "Given something missing, malformed or unexpected, it says so plainly or copes, rather than making things up or breaking.",
+  "why": "Real people send broken files, half a request and things it can't do, and that's where agents invent answers.",
+  "needs": [],
+  "est_turns": 1,
+  "case": {
+    "name": "{{test_name}}",
+    "turns": [
+      {
+        "message": "{{prompt}}"
+      }
+    ],
+    "reply": {
+      "reference": "{{outcome}}",
+      "rubric": [
+        "{{outcome}}",
+        "Avoids this: {{must_not}}"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

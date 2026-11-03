@@ -1,0 +1,42 @@
+{
+  "title": "A correction replaces the earlier fact",
+  "checks": "After the person corrects a fact, the new value is recalled in a later conversation and the old one is not.",
+  "why": "Stale memory is worse than none: the assistant confidently repeats what the person already said was wrong.",
+  "needs": [
+    "conversation_break",
+    "memory"
+  ],
+  "est_turns": 3,
+  "case": {
+    "name": "A correction replaces the earlier fact",
+    "about": "{{new_fact_word}} replaces {{fact_word}} after a correction, also in a new conversation.",
+    "turns": [
+      {
+        "message": "For the record: {{fact}}",
+        "fresh": true
+      },
+      {
+        "message": "Sorry, I got that wrong. {{new_fact}}"
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "message": "{{fact_question}}"
+      }
+    ],
+    "reply": {
+      "reference": "Answers {{new_fact_word}}; {{fact_word}} is not given as the current answer.",
+      "rubric": [
+        "Answers with {{new_fact_word}}",
+        "Doesn't give {{fact_word}} as the current answer"
+      ],
+      "contains": [
+        "{{new_fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 3
+    }
+  }
+}

@@ -1,0 +1,126 @@
+import { ArrowRight } from "lucide-react";
+import { cn } from "../../lib/cn";
+import type { Compare, LaneStep, ToolRow } from "../../lib/schema";
+import { SectionHead } from "./SectionHead";
+
+const NODE: Record<LaneStep["status"] | "plan", string> = {
+  plan: "bg-bubble",
+  ok: "bg-bubble",
+  missing: "border-[1.5px] border-dashed border-destructive text-destructive",
+  extra: "ring-1 ring-inset ring-separator",
+  wrong: "bg-destructive/10 text-destructive",
+  unjudged: "ring-1 ring-inset ring-ink-3 text-ink-2",
+  automatic: "text-ink-3 ring-1 ring-inset ring-separator",
+};
+
+function Lane({ steps }: { steps: { label: string; status: LaneStep["status"] | "plan" }[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {steps.map((step, index) => (
+        <span key={index} className="contents">
+          {index ? <ArrowRight className="size-3 text-ink-3" aria-hidden /> : null}
+          <span
+            className={cn(
+              "inline-flex h-7 items-center rounded-lg px-2.5 text-[12.5px]",
+              NODE[step.status],
+            )}
+            title={
+              step.status === "automatic"
+                ? "Ran by itself, not scored"
+                : step.status === "plan" || step.status === "ok"
+                  ? undefined
+                  : step.status
+            }
+          >
+            {step.label}
+            {step.status === "automatic" ? " · automatic" : ""}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Each expected call beside the call made, in the shown try. */
+function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
+  return (
+    <div className="group-card grid grid-cols-2 text-[12.5px] max-md:grid-cols-1">
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-3 uppercase max-md:hidden">
+        Expected
+      </h4>
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-3 uppercase max-md:hidden">
+        What it did{try_ ? ` (try ${try_})` : ""}
+      </h4>
+      {rows.map((row, index) => (
+        <div
+          key={index}
+          className="col-span-2 grid grid-cols-subgrid border-t border-separator max-md:col-span-1 max-md:grid-cols-1"
+        >
+          <Call label="Expected" text={row.expected} />
+          <div className="min-w-0">
+            <Call label="What it did" text={row.actual} />
+            <p
+              className={cn(
+                "m-0 px-3.5 pb-2 -mt-1 text-[12px]",
+                row.status === "matched" || row.status === "extra" || row.status === "automatic"
+                  ? "text-ink-3"
+                  : "text-destructive",
+              )}
+            >
+              {row.status === "automatic" ? "Ran by itself, not scored" : row.reason || row.status}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Call({ label, text }: { label: string; text: string | null }) {
+  return (
+    <div className="min-w-0 px-3.5 py-2">
+      <span className="block text-[11px] text-ink-3 md:hidden">{label}</span>
+      <code className="font-mono text-[12px] break-words">{text ?? "—"}</code>
+    </div>
+  );
+}
+
+/** What it should do against what each try did: the shown try first. */
+export function Trajectory({ shown }: { shown: Compare }) {
+  const trajectory = shown.trajectory;
+  if (!trajectory) return null;
+  const lanes = [...trajectory.tries].sort(
+    (a, b) => Number(b.n === shown.try) - Number(a.n === shown.try) || a.n - b.n,
+  );
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHead title="Trajectory" sub="what it should do vs what it did" />
+      <div className="group-card grid grid-cols-[72px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-3.5">
+        <span className="text-[12px] font-semibold text-ink-3">Expected</span>
+        <Lane
+          steps={trajectory.expected.map((label) => ({
+            label,
+            status: "plan" as const,
+          }))}
+        />
+        {lanes.map((lane) => (
+          <span key={lane.n} className="contents">
+            <span
+              className={cn(
+                "text-[12px] font-semibold",
+                lane.n === shown.try ? "text-foreground" : "text-ink-3",
+              )}
+            >
+              Try {lane.n}
+            </span>
+            <Lane steps={lane.steps} />
+          </span>
+        ))}
+      </div>
+      {lanes.some((lane) => lane.steps.some((step) => step.status === "automatic")) ? (
+        <p className="m-0 px-1 text-[12px] text-ink-3">Automatic: ran by itself, not scored</p>
+      ) : null}
+      {shown.tool_rows.length ? <ToolRows rows={shown.tool_rows} try_={shown.try} /> : null}
+    </section>
+  );
+}

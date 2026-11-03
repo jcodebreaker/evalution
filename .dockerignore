@@ -1,0 +1,10 @@
+# Only what server/Dockerfile copies. Your data and secrets stay out of the build.
+*
+!server/pyproject.toml
+!server/uv.lock
+!server/evalution/
+!web/
+!library/
+**/__pycache__/
+**/node_modules/
+web/dist/

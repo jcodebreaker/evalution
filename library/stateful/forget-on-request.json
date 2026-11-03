@@ -1,0 +1,59 @@
+{
+  "title": "Forgets on request",
+  "checks": "When the person asks to forget something, it leaves memory, is no longer sent to the model, and is not recalled in a new conversation.",
+  "why": "Forgetting on request is a promise about the person's data; saying 'done' while keeping it breaks trust.",
+  "needs": [
+    "state",
+    "traces",
+    "conversation_break",
+    "memory"
+  ],
+  "est_turns": 4,
+  "case": {
+    "name": "Forgets on request",
+    "about": "After the person asks, {{fact_word}} is gone from memory, from what the model is sent and from answers.",
+    "turns": [
+      {
+        "message": "Something to remember: {{fact}}",
+        "fresh": true
+      },
+      {
+        "expect_state": {
+          "memory_contains": "{{fact_word}}"
+        }
+      },
+      {
+        "message": "Actually, please forget what I just told you. Delete it from your memory."
+      },
+      {
+        "expect_state": {
+          "memory_lacks": "{{fact_word}}"
+        }
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "expect_state": {
+          "context_lacks": "{{fact_word}}"
+        }
+      },
+      {
+        "message": "{{fact_question}}"
+      }
+    ],
+    "reply": {
+      "reference": "Doesn't know any more; doesn't mention {{fact_word}}.",
+      "rubric": [
+        "Doesn't mention {{fact_word}}",
+        "Doesn't claim to still remember it"
+      ],
+      "lacks": [
+        "{{fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 3
+    }
+  }
+}

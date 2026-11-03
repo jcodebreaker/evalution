@@ -1,0 +1,265 @@
+"""Connecting a target from the page. Secret values go into data/secrets.json and are never
+returned or logged.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import time
+from collections.abc import Iterator
+from typing import Any
+
+from fastapi import APIRouter, Request
+
+from evalution.adapters import adapter_info, infos
+from evalution.api.deps import busy, invalid, not_found, read_body, target_name
+from evalution.connect import connect, discover, probe
+from evalution.core.case import SLUG
+from evalution.project.profile import connection, update_connection
+from evalution.runs.runner import Runs
+from evalution.targets import Targets
+
+
+def _parse(
+    targets: Targets, name: str, body: dict[str, Any], stored: set[str]
+) -> tuple[dict, dict]:
+    try:
+        block, changes = connect.parse(name, body, stored)
+        connect.draft(name, block, targets.config.root)
+    except connect.TargetError as exc:
+        raise invalid(str(exc)) from exc
+    return block, changes
+
+
+def _managed(targets: Targets, name: str) -> str:
+    name = target_name(targets, name)
+    if name not in targets.config.managed:
+        raise busy(f"{name} is set in {targets.config.file.name}; edit it there")
+    return name
+
+
+def _view(targets: Targets, name: str) -> dict[str, Any]:
+    conf = targets.conf(name)
+    info = adapter_info(conf.adapter)
+    return {
+        **connect.view(conf, name in targets.config.managed),
+        "adapter_label": info.label if info else conf.adapter,
+        "adapter_change": connection(targets, name).get("adapter_change"),
+    }
+
+
+def _adapter_row(name: str) -> dict[str, Any]:
+    """An adapter as the form draws it."""
+    info = infos()[name]
+    return {
+        "name": name,
+        "label": info.label,
+        "options": list(info.options),
+        "required": list(info.required),
+        "secrets": list(info.secrets),
+    }
+
+
+async def _create(targets: Targets, lock: asyncio.Lock, body: dict[str, Any]) -> dict[str, Any]:
+    """Save a new target: its block into targets.yaml, its secrets into data/secrets.json,
+    and a first set when it has none."""
+    name = body.get("name")
+    if not isinstance(name, str):
+        raise invalid("name: required")
+    async with lock:
+        if name in targets.config.targets:
+            raise busy(f"An app named {name} already exists")
+        block, changes = _parse(targets, name, body, set())
+        await asyncio.to_thread(connect.save, targets.config.targets_file, name, block, changes)
+        await targets.reload(name)
+        await asyncio.to_thread(connect.starter_set, targets.sets(name))
+    return _view(targets, name)
+
+
+def _job(found: discover.Discoveries, job_id: str) -> discover.Job:
+    try:
+        return found.get(job_id)
+    except LookupError as exc:
+        raise not_found("That connection attempt") from exc
+
+
+def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) -> APIRouter:
+    router = APIRouter()
+    targets = runs.targets
+    probes = probe.Probes(busy=runs.probing)
+
+    def claim(name: str) -> None:
+        """One message at a time per app, and none while a run plays, in this process or another;
+        no run starts while it's on its way. :func:`let_go` when it has ended."""
+        if runs.busy() or (name not in probes.busy and not runs.files.lock.acquire()):
+            raise busy("A run is going. Try again when it ends.")
+        if name in probes.busy:
+            raise busy("A test message is already on its way.")
+        probes.busy.add(name)
+
+    def let_go(name: str) -> None:
+        probes.busy.discard(name)
+        runs.files.lock.release()
+
+    @contextlib.contextmanager
+    def changing(name: str) -> Iterator[None]:
+        """Nothing changes a target under its run or its test message, and neither starts until
+        it's done."""
+        if runs.playing(name):
+            raise busy("A run is going on this app. Try again when it ends.")
+        if name in probes.busy:
+            raise busy("A test message is on its way. Try again when it's back.")
+        probes.busy.add(name)
+        try:
+            yield
+        finally:
+            probes.busy.discard(name)
+
+    @router.get("/adapters")
+    async def get_adapters() -> dict[str, Any]:
+        """The kinds of app evalution can connect, with what each one takes."""
+        return {"data": [_adapter_row(name) for name in infos()]}
+
+    @router.get("/targets/{target}")
+    async def get_target(target: str) -> dict[str, Any]:
+        """A target as the page edits it, without its secrets."""
+        return _view(targets, target_name(targets, target))
+
+    @router.post("/targets", status_code=201)
+    async def create_target(request: Request) -> dict[str, Any]:
+        """Connect a target from its technical settings (the page's Details)."""
+        return await _create(targets, lock, await read_body(request))
+
+    @router.post("/targets/discover", status_code=202)
+    async def discover_target(body: dict[str, Any]) -> dict[str, Any]:
+        """Look at a project folder, or an app's address, in the background; follow it with the
+        GET below."""
+        path = body.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise invalid("Type your app's address or its project folder.")
+        return found.start(path).view()
+
+    @router.get("/targets/discover/{job_id}")
+    async def get_discovery(job_id: str) -> dict[str, Any]:
+        """The steps so far, the questions left and, once ready, the proposed target."""
+        return _job(found, job_id).view()
+
+    @router.post("/targets/discover/{job_id}/traces")
+    async def check_traces(job_id: str) -> dict[str, Any]:
+        """Check again whether the app's spans reach evalution's own traces."""
+        job = _job(found, job_id)
+        await found.check_traces(job)
+        return job.view()
+
+    @router.post("/targets/discover/{job_id}/accept", status_code=201)
+    async def accept_discovery(job_id: str, request: Request) -> dict[str, Any]:
+        """Save the proposed target, with ``answers`` to its questions and an optional
+        ``name``; or a ``target`` body edited in Details (secrets found in the folder are kept
+        unless it gives its own)."""
+        job = _job(found, job_id)
+        if job.status != "ready":
+            raise busy(
+                "Still looking at the folder"
+                if job.status == "working"
+                else "That folder couldn't be read; try again"
+            )
+        body = await read_body(request)
+        answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+        if isinstance(body.get("target"), dict):
+            target = dict(body["target"])
+            given = target.get("secrets") if isinstance(target.get("secrets"), dict) else {}
+            # What the folder held goes only to the address it was found for.
+            found_for = job.body(answers).get("options")
+            kept = {} if connect.leaves_hosts(target.get("options"), found_for) else job.secrets
+            target["secrets"] = {**kept, **given}
+        else:
+            missing = [k for k in job.questions if not str(answers.get(k) or "").strip()]
+            if missing:
+                raise invalid(discover.QUESTIONS[missing[0]][0])
+            target = job.body(answers)
+            if isinstance(body.get("name"), str) and body["name"].strip():
+                target["name"] = body["name"].strip()
+        made = await _create(targets, lock, target)
+        found.forget(job_id)
+        return made
+
+    @router.put("/targets/{target}")
+    async def update_target(target: str, request: Request) -> dict[str, Any]:
+        """Change a connected target. A secret left out is kept, unless it can't go to a new host
+        (``secrets_dropped`` names those); ``null`` removes it."""
+        body = await read_body(request)
+        async with lock:
+            name = _managed(targets, target)
+            with changing(name):
+                stored = connect.stored_keys(name)
+                moved = connect.moved_secrets(targets.conf(name), body, stored)
+                block, changes = _parse(targets, name, body, stored - moved)
+                dropped = connect.left_behind(name, moved, changes)
+                changes = {**connect.forgotten(name, moved), **changes}
+                was = targets.conf(name).adapter
+                probes.failed.pop(name, None)
+                await asyncio.to_thread(
+                    connect.save, targets.config.targets_file, name, block, changes
+                )
+                await targets.reload(name)
+                if was != block["adapter"]:
+                    change = {"from": was, "to": block["adapter"], "at": time.time()}
+                    await asyncio.to_thread(update_connection, targets, name, adapter_change=change)
+        return {**_view(targets, name), "secrets_dropped": dropped}
+
+    @router.delete("/targets/{target}")
+    async def delete_target(target: str) -> dict[str, Any]:
+        """Disconnect a target: its config and secrets go; its sets, runs and profile stay."""
+        async with lock:
+            name = _managed(targets, target)
+            with changing(name):
+                await asyncio.to_thread(connect.remove, targets.config.targets_file, name)
+                await targets.reload(name)
+        return {"name": name, "removed": True, "kept": "Its sets, runs and profile stay on disk."}
+
+    @router.post("/targets/{target}/check")
+    async def check_message(target: str) -> dict[str, Any]:
+        """Send one real message through the saved target: its reply, its traces and what's wrong,
+        and a pass is remembered, so the first run needn't send it again."""
+        name = target_name(targets, target)
+        claim(name)
+        try:
+            return await probe.probe(targets, name, found.llm, probes)
+        finally:
+            let_go(name)
+
+    @router.post("/targets/{target}/check/redraft")
+    async def redraft_target(target: str) -> dict[str, Any]:
+        """After a failed message, up to two corrected configs from the model, each tried with one
+        more message. Saves nothing: the page saves the one that worked, once its owner says so."""
+        name = _managed(targets, target)
+        if name not in probes.failed:
+            raise busy("Send a test message first.")
+        if not found.llm:
+            raise invalid("No model is set up yet")
+        claim(name)
+        try:
+            return await probe.redraft(targets, name, found.llm, probes)
+        finally:
+            let_go(name)
+
+    @router.post("/targets/{target}/reach")
+    async def reach_target(target: str, request: Request) -> dict[str, Any]:
+        """Try each part of a target without playing anything. With a target body, the form as
+        it stands (not saved; its secrets are used for this check only), else the saved one."""
+        body = await read_body(request) if await request.body() else {}
+        if "adapter" in body:
+            if not SLUG.match(target):
+                raise invalid("name: lowercase letters, digits, - and _")
+            stored = connect.stored_keys(target) if target in targets.config.managed else set()
+            if stored:
+                stored -= connect.moved_secrets(targets.conf(target), body, stored)
+            block, changes = _parse(targets, target, body, stored)
+            conf = connect.draft(target, block, targets.config.root)
+            overlay = {k: v for k, v in changes.items() if v}
+        else:
+            conf, overlay = targets.conf(target_name(targets, target)), {}
+        return await connect.check(conf, overlay, targets.managed_url, targets.store)
+
+    return router

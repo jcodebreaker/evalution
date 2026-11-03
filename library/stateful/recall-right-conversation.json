@@ -1,0 +1,45 @@
+{
+  "title": "Recall picks the right earlier conversation",
+  "checks": "Asked about one of two similar earlier conversations, the assistant recalls the right one, not the look-alike.",
+  "why": "Memory search that returns the closest-sounding note, not the right one, gives confident wrong answers.",
+  "needs": [
+    "conversation_break",
+    "memory"
+  ],
+  "est_turns": 3,
+  "case": {
+    "name": "Recall picks the right earlier conversation",
+    "about": "Between two similar earlier conversations, recall answers {{fact_word}}, not {{distractor_word}}.",
+    "turns": [
+      {
+        "message": "Noting this down: {{fact}}",
+        "fresh": true
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "message": "Noting this down: {{distractor}}"
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "message": "{{fact_question}}"
+      }
+    ],
+    "reply": {
+      "reference": "Answers {{fact_word}} from the right conversation.",
+      "rubric": [
+        "Answers with {{fact_word}}",
+        "Doesn't answer with {{distractor_word}}"
+      ],
+      "contains": [
+        "{{fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 3
+    }
+  }
+}

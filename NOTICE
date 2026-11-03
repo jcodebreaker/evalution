@@ -1,0 +1,7 @@
+evalution
+
+Optional third-party software:
+
+- Arize Phoenix (the `arize-phoenix` Python package, optional dependency group `traces`), run by
+  `evalution serve` as a separate process when installed. Licensed under the Elastic License 2.0
+  (https://www.elastic.co/licensing/elastic-license). Copyright Arize AI, Inc.

@@ -1,0 +1,55 @@
+{
+  "title": "Compaction drops a withdrawn fact",
+  "checks": "A fact the person withdrew early in a long chat is not carried into the model's context after compaction.",
+  "why": "If compaction keeps what the person took back, the model is fed wrong information it can no longer see was withdrawn.",
+  "needs": [
+    "state",
+    "traces",
+    "compaction"
+  ],
+  "est_turns": 42,
+  "case": {
+    "name": "Compaction drops a withdrawn fact",
+    "about": "{{fact_word}}, withdrawn early, is not in the model's context once the chat is compacted.",
+    "turns": [
+      {
+        "message": "Some background on {{topic}}: {{fact}}",
+        "fresh": true
+      },
+      {
+        "message": "Scratch that, it's no longer true and doesn't matter any more. Please don't use it."
+      },
+      {
+        "filler": "{{n}}",
+        "about": "{{filler_topic}}"
+      },
+      {
+        "expect_state": {
+          "checkpoint": true
+        }
+      },
+      {
+        "expect_state": {
+          "context_lacks": "{{fact_word}}"
+        }
+      },
+      {
+        "message": "{{ask}}"
+      }
+    ],
+    "reply": {
+      "reference": "Handles the request without bringing up the withdrawn fact.",
+      "rubric": [
+        "Doesn't mention {{fact_word}}",
+        "Handles the request"
+      ],
+      "lacks": [
+        "{{fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 2,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

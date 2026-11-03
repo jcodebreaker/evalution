@@ -1,0 +1,41 @@
+# evalution alone, on 127.0.0.1:8080. Before the first `docker compose up --build`:
+#   cp evalution.example.yaml evalution.yaml && mkdir -p data sets targets backups
+# Your apps are outside this container: in evalution.yaml, address one on this computer as
+# host.docker.internal. Phoenix isn't in the image, so set `traces: {managed: builtin}` or point the
+# target at a Phoenix of your own, and to connect a project by its folder, mount it here too.
+# Secrets don't go in this file: put them in .env, which is git-ignored and is read if it's there.
+services:
+  evalution:
+    build: {context: ., dockerfile: server/Dockerfile}
+    # On Linux, the owner of the folders below (`id -u`, `id -g`) if that isn't 1000.
+    user: "${EVALUTION_UID:-1000}:${EVALUTION_GID:-1000}"
+    # No login. Publishing on 127.0.0.1 keeps other computers out, not this one's programs: anything
+    # running here can reach the port. The server inside listens on all of the container's addresses
+    # (and warns that it does), and answers only under the names in EVALUTION_ALLOWED_HOSTS, which
+    # keeps out a web page on another site that points its own name at this computer.
+    ports: ["127.0.0.1:8080:8080"]
+    env_file:
+      - {path: .env, required: false}
+    environment:
+      # Connecting an app and choosing a model on the page write here, so they outlive the container.
+      EVALUTION_SETTINGS_DIR: /app/data/settings
+      EVALUTION_ALLOWED_HOSTS: localhost,127.0.0.1
+    volumes:
+      - {type: bind, source: ./evalution.yaml, target: /app/evalution.yaml, read_only: true, bind: {create_host_path: false}}
+      - ./sets:/app/sets
+      - ./targets:/app/targets
+      - ./data:/app/data
+      - ./backups:/app/backups
+    healthcheck:
+      # No proxy, whatever .env says: this asks the server next to it.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8080/v1/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    extra_hosts: ["host.docker.internal:host-gateway"]

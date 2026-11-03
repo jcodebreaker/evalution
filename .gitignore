@@ -1,0 +1,14 @@
+data/
+.venv/
+node_modules/
+web/dist/
+__pycache__/
+.env
+*.pyc
+.ruff_cache/
+.pytest_cache/
+evalution.yaml
+targets.yaml
+model.yaml
+targets/
+backups/

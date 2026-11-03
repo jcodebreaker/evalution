@@ -1,0 +1,2097 @@
+{
+ "run": "20261102-023000-cccc",
+ "target": "demo-bot",
+ "set": "edge",
+ "scope": "some",
+ "started_at": 1793586642.105848,
+ "ended_at": 1793586742.105848,
+ "status": "failed",
+ "prompt": "88f609a8",
+ "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
+ "code": "7b7fc26b42c4",
+ "grader": "strong",
+ "set_version": "e07f1fc56a3b",
+ "case_versions": {
+  "no-traces": "bbb84c8fe1e7",
+  "some-no-traces": "aa1ecec643f1",
+  "different-route": "02049a59d9bb",
+  "flaky": "5d5576ca33c8",
+  "not-played": "c38b53a59c67"
+ },
+ "error": "The app's session went away mid-try",
+ "stop_reason": "The app's session went away mid-try",
+ "sessions": [],
+ "analyzing": false,
+ "analysis": null,
+ "analysis_error": "Part of the analysis didn't finish. Try again.",
+ "current": null,
+ "cases": {
+  "no-traces": {
+   "name": "Fake test no traces",
+   "about": "Fake about 2.",
+   "source": "scenario matrix",
+   "stale": null,
+   "planned": 2,
+   "turns": [
+    {
+     "message": "Fake message 2.",
+     "files": []
+    }
+   ],
+   "expected": {
+    "order": "in_order",
+    "extras": true,
+    "expected": [
+     {
+      "name": "tool_a",
+      "args": {
+       "arg": {
+        "contains": "word"
+       }
+      }
+     },
+     {
+      "name": "tool_c"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_e"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_f"
+     }
+    ],
+    "never": [
+     "tool_g",
+     "tool_h"
+    ]
+   },
+   "reply_rubric": [
+    "Fake rubric line 4.",
+    "Fake rubric line 5.",
+    "Fake rubric line 6.",
+    "Fake rubric line 7."
+   ],
+   "tries": [
+    {
+     "n": 1,
+     "passed": false,
+     "seconds": 26.1,
+     "tokens": 143416,
+     "usd": 0.0,
+     "tools": 0.333,
+     "reply": 0.875,
+     "steps": [
+      {
+       "status": "missing",
+       "expected": "tool_a()",
+       "actual": null,
+       "reason": "no tool_a call",
+       "span": "fddd0d08c016e19c"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_c()",
+       "actual": "tool_c(arg=value)",
+       "reason": "called at 16 s",
+       "span": "cf72f7f92943298a"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_d()",
+       "actual": "tool_d(arg=value)",
+       "reason": "called at 19 s",
+       "span": "ab247abf02089a9f"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_e()",
+       "actual": null,
+       "reason": "no tool_e call",
+       "span": "58d63cb00855dbd4"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_d()",
+       "actual": null,
+       "reason": "no tool_d call",
+       "span": "9c54ac81fdf1dc43"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_f()",
+       "actual": null,
+       "reason": "no tool_f call",
+       "span": "07999f5b88fd4107"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_i(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_j(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "cf4471981700699c"
+      }
+     ],
+     "calls": [
+      {
+       "id": "0e1530dc72cd343f",
+       "name": "tool_i",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.26,
+       "end": 4.31,
+       "helper": null
+      },
+      {
+       "id": "cf72f7f92943298a",
+       "name": "tool_c",
+       "args": {
+        "arg": "value"
+       },
+       "start": 15.75,
+       "end": 16.22,
+       "helper": null
+      }
+     ],
+     "trace_ids": [
+      "eeb583cae86e1613174237f1d90aa01d"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 4.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 33.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 34."
+       }
+      },
+      {
+       "line": "Fake rubric line 5.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 35.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 35."
+       }
+      },
+      {
+       "line": "Fake rubric line 6.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 36.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 36."
+       }
+      },
+      {
+       "line": "Fake rubric line 7.",
+       "pass": true,
+       "sure": false,
+       "reason": "Fake reason 37.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": false,
+        "reason": "Fake reason 38."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 2.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "fddd0d08c016e19c",
+       "parent": "47c9d742566be447",
+       "kind": "missing",
+       "name": "span-7",
+       "start": 0.0,
+       "seconds": 0.0,
+       "check": "Fake check 1."
+      },
+      {
+       "id": "47c9d742566be447",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.41,
+       "seconds": 25.7
+      },
+      {
+       "id": "01b88aae3572114e",
+       "parent": "47c9d742566be447",
+       "kind": "model",
+       "name": "span-8",
+       "start": 0.64,
+       "seconds": 3.63,
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "tokens_out": 143,
+       "usd": 0.037906
+      }
+     ],
+     "trace_url": "http://traces.test/trace/eeb583cae86e1613174237f1d90aa01d",
+     "error": "No traces arrived, so this try could not be judged",
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "01b88aae3572114e",
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 58,
+         "preview": "Fake preview 7."
+        },
+        {
+         "name": "section-4",
+         "tokens": 247,
+         "preview": "Fake preview 8."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.26,
+       "actor": "assistant",
+       "kind": "called",
+       "text": "Fake step 11.",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "t": 4.27,
+       "actor": "assistant",
+       "kind": "said",
+       "text": "Fake step 12.",
+       "span": "01b88aae3572114e"
+      },
+      {
+       "t": 4.31,
+       "actor": "assistant",
+       "kind": "result",
+       "text": "Fake step 13.",
+       "span": "0e1530dc72cd343f"
+      }
+     ]
+    },
+    {
+     "n": 2,
+     "passed": false,
+     "seconds": 26.6,
+     "tokens": 143532,
+     "usd": 0.276923,
+     "tools": 0.333,
+     "reply": 0.835,
+     "steps": [
+      {
+       "status": "missing",
+       "expected": "tool_a()",
+       "actual": null,
+       "reason": "no tool_a call",
+       "span": "fddd0d08c016e19c"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_c()",
+       "actual": "tool_c(arg=value)",
+       "reason": "called at 16 s in a delegated agent",
+       "span": "e3d9fe6c6f7106b3"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_d()",
+       "actual": "tool_d(arg=value)",
+       "reason": "called at 19 s in a delegated agent",
+       "span": "1d5a9384c4d98d95"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_e()",
+       "actual": null,
+       "reason": "no tool_e call",
+       "span": "58d63cb00855dbd4"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_d()",
+       "actual": null,
+       "reason": "no tool_d call",
+       "span": "9c54ac81fdf1dc43"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_f()",
+       "actual": null,
+       "reason": "no tool_f call",
+       "span": "07999f5b88fd4107"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_i(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "0630144b42b6c6c1"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_j(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "fc0fb572ba0b6c45"
+      }
+     ],
+     "calls": [
+      {
+       "id": "0630144b42b6c6c1",
+       "name": "tool_i",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.18,
+       "end": 4.24,
+       "helper": "d939cca2815c7e6f"
+      },
+      {
+       "id": "e3d9fe6c6f7106b3",
+       "name": "tool_c",
+       "args": {
+        "arg": "value"
+       },
+       "start": 16.06,
+       "end": 16.54,
+       "helper": "d939cca2815c7e6f"
+      }
+     ],
+     "trace_ids": [
+      "ef6099b5ce94e88f5b4148cfef20f469"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 4.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 39.",
+       "quotes": [
+        "Fake quote 5."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 40."
+       }
+      },
+      {
+       "line": "Fake rubric line 5.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 41.",
+       "quotes": [
+        "Fake quote 6."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 42."
+       }
+      },
+      {
+       "line": "Fake rubric line 6.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 36.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 43."
+       }
+      },
+      {
+       "line": "Fake rubric line 7.",
+       "pass": true,
+       "sure": false,
+       "reason": "Fake reason 44.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": false,
+        "reason": "Fake reason 45."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 3.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "fddd0d08c016e19c",
+       "parent": "e4ec0fd9600d295a",
+       "kind": "missing",
+       "name": "span-7",
+       "start": 0.0,
+       "seconds": 0.0,
+       "check": "Fake check 1."
+      },
+      {
+       "id": "e4ec0fd9600d295a",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.12,
+       "seconds": 26.43
+      },
+      {
+       "id": "d939cca2815c7e6f",
+       "parent": "e4ec0fd9600d295a",
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.44,
+       "seconds": 26.11
+      }
+     ],
+     "trace_url": "http://traces.test/trace/ef6099b5ce94e88f5b4148cfef20f469",
+     "error": "No traces arrived, so this try could not be judged",
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "28b68d19b4cae12a",
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 58,
+         "preview": "Fake preview 9."
+        },
+        {
+         "name": "section-4",
+         "tokens": 247,
+         "preview": "Fake preview 8."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.18,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 14.",
+       "span": "28b68d19b4cae12a"
+      },
+      {
+       "t": 4.18,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 11.",
+       "span": "0630144b42b6c6c1"
+      },
+      {
+       "t": 4.24,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 13.",
+       "span": "0630144b42b6c6c1"
+      }
+     ]
+    }
+   ]
+  },
+  "some-no-traces": {
+   "name": "Fake test some no traces",
+   "about": "Fake about 2.",
+   "source": "scenario matrix",
+   "stale": null,
+   "planned": 3,
+   "turns": [
+    {
+     "message": "Fake message 2.",
+     "files": []
+    }
+   ],
+   "expected": {
+    "order": "in_order",
+    "extras": true,
+    "expected": [
+     {
+      "name": "tool_a",
+      "args": {
+       "arg": {
+        "contains": "word"
+       }
+      }
+     },
+     {
+      "name": "tool_c"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_e"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_f"
+     }
+    ],
+    "never": [
+     "tool_g",
+     "tool_h"
+    ]
+   },
+   "reply_rubric": [
+    "Fake rubric line 4.",
+    "Fake rubric line 5.",
+    "Fake rubric line 6.",
+    "Fake rubric line 7."
+   ],
+   "tries": [
+    {
+     "n": 1,
+     "passed": false,
+     "seconds": 26.1,
+     "tokens": 143416,
+     "usd": 0.274885,
+     "tools": 0.333,
+     "reply": 0.875,
+     "steps": [
+      {
+       "status": "missing",
+       "expected": "tool_a()",
+       "actual": null,
+       "reason": "no tool_a call",
+       "span": "fddd0d08c016e19c"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_c()",
+       "actual": "tool_c(arg=value)",
+       "reason": "called at 16 s",
+       "span": "cf72f7f92943298a"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_d()",
+       "actual": "tool_d(arg=value)",
+       "reason": "called at 19 s",
+       "span": "ab247abf02089a9f"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_e()",
+       "actual": null,
+       "reason": "no tool_e call",
+       "span": "58d63cb00855dbd4"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_d()",
+       "actual": null,
+       "reason": "no tool_d call",
+       "span": "9c54ac81fdf1dc43"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_f()",
+       "actual": null,
+       "reason": "no tool_f call",
+       "span": "07999f5b88fd4107"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_i(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_j(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "cf4471981700699c"
+      }
+     ],
+     "calls": [
+      {
+       "id": "0e1530dc72cd343f",
+       "name": "tool_i",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.26,
+       "end": 4.31,
+       "helper": null
+      },
+      {
+       "id": "cf72f7f92943298a",
+       "name": "tool_c",
+       "args": {
+        "arg": "value"
+       },
+       "start": 15.75,
+       "end": 16.22,
+       "helper": null
+      }
+     ],
+     "trace_ids": [
+      "eeb583cae86e1613174237f1d90aa01d"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 4.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 33.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 34."
+       }
+      },
+      {
+       "line": "Fake rubric line 5.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 35.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 35."
+       }
+      },
+      {
+       "line": "Fake rubric line 6.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 36.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 36."
+       }
+      },
+      {
+       "line": "Fake rubric line 7.",
+       "pass": true,
+       "sure": false,
+       "reason": "Fake reason 37.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": false,
+        "reason": "Fake reason 38."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 2.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "fddd0d08c016e19c",
+       "parent": "47c9d742566be447",
+       "kind": "missing",
+       "name": "span-7",
+       "start": 0.0,
+       "seconds": 0.0,
+       "check": "Fake check 1."
+      },
+      {
+       "id": "47c9d742566be447",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.41,
+       "seconds": 25.7
+      },
+      {
+       "id": "01b88aae3572114e",
+       "parent": "47c9d742566be447",
+       "kind": "model",
+       "name": "span-8",
+       "start": 0.64,
+       "seconds": 3.63,
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "tokens_out": 143,
+       "usd": 0.037906
+      }
+     ],
+     "trace_url": "http://traces.test/trace/eeb583cae86e1613174237f1d90aa01d",
+     "error": "No traces arrived, so this try could not be judged",
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "01b88aae3572114e",
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 58,
+         "preview": "Fake preview 7."
+        },
+        {
+         "name": "section-4",
+         "tokens": 247,
+         "preview": "Fake preview 8."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.26,
+       "actor": "assistant",
+       "kind": "called",
+       "text": "Fake step 11.",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "t": 4.27,
+       "actor": "assistant",
+       "kind": "said",
+       "text": "Fake step 12.",
+       "span": "01b88aae3572114e"
+      },
+      {
+       "t": 4.31,
+       "actor": "assistant",
+       "kind": "result",
+       "text": "Fake step 13.",
+       "span": "0e1530dc72cd343f"
+      }
+     ]
+    },
+    {
+     "n": 1,
+     "passed": true,
+     "seconds": 6.7,
+     "tokens": 52666,
+     "usd": 0.367844,
+     "tools": 1.0,
+     "reply": 0.96,
+     "steps": [
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_b(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "5dc20b2fe638cb60"
+      }
+     ],
+     "calls": [
+      {
+       "id": "5dc20b2fe638cb60",
+       "name": "tool_b",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.19,
+       "end": 4.57,
+       "helper": "ec4515f12ceea54d"
+      }
+     ],
+     "trace_ids": [
+      "bb87cedcd06598681dfad4d3fadfa1c1"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 18.",
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 18."
+       }
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 19.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 20."
+       }
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 21.",
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 22."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 1.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "c552bfb3bdbe7d07",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-4",
+       "start": 0.0,
+       "seconds": 0.27
+      },
+      {
+       "id": "d5f04b449bf5c4ca",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.14,
+       "seconds": 6.56
+      }
+     ],
+     "trace_url": "http://traces.test/trace/bb87cedcd06598681dfad4d3fadfa1c1",
+     "error": null,
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "24b1b9ed63bf9056",
+       "model": "fake-model",
+       "tokens_in": 26108,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 328,
+         "preview": "Fake preview 5."
+        },
+        {
+         "name": "section-4",
+         "tokens": 266,
+         "preview": "Fake preview 4."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.19,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 5.",
+       "span": "5dc20b2fe638cb60"
+      },
+      {
+       "t": 4.31,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 4.",
+       "span": "24b1b9ed63bf9056"
+      },
+      {
+       "t": 4.57,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 3.",
+       "span": "5dc20b2fe638cb60"
+      }
+     ]
+    },
+    {
+     "n": 2,
+     "passed": false,
+     "seconds": 26.6,
+     "tokens": 143532,
+     "usd": 0.276923,
+     "tools": 0.333,
+     "reply": 0.835,
+     "steps": [
+      {
+       "status": "missing",
+       "expected": "tool_a()",
+       "actual": null,
+       "reason": "no tool_a call",
+       "span": "fddd0d08c016e19c"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_c()",
+       "actual": "tool_c(arg=value)",
+       "reason": "called at 16 s in a delegated agent",
+       "span": "e3d9fe6c6f7106b3"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_d()",
+       "actual": "tool_d(arg=value)",
+       "reason": "called at 19 s in a delegated agent",
+       "span": "1d5a9384c4d98d95"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_e()",
+       "actual": null,
+       "reason": "no tool_e call",
+       "span": "58d63cb00855dbd4"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_d()",
+       "actual": null,
+       "reason": "no tool_d call",
+       "span": "9c54ac81fdf1dc43"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_f()",
+       "actual": null,
+       "reason": "no tool_f call",
+       "span": "07999f5b88fd4107"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_i(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "0630144b42b6c6c1"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_j(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "fc0fb572ba0b6c45"
+      }
+     ],
+     "calls": [
+      {
+       "id": "0630144b42b6c6c1",
+       "name": "tool_i",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.18,
+       "end": 4.24,
+       "helper": "d939cca2815c7e6f"
+      },
+      {
+       "id": "e3d9fe6c6f7106b3",
+       "name": "tool_c",
+       "args": {
+        "arg": "value"
+       },
+       "start": 16.06,
+       "end": 16.54,
+       "helper": "d939cca2815c7e6f"
+      }
+     ],
+     "trace_ids": [
+      "ef6099b5ce94e88f5b4148cfef20f469"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 4.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 39.",
+       "quotes": [
+        "Fake quote 5."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 40."
+       }
+      },
+      {
+       "line": "Fake rubric line 5.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 41.",
+       "quotes": [
+        "Fake quote 6."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 42."
+       }
+      },
+      {
+       "line": "Fake rubric line 6.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 36.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 43."
+       }
+      },
+      {
+       "line": "Fake rubric line 7.",
+       "pass": true,
+       "sure": false,
+       "reason": "Fake reason 44.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": false,
+        "reason": "Fake reason 45."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 3.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "fddd0d08c016e19c",
+       "parent": "e4ec0fd9600d295a",
+       "kind": "missing",
+       "name": "span-7",
+       "start": 0.0,
+       "seconds": 0.0,
+       "check": "Fake check 1."
+      },
+      {
+       "id": "e4ec0fd9600d295a",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.12,
+       "seconds": 26.43
+      },
+      {
+       "id": "d939cca2815c7e6f",
+       "parent": "e4ec0fd9600d295a",
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.44,
+       "seconds": 26.11
+      }
+     ],
+     "trace_url": "http://traces.test/trace/ef6099b5ce94e88f5b4148cfef20f469",
+     "error": null,
+     "analysis": {
+      "summary": "Fake summary 2.",
+      "cause": "Fake cause 2.",
+      "evidence": [
+       "Fake evidence 3.",
+       "Fake evidence 4."
+      ],
+      "fix": "Fake fix 2.",
+      "kind": "assistant"
+     },
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "28b68d19b4cae12a",
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 58,
+         "preview": "Fake preview 9."
+        },
+        {
+         "name": "section-4",
+         "tokens": 247,
+         "preview": "Fake preview 8."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.18,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 14.",
+       "span": "28b68d19b4cae12a"
+      },
+      {
+       "t": 4.18,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 11.",
+       "span": "0630144b42b6c6c1"
+      },
+      {
+       "t": 4.24,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 13.",
+       "span": "0630144b42b6c6c1"
+      }
+     ]
+    }
+   ]
+  },
+  "different-route": {
+   "name": "Fake test different route",
+   "about": "Fake about 1.",
+   "source": "scenario matrix",
+   "stale": "Fake stale reason.",
+   "planned": 3,
+   "turns": [
+    {
+     "message": "Fake message 1.",
+     "files": [
+      "fixtures/sample.csv"
+     ]
+    }
+   ],
+   "expected": {
+    "order": "any_order",
+    "extras": true,
+    "expected": [],
+    "never": [
+     "tool_a"
+    ]
+   },
+   "reply_rubric": [
+    "Fake rubric line 1.",
+    "Fake rubric line 2.",
+    "Fake rubric line 3."
+   ],
+   "tries": [
+    {
+     "n": 1,
+     "passed": true,
+     "seconds": 6.7,
+     "tokens": 52666,
+     "usd": 0.367844,
+     "tools": 1.0,
+     "reply": 0.96,
+     "steps": [
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_b(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "5dc20b2fe638cb60"
+      }
+     ],
+     "calls": [
+      {
+       "id": "5dc20b2fe638cb60",
+       "name": "tool_b",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.19,
+       "end": 4.57,
+       "helper": "ec4515f12ceea54d"
+      }
+     ],
+     "trace_ids": [
+      "bb87cedcd06598681dfad4d3fadfa1c1"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 18.",
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 18."
+       }
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 19.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 20."
+       }
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 21.",
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 22."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 1.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "c552bfb3bdbe7d07",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-4",
+       "start": 0.0,
+       "seconds": 0.27
+      },
+      {
+       "id": "d5f04b449bf5c4ca",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.14,
+       "seconds": 6.56
+      }
+     ],
+     "trace_url": "http://traces.test/trace/bb87cedcd06598681dfad4d3fadfa1c1",
+     "error": null,
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "24b1b9ed63bf9056",
+       "model": "fake-model",
+       "tokens_in": 26108,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 328,
+         "preview": "Fake preview 5."
+        },
+        {
+         "name": "section-4",
+         "tokens": 266,
+         "preview": "Fake preview 4."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.19,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 5.",
+       "span": "5dc20b2fe638cb60"
+      },
+      {
+       "t": 4.31,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 4.",
+       "span": "24b1b9ed63bf9056"
+      },
+      {
+       "t": 4.57,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 3.",
+       "span": "5dc20b2fe638cb60"
+      }
+     ],
+     "different_route": true
+    },
+    {
+     "n": 2,
+     "passed": true,
+     "seconds": 7.5,
+     "tokens": 52666,
+     "usd": 0.078803,
+     "tools": 1.0,
+     "reply": 0.97,
+     "steps": [
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_b(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "954d13617929c2ba"
+      }
+     ],
+     "calls": [
+      {
+       "id": "954d13617929c2ba",
+       "name": "tool_b",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.34,
+       "end": 4.94,
+       "helper": "1203ed3eec965831"
+      }
+     ],
+     "trace_ids": [
+      "050c23cdb2e26f281bb10224905cb677"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 23.",
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 23."
+       }
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 24.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 25."
+       }
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 26.",
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 27."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 1.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "5baa7419dcb6234d",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.16,
+       "seconds": 7.31
+      },
+      {
+       "id": "1203ed3eec965831",
+       "parent": "5baa7419dcb6234d",
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.51,
+       "seconds": 6.95
+      }
+     ],
+     "trace_url": "http://traces.test/trace/050c23cdb2e26f281bb10224905cb677",
+     "error": null,
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "4846151e25196868",
+       "model": "fake-model",
+       "tokens_in": 26108,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 328,
+         "preview": "Fake preview 6."
+        },
+        {
+         "name": "section-4",
+         "tokens": 266,
+         "preview": "Fake preview 4."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.34,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 6.",
+       "span": "4846151e25196868"
+      },
+      {
+       "t": 4.34,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 7.",
+       "span": "954d13617929c2ba"
+      },
+      {
+       "t": 4.94,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 3.",
+       "span": "954d13617929c2ba"
+      }
+     ],
+     "different_route": true
+    }
+   ]
+  },
+  "flaky": {
+   "name": "Fake test flaky",
+   "about": "Fake about 2.",
+   "source": "scenario matrix",
+   "stale": null,
+   "planned": 3,
+   "turns": [
+    {
+     "message": "Fake message 2.",
+     "files": []
+    }
+   ],
+   "expected": {
+    "order": "in_order",
+    "extras": true,
+    "expected": [
+     {
+      "name": "tool_a",
+      "args": {
+       "arg": {
+        "contains": "word"
+       }
+      }
+     },
+     {
+      "name": "tool_c"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_e"
+     },
+     {
+      "name": "tool_d"
+     },
+     {
+      "name": "tool_f"
+     }
+    ],
+    "never": [
+     "tool_g",
+     "tool_h"
+    ]
+   },
+   "reply_rubric": [
+    "Fake rubric line 4.",
+    "Fake rubric line 5.",
+    "Fake rubric line 6.",
+    "Fake rubric line 7."
+   ],
+   "tries": [
+    {
+     "n": 1,
+     "passed": true,
+     "seconds": 6.7,
+     "tokens": 52666,
+     "usd": 0.367844,
+     "tools": 1.0,
+     "reply": 0.96,
+     "steps": [
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_b(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "5dc20b2fe638cb60"
+      }
+     ],
+     "calls": [
+      {
+       "id": "5dc20b2fe638cb60",
+       "name": "tool_b",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.19,
+       "end": 4.57,
+       "helper": "ec4515f12ceea54d"
+      }
+     ],
+     "trace_ids": [
+      "bb87cedcd06598681dfad4d3fadfa1c1"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 1.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 18.",
+       "quotes": [
+        "Fake quote 1."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 18."
+       }
+      },
+      {
+       "line": "Fake rubric line 2.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 19.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 20."
+       }
+      },
+      {
+       "line": "Fake rubric line 3.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 21.",
+       "quotes": [
+        "Fake quote 2."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 22."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 1.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "c552bfb3bdbe7d07",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-4",
+       "start": 0.0,
+       "seconds": 0.27
+      },
+      {
+       "id": "d5f04b449bf5c4ca",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-5",
+       "start": 0.14,
+       "seconds": 6.56
+      }
+     ],
+     "trace_url": "http://traces.test/trace/bb87cedcd06598681dfad4d3fadfa1c1",
+     "error": null,
+     "analysis": null,
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "24b1b9ed63bf9056",
+       "model": "fake-model",
+       "tokens_in": 26108,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 328,
+         "preview": "Fake preview 5."
+        },
+        {
+         "name": "section-4",
+         "tokens": 266,
+         "preview": "Fake preview 4."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.19,
+       "actor": "helper",
+       "kind": "called",
+       "text": "Fake step 5.",
+       "span": "5dc20b2fe638cb60"
+      },
+      {
+       "t": 4.31,
+       "actor": "helper",
+       "kind": "said",
+       "text": "Fake step 4.",
+       "span": "24b1b9ed63bf9056"
+      },
+      {
+       "t": 4.57,
+       "actor": "helper",
+       "kind": "result",
+       "text": "Fake step 3.",
+       "span": "5dc20b2fe638cb60"
+      }
+     ]
+    },
+    {
+     "n": 1,
+     "passed": false,
+     "seconds": 26.1,
+     "tokens": 143416,
+     "usd": 0.274885,
+     "tools": 0.333,
+     "reply": 0.875,
+     "steps": [
+      {
+       "status": "missing",
+       "expected": "tool_a()",
+       "actual": null,
+       "reason": "no tool_a call",
+       "span": "fddd0d08c016e19c"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_c()",
+       "actual": "tool_c(arg=value)",
+       "reason": "called at 16 s",
+       "span": "cf72f7f92943298a"
+      },
+      {
+       "status": "matched",
+       "expected": "tool_d()",
+       "actual": "tool_d(arg=value)",
+       "reason": "called at 19 s",
+       "span": "ab247abf02089a9f"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_e()",
+       "actual": null,
+       "reason": "no tool_e call",
+       "span": "58d63cb00855dbd4"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_d()",
+       "actual": null,
+       "reason": "no tool_d call",
+       "span": "9c54ac81fdf1dc43"
+      },
+      {
+       "status": "missing",
+       "expected": "tool_f()",
+       "actual": null,
+       "reason": "no tool_f call",
+       "span": "07999f5b88fd4107"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_i(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "status": "extra",
+       "expected": null,
+       "actual": "tool_j(arg=value)",
+       "reason": "not in the case; allowed",
+       "span": "cf4471981700699c"
+      }
+     ],
+     "calls": [
+      {
+       "id": "0e1530dc72cd343f",
+       "name": "tool_i",
+       "args": {
+        "arg": "value"
+       },
+       "start": 4.26,
+       "end": 4.31,
+       "helper": null
+      },
+      {
+       "id": "cf72f7f92943298a",
+       "name": "tool_c",
+       "args": {
+        "arg": "value"
+       },
+       "start": 15.75,
+       "end": 16.22,
+       "helper": null
+      }
+     ],
+     "trace_ids": [
+      "eeb583cae86e1613174237f1d90aa01d"
+     ],
+     "rubric": [
+      {
+       "line": "Fake rubric line 4.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 33.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 34."
+       }
+      },
+      {
+       "line": "Fake rubric line 5.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 35.",
+       "quotes": [
+        "Fake quote 4."
+       ],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 35."
+       }
+      },
+      {
+       "line": "Fake rubric line 6.",
+       "pass": true,
+       "sure": true,
+       "reason": "Fake reason 36.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": true,
+        "reason": "Fake reason 36."
+       }
+      },
+      {
+       "line": "Fake rubric line 7.",
+       "pass": true,
+       "sure": false,
+       "reason": "Fake reason 37.",
+       "quotes": [],
+       "split": false,
+       "second": {
+        "pass": true,
+        "sure": false,
+        "reason": "Fake reason 38."
+       }
+      }
+     ],
+     "reply_text": "Fake reply 2.",
+     "limits_broken": [],
+     "timeline": [
+      {
+       "id": "fddd0d08c016e19c",
+       "parent": "47c9d742566be447",
+       "kind": "missing",
+       "name": "span-7",
+       "start": 0.0,
+       "seconds": 0.0,
+       "check": "Fake check 1."
+      },
+      {
+       "id": "47c9d742566be447",
+       "parent": null,
+       "kind": "agent",
+       "name": "span-6",
+       "start": 0.41,
+       "seconds": 25.7
+      },
+      {
+       "id": "01b88aae3572114e",
+       "parent": "47c9d742566be447",
+       "kind": "model",
+       "name": "span-8",
+       "start": 0.64,
+       "seconds": 3.63,
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "tokens_out": 143,
+       "usd": 0.037906
+      }
+     ],
+     "trace_url": "http://traces.test/trace/eeb583cae86e1613174237f1d90aa01d",
+     "error": null,
+     "analysis": {
+      "summary": "Fake summary 1.",
+      "cause": "Fake cause 1.",
+      "evidence": [
+       "Fake evidence 1.",
+       "Fake evidence 2."
+      ],
+      "fix": "Fake fix 1.",
+      "kind": "assistant"
+     },
+     "messages": 1,
+     "context": [
+      {
+       "n": 1,
+       "span": "01b88aae3572114e",
+       "model": "fake-model",
+       "tokens_in": 25648,
+       "sections": [
+        {
+         "name": "section-1",
+         "tokens": 4648,
+         "preview": "Fake preview 1."
+        },
+        {
+         "name": "section-2",
+         "tokens": 12821,
+         "preview": "Fake preview 2."
+        },
+        {
+         "name": "section-3",
+         "tokens": 58,
+         "preview": "Fake preview 7."
+        },
+        {
+         "name": "section-4",
+         "tokens": 247,
+         "preview": "Fake preview 8."
+        }
+       ]
+      }
+     ],
+     "trajectory": [
+      {
+       "t": 4.26,
+       "actor": "assistant",
+       "kind": "called",
+       "text": "Fake step 11.",
+       "span": "0e1530dc72cd343f"
+      },
+      {
+       "t": 4.27,
+       "actor": "assistant",
+       "kind": "said",
+       "text": "Fake step 12.",
+       "span": "01b88aae3572114e"
+      },
+      {
+       "t": 4.31,
+       "actor": "assistant",
+       "kind": "result",
+       "text": "Fake step 13.",
+       "span": "0e1530dc72cd343f"
+      }
+     ]
+    }
+   ]
+  },
+  "not-played": {
+   "name": "Fake test not played",
+   "about": "Fake about 1.",
+   "source": "scenario matrix",
+   "stale": null,
+   "planned": 2,
+   "turns": [
+    {
+     "message": "Fake message 1.",
+     "files": [
+      "fixtures/sample.csv"
+     ]
+    }
+   ],
+   "expected": {
+    "order": "any_order",
+    "extras": true,
+    "expected": [],
+    "never": [
+     "tool_a"
+    ]
+   },
+   "reply_rubric": [
+    "Fake rubric line 1.",
+    "Fake rubric line 2.",
+    "Fake rubric line 3."
+   ],
+   "tries": []
+  }
+ },
+ "totals": {
+  "passed": 1,
+  "cases": 2,
+  "tools": 0.666,
+  "reply": 0.908,
+  "median_seconds": 16.8,
+  "usd": 1.3464,
+  "tokens": 588468
+ },
+ "report": null,
+ "pass_scores": {
+  "tools": 0.8,
+  "reply": 0.7
+ }
+}

@@ -1,0 +1,152 @@
+{
+ "areas": [
+  {
+   "level": "strong",
+   "name": "Edge",
+   "pct": 100
+  },
+  {
+   "level": "strong",
+   "name": "Fake priority",
+   "pct": 100
+  }
+ ],
+ "attention": [
+  {
+   "action": "see_why",
+   "detail": "The app's session went away mid-try",
+   "run": "20261102-023000-cccc",
+   "title": "The last run stopped"
+  },
+  {
+   "action": "review",
+   "detail": "Fake removal.",
+   "title": "7 tests may be out of date"
+  },
+  {
+   "action": "review",
+   "detail": "Part of the analysis didn't finish. Try again.",
+   "run": "20261102-023000-cccc",
+   "title": "A run's findings didn't finish"
+  },
+  {
+   "action": "see_why",
+   "case": "no-traces",
+   "detail": "no traces arrived",
+   "run": "20261102-023000-cccc",
+   "title": "Fake test no traces: couldn't judge"
+  },
+  {
+   "action": "see_why",
+   "case": "test-b",
+   "detail": "Fake rubric line 7.",
+   "run": "20261102-013042-bbbb",
+   "title": "Fake test 2: couldn't judge"
+  }
+ ],
+ "recent": [
+  {
+   "at": 1793586642.105848,
+   "name": "Edge",
+   "results": [
+    "unjudged",
+    "pass",
+    "pass",
+    "pass"
+   ],
+   "run": "20261102-023000-cccc",
+   "usd": 2.286
+  },
+  {
+   "at": 1793583042.105848,
+   "name": "Main",
+   "results": [
+    "pass",
+    "unjudged"
+   ],
+   "run": "20261102-013042-bbbb",
+   "usd": 1.3464
+  },
+  {
+   "at": 1793572986.018167,
+   "name": "Main",
+   "results": [
+    "pass"
+   ],
+   "run": "20261101-224306-aaaa",
+   "usd": 0.215
+  }
+ ],
+ "report": {
+  "facts": {
+   "failed": [],
+   "held": [
+    {
+     "basis": "model_only",
+     "case": "some-no-traces",
+     "judged": 1,
+     "name": "Fake test some no traces",
+     "note": "2 of 3 tries couldn't be judged",
+     "passed": 1
+    },
+    {
+     "basis": "model_only",
+     "case": "different-route",
+     "judged": 2,
+     "name": "Fake test different route",
+     "passed": 2
+    },
+    {
+     "basis": "model_only",
+     "case": "flaky",
+     "judged": 1,
+     "name": "Fake test flaky",
+     "note": "1 of 2 tries couldn't be judged",
+     "passed": 1
+    }
+   ],
+   "model_only": 3,
+   "passed": 3,
+   "regressions": [],
+   "total": 4,
+   "unjudged": [
+    {
+     "case": "no-traces",
+     "label": "Missing evidence",
+     "name": "Fake test no traces",
+     "reasons": [
+      "no_traces",
+      "judge_unsure"
+     ]
+    }
+   ]
+  },
+  "next": [],
+  "reading": [],
+  "run": "20261102-023000-cccc",
+  "well": []
+ },
+ "report_pending": false,
+ "tiles": {
+  "consistent": {
+   "total": 4,
+   "value": 4
+  },
+  "cost": {
+   "per_question": null,
+   "period_total": 0
+  },
+  "passing": {
+   "delta": null,
+   "model_only": 4,
+   "total": 6,
+   "unjudged": 2,
+   "value": 4
+  },
+  "reply_seconds": {
+   "delta": null,
+   "value": null
+  }
+ },
+ "trend": []
+}

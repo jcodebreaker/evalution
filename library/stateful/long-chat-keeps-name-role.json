@@ -1,0 +1,39 @@
+{
+  "title": "A long chat keeps the person's name and role",
+  "checks": "The person's name and role, given once at the start, are still used correctly after a long chat.",
+  "why": "Forgetting who you're talking to is the plainest sign an assistant has lost the thread.",
+  "needs": [],
+  "est_turns": 22,
+  "case": {
+    "name": "A long chat keeps the person's name and role",
+    "about": "{{name}}'s name and role, given at the start, are still right after a long chat.",
+    "turns": [
+      {
+        "message": "Hi, I'm {{name}}, {{role}}. {{ask}}",
+        "fresh": true
+      },
+      {
+        "filler": "{{n}}",
+        "about": "{{filler_topic}}"
+      },
+      {
+        "message": "Write a two-line intro of me for our team page."
+      }
+    ],
+    "reply": {
+      "reference": "An intro that names {{name}} and says they are {{role}}.",
+      "rubric": [
+        "Names the person {{name}}",
+        "Says the person is {{role}}",
+        "Doesn't ask who the person is"
+      ],
+      "contains": [
+        "{{name}}"
+      ]
+    },
+    "limits": {
+      "tries": 2,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

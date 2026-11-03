@@ -1,0 +1,46 @@
+{
+  "kind": "tools",
+  "title": "Tool use",
+  "checks": "The app calls the tool it should, and the tool returns what it must.",
+  "why": "A right-looking reply can hide a tool never called or one that came back empty.",
+  "needs": [
+    "traces"
+  ],
+  "est_turns": 1,
+  "case": {
+    "name": "{{test_name}}",
+    "turns": [
+      {
+        "message": "{{prompt}}"
+      }
+    ],
+    "tools": {
+      "order": "in_order",
+      "extras": true,
+      "expected": [
+        {
+          "name": "{{tool}}"
+        }
+      ],
+      "results": [
+        {
+          "name": "{{tool}}",
+          "want": {
+            "contains": "{{want}}"
+          }
+        }
+      ]
+    },
+    "reply": {
+      "reference": "{{outcome}}",
+      "rubric": [
+        "{{outcome}}",
+        "Avoids this: {{must_not}}"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

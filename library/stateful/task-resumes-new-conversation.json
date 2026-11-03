@@ -1,0 +1,37 @@
+{
+  "title": "A task resumes in a new conversation",
+  "checks": "A task left half done is picked up where it stopped when the person comes back in a new conversation.",
+  "why": "Work spans sessions; starting over, or asking for everything again, wastes the person's time.",
+  "needs": [
+    "conversation_break",
+    "memory"
+  ],
+  "est_turns": 2,
+  "case": {
+    "name": "A task resumes in a new conversation",
+    "about": "The task to {{task}} picks up where it stopped after a new conversation.",
+    "turns": [
+      {
+        "message": "Let's {{task}}. Do only the first step now and stop there; I'll come back for the rest.",
+        "fresh": true
+      },
+      {
+        "break": "conversation"
+      },
+      {
+        "message": "I'm back. Where were we? Carry on from where we stopped."
+      }
+    ],
+    "reply": {
+      "reference": "Knows the task, says what was done, and goes on with the next step.",
+      "rubric": [
+        "Knows the task was to {{task}}",
+        "Goes on from the next step, without starting over",
+        "Doesn't ask the person to explain the task again"
+      ]
+    },
+    "limits": {
+      "tries": 3
+    }
+  }
+}

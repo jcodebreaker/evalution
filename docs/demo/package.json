@@ -1,0 +1,7 @@
+{
+  "name": "evalution-demo",
+  "private": true,
+  "type": "module",
+  "scripts": { "capture": "node capture.mjs" },
+  "devDependencies": { "playwright-core": "1.64.1" }
+}

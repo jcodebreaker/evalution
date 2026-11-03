@@ -1,0 +1,52 @@
+{
+  "title": "Compaction keeps an early decision",
+  "checks": "A decision made at the start of a long chat survives compaction: it is still sent to the model and recalled afterwards.",
+  "why": "Long chats get compacted; if the summary drops what was agreed early on, the assistant quietly goes back on it.",
+  "needs": [
+    "state",
+    "traces",
+    "compaction"
+  ],
+  "est_turns": 42,
+  "case": {
+    "name": "Compaction keeps an early decision",
+    "about": "The decision {{fact}} survives compaction of a long chat about {{topic}}.",
+    "turns": [
+      {
+        "message": "Before we start on {{topic}}, one decision we made: {{fact}} Please keep that in mind.",
+        "fresh": true
+      },
+      {
+        "filler": "{{n}}",
+        "about": "{{filler_topic}}"
+      },
+      {
+        "expect_state": {
+          "checkpoint": true
+        }
+      },
+      {
+        "expect_state": {
+          "context_contains": "{{fact_word}}"
+        }
+      },
+      {
+        "message": "Quick check before I go on: what did we decide at the very start?"
+      }
+    ],
+    "reply": {
+      "reference": "Restates the early decision ({{fact_word}}) without asking to be reminded.",
+      "rubric": [
+        "Says {{fact_word}} as the decision",
+        "Doesn't say it can't remember or ask to be told again"
+      ],
+      "contains": [
+        "{{fact_word}}"
+      ]
+    },
+    "limits": {
+      "tries": 2,
+      "seconds": "{{seconds}}"
+    }
+  }
+}

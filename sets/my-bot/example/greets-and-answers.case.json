@@ -1,0 +1,12 @@
+{
+  "name": "Answers a plain question",
+  "about": "A short factual question gets a short, direct answer with no tool calls.",
+  "source": "example",
+  "turns": [{ "message": "What is the capital of Uruguay?" }],
+  "tools": { "order": "in_order", "extras": false, "expected": [] },
+  "reply": {
+    "reference": "Says Montevideo, in a sentence or two.",
+    "rubric": ["Names Montevideo", "Short, with no padding"]
+  },
+  "limits": { "tries": 3, "seconds": 60 }
+}

@@ -1,0 +1,80 @@
+[project]
+name = "evalution"
+version = "0.1.0"
+description = "Agentic evals for any agent app that sends OpenTelemetry traces"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "opentelemetry-proto>=1.30",
+    "protobuf>=5",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+# A local Phoenix that `evalution serve` runs itself (docs/architecture.md, "Traces").
+# Elastic License 2.0; see NOTICE.
+traces = ["arize-phoenix==21.0.0"]
+
+[project.scripts]
+evalution = "evalution.cli:main"
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+traces = ["evalution[traces]"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evalution"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "ASYNC", "S", "SLF001"]
+ignore = ["S101", "S311", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "SLF001"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+norecursedirs = ["acceptance"]
+
+[tool.importlinter]
+root_package = "evalution"
+
+# Top may import below only (ADR 0006). "|" marks parts of a layer, which don't import each other.
+[[tool.importlinter.contracts]]
+name = "Each layer imports only from below it"
+type = "layers"
+containers = ["evalution"]
+exhaustive = true
+layers = [
+    "cli",
+    "api | doctor | service | upgrade",
+    "writer | connect",
+    "runs",
+    "review",
+    "project",
+    "targets",
+    "judging | results",
+    "suite | traces | code | settings",
+    "adapters",
+    "llm",
+    "config",
+    "core",
+]

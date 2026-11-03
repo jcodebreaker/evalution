@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.20"
+  PIP_AUDIT_VERSION: "2.10.1"
+  NODE_VERSION: "22"
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - run: uv sync --locked --all-groups
+      - run: uv run --all-groups ruff format --check .
+      - run: uv run --all-groups ruff check .
+      - run: uv run --all-groups lint-imports
+      - run: uv run --all-groups pytest -q --ignore=tests/acceptance
+      - name: Acceptance tests, once there are any
+        run: |
+          if [ -d tests/acceptance ]; then
+            uv run --all-groups pytest -q tests/acceptance
+          else
+            echo "No tests/acceptance yet"
+          fi
+
+  server-audit:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      # What gets installed: without the dev tools, with the optional trace store.
+      - run: uv export --frozen --no-dev --no-hashes --no-emit-project --all-extras --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+      - run: uvx "pip-audit==$PIP_AUDIT_VERSION" --no-deps --disable-pip -r "$RUNNER_TEMP/requirements.txt"
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npx biome check src
+      - run: npx tsc --noEmit -p .
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high

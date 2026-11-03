@@ -1,0 +1,12 @@
+[project]
+name = "langgraph-memory-agent"
+version = "0.1.0"
+description = "A tiny LangGraph agent with store-backed memory and a summarising node, for evalution"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.6",
+    "langchain-openai>=0.3",
+    "arize-phoenix-otel>=0.9",
+    "openinference-instrumentation-langchain>=0.1",
+    "langgraph-cli[inmem]>=0.3",
+]

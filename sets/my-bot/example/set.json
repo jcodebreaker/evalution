@@ -1,0 +1,6 @@
+{
+  "name": "Example",
+  "about": "A first case for a chat endpoint played over HTTP.",
+  "grader": "strong",
+  "pass_marks": { "tools": 0.8, "reply": 0.7 }
+}

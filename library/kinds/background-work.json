@@ -1,0 +1,29 @@
+{
+  "kind": "delegation",
+  "title": "Background work",
+  "checks": "Work the app hands off in the background ends, and the final outcome is right.",
+  "why": "An app can say it's on it and never finish; only the outcome once the work has ended tells.",
+  "needs": [
+    "background"
+  ],
+  "est_turns": 1,
+  "case": {
+    "name": "{{test_name}}",
+    "turns": [
+      {
+        "message": "{{prompt}}"
+      }
+    ],
+    "reply": {
+      "reference": "{{outcome}}",
+      "rubric": [
+        "The work finished: {{outcome}}",
+        "Avoids this: {{must_not}}"
+      ]
+    },
+    "limits": {
+      "tries": 3,
+      "seconds": "{{seconds}}"
+    }
+  }
+}
