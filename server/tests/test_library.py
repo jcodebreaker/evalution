@@ -540,6 +540,9 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
         attempt = {"n": 1, "judgements": [made], "memory": memory, **spent}
         return {"source": source, "tries": [attempt]}
 
+    broke_off = tried("failed", "longmemeval:temporal-reasoning")
+    broke_off["tries"][0]["error"] = "the turn did not finish in time"
+
     run = {
         "run": "r",
         "set": "longmemeval-quick",
@@ -552,6 +555,7 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
             "d": tried("passed", "longmemeval:multi-session:unanswerable"),
             "e": tried("failed", "someone-else"),
             "f": {"source": "longmemeval:multi-session", "tries": []},
+            "g": broke_off,
         },
     }
     found = report(run)
@@ -569,8 +573,8 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
 
     shown = overview("bot", tmp_path, [run])["runs"][0]
     assert shown["totals"] == {
-        "tokens": 40,
-        "usd": 2.0,
+        "tokens": 50,
+        "usd": 2.5,
         "median_seconds": 3.0,
         "models": ["m"],
     }, "only the benchmark's own questions count"

@@ -284,6 +284,14 @@ def _memory(entry: Mapping[str, Any]) -> dict[str, Any] | None:
     return ((entry.get("tries") or [{}])[-1]).get("memory")
 
 
+def _said(entry: Mapping[str, Any]) -> VerdictKind:
+    """How a question came out. A try that broke off (the app hung, the computer slept) never heard
+    the question through, so its reply says nothing about memory: not judged rather than wrong."""
+    said = verdict_of(entry).kind
+    last = (entry.get("tries") or [{}])[-1]
+    return VerdictKind.UNJUDGED if said is VerdictKind.FAIL and last.get("error") else said
+
+
 def report(run: Mapping[str, Any]) -> dict[str, Any]:
     """LongMemEval's numbers for a stored run: right / judged, per kind of question; the mean of the
     kinds; how many known answers reached committed memory; and, apart, how often the agent admitted
@@ -305,7 +313,7 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
         found = _SOURCE.match(str(entry.get("source") or ""))
         if not found:
             continue
-        said = verdict_of(entry).kind
+        said = _said(entry)
         if said is VerdictKind.NOT_RUN:
             waiting += 1
             continue
@@ -382,7 +390,7 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "kind": found[1],
                 "unanswerable": bool(found[2]),
                 "question": asked.split("\n", 1)[-1],
-                "verdict": verdict_of(entry).kind.value,
+                "verdict": _said(entry).value,
                 "memory": _memory(entry),
                 "tie_break": bool(lines and lines[0].get("tie_break")),
                 "leaning": _leaning(lines[0]) if lines else None,
