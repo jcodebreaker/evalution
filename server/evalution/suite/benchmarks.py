@@ -44,6 +44,7 @@ _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/
 SIZES: dict[str, tuple[str, int | None]] = {
     "quick": ("longmemeval_oracle.json", 10),
     "oracle": ("longmemeval_oracle.json", None),
+    "middle": ("longmemeval_s_cleaned.json", None),
     "s": ("longmemeval_s_cleaned.json", None),
     "m": ("longmemeval_m_cleaned.json", None),
 }
@@ -51,6 +52,7 @@ SIZES: dict[str, tuple[str, int | None]] = {
 ABOUT = {
     "quick": "A fixed sample with short histories: 10 of each kind of question",
     "oracle": "Every question that can play, with short histories",
+    "middle": "The same questions, then about 50 unrelated messages to push the answer out of view",
     "s": "The same questions among unrelated conversations, about 40 per question",
     "m": "The same questions among about 500 conversations each",
 }
@@ -58,6 +60,8 @@ ABOUT = {
 _CANNOT_PLAY = "single-session-assistant"
 _SOURCE = re.compile(rf"^{NAME}:([a-z-]+)(:unanswerable)?$")
 _SAMPLE_SEED = 0
+#: How many unrelated messages a "middle" history plays after the sessions holding the answer.
+_MIDDLE_UNRELATED = 50
 _REPLY_CHARS = 4000
 _RUNS_SHOWN = 20
 #: Fewer answers than this, or facts measured, and a sentence about them would claim too much.
@@ -172,9 +176,40 @@ def to_case(entry: Mapping[str, Any], boundary: str = "break") -> dict[str, Any]
     }
 
 
+def trimmed(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """*entry* with only the sessions holding the answer, then enough unrelated ones to bury them.
+    The unrelated ones come last, dated with the last answer, so the answer can't still be the most
+    recent thing said. Our own variation: its scores don't compare with published ones."""
+    holding = set(entry.get("answer_session_ids") or ())
+    rows = list(
+        zip(
+            entry["haystack_session_ids"],
+            entry["haystack_dates"],
+            entry["haystack_sessions"],
+            strict=True,
+        )
+    )
+    answers = [(date, session) for name, date, session in rows if name in holding]
+    last = answers[-1][0] if answers else entry["question_date"]
+    buried: list[tuple[str, Any]] = []
+    sent = 0
+    for name, _, session in rows:
+        if name in holding or sent >= _MIDDLE_UNRELATED:
+            continue
+        buried.append((last, session))
+        sent += sum(turn["role"] == "user" for turn in session)
+    kept = answers + buried
+    return {
+        **entry,
+        "haystack_dates": [date for date, _ in kept],
+        "haystack_sessions": [session for _, session in kept],
+    }
+
+
 def _chosen(size: str, each: int | None, data_dir: Path) -> list[Mapping[str, Any]]:
     file, default = SIZES[size]
-    return sample(json.loads(fetch(file, data_dir).read_text()), each or default)
+    chosen = sample(json.loads(fetch(file, data_dir).read_text()), each or default)
+    return [trimmed(entry) for entry in chosen] if size == "middle" else chosen
 
 
 def size_of(size: str, each: int | None, data_dir: Path) -> tuple[int, int]:

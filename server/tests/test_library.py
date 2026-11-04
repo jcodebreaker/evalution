@@ -23,6 +23,7 @@ from evalution.suite.benchmarks import (
     report,
     sample,
     to_case,
+    trimmed,
     untested,
 )
 from evalution.suite.cases import CaseError, parse_case
@@ -500,6 +501,18 @@ def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
     assert first == [e["question_id"] for e in sample(list(reversed(entries)), 5)]
     assert len(first) == 6 and "q-a" not in first and "q-b_abs" in first
     assert len(sample(entries, None)) == 31
+
+    chat = [{"role": "user", "content": "unrelated"}] * 30
+    long = {
+        **_question("q-m", "multi-session"),
+        "answer_session_ids": ["clue"],
+        "haystack_session_ids": ["a", "clue", "b", "c", "d"],
+        "haystack_dates": ["d1", "d2", "d3", "d4", "d5"],
+        "haystack_sessions": [chat, [{"role": "user", "content": "the fact"}], chat, chat, chat],
+    }
+    kept = trimmed(long)
+    assert kept["haystack_sessions"][0] == [{"role": "user", "content": "the fact"}]
+    assert kept["haystack_dates"] == ["d2", "d2", "d2"] and len(kept["haystack_sessions"]) == 3
 
 
 def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:

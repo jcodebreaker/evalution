@@ -39,7 +39,7 @@ const DATASETS = [
 ] as const;
 
 function datasetOf(set: string): "short" | "long" {
-  return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
+  return /^longmemeval-(s|m|middle)(-|$)/.test(set) ? "long" : "short";
 }
 
 const SHORT_CHARS = 110;
