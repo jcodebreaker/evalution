@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { seconds, tokens, usd } from "../../lib/format";
+import { seconds, tokens, usd, when } from "../../lib/format";
 import type { Benchmarks } from "../../lib/schema";
 import { Button } from "../../ui/button";
-import { Group } from "../shared/group";
+import { TextLink } from "../shared/group";
 
 export type Run = Benchmarks["runs"][number];
 type MetricKey = "accuracy" | "average" | "recall" | "reached" | "abstention" | "retrieval";
+type Metric = { key: MetricKey; label: string; value: number | null; note: string };
 
 export function share(value: number | null): string {
   return value === null ? "–" : `${Math.round(value * 100)}%`;
@@ -63,194 +64,163 @@ function howCalculated(key: MetricKey, run: Run): { lines: string; who: string }
   };
 }
 
-const STROKE = 13;
-const GAP = 3;
-const SIZE = 148;
-
-/** Concentric rings, outermost first. No value leaves the track bare: no data is not 0%, and the numbers beside them say which it is. */
-function Rings({
-  rings,
-  open,
-  onPick,
-}: {
-  rings: { key: MetricKey; label: string; value: number | null; tone: string }[];
-  open: MetricKey | null;
-  onPick: (key: MetricKey) => void;
-}) {
-  return (
-    <svg
-      viewBox={`0 0 ${SIZE} ${SIZE}`}
-      width={SIZE}
-      height={SIZE}
-      className="shrink-0"
-      role="img"
-      aria-label={rings.map((ring) => `${ring.label} ${share(ring.value)}`).join(", ")}
-    >
-      {rings.map((ring, index) => {
-        const radius = SIZE / 2 - STROKE / 2 - index * (STROKE + GAP);
-        const around = 2 * Math.PI * radius;
-        // The round caps add one stroke's width, so the arc is cut by that to stay to scale.
-        const arc = Math.max((ring.value ?? 0) * around - STROKE, 0.01);
-        return (
-          // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut; the number beside each ring is the keyboard way to the same formula.
-          <g
-            key={ring.key}
-            fill="none"
-            strokeWidth={STROKE}
-            onClick={() => onPick(ring.key)}
-            className={cn("transition-opacity", open && open !== ring.key && "opacity-35")}
-          >
-            <title>{`${ring.label} ${share(ring.value)}`}</title>
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={radius}
-              stroke="currentColor"
-              className="text-muted"
-            />
-            {ring.value ? (
-              <circle
-                cx={SIZE / 2}
-                cy={SIZE / 2}
-                r={radius}
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeDasharray={`${arc} ${around}`}
-                strokeDashoffset={-STROKE / 2}
-                transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-                className={ring.tone}
-              />
-            ) : null}
-          </g>
-        );
-      })}
-    </svg>
-  );
+/** A benchmark set in words: `LongMemEval quick`, `LongMemEval S · One conversation`. */
+export function benchmarkName(set: string): string {
+  const name = set.replace("longmemeval-", "");
+  const size = name.replace("-same", "");
+  const word: Record<string, string> = { quick: "quick", oracle: "full", s: "S", m: "M" };
+  return `LongMemEval ${word[size] ?? size}${name === size ? "" : " · One conversation"}`;
 }
 
-/** The run at a glance: its rings, the numbers beside them, what happened, and how far it has got. */
-export function Glance({ run, onStopped }: { run: Run; onStopped: () => Promise<void> | void }) {
+/** Each measured number of a run. What wasn't measured isn't here: no data is not 0%. */
+function metrics(report: Run["report"]): Metric[] {
+  const { memory } = report;
+  const all: Metric[] = [
+    {
+      key: "accuracy",
+      label: "Answer accuracy",
+      value: report.accuracy,
+      note: `${report.right} of ${report.judged}`,
+    },
+    {
+      key: "recall",
+      label: "Memory write recall",
+      value: report.write_recall,
+      note: `${memory.committed} of ${memory.measured}`,
+    },
+    {
+      key: "reached",
+      label: "Reached the model",
+      value: report.reached,
+      note: `${memory.reached} of ${memory.reach_measured}`,
+    },
+    {
+      key: "abstention",
+      label: "Abstention",
+      value: report.abstention,
+      note: `${report.admitted} of ${report.unanswerable}`,
+    },
+  ];
+  return all.filter((metric) => metric.value !== null);
+}
+
+/** Points gained since `before`, on the rounded numbers the cards show, so the sum agrees. */
+function change(value: number | null, before: number | null | undefined): number | null {
+  if (value === null || before === null || before === undefined) return null;
+  return Math.round(value * 100) - Math.round(before * 100);
+}
+
+/** The run at a glance: what happened, how far it has got, and its numbers against the run before. */
+export function Glance({
+  run,
+  previous,
+  onStopped,
+}: {
+  run: Run;
+  /** The last run of the same set that got somewhere. */
+  previous: Run | null;
+  onStopped: () => Promise<void> | void;
+}) {
   const [open, setOpen] = useState<MetricKey | null>(null);
   const { report } = run;
   const pick = (key: MetricKey) => setOpen(open === key ? null : key);
-  const rings = [
-    {
-      key: "accuracy" as const,
-      label: "Answer accuracy",
-      value: report.accuracy,
-      note: report.judged ? `${report.right} of ${report.judged}` : "",
-      tone: "text-tint",
-    },
-    {
-      key: "recall" as const,
-      label: "Memory write recall",
-      value: report.write_recall,
-      note: report.memory.measured
-        ? `${report.memory.committed} of ${report.memory.measured}`
-        : played(run)
-          ? "Not measured"
-          : "",
-      tone: "text-foreground",
-    },
-    {
-      key: "reached" as const,
-      label: "Reached the model",
-      value: report.reached,
-      note: report.memory.reach_measured
-        ? `${report.memory.reached} of ${report.memory.reach_measured}`
-        : played(run)
-          ? "Not measured"
-          : "",
-      tone: "text-warning",
-    },
-    {
-      key: "abstention" as const,
-      label: "Abstention",
-      value: report.abstention,
-      note: report.unanswerable ? `${report.admitted} of ${report.unanswerable}` : "",
-      tone: "text-mid",
-    },
-  ];
+  const cards = metrics(report);
+  const was = previous ? metrics(previous.report) : [];
   const how = open ? howCalculated(open, run) : null;
-  const small = (key: MetricKey, text: string) => (
-    <button
-      type="button"
-      aria-expanded={open === key}
-      onClick={() => pick(key)}
-      className={cn(
-        "rounded-md px-1.5 py-0.5 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
-        open === key && "bg-selection-strong",
-      )}
-    >
-      {text}
-    </button>
-  );
+  const running = run.status === "running";
+  const didntFinish = run.status === "stopped" || run.status === "failed";
   return (
-    <Group>
-      {run.status === "running" ? <Progress run={run} onStopped={onStopped} /> : null}
-      <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 px-5 py-5 max-md:px-3">
-        <Rings rings={rings} open={open} onPick={pick} />
-        <div className="flex min-w-0 flex-1 basis-80 flex-col gap-3">
-          {run.happened ? (
-            <p
-              className={cn(
-                "m-0 px-1.5 font-display text-[16px] font-bold tracking-[-0.2px]",
-                run.untested && "text-warning",
-              )}
-            >
-              {run.happened}
-            </p>
-          ) : null}
-          <div className="grid grid-cols-4 gap-1 max-[520px]:grid-cols-2">
-            {rings.map((ring) => (
+    <>
+      <div className="flex flex-col gap-0.5 px-1">
+        <p className="m-0 flex flex-wrap gap-x-2 text-[13px] text-ink-2">
+          {benchmarkName(run.set)}
+          {run.started_at ? <span className="text-ink-3">{when(run.started_at)}</span> : null}
+          {didntFinish ? <span className="font-semibold text-warning">Didn't finish</span> : null}
+        </p>
+        <Usage run={run} />
+      </div>
+      {run.happened ? (
+        <p
+          className={cn(
+            "glass m-0 rounded-2xl px-5 py-3 text-[14.5px] font-semibold",
+            run.untested && "text-warning",
+          )}
+        >
+          {run.happened}
+        </p>
+      ) : null}
+      {running ? <Progress run={run} onStopped={onStopped} big={!cards.length} /> : null}
+      {cards.length ? (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3.5">
+          {cards.map((card) => {
+            const delta = change(card.value, was.find((old) => old.key === card.key)?.value);
+            return (
               <button
-                key={ring.key}
+                key={card.key}
                 type="button"
-                aria-expanded={open === ring.key}
-                onClick={() => pick(ring.key)}
+                aria-expanded={open === card.key}
+                onClick={() => pick(card.key)}
                 className={cn(
-                  "flex min-w-0 flex-col gap-1 rounded-lg px-1.5 py-1.5 text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
-                  open === ring.key && "bg-selection-strong",
+                  "glass flex min-w-0 flex-col gap-0.5 rounded-2xl px-5 py-4 text-start focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  open === card.key && "ring-2 ring-chart",
                 )}
               >
-                <span className="font-display text-[30px] leading-none font-extrabold tabular-nums">
-                  {share(ring.value)}
+                <span className="text-[12.5px] font-medium text-ink-2">{card.label}</span>
+                <span className="font-display text-[30px] leading-tight font-semibold tracking-[-0.03em]">
+                  {share(card.value)}
                 </span>
-                <span className="flex items-baseline gap-1.5 text-[12px] leading-tight text-ink-2">
-                  <span
-                    className={cn("size-2 shrink-0 rounded-full bg-current", ring.tone)}
-                    aria-hidden
-                  />
-                  {ring.label}
+                <span className="flex flex-wrap gap-x-2 text-[12.5px] text-ink-3 tabular-nums">
+                  {delta ? (
+                    <span
+                      className={cn(
+                        "font-semibold",
+                        delta > 0 ? "text-success" : "text-destructive",
+                      )}
+                    >
+                      {delta > 0 ? "+" : "−"}
+                      {Math.abs(delta)} pts
+                    </span>
+                  ) : null}
+                  {card.note}
                 </span>
-                {ring.note ? (
-                  <span className="text-[12px] text-ink-3 tabular-nums">{ring.note}</span>
-                ) : null}
               </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-x-2 text-[12px] text-ink-3">
-            {report.task_average === null
-              ? null
-              : small("average", `Task average ${share(report.task_average)}`)}
-            {small("retrieval", "Retrieval recall: not available yet")}
-          </div>
+            );
+          })}
         </div>
-      </div>
+      ) : null}
       {how ? (
-        <div className="flex flex-col gap-2 border-t border-separator bg-muted px-5 py-3">
+        <div className="glass flex flex-col gap-1.5 rounded-2xl px-5 py-3.5">
           <pre className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
             {how.lines}
           </pre>
           <p className="m-0 text-[13px] text-ink-2">{how.who}</p>
+          <div className="flex flex-wrap gap-x-3 text-[12px]">
+            {report.task_average === null || open === "average" ? null : (
+              <TextLink onClick={() => pick("average")}>
+                Task average {share(report.task_average)}
+              </TextLink>
+            )}
+            {open === "retrieval" ? null : (
+              <TextLink onClick={() => pick("retrieval")}>Retrieval recall</TextLink>
+            )}
+          </div>
         </div>
       ) : null}
-    </Group>
+    </>
   );
 }
 
 /** How far a going run has got. The question being played counts by its messages, so a long one still moves. */
-function Progress({ run, onStopped }: { run: Run; onStopped: () => Promise<void> | void }) {
+function Progress({
+  run,
+  onStopped,
+  big,
+}: {
+  run: Run;
+  onStopped: () => Promise<void> | void;
+  /** Nothing else to show yet, so this is the screen. */
+  big: boolean;
+}) {
   const [stopping, setStopping] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const stop = async () => {
@@ -277,9 +247,14 @@ function Progress({ run, onStopped }: { run: Run; onStopped: () => Promise<void>
         ? `Message ${current.turn ?? 0} of ${current.turns}`
         : "";
   return (
-    <div className="flex flex-col gap-2 border-b border-separator px-5 py-3.5 max-md:px-3">
+    <div className={cn("glass flex flex-col gap-2.5 rounded-2xl px-5 py-4", big && "gap-3 py-6")}>
       <div className="flex items-center gap-3">
-        <span className="font-display text-[20px] font-extrabold tabular-nums">
+        <span
+          className={cn(
+            "font-display font-semibold tabular-nums",
+            big ? "text-[34px] leading-tight tracking-[-0.03em]" : "text-[15px]",
+          )}
+        >
           {done} of {total}
         </span>
         <Button
@@ -298,12 +273,12 @@ function Progress({ run, onStopped }: { run: Run; onStopped: () => Promise<void>
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={done}
-        className="h-2 overflow-hidden rounded-full bg-muted"
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
       >
-        <div className="h-full rounded-full bg-tint" style={{ width: `${part * 100}%` }} />
+        <div className="h-full rounded-full bg-chart" style={{ width: `${part * 100}%` }} />
       </div>
       {step || current?.name ? (
-        <p className="m-0 truncate text-[12px] text-ink-2">
+        <p className="m-0 truncate text-[12.5px] text-ink-2">
           {[step, current?.name].filter(Boolean).join(" · ")}
         </p>
       ) : null}
@@ -316,86 +291,21 @@ function compactTokens(value: number): string {
   return value < 1_000_000 ? tokens(value) : `${(value / 1_000_000).toFixed(1)}M`;
 }
 
-/** What the run came to. A figure that wasn't recorded isn't shown. */
-export function StatStrip({ run }: { run: Run }) {
+/** What the run came to, on one quiet line. A figure that wasn't recorded isn't shown. */
+function Usage({ run }: { run: Run }) {
   const { totals } = run;
-  const models = totals?.models.join(", ");
-  const numbers: [string, string | null][] = [
-    ["Played", run.status === "running" ? null : `${played(run)} of ${run.questions.length}`],
-    ["Tokens", totals?.tokens ? compactTokens(totals.tokens) : null],
-    ["Spent", totals?.usd ? usd(totals.usd) : null],
-    ["Median", totals?.median_seconds ? seconds(totals.median_seconds) : null],
-  ];
-  const names: [string, string | null | undefined][] = [
-    ["Model", models],
-    ["Judge", run.judge],
-  ];
+  const parts = [
+    run.status === "running" ? null : `${played(run)} of ${run.questions.length} played`,
+    totals?.tokens ? `${compactTokens(totals.tokens)} tokens` : null,
+    totals?.usd ? usd(totals.usd) : null,
+    totals?.median_seconds ? `${seconds(totals.median_seconds)} median` : null,
+    totals?.models.length ? totals.models.join(", ") : null,
+    run.judge ? `judged by ${run.judge}` : null,
+  ].filter(Boolean);
+  if (!parts.length) return null;
   return (
-    <Group className="flex flex-wrap items-baseline gap-x-7 gap-y-3 px-5 py-3.5 max-md:px-3">
-      {numbers.map(([label, value]) =>
-        value ? (
-          <div key={label} className="min-w-0">
-            <div className="text-[11.5px] text-ink-2">{label}</div>
-            <div className="font-display text-[20px] leading-tight font-bold tabular-nums">
-              {value}
-            </div>
-          </div>
-        ) : null,
-      )}
-      {names.map(([label, value]) =>
-        value ? (
-          <div key={label} className="min-w-0">
-            <div className="text-[11.5px] text-ink-2">{label}</div>
-            <div className="text-[13px] font-semibold [overflow-wrap:anywhere]">{value}</div>
-          </div>
-        ) : null,
-      )}
-    </Group>
-  );
-}
-
-/** Accuracy across runs, oldest to newest, on a fixed 0 to 100% scale. */
-export function Trend({ points }: { points: { at: string; value: number }[] }) {
-  const width = 96;
-  const height = 24;
-  const x = (index: number) => 3 + (index * (width - 6)) / (points.length - 1);
-  const y = (value: number) => height - 3 - value * (height - 6);
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
-      role="img"
-      aria-label={`Answer accuracy across runs: ${points.map((point) => share(point.value)).join(", ")}`}
-    >
-      <line
-        x1={0}
-        x2={width}
-        y1={height - 3}
-        y2={height - 3}
-        stroke="currentColor"
-        className="text-separator"
-      />
-      <polyline
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinejoin="round"
-        className="text-tint"
-        points={points.map((point, index) => `${x(index)},${y(point.value)}`).join(" ")}
-      />
-      {points.map((point, index) => (
-        <circle
-          key={point.at}
-          cx={x(index)}
-          cy={y(point.value)}
-          r={index === points.length - 1 ? 3 : 1.5}
-          fill="currentColor"
-          className="text-tint"
-        >
-          <title>{`${point.at}: ${share(point.value)}`}</title>
-        </circle>
-      ))}
-    </svg>
+    <p className="m-0 text-[12px] text-ink-3 tabular-nums [overflow-wrap:anywhere]">
+      {parts.join(" · ")}
+    </p>
   );
 }

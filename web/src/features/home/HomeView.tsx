@@ -88,14 +88,14 @@ export function HomeView({
               {today}
               {lastRunAt ? ` · last run ${ago(lastRunAt)}` : ""}
             </p>
-            <h1 className="m-0 mt-1 text-[30px] leading-tight font-extrabold tracking-[-0.6px]">
+            <h1 className="m-0 mt-1 text-[26px] leading-tight font-semibold tracking-[-0.02em]">
               How {scope.target} is doing
             </h1>
           </div>
           {empty ? null : (
             <fieldset
               aria-label="Period"
-              className="m-0 flex gap-0.5 rounded-[10px] border-0 bg-bubble p-[3px]"
+              className="m-0 flex gap-0.5 rounded-full border-0 bg-bubble p-[3px]"
             >
               {PERIODS.map(([id, label]) => (
                 <button
@@ -104,7 +104,7 @@ export function HomeView({
                   aria-pressed={period === id}
                   onClick={() => setPeriod(id)}
                   className={cn(
-                    "h-[34px] rounded-lg px-3.5 text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-ring",
+                    "h-[30px] rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
                     period === id ? "bg-group text-foreground shadow-sm" : "text-ink-2",
                   )}
                 >

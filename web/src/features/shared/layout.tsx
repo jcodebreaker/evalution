@@ -15,7 +15,7 @@ export function Toolbar({ children }: { children: ReactNode }) {
 export function ToolbarTitle({ title, sub }: { title: ReactNode; sub?: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <h1 className="m-0 truncate text-[18px] font-bold tracking-[-0.3px]">{title}</h1>
+      <h1 className="m-0 truncate text-[20px] font-semibold tracking-[-0.02em]">{title}</h1>
       {sub ? <span className="truncate text-[12px] text-ink-2">{sub}</span> : null}
     </div>
   );
@@ -32,13 +32,21 @@ export function BackLink({ label, onClick }: { label: string; onClick: () => voi
 }
 
 /** A screen's scrolling body, one readable column. */
-export function Page({ children, narrow }: { children: ReactNode; narrow?: boolean }) {
+export function Page({
+  children,
+  narrow,
+  wide,
+}: {
+  children: ReactNode;
+  narrow?: boolean;
+  wide?: boolean;
+}) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div
         className={cn(
           "mx-auto flex flex-col gap-6 px-6 pt-6 pb-14 max-md:px-4 max-md:pt-4",
-          narrow ? "max-w-[760px]" : "max-w-[860px]",
+          narrow ? "max-w-[760px]" : wide ? "max-w-[1180px]" : "max-w-[860px]",
         )}
       >
         {children}

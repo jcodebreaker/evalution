@@ -95,8 +95,8 @@ export function App() {
     <div
       className={
         panel
-          ? "grid h-full bg-window text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)_380px]"
-          : "grid h-full bg-window text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)]"
+          ? "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)_380px]"
+          : "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)]"
       }
     >
       <Sidebar
@@ -116,7 +116,7 @@ export function App() {
           else if (goingBenchmark) showBenchmark(goingBenchmark.run);
         }}
       />
-      <main className="flex min-h-0 min-w-0 flex-col bg-content max-md:min-h-[70vh]">
+      <main className="flex min-h-0 min-w-0 flex-col max-md:min-h-[70vh]">
         <Screen
           place={place}
           go={go}

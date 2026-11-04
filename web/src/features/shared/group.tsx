@@ -32,7 +32,7 @@ export function Fold({
     <details className={cn("group/fold", className)}>
       <summary className="flex w-fit cursor-default list-none items-center gap-1.5 rounded-md px-1 py-0.5 text-[12.5px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight
-          className="size-3 text-ink-3 transition-transform group-open/fold:rotate-90"
+          className="size-3 shrink-0 text-ink-3 transition-transform group-open/fold:rotate-90"
           aria-hidden
         />
         {title}

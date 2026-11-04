@@ -1,16 +1,18 @@
-import { ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { seconds, tokens, usd, when } from "../../lib/format";
-import type { Benchmarks } from "../../lib/schema";
+import type { Benchmarks, Verdict } from "../../lib/schema";
 import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
 import { Fold, Group, GroupHeading, TextLink } from "../shared/group";
-import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
+import { Centered, Page } from "../shared/layout";
+import { VerdictGlyph } from "../shared/marks";
+import { BarChart, ChartPanel, ColumnChart, LineChart } from "./Charts";
 import type { Run } from "./Glance";
-import { Glance, played, StatStrip, share, Trend } from "./Glance";
+import { benchmarkName, Glance, played, share } from "./Glance";
 
 type Question = Run["questions"][number];
 type Filter = "all" | "wrong" | "right" | "other" | "waiting";
@@ -40,12 +42,6 @@ const FILTERS: [Filter, string][] = [
   ["other", "Judge unsure"],
   ["waiting", "Waiting"],
 ];
-
-/** How a run plays, in a few words: `One conversation · Full, S`. */
-function playedAs(set: string, boundary: string | undefined): string {
-  const size = set.replace("longmemeval-", "").replace("-same", "");
-  return `${boundary === "same" ? "One conversation · " : ""}${SIZES[size] ?? size}`;
-}
 
 function didntFinish(run: Run): boolean {
   return run.status === "stopped" || run.status === "failed";
@@ -133,20 +129,25 @@ export function BenchmarksView({
   // A plan with no run yet, or one waiting for approval, is what there is to do: it goes first.
   const awaiting = !run || (data.plan !== null && !data.plan.approved);
   return (
-    <>
-      <Toolbar>
-        <ToolbarTitle title="Benchmarks" sub="LongMemEval" />
-      </Toolbar>
-      <Page>
-        {awaiting ? plan : null}
-        {run ? <RunResult key={run.run} run={run} onTry={onTry} onStopped={reload} /> : null}
-        {run ? <RunList runs={data.runs} selected={run} onPick={onPick} /> : null}
-        {awaiting ? null : plan}
-        <Fold title="Other sizes">
-          <Sizes target={target} sizes={data.sizes} onRun={onRun} onInstalled={reload} />
-        </Fold>
-      </Page>
-    </>
+    <Page wide>
+      <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
+      {awaiting ? plan : null}
+      {run ? (
+        <RunResult
+          key={run.run}
+          run={run}
+          runs={data.runs}
+          onPick={onPick}
+          onTry={onTry}
+          onStopped={reload}
+        />
+      ) : null}
+      {run ? <RunList runs={data.runs} selected={run} onPick={onPick} /> : null}
+      {awaiting ? null : plan}
+      <Fold title="Other sizes">
+        <Sizes target={target} sizes={data.sizes} onRun={onRun} onInstalled={reload} />
+      </Fold>
+    </Page>
   );
 }
 
@@ -217,7 +218,7 @@ function PlanCard({
     return (
       <section>
         <GroupHeading title="How this will run on your app" />
-        <Group className="flex flex-col items-start gap-3 px-4 py-3.5">
+        <Group className="flex flex-col items-start gap-3 p-6 max-md:p-5">
           <p className="m-0 text-[13.5px] text-ink-2">
             Picks how to play it on this app and tries a few real messages. You approve before
             anything long runs.
@@ -298,9 +299,9 @@ function PlanCard({
   // A plan still waiting for approval stays open, whatever has run before it: it has to be read.
   if (ran && plan.approved) {
     return (
-      <Group className="flex flex-col gap-2 px-3 py-2.5 text-[13.5px]">
+      <div className="flex flex-col gap-2 text-[13.5px]">
         {warnings}
-        <Fold title={<span className="font-semibold text-foreground">{planLine(plan)}</span>}>
+        <Fold title={planLine(plan)}>
           <div className="flex flex-col gap-3 ps-5">
             <p className="m-0 font-semibold">{plan.how}</p>
             {details}
@@ -309,13 +310,13 @@ function PlanCard({
           </div>
         </Fold>
         {failure}
-      </Group>
+      </div>
     );
   }
   return (
     <section>
       <GroupHeading title="How this will run on your app" />
-      <Group className="flex flex-col gap-3 px-4 py-3.5 text-[13.5px]">
+      <Group className="flex flex-col gap-3 p-6 text-[13.5px] max-md:p-5">
         {warnings}
         <p className="m-0 font-semibold">{plan.how}</p>
         {details}
@@ -343,10 +344,15 @@ function planLine(plan: NonNullable<Benchmarks["plan"]>): string {
 
 function RunResult({
   run,
+  runs,
+  onPick,
   onTry,
   onStopped,
 }: {
   run: Run;
+  /** Every run, newest first. */
+  runs: Run[];
+  onPick: (run: string) => void;
   onStopped: () => Promise<void> | void;
   onTry: (set: string, run: string, id: string) => void;
 }) {
@@ -355,42 +361,97 @@ function RunResult({
   const rows = run.questions.filter((question) => shown(question, filter));
   const kinds = Object.entries(report.kinds).filter(([, tally]) => tally.judged > 0);
   const anyPlayed = played(run) > 0;
+  const sameSet = runs.filter((entry) => entry.set === run.set);
+  const previous =
+    sameSet.slice(sameSet.indexOf(run) + 1).find((entry) => played(entry) > 0) ?? null;
+  const trend = sameSet.filter((entry) => entry.report.accuracy !== null).reverse();
+  const timed = run.questions.filter((question) => question.seconds);
+  const { memory } = report;
   return (
     <>
-      <section className="flex flex-col gap-2">
-        <GroupHeading
-          title={[
-            run.started_at ? when(run.started_at) : null,
-            playedAs(run.set, run.plan?.boundary),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          aside={
-            didntFinish(run) ? (
-              <span className="font-semibold text-warning">Didn't finish</span>
-            ) : null
-          }
-        />
-        <Glance run={run} onStopped={onStopped} />
-        <StatStrip run={run} />
-      </section>
-      {report.memory.measured ? <Lost memory={report.memory} /> : null}
-      {kinds.length ? (
-        <section>
-          <GroupHeading title="By kind of question" />
-          <Bars
-            rows={kinds.map(([kind, tally]) => ({
-              name: KINDS[kind] ?? kind,
-              value: tally.right,
-              of: tally.judged,
-            }))}
-          />
-        </section>
+      <Glance run={run} previous={previous} onStopped={onStopped} />
+      {anyPlayed ? (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3.5">
+          {trend.length > 1 ? (
+            <ChartPanel title="Answer accuracy by run" unit="% right">
+              <LineChart
+                name="Answer accuracy by run"
+                onPick={onPick}
+                points={trend.map((entry) => ({
+                  id: entry.run,
+                  at: entry.started_at
+                    ? new Date(entry.started_at * 1000).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : "",
+                  value: entry.report.accuracy ?? 0,
+                  label: share(entry.report.accuracy),
+                  detail: `${entry.report.right} of ${entry.report.judged}${entry.started_at ? `, ${when(entry.started_at)}` : ""}`,
+                }))}
+              />
+            </ChartPanel>
+          ) : null}
+          {memory.measured ? (
+            <ChartPanel title="How far facts got" unit="% of questions">
+              <BarChart
+                rows={[
+                  { name: "Told the agent", value: memory.measured, of: memory.measured },
+                  { name: "Written to memory", value: memory.written, of: memory.measured },
+                  { name: "Committed", value: memory.committed, of: memory.measured },
+                  ...(memory.reach_measured
+                    ? [
+                        {
+                          name: "Reached the model",
+                          value: memory.reached,
+                          of: memory.reach_measured,
+                        },
+                      ]
+                    : []),
+                  { name: "Answered right", value: memory.used, of: memory.measured },
+                ]}
+              />
+            </ChartPanel>
+          ) : null}
+          {kinds.length ? (
+            <ChartPanel title="By kind of question" unit="% right">
+              <BarChart
+                rows={kinds
+                  .map(([kind, tally]) => ({
+                    name: KINDS[kind] ?? kind,
+                    value: tally.right,
+                    of: tally.judged,
+                  }))
+                  .sort((a, b) => b.value / b.of - a.value / a.of)}
+              />
+            </ChartPanel>
+          ) : null}
+          {timed.length > 1 ? (
+            <ChartPanel
+              title="Time per question"
+              unit={
+                run.totals?.median_seconds
+                  ? `seconds, median ${Math.round(run.totals.median_seconds)}`
+                  : "seconds"
+              }
+            >
+              <ColumnChart
+                unit="s"
+                median={run.totals?.median_seconds ?? null}
+                columns={timed.map((question) => ({
+                  id: question.case,
+                  value: question.seconds ?? 0,
+                  detail: question.question,
+                }))}
+              />
+            </ChartPanel>
+          ) : null}
+        </div>
       ) : null}
       {anyPlayed ? (
         <section>
-          <div className="flex flex-wrap items-center gap-2 px-1 pb-1.5">
-            <h3 className="m-0 text-[13px] font-semibold">Questions</h3>
+          <div className="flex flex-wrap items-center gap-2 px-1 pb-2.5">
+            <h3 className="m-0 text-[15px] font-semibold">Questions</h3>
             <div className="ms-auto flex flex-wrap gap-1">
               {FILTERS.map(([key, label]) => {
                 const many = run.questions.filter((question) => shown(question, key)).length;
@@ -413,63 +474,10 @@ function RunResult({
               })}
             </div>
           </div>
-          <Group>
-            {rows.map((question) => (
-              <QuestionRow
-                key={question.case}
-                question={question}
-                onOpen={() => onTry(run.set, run.run, question.case)}
-              />
-            ))}
-          </Group>
+          <QuestionTable rows={rows} onOpen={(id) => onTry(run.set, run.run, id)} />
         </section>
       ) : null}
     </>
-  );
-}
-
-function Bars({ rows }: { rows: { name: string; value: number; of: number }[] }) {
-  return (
-    <Group className="flex flex-col gap-3 px-4 py-3.5">
-      {rows.map(({ name, value, of }) => (
-        <div
-          key={name}
-          className="grid grid-cols-[minmax(0,11em)_minmax(0,1fr)_4.5em] items-center gap-3 text-[13.5px]"
-        >
-          <span className="truncate">{name}</span>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-tint"
-              style={{ width: `${(value / of) * 100}%` }}
-            />
-          </div>
-          <span className="text-end tabular-nums text-ink-2">
-            {value} of {of}
-          </span>
-        </div>
-      ))}
-    </Group>
-  );
-}
-
-/** How far the facts got: each step counted over the same questions. */
-function Lost({ memory }: { memory: Run["report"]["memory"] }) {
-  const of = memory.measured;
-  return (
-    <section>
-      <GroupHeading title="How far facts got" />
-      <Bars
-        rows={[
-          { name: "Told the agent", value: of, of },
-          { name: "Written to memory", value: memory.written, of },
-          { name: "Committed", value: memory.committed, of },
-          ...(memory.reach_measured
-            ? [{ name: "Reached the model", value: memory.reached, of: memory.reach_measured }]
-            : []),
-          { name: "Answered right", value: memory.used, of },
-        ]}
-      />
-    </section>
   );
 }
 
@@ -478,65 +486,257 @@ function traceLink(url: string | null): string | null {
   return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
-function QuestionRow({ question, onOpen }: { question: Question; onOpen: () => void }) {
-  const { word, tone } = outcome(question);
+const GLYPHS = new Set(["pass", "flaky", "fail", "unjudged"]);
+
+/** A question's result: a mark that differs by shape, and a word. */
+function Status({ question }: { question: Question }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {GLYPHS.has(question.verdict) ? (
+        <VerdictGlyph verdict={question.verdict as Verdict} />
+      ) : (
+        <span className="mx-1 size-1.5 shrink-0 rounded-full bg-ink-3" aria-hidden />
+      )}
+      <span className="truncate" title={outcome(question).word}>
+        {outcome(question).word}
+      </span>
+    </span>
+  );
+}
+
+function kindOf(question: Question): string {
+  return question.unanswerable ? "Unanswerable" : (KINDS[question.kind] ?? question.kind);
+}
+
+/** Worst first when sorted by result: what to read comes up top. */
+const RESULT_ORDER = ["fail", "flaky", "unjudged", "pass"];
+type Sort = "status" | "kind" | "tokens" | "seconds";
+const SORTS: Record<Sort, (question: Question) => number | string> = {
+  status: (question) => {
+    const at = RESULT_ORDER.indexOf(question.verdict);
+    return at < 0 ? RESULT_ORDER.length : at;
+  },
+  kind: kindOf,
+  tokens: (question) => question.tokens ?? -1,
+  seconds: (question) => question.seconds ?? -1,
+};
+
+function Head({
+  label,
+  sort,
+  by,
+  down,
+  onSort,
+  className,
+}: {
+  label: string;
+  sort: Sort;
+  by: Sort | null;
+  down: boolean;
+  onSort: (sort: Sort) => void;
+  className: string;
+}) {
+  const Arrow = down ? ArrowDown : ArrowUp;
+  return (
+    <th
+      scope="col"
+      aria-sort={by === sort ? (down ? "descending" : "ascending") : undefined}
+      className={cn("px-3 py-2 font-medium", className)}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sort)}
+        className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        {label}
+        {by === sort ? <Arrow className="size-3" aria-hidden /> : null}
+      </button>
+    </th>
+  );
+}
+
+/** Every question, in play order until sorted. A column with nothing recorded isn't there. */
+function QuestionTable({ rows, onOpen }: { rows: Question[]; onOpen: (id: string) => void }) {
+  const [by, setBy] = useState<Sort | null>(null);
+  const [down, setDown] = useState(false);
+  const onSort = (sort: Sort) => {
+    setDown(by === sort ? !down : sort === "tokens" || sort === "seconds");
+    setBy(sort);
+  };
+  const sorted = by
+    ? [...rows].sort((a, b) => {
+        const [left, right] = [SORTS[by](a), SORTS[by](b)];
+        const order =
+          typeof left === "number" && typeof right === "number"
+            ? left - right
+            : String(left).localeCompare(String(right));
+        return down ? -order : order;
+      })
+    : rows;
+  const head = { by, down, onSort };
+  const hasTokens = rows.some((question) => question.tokens);
+  const hasSeconds = rows.some((question) => question.seconds);
+  const hasTrace = rows.some((question) => traceLink(question.trace_url));
+  return (
+    <Group>
+      <table className="w-full table-fixed border-collapse text-[13px]">
+        <thead>
+          <tr className="text-start text-[12px] text-ink-3">
+            <th scope="col" className="px-3 py-2 text-start font-medium">
+              Question
+            </th>
+            <Head
+              {...head}
+              label="Result"
+              sort="status"
+              className="w-[204px] text-start max-md:hidden"
+            />
+            <Head
+              {...head}
+              label="Kind"
+              sort="kind"
+              className="w-[160px] text-start max-lg:hidden"
+            />
+            {hasTokens ? (
+              <Head
+                {...head}
+                label="Tokens"
+                sort="tokens"
+                className="w-[84px] text-end max-md:hidden"
+              />
+            ) : null}
+            {hasSeconds ? (
+              <Head {...head} label="Time" sort="seconds" className="w-[72px] text-end" />
+            ) : null}
+            {hasTrace ? (
+              <th scope="col" className="w-[52px] py-2 pe-3 text-end font-medium">
+                <span className="max-md:sr-only">Trace</span>
+              </th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((question) => (
+            <QuestionRow
+              key={question.case}
+              question={question}
+              hasTokens={hasTokens}
+              hasSeconds={hasSeconds}
+              hasTrace={hasTrace}
+              onOpen={() => onOpen(question.case)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </Group>
+  );
+}
+
+function QuestionRow({
+  question,
+  hasTokens,
+  hasSeconds,
+  hasTrace,
+  onOpen,
+}: {
+  question: Question;
+  hasTokens: boolean;
+  hasSeconds: boolean;
+  hasTrace: boolean;
+  onOpen: () => void;
+}) {
+  const [open, setOpen] = useState(false);
   const trace = traceLink(question.trace_url);
-  const figures = [
-    question.tokens ? `${tokens(question.tokens)} tokens` : null,
-    question.seconds ? seconds(question.seconds) : null,
-  ].filter(Boolean);
   const more = [
     question.messages ? `${question.messages} messages` : null,
     question.usd ? usd(question.usd) : null,
     ...question.models,
   ].filter(Boolean);
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-separator px-4 py-2.5 first:border-t-0">
-      <Fold
-        className="min-w-0 flex-1 basis-72"
-        title={
-          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13.5px]">
-            <span className="min-w-0 text-foreground">{question.question}</span>
-            <span className={cn("font-semibold", tone)}>{word}</span>
-            <span className="text-ink-3">
-              {question.unanswerable ? "Unanswerable" : (KINDS[question.kind] ?? question.kind)}
-            </span>
-          </span>
-        }
-      >
-        <dl className="m-0 flex flex-col gap-2.5 ps-5 text-[13.5px]">
-          <Said label="What counts as right" text={question.right_is} />
-          <Said label="The reply" text={question.reply || "–"} />
-          {question.reason ? (
-            <Said
-              label={question.tie_break ? "Why, by the tie-break" : "Why"}
-              text={question.reason}
+    <>
+      <tr className="border-t border-separator align-top hover:bg-selection">
+        <td className="min-w-0 px-3 py-2">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            className="flex w-full min-w-0 items-start gap-1.5 rounded text-start focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <ChevronRight
+              className={cn(
+                "mt-1 size-3 shrink-0 text-ink-3 transition-transform",
+                open && "rotate-90",
+              )}
+              aria-hidden
             />
-          ) : null}
-          {question.error ? <Said label="What went wrong" text={question.error} /> : null}
-          {more.length ? <dd className="m-0 text-[12px] text-ink-2">{more.join(" · ")}</dd> : null}
-          <dd className="m-0">
-            <TextLink onClick={onOpen}>Open the whole try</TextLink>
-          </dd>
-        </dl>
-      </Fold>
-      {figures.length || trace ? (
-        <div className="ms-auto flex shrink-0 items-baseline gap-3 ps-5 text-[12px] text-ink-3 tabular-nums">
-          {figures.join(" · ")}
-          {trace ? (
-            <a
-              href={trace}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-semibold text-tint hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-            >
-              Trace
-              <ExternalLink className="size-3" aria-hidden />
-            </a>
-          ) : null}
-        </div>
+            <span className="min-w-0 flex-1">
+              <span className="max-md:line-clamp-2 md:block md:truncate" title={question.question}>
+                {question.question}
+              </span>
+              <span className="mt-0.5 block text-[12px] text-ink-2 md:hidden">
+                <Status question={question} />
+              </span>
+            </span>
+          </button>
+        </td>
+        <td className="px-3 py-2 max-md:hidden">
+          <Status question={question} />
+        </td>
+        <td className="truncate px-3 py-2 text-ink-2 max-lg:hidden">{kindOf(question)}</td>
+        {hasTokens ? (
+          <td className="px-3 py-2 text-end text-ink-2 tabular-nums max-md:hidden">
+            {question.tokens ? tokens(question.tokens) : null}
+          </td>
+        ) : null}
+        {hasSeconds ? (
+          <td className="px-3 py-2 text-end text-ink-2 tabular-nums">
+            {question.seconds ? seconds(question.seconds) : null}
+          </td>
+        ) : null}
+        {hasTrace ? (
+          <td className="py-2 pe-3 text-end">
+            {trace ? (
+              <a
+                href={trace}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Trace"
+                className="inline-flex rounded text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+            ) : null}
+          </td>
+        ) : null}
+      </tr>
+      {open ? (
+        <tr>
+          <td colSpan={6} className="px-3 pb-3 ps-[30px]">
+            <dl className="m-0 flex flex-col gap-2.5 text-[13.5px]">
+              <Said label="Question" text={question.question} />
+              <div className="lg:hidden">
+                <Said label="Kind" text={kindOf(question)} />
+              </div>
+              <Said label="What counts as right" text={question.right_is} />
+              {question.reply ? <Said label="The reply" text={question.reply} /> : null}
+              {question.reason ? (
+                <Said
+                  label={question.tie_break ? "Why, by the tie-break" : "Why"}
+                  text={question.reason}
+                />
+              ) : null}
+              {question.error ? <Said label="What went wrong" text={question.error} /> : null}
+              {more.length ? (
+                <dd className="m-0 text-[12px] text-ink-2">{more.join(" · ")}</dd>
+              ) : null}
+              <dd className="m-0">
+                <TextLink onClick={onOpen}>Open the whole try</TextLink>
+              </dd>
+            </dl>
+          </td>
+        </tr>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -622,20 +822,9 @@ function RunList({
 }) {
   const listed = runs.filter((run) => run.status === "running" || played(run) > 0);
   if (!listed.some((run) => run.run !== selected.run)) return null;
-  // Newest first on the screen, oldest first on the line.
-  const points = listed
-    .filter((run) => run.set === selected.set && run.report.accuracy !== null)
-    .map((run) => ({
-      at: run.started_at ? when(run.started_at) : run.run,
-      value: run.report.accuracy ?? 0,
-    }))
-    .reverse();
   return (
     <section>
-      <GroupHeading
-        title="Earlier runs"
-        aside={points.length > 1 ? <Trend points={points} /> : null}
-      />
+      <GroupHeading title="Runs" />
       <Group>
         {listed.map((run) => (
           <button
@@ -644,22 +833,18 @@ function RunList({
             aria-current={run.run === selected.run ? "true" : undefined}
             onClick={() => onPick(run.run)}
             className={cn(
-              "flex w-full flex-wrap items-baseline gap-x-3 border-t border-separator px-4 py-2.5 text-start text-[13.5px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
+              "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2 text-start text-[13px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
               run.run === selected.run && "bg-selection-strong",
             )}
           >
-            <span className="font-semibold">{run.started_at ? when(run.started_at) : "–"}</span>
-            <span className="text-ink-2">{playedAs(run.set, run.plan?.boundary)}</span>
+            {run.report.accuracy === null ? null : (
+              <span className="font-semibold tabular-nums">{share(run.report.accuracy)}</span>
+            )}
+            <span className="min-w-0 text-ink-2">{benchmarkName(run.set)}</span>
             {run.status === "running" ? <span className="text-ink-2">Running</span> : null}
             {didntFinish(run) ? <span className="text-ink-3">Didn't finish</span> : null}
-            <span className="ms-auto tabular-nums">
-              <span className="font-display font-bold">{share(run.report.accuracy)}</span>
-              {run.report.judged ? (
-                <span className="text-ink-2">
-                  {" "}
-                  · {run.report.right} of {run.report.judged}
-                </span>
-              ) : null}
+            <span className="ms-auto text-[12px] text-ink-3 tabular-nums">
+              {run.started_at ? when(run.started_at) : null}
             </span>
           </button>
         ))}

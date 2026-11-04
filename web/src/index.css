@@ -1,132 +1,158 @@
 @import "tailwindcss";
 
 /*
- * The design tokens: ink on a soft grey, white cards, one indigo for what holds (tint, success),
- * orange for what needs attention (warning), red for failures and errors (destructive).
+ * The design tokens: every colour and material of the look lives here, so a finish swaps in one place.
+ * Cool neutrals, one blue for what holds (tint, success) and for chart marks (chart), orange for what
+ * needs attention (warning), red for failures (destructive). `panel*` and `wash-*` are the glass:
+ * `group` is its solid fallback, and `canvas` the layered ground behind it.
  */
 :root {
   color-scheme: light;
   --background: #ffffff;
-  --foreground: #14161a;
+  --foreground: #141824;
   --card: #ffffff;
-  --card-foreground: #14161a;
+  --card-foreground: #141824;
   --popover: #ffffff;
-  --popover-foreground: #14161a;
-  --primary: #14161a;
+  --popover-foreground: #141824;
+  --primary: #141824;
   --primary-foreground: #ffffff;
-  --secondary: rgba(20, 22, 26, 0.06);
-  --secondary-foreground: #14161a;
-  --muted: #eef0f3;
-  --muted-foreground: #5b6170;
-  --destructive: #d92d20;
+  --secondary: rgba(20, 24, 40, 0.06);
+  --secondary-foreground: #141824;
+  --muted: #eef0f5;
+  --muted-foreground: #4f5668;
+  --destructive: #c1301f;
   --destructive-foreground: #ffffff;
-  --border: #e4e6eb;
-  --input: #dadde3;
-  --ring: rgba(59, 75, 219, 0.45);
-  --success: #3b4bdb;
-  --warning: #c2570c;
+  --border: #e2e5ec;
+  --input: #d6dae3;
+  --ring: rgba(63, 85, 230, 0.5);
+  --success: #3f55e6;
+  --warning: #a65a00;
   --overlay: rgba(17, 18, 22, 0.32);
-  --scrollbar: #d6d8dc;
-  --window: #f4f5f7;
-  --content: #f4f5f7;
-  --glass: #ffffff;
-  --glass-line: #e4e6eb;
-  --group: #ffffff;
-  --separator: #e4e6eb;
-  --selection-strong: #eef0ff;
-  --tint: #3b4bdb;
-  --ink: #14161a;
-  --ink-2: #5b6170;
-  --ink-3: #8a90a0;
-  --bubble: #eef0f3;
-  --selection: rgba(20, 22, 26, 0.05);
-  --mid: #7b83a6;
+  --scrollbar: #d0d4dd;
+  --window: #eceff5;
+  --content: #eceff5;
+  --glass: #f8f9fc;
+  --glass-line: rgba(20, 24, 40, 0.09);
+  --group: #f8f9fc;
+  --separator: rgba(20, 24, 40, 0.09);
+  --selection-strong: rgba(63, 85, 230, 0.1);
+  --tint: #3f55e6;
+  --ink: #141824;
+  --ink-2: #4f5668;
+  --ink-3: #5a6275;
+  --bubble: #eef0f5;
+  --selection: rgba(20, 24, 40, 0.05);
+  --mid: #6f7688;
   --radius: 0.75rem;
+  --chart: #3f55e6;
+  --panel: rgba(255, 255, 255, 0.62);
+  --panel-edge: rgba(255, 255, 255, 0.85);
+  --panel-shine: rgba(255, 255, 255, 0.75);
+  --panel-shadow: 0 1px 1px rgba(20, 24, 40, 0.04), 0 12px 32px rgba(40, 50, 90, 0.1);
+  --panel-blur: 22px;
+  --wash-1: #d3dcff;
+  --wash-2: #dcf2ee;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --background: #15171c;
-    --foreground: #eceef2;
-    --card: #1c1f26;
-    --card-foreground: #eceef2;
-    --popover: #22262e;
-    --popover-foreground: #eceef2;
-    --primary: #eceef2;
-    --primary-foreground: #15171c;
-    --secondary: rgba(255, 255, 255, 0.08);
-    --secondary-foreground: #eceef2;
-    --muted: #262a33;
-    --muted-foreground: #a3a9b6;
-    --destructive: #ff6b5e;
+    --background: #0c0f16;
+    --foreground: #eef0f6;
+    --card: #1b1e28;
+    --card-foreground: #eef0f6;
+    --popover: #232733;
+    --popover-foreground: #eef0f6;
+    --primary: #eef0f6;
+    --primary-foreground: #0c0f16;
+    --secondary: rgba(255, 255, 255, 0.1);
+    --secondary-foreground: #eef0f6;
+    --muted: #262a36;
+    --muted-foreground: #aeb4c2;
+    --destructive: #ff8577;
     --destructive-foreground: #ffffff;
     --border: rgba(255, 255, 255, 0.1);
     --input: rgba(255, 255, 255, 0.14);
-    --ring: rgba(139, 151, 255, 0.5);
-    --success: #8b97ff;
-    --warning: #ff9f5a;
+    --ring: rgba(160, 140, 255, 0.6);
+    --success: #8c9bff;
+    --warning: #f0a95a;
     --overlay: rgba(0, 0, 0, 0.6);
-    --scrollbar: #2c3038;
-    --window: #111318;
-    --content: #111318;
-    --glass: #181b21;
+    --scrollbar: #343946;
+    --window: #0c0f16;
+    --content: #0c0f16;
+    --glass: #1b1e28;
     --glass-line: rgba(255, 255, 255, 0.09);
-    --group: #1c1f26;
+    --group: #1b1e28;
     --separator: rgba(255, 255, 255, 0.09);
-    --selection-strong: rgba(139, 151, 255, 0.16);
-    --tint: #9aa5ff;
-    --ink: #eceef2;
-    --ink-2: #a3a9b6;
-    --ink-3: #7f8696;
-    --bubble: #262a33;
+    --selection-strong: rgba(140, 155, 255, 0.16);
+    --tint: #8c9bff;
+    --ink: #eef0f6;
+    --ink-2: #aeb4c2;
+    --ink-3: #979eae;
+    --bubble: #262a36;
     --selection: rgba(255, 255, 255, 0.06);
-    --mid: #8a91b0;
+    --mid: #9098ab;
+    --chart: #8c9bff;
+    --panel: rgba(30, 34, 46, 0.58);
+    --panel-edge: rgba(255, 255, 255, 0.12);
+    --panel-shine: rgba(255, 255, 255, 0.09);
+    --panel-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 14px 36px rgba(0, 0, 0, 0.35);
+    --panel-blur: 22px;
+    --wash-1: #1a2350;
+    --wash-2: #0e3230;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #15171c;
-  --foreground: #eceef2;
-  --card: #1c1f26;
-  --card-foreground: #eceef2;
-  --popover: #22262e;
-  --popover-foreground: #eceef2;
-  --primary: #eceef2;
-  --primary-foreground: #15171c;
-  --secondary: rgba(255, 255, 255, 0.08);
-  --secondary-foreground: #eceef2;
-  --muted: #262a33;
-  --muted-foreground: #a3a9b6;
-  --destructive: #ff6b5e;
+  --background: #0c0f16;
+  --foreground: #eef0f6;
+  --card: #1b1e28;
+  --card-foreground: #eef0f6;
+  --popover: #232733;
+  --popover-foreground: #eef0f6;
+  --primary: #eef0f6;
+  --primary-foreground: #0c0f16;
+  --secondary: rgba(255, 255, 255, 0.1);
+  --secondary-foreground: #eef0f6;
+  --muted: #262a36;
+  --muted-foreground: #aeb4c2;
+  --destructive: #ff8577;
   --destructive-foreground: #ffffff;
   --border: rgba(255, 255, 255, 0.1);
   --input: rgba(255, 255, 255, 0.14);
-  --ring: rgba(139, 151, 255, 0.5);
-  --success: #8b97ff;
-  --warning: #ff9f5a;
+  --ring: rgba(160, 140, 255, 0.6);
+  --success: #8c9bff;
+  --warning: #f0a95a;
   --overlay: rgba(0, 0, 0, 0.6);
-  --scrollbar: #2c3038;
-  --window: #111318;
-  --content: #111318;
-  --glass: #181b21;
+  --scrollbar: #343946;
+  --window: #0c0f16;
+  --content: #0c0f16;
+  --glass: #1b1e28;
   --glass-line: rgba(255, 255, 255, 0.09);
-  --group: #1c1f26;
+  --group: #1b1e28;
   --separator: rgba(255, 255, 255, 0.09);
-  --selection-strong: rgba(139, 151, 255, 0.16);
-  --tint: #9aa5ff;
-  --ink: #eceef2;
-  --ink-2: #a3a9b6;
-  --ink-3: #7f8696;
-  --bubble: #262a33;
+  --selection-strong: rgba(140, 155, 255, 0.16);
+  --tint: #8c9bff;
+  --ink: #eef0f6;
+  --ink-2: #aeb4c2;
+  --ink-3: #979eae;
+  --bubble: #262a36;
   --selection: rgba(255, 255, 255, 0.06);
-  --mid: #8a91b0;
+  --mid: #9098ab;
+  --chart: #8c9bff;
+  --panel: rgba(30, 34, 46, 0.58);
+  --panel-edge: rgba(255, 255, 255, 0.12);
+  --panel-shine: rgba(255, 255, 255, 0.09);
+  --panel-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 14px 36px rgba(0, 0, 0, 0.35);
+  --panel-blur: 22px;
+  --wash-1: #1a2350;
+  --wash-2: #0e3230;
 }
 
 @theme inline {
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-display: "Manrope", "Inter", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -162,6 +188,7 @@
   --color-bubble: var(--bubble);
   --color-selection: var(--selection);
   --color-mid: var(--mid);
+  --color-chart: var(--chart);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
 }
@@ -179,12 +206,13 @@
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.45;
-    letter-spacing: -0.05px;
+    letter-spacing: -0.006em;
     -webkit-font-smoothing: antialiased;
   }
   h1,
   h2 {
     font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
   button {
     cursor: default;
@@ -195,11 +223,36 @@
 }
 
 @layer components {
-  /* An inset grouped list: one rounded card, rows split by hairlines. */
+  /* The ground the glass sits on. */
+  .canvas {
+    background-color: var(--window);
+    background-image:
+      radial-gradient(900px 600px at 90% -10%, var(--wash-1), transparent 65%),
+      radial-gradient(800px 560px at 5% 105%, var(--wash-2), transparent 65%);
+    background-attachment: fixed;
+  }
+  /* The material: solid wherever blur isn't there or isn't wanted, so text keeps its contrast. */
+  .glass,
   .group-card {
     background-color: var(--group);
-    border-radius: 14px;
-    box-shadow: 0 0 0 1px var(--separator);
+    box-shadow:
+      var(--panel-shadow),
+      inset 0 1px 0 var(--panel-shine),
+      0 0 0 1px var(--panel-edge);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    @media not (prefers-reduced-transparency: reduce) {
+      .glass,
+      .group-card {
+        background-color: var(--panel);
+        -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(170%);
+        backdrop-filter: blur(var(--panel-blur)) saturate(170%);
+      }
+    }
+  }
+  /* An inset grouped list: one rounded card, rows split by hairlines. */
+  .group-card {
+    border-radius: 16px;
     overflow: hidden;
   }
 }

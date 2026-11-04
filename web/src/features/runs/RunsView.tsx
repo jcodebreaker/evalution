@@ -3,6 +3,7 @@ import { useState } from "react";
 import { live, progressText, when } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { Spinner } from "../../ui/loading";
+import { benchmarkName } from "../benchmarks/Glance";
 import { Group, GroupHeading, TextLink } from "../shared/group";
 import { Centered, Page } from "../shared/layout";
 import type { Entry } from "./RunRow";
@@ -51,7 +52,9 @@ export function RunsView({
   onBenchmark?: (run: string) => void;
 }) {
   const groups = byTest(runs);
-  if (!groups.length && !benchmarks.length) {
+  // A benchmark run that stopped before playing anything has nothing behind it.
+  const played = benchmarks.filter((run) => live(run) || run.tests.some((test) => test.tries));
+  if (!groups.length && !played.length) {
     return (
       <Centered>
         <p className="m-0 text-[15px] font-semibold text-foreground">No runs yet</p>
@@ -61,20 +64,18 @@ export function RunsView({
   }
   return (
     <Page>
-      {benchmarks.length ? (
+      {played.length ? (
         <section>
           <GroupHeading title="Benchmarks" />
           <Group>
-            {benchmarks.map((run) => (
+            {played.map((run) => (
               <button
                 key={run.run}
                 type="button"
                 onClick={() => onBenchmark?.(run.run)}
                 className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2.5 text-start text-[13.5px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
               >
-                <span className="font-semibold">
-                  LongMemEval {run.set.replace("longmemeval-", "")}
-                </span>
+                <span className="font-semibold">{benchmarkName(run.set)}</span>
                 <span className="text-ink-2">{when(run.started_at)}</span>
                 <span className="ms-auto flex items-center gap-2 tabular-nums text-ink-2">
                   {live(run) ? <Spinner /> : null}
