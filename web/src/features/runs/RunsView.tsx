@@ -5,7 +5,7 @@ import type { RunSummary } from "../../lib/schema";
 import { Spinner } from "../../ui/loading";
 import { benchmarkName } from "../benchmarks/Glance";
 import { Group, GroupHeading, TextLink } from "../shared/group";
-import { Centered, Page } from "../shared/layout";
+import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import type { Entry } from "./RunRow";
 import { RunRow } from "./RunRow";
 
@@ -63,35 +63,42 @@ export function RunsView({
     );
   }
   return (
-    <Page>
-      {played.length ? (
-        <section>
-          <GroupHeading title="Benchmarks" />
-          <Group>
-            {played.map((run) => (
-              <button
-                key={run.run}
-                type="button"
-                onClick={() => onBenchmark?.(run.run)}
-                className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2.5 text-start text-[13.5px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
-              >
-                <span className="font-semibold">{benchmarkName(run.set)}</span>
-                <span className="text-ink-2">{when(run.started_at)}</span>
-                <span className="ms-auto flex items-center gap-2 tabular-nums text-ink-2">
-                  {live(run) ? <Spinner /> : null}
-                  {live(run)
-                    ? progressText(run)
-                    : `${run.totals.passed} of ${run.totals.cases} passed`}
-                </span>
-              </button>
-            ))}
-          </Group>
-        </section>
-      ) : null}
-      {groups.map((group) => (
-        <TestGroup key={group.id} group={group} label={label} onOpen={onOpen} />
-      ))}
-    </Page>
+    <>
+      <Toolbar>
+        <ToolbarTitle title="Runs" />
+      </Toolbar>
+      <Page>
+        {played.length ? (
+          <section>
+            <GroupHeading title="Benchmarks" />
+            <Group>
+              {played.map((run) => (
+                <button
+                  key={run.run}
+                  type="button"
+                  onClick={() => onBenchmark?.(run.run)}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2.5 text-start text-[13.5px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  <span className="font-medium">{benchmarkName(run.set)}</span>
+                  <span className="text-ink-2">{when(run.started_at)}</span>
+                  <span className="ms-auto flex items-center gap-2 tabular-nums text-ink-2">
+                    {live(run) ? <Spinner /> : null}
+                    {live(run)
+                      ? progressText(run)
+                      : run.status === "done"
+                        ? `${run.totals.passed} of ${run.totals.cases} right`
+                        : `Didn't finish · ${run.totals.passed} of ${run.totals.cases} right`}
+                  </span>
+                </button>
+              ))}
+            </Group>
+          </section>
+        ) : null}
+        {groups.map((group) => (
+          <TestGroup key={group.id} group={group} label={label} onOpen={onOpen} />
+        ))}
+      </Page>
+    </>
   );
 }
 

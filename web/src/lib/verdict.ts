@@ -32,7 +32,7 @@ export const PASSED_MODEL_ONLY = `${WORD.pass}, judged by a model only`;
 
 /** A model's words, not a result. */
 export const MODEL_ONLY = "judged by a model only";
-export const ITS_READING = "Its reading";
+export const ITS_READING = "Analysis";
 
 /** A model's claim whose refs or quotes code couldn't find in the evidence. */
 export const NOT_VERIFIED = "Not verified";

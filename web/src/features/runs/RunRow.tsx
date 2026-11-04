@@ -50,8 +50,12 @@ function Outcome({ entry }: { entry: Entry }) {
   const was = test.originally ? ` · ${originallyWord(test.originally)}` : "";
   if (test.verdict === "unjudged")
     return (
-      <span className="text-ink-2">
-        {`${verdictLine(test)} · ${unjudgedWords(test.unjudged)}${was}`}
+      <span
+        title={`${unjudgedWords(test.unjudged)}${was}`}
+        className="inline-flex items-center gap-1.5 text-ink-2"
+      >
+        <VerdictGlyph verdict={test.verdict} />
+        {verdictLine(test)}
       </span>
     );
   if (test.verdict) {

@@ -88,7 +88,7 @@ export function HomeView({
               {today}
               {lastRunAt ? ` · last run ${ago(lastRunAt)}` : ""}
             </p>
-            <h1 className="m-0 mt-1 text-[26px] leading-tight font-semibold tracking-[-0.02em]">
+            <h1 className="m-0 mt-1 text-[22px] leading-tight font-semibold tracking-[-0.02em]">
               How {scope.target} is doing
             </h1>
           </div>

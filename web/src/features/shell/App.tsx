@@ -1,9 +1,7 @@
-import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { Place } from "../../lib/router";
 import { usePlace } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
-import { Spinner } from "../../ui/loading";
 import { isBenchmark } from "../benchmarks/BenchmarksView";
 import type { RunTarget } from "../runs/RunConfirm";
 import { RunConfirm } from "../runs/RunConfirm";
@@ -106,6 +104,8 @@ export function App() {
         set={set}
         going={going ?? goingBenchmark}
         goingLabel={going ? runLabel(going.run) : "Benchmark"}
+        asking={working}
+        onAskAi={scope ? () => setWriterOpen(!writerOpen) : null}
         cards={cards}
         onTarget={(name) => nav({ target: name, set: null, view: "home" })}
         onSet={(id) => nav({ set: id })}
@@ -150,19 +150,6 @@ export function App() {
           draft={writerDraft}
           onDrafted={clearDraft}
         />
-      ) : scope ? (
-        <button
-          type="button"
-          onClick={() => setWriterOpen(true)}
-          className="fixed end-4 bottom-4 z-30 flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground shadow-md hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {working ? (
-            <Spinner className="border-primary-foreground border-r-transparent" />
-          ) : (
-            <Sparkles className="size-4" aria-hidden />
-          )}
-          Ask AI
-        </button>
       ) : null}
 
       {confirm ? (

@@ -19,7 +19,7 @@ import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
 import { Fold, Group, GroupHeading, TextLink } from "../shared/group";
-import { Centered, Page } from "../shared/layout";
+import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import { VerdictGlyph } from "../shared/marks";
 import {
   BarChart,
@@ -187,124 +187,132 @@ export function BenchmarksView({
   // With no run yet there's nothing to tab between: only the way to run it.
   const shownTab: Tab = active ? tab : "setup";
   return (
-    <Page wide>
-      <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
-      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-        {DATASETS.map((entry) => {
-          const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
-          const latest = own.find((other) => other.report.judged > 0);
-          const mine = own.find((other) => other.status === "running");
-          return (
-            <div
-              key={entry.key}
-              className={cn(
-                "group-card flex min-w-0 flex-col gap-2 p-3.5",
-                shownDataset === entry.key && "border-chart! ring-1 ring-chart",
-              )}
-            >
-              <button
-                type="button"
-                aria-pressed={shownDataset === entry.key}
-                onClick={() => {
-                  setDataset(entry.key);
-                  onPick("");
-                }}
-                className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
+    <>
+      <Toolbar>
+        <ToolbarTitle title="Benchmarks" />
+      </Toolbar>
+      <Page wide>
+        <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          {DATASETS.map((entry) => {
+            const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
+            const latest = own.find((other) => other.report.judged > 0);
+            const mine = own.find((other) => other.status === "running");
+            return (
+              <div
+                key={entry.key}
+                className={cn(
+                  "group-card flex min-w-0 flex-col gap-2 p-3.5",
+                  shownDataset === entry.key && "border-chart! ring-1 ring-chart",
+                )}
               >
-                <span className="flex h-6 items-center gap-2">
-                  <span className="text-[14px] font-semibold">{entry.label}</span>
-                  {latest?.report.accuracy != null ? (
-                    <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
-                      {share(latest.report.accuracy)}
+                <button
+                  type="button"
+                  aria-pressed={shownDataset === entry.key}
+                  onClick={() => {
+                    setDataset(entry.key);
+                    onPick("");
+                  }}
+                  className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  <span className="flex h-6 items-center gap-2">
+                    <span className="text-[14px] font-semibold">{entry.label}</span>
+                    {latest?.report.accuracy != null ? (
+                      <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+                        {share(latest.report.accuracy)}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-[12.5px] text-ink-2">{entry.about}</span>
+                </button>
+                <div className="flex min-h-7 items-center gap-2 text-[12px] text-ink-2 tabular-nums">
+                  {mine ? (
+                    <span className="font-medium text-tint">
+                      Running, {played(mine)} of {mine.questions.length} questions done
+                    </span>
+                  ) : going ? (
+                    <span>Can run when the current one ends</span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void runDataset(entry.key)}
+                    >
+                      Run
+                    </Button>
+                  )}
+                  {latest?.report.judged ? (
+                    <span className="ms-auto">
+                      {latest.report.right} of {latest.report.judged} right
                     </span>
                   ) : null}
-                </span>
-                <span className="text-[12.5px] text-ink-2">{entry.about}</span>
-              </button>
-              <div className="flex min-h-7 items-center gap-2 text-[12px] text-ink-2 tabular-nums">
-                {mine ? (
-                  <span className="font-medium text-tint">
-                    Running, {played(mine)} of {mine.questions.length} questions done
-                  </span>
-                ) : going ? (
-                  <span>Can run when the current one ends</span>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => void runDataset(entry.key)}>
-                    Run
-                  </Button>
-                )}
-                {latest?.report.judged ? (
-                  <span className="ms-auto">
-                    {latest.report.right} of {latest.report.judged} right
-                  </span>
-                ) : null}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-      {active ? (
-        <div
-          role="tablist"
-          aria-label="This dataset"
-          className="flex flex-wrap gap-1 border-b border-separator"
-        >
-          {TABS.map(([key, label]) => {
-            const many =
-              key === "questions"
-                ? active
-                  ? played(active)
-                  : 0
-                : key === "runs"
-                  ? listed.length
-                  : 0;
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={shownTab === key}
-                onClick={() => setTab(key)}
-                className={cn(
-                  "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
-                  shownTab === key
-                    ? "border-tint text-foreground"
-                    : "border-transparent text-ink-2 hover:text-foreground",
-                )}
-              >
-                {label}
-                {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
-              </button>
             );
           })}
         </div>
-      ) : null}
-      {active && played(active) > 0 && shownTab !== "setup" ? (
-        <AskTraces run={active} onAsk={onAsk} />
-      ) : null}
-      {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
-      {shownTab === "runs" && active ? (
-        <RunList
-          runs={inDataset}
-          selected={active}
-          onPick={(id) => {
-            onPick(id);
-            setTab("overview");
-          }}
-        />
-      ) : null}
-      {active && (shownTab === "overview" || shownTab === "questions") ? (
-        <RunResult
-          key={active.run}
-          run={active}
-          runs={inDataset}
-          tab={shownTab}
-          onPick={onPick}
-          onTry={onTry}
-          onStopped={reload}
-        />
-      ) : null}
-    </Page>
+        {active ? (
+          <div
+            role="tablist"
+            aria-label="This dataset"
+            className="flex flex-wrap gap-1 border-b border-separator"
+          >
+            {TABS.map(([key, label]) => {
+              const many =
+                key === "questions"
+                  ? active
+                    ? played(active)
+                    : 0
+                  : key === "runs"
+                    ? listed.length
+                    : 0;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={shownTab === key}
+                  onClick={() => setTab(key)}
+                  className={cn(
+                    "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
+                    shownTab === key
+                      ? "border-tint text-foreground"
+                      : "border-transparent text-ink-2 hover:text-foreground",
+                  )}
+                >
+                  {label}
+                  {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        {active && played(active) > 0 && shownTab !== "setup" ? (
+          <AskTraces run={active} onAsk={onAsk} />
+        ) : null}
+        {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
+        {shownTab === "runs" && active ? (
+          <RunList
+            runs={inDataset}
+            selected={active}
+            onPick={(id) => {
+              onPick(id);
+              setTab("overview");
+            }}
+          />
+        ) : null}
+        {active && (shownTab === "overview" || shownTab === "questions") ? (
+          <RunResult
+            key={active.run}
+            run={active}
+            runs={inDataset}
+            tab={shownTab}
+            onPick={onPick}
+            onTry={onTry}
+            onStopped={reload}
+          />
+        ) : null}
+      </Page>
+    </>
   );
 }
 

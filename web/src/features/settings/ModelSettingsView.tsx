@@ -20,7 +20,7 @@ export function ModelSettingsView({ target }: { target: string | null }) {
   return (
     <>
       <Toolbar>
-        <ToolbarTitle title="Model" />
+        <ToolbarTitle title="Settings" />
       </Toolbar>
       <Page narrow>
         {body}

@@ -86,22 +86,18 @@ export function Composer({
           </div>
         ) : null}
         {choosing && !kind ? (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {kinds.map((entry) => (
-              <div key={entry.id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
-                <Button
-                  variant="secondary"
-                  size="xs"
-                  disabled={entry.fit.verdict !== "fits"}
-                  title={entry.checks}
-                  onClick={() => setKind(entry)}
-                >
-                  {entry.title}
-                </Button>
-                {entry.fit.verdict === "fits" ? null : (
-                  <span className="min-w-0 text-ink-3">{entry.fit.label}</span>
-                )}
-              </div>
+              <Button
+                key={entry.id}
+                variant="secondary"
+                size="xs"
+                disabled={entry.fit.verdict !== "fits"}
+                title={entry.fit.verdict === "fits" ? entry.checks : entry.fit.label}
+                onClick={() => setKind(entry)}
+              >
+                {entry.title}
+              </Button>
             ))}
           </div>
         ) : null}
@@ -117,7 +113,7 @@ export function Composer({
             }}
           >
             <LayoutTemplate />
-            …of a kind
+            From a kind of test
           </Button>
           <Button
             variant="ghost"
@@ -127,7 +123,7 @@ export function Composer({
             onClick={() => setPicking((now) => !now)}
           >
             <MessageSquare />
-            …from a real conversation
+            From a real conversation
           </Button>
           {error ? (
             <p className="m-0 min-w-0 flex-1 text-[12px] text-destructive">{error}</p>

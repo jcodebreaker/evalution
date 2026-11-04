@@ -1,4 +1,13 @@
-import { ChartColumn, Gauge, House, ListChecks, Network, Plus, Settings } from "lucide-react";
+import {
+  ChartColumn,
+  Gauge,
+  House,
+  ListChecks,
+  Network,
+  Plus,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { progressText } from "../../lib/format";
@@ -21,6 +30,8 @@ export function Sidebar({
   set,
   going,
   goingLabel,
+  asking,
+  onAskAi,
   cards,
   onTarget,
   onSet,
@@ -34,6 +45,8 @@ export function Sidebar({
   set: string | null;
   going: RunSummary | null;
   goingLabel: string;
+  asking: boolean;
+  onAskAi: (() => void) | null;
   /** Each app's card, once read: its row in the picker. */
   cards: ReadonlyMap<string, Card | null> | null;
   onTarget: (name: string) => void;
@@ -138,7 +151,15 @@ export function Sidebar({
         <NavLabel>Standard</NavLabel>
         {item("benchmarks", <Gauge className="size-4" aria-hidden />, "Benchmarks")}
       </nav>
-      <div className="px-3 pb-3 max-md:pt-0">
+      <div className="flex flex-col gap-0.5 px-3 pb-3 max-md:pt-0">
+        {onAskAi ? (
+          <NavItem
+            selected={false}
+            onClick={onAskAi}
+            icon={asking ? <Spinner /> : <Sparkles className="size-4 text-tint" aria-hidden />}
+            label="Ask AI"
+          />
+        ) : null}
         {item("model", <Settings className="size-4" aria-hidden />, "Settings")}
       </div>
     </aside>
