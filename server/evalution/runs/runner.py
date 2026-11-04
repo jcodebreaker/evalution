@@ -178,6 +178,14 @@ class RunBusyError(Exception):
     """A run or an analysis is already going; one at a time."""
 
 
+def _last_turn(evidence: TryEvidence) -> tuple[float, float] | None:
+    """When the try's last turn ran, in seconds from its start as a model call's ``t`` is."""
+    if not evidence.turns:
+        return None
+    last = evidence.turns[-1]
+    return last.started - evidence.t0, last.ended - evidence.t0
+
+
 def _plan_beside(folder: Path) -> dict[str, Any] | None:
     path = folder / "plan.json"
     return json.loads(path.read_text()) if path.is_file() else None
@@ -548,7 +556,9 @@ class Runs:
             attempt.setdefault("retried", []).append({"what": "grader", "why": graded.retried})
         attempt["rubric"] = graded.lines
         attempt["reply"] = graded.score
-        attempt["memory"] = await grade_memory(caller, evidence.memory, evidence.model_calls)
+        attempt["memory"] = await grade_memory(
+            caller, evidence.memory, evidence.model_calls, _last_turn(evidence)
+        )
         return True
 
     async def wait(self) -> None:
@@ -884,7 +894,9 @@ class Runs:
                 mark=marks["reply"],
                 decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
             )
-        memory = await grade_memory(grader, evidence.memory, evidence.model_calls)
+        memory = await grade_memory(
+            grader, evidence.memory, evidence.model_calls, _last_turn(evidence)
+        )
         checks = [*code.checks, *graded.checks]
         graded_by = (
             JudgeStamp.model_validate(doc["judge"])

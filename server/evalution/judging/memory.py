@@ -41,19 +41,39 @@ async def _holds(caller: Caller, want: str, notes: Clipped) -> bool | None:
         return None
 
 
-async def _reached(caller: Caller, want: str, calls: Sequence[ModelCallRecord]) -> bool | None:
+def _answering(
+    calls: Sequence[ModelCallRecord], last_turn: tuple[float, float] | None
+) -> ModelCallRecord | None:
+    """The call that gave the last answer: the latest during the last turn, as background work may
+    run after it."""
+    if last_turn is None:
+        return None
+    start, end = last_turn
+    during = [call for call in calls if call.captured and start <= call.t <= end]
+    return during[-1] if during else None
+
+
+async def _reached(
+    caller: Caller,
+    want: str,
+    calls: Sequence[ModelCallRecord],
+    last_turn: tuple[float, float] | None,
+) -> bool | None:
     """Whether the model that gave the last answer was sent *want*. ``None`` with no captured call;
     and when part of what it was sent is missing, only a yes can be told."""
-    own = [call for call in calls if call.helper is None and call.captured]
-    if not own:
+    answering = _answering(calls, last_turn)
+    if answering is None:
         return None
-    sent = own[-1].sent
+    sent = answering.sent
     found = await _holds(caller, want, sent)
     return None if found is False and sent.elided else found
 
 
 async def grade_memory(
-    caller: Caller | None, read: MemoryRecord | None, calls: Sequence[ModelCallRecord] = ()
+    caller: Caller | None,
+    read: MemoryRecord | None,
+    calls: Sequence[ModelCallRecord] = (),
+    last_turn: tuple[float, float] | None = None,
 ) -> dict[str, Any] | None:
     """``{"committed", "written", "reached", "compacted"}``, each true, false or ``None`` when it
     couldn't be told; ``None`` when the test doesn't measure this. Something committed was written,
@@ -70,6 +90,6 @@ async def grade_memory(
     return {
         "committed": committed,
         "written": written,
-        "reached": await _reached(caller, read.want, calls),
+        "reached": await _reached(caller, read.want, calls, last_turn),
         "compacted": read.compacted,
     }

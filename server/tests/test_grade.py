@@ -261,19 +261,21 @@ async def test_memory_is_measured_committed_then_written() -> None:
     no_read = await grade_memory(_caller(), MemoryRecord(**want, supported=False, compacted=True))
     assert (no_read["committed"], no_read["compacted"]) == (None, True)
 
-    def call(text: str, elided: int = 0, helper: str | None = None) -> ModelCallRecord:
+    def call(text: str, t: float = 5.0, elided: int = 0) -> ModelCallRecord:
         sent = Clipped(text=text, elided=elided)
-        return ModelCallRecord(
-            n=1, span="s", t=0.0, model="m", sent=sent, said=Clipped(), helper=helper
-        )
+        return ModelCallRecord(n=1, span="s", t=t, model="m", sent=sent, said=Clipped())
 
-    calls = [call("early"), call("the last call"), call("a helper's", helper="h")]
+    turn = (4.0, 8.0)
+    calls = [call("before it", 1.0), call("the answer", 6.0), call("upkeep after it", 9.0)]
     caller = _caller(said(True))
-    assert (await grade_memory(caller, empty, calls))["reached"] is True
-    assert "the last call" in caller.seen[0] and "helper" not in caller.seen[0]
-    cut = await grade_memory(_caller(said(False)), empty, [call("part", elided=5)])
+    assert (await grade_memory(caller, empty, calls, turn))["reached"] is True
+    assert "the answer" in caller.seen[0] and "upkeep" not in caller.seen[0]
+    cut = await grade_memory(_caller(said(False)), empty, [call("part", elided=5)], turn)
     assert cut["reached"] is None, "with part of it missing, a no can't be told"
-    assert (await grade_memory(_caller(said(False)), empty, [call("all")]))["reached"] is False
+    assert (await grade_memory(_caller(said(False)), empty, [call("all")], turn))[
+        "reached"
+    ] is False
+    assert (await grade_memory(_caller(), empty, [call("late", 20.0)], turn))["reached"] is None
     assert await grade_memory(_caller(), None) is None
 
 
