@@ -24,8 +24,18 @@ export function isBenchmark(set: string): boolean {
 
 /** The two datasets a person chooses between, each with its own runs. */
 const DATASETS = [
-  { key: "short", label: "Short histories", about: "About 11 messages a question" },
-  { key: "long", label: "Long histories", about: "About 270 messages a question" },
+  {
+    key: "short",
+    label: "Short histories",
+    about:
+      "Does it save a fact and recall it later? About 11 messages a question, holding only what it needs to know.",
+  },
+  {
+    key: "long",
+    label: "Long histories",
+    about:
+      "Can it still find a fact buried in a long chat? About 270 messages a question, mostly unrelated.",
+  },
 ] as const;
 
 function datasetOf(set: string): "short" | "long" {
