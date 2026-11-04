@@ -1,13 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="evalution">
   <style>
-    .body { fill: #3b4bdb; stroke: #3b4bdb; }
-    .eye { fill: #ffffff; }
+    path { stroke: #3f55e6; }
     @media (prefers-color-scheme: dark) {
-      .body { fill: #9aa5ff; stroke: #9aa5ff; }
-      .eye { fill: #15171c; }
+      path { stroke: #8c9bff; }
     }
   </style>
-  <path class="body" d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z" stroke-width="3" stroke-linejoin="round"/>
-  <circle class="eye" cx="24" cy="29" r="5.5"/>
-  <circle class="eye" cx="40" cy="29" r="5.5"/>
+  <path d="M10 32H54A22 22 0 1 0 48.853 46.141" fill="none" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

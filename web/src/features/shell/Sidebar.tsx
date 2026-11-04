@@ -52,13 +52,10 @@ export function Sidebar({
   );
   const card = target ? (cards?.get(target) ?? null) : null;
   return (
-    <aside
-      aria-label="Navigation"
-      className="flex min-h-0 flex-col border-separator bg-glass max-md:border-b md:border-e"
-    >
+    <aside aria-label="Navigation" className="glass flex min-h-0 flex-col">
       <div className="flex items-center gap-2.5 px-5 pt-5 pb-3 max-md:hidden">
         <Logo />
-        <span className="font-display text-[16px] font-bold tracking-[-0.2px]">evalution</span>
+        <span className="font-display text-[17px] font-semibold tracking-[-0.02em]">evalution</span>
       </div>
       {target ? (
         <div className="flex min-w-0 flex-col gap-1 px-3 pt-1 pb-2 max-md:pt-3">
@@ -95,7 +92,7 @@ export function Sidebar({
                 onClick: () => onView("connect"),
               },
             ]}
-            className="w-full justify-between rounded-[10px] px-2.5 py-2 font-normal ring-1 ring-separator"
+            className="w-full justify-between rounded-[14px] px-2.5 py-2 font-normal ring-1 ring-separator"
           />
           {sets.length > 1 ? (
             <Picker
@@ -172,30 +169,21 @@ function NavItem({
   );
 }
 
-/** The mark: a spider chart whose data shape is the bot. */
+/**
+ * The mark: an `e` in one even stroke. A line across the centre of a circle of radius 22, then 320 degrees
+ * around it, leaving 40 open under the line.
+ */
 function Logo() {
   return (
-    <svg viewBox="0 0 64 64" aria-hidden className="size-8 shrink-0">
+    <svg viewBox="0 0 64 64" aria-hidden className="size-7 shrink-0 text-tint">
       <path
-        d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z"
+        d="M10 32H54A22 22 0 1 0 48.853 46.141"
         fill="none"
-        strokeWidth="1.5"
+        stroke="currentColor"
+        strokeWidth="10"
+        strokeLinecap="round"
         strokeLinejoin="round"
-        className="stroke-foreground opacity-30"
       />
-      <path
-        d="M6.1 21.3 57.9 42.7M57.9 21.3 6.1 42.7M21.3 6.1l21.4 51.8M42.7 6.1 21.3 57.9"
-        fill="none"
-        className="stroke-foreground opacity-20"
-      />
-      <path
-        d="M54.2 22.8 37.7 18.1H26.3L9.8 22.8l3.7 16.9 13.1 5.2h10.8l13.1-5.2z"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-        className="fill-tint stroke-tint"
-      />
-      <circle cx="26.5" cy="29.5" r="3.2" className="fill-primary-foreground" />
-      <circle cx="37.5" cy="29.5" r="3.2" className="fill-primary-foreground" />
     </svg>
   );
 }
