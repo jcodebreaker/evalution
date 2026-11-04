@@ -90,7 +90,7 @@ model:                       # evalution's own model, for Grader, filler, analys
   kind: anthropic            # or openai (any OpenAI-compatible base_url)
   base_url: https://api.anthropic.com
   api_key_env: EVALUTION_MODEL_KEY
-  models: {strong: claude-opus-5-5, light: claude-haiku-5-5}
+  models: {strong: claude-sonnet-5-5, light: claude-haiku-5-5}
 targets:
   my-agent:
     adapter: langgraph

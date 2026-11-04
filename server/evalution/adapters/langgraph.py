@@ -68,6 +68,7 @@ from evalution.adapters.base import (
     Detection,
     Folder,
     Isolation,
+    MemoryRead,
     Session,
     StateResult,
     Target,
@@ -276,6 +277,10 @@ class LangGraphTarget(Target):
             raise TimeoutError
         # The server keeps the connection alive with whitespace, so no read timeout fires.
         return await asyncio.wait_for(self._call("GET", path, seconds=left), left)
+
+    async def read_memory(self, session: Session) -> MemoryRead | None:
+        items = await self._items(session.extra["user"])
+        return MemoryRead("\n\n".join(_text(item.get("value")) for item in items))
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
         ((key, value),) = check.items()

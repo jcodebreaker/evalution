@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evalution.adapters.base import Capabilities, Isolation, Session, Turn
+from evalution.adapters.base import Capabilities, Isolation, Session, Target, Turn
 from evalution.config import load
 from evalution.results.store import FileStore
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
+from evalution.suite.benchmarks import happened, overview, report, sample, to_case
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.library import (
     KINDS,
@@ -23,6 +24,7 @@ from evalution.suite.library import (
     load_templates,
     parse_template,
 )
+from evalution.suite.planning import probe, read_plan
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionFiles
@@ -212,3 +214,229 @@ def test_the_kinds_ask_for_the_owners_words_and_fit_what_the_app_can_do() -> Non
     assert "Needs a clean start of memory" in lacking["reason"]
     full = (STATEFUL, CHECKS, True, PROFILE, frozenset({"memory", "conversation"}))
     assert fit(memory, *full)["verdict"] == "fits"
+
+
+def _question(qid: str, kind: str) -> dict:
+    return {
+        "question_id": qid,
+        "question_type": kind,
+        "question": "Where did I go?",
+        "answer": "Hawaii",
+        "question_date": "2023/05/30",
+        "haystack_dates": ["2023/05/20", "2023/05/21"],
+        "haystack_sessions": [
+            [
+                {"role": "user", "content": "I went to Hawaii."},
+                {"role": "assistant", "content": "x"},
+            ],
+            [{"role": "user", "content": "Hi again."}, {"role": "user", "content": "Bye."}],
+        ],
+    }
+
+
+def test_a_benchmark_question_plays_its_history_then_asks_in_a_new_conversation() -> None:
+    case = to_case(_question("q1", "knowledge-update"))
+    said = parse_case(case, "c")
+    assert said.source == "longmemeval:knowledge-update" and "Hawaii" in said.rubric[0]
+    assert ["break" in turn for turn in case["turns"]] == [
+        False,
+        True,
+        False,
+        False,
+        False,
+        True,
+        False,
+    ]
+    assert (
+        case["turns"][-3] == {"memory_holds": "Hawaii"} and said.turns[-3].memory_holds == "Hawaii"
+    )
+    assert not said.turns[-3].is_message
+    assert case["turns"][0]["message"].startswith("[This conversation is on 2023/05/20]")
+    assert case["turns"][-1]["message"].startswith("[Today is 2023/05/30]")
+    assert not any(turn.get("message") == "x" for turn in case["turns"]), (
+        "only what the person said"
+    )
+    made_up = to_case(_question("q2_abs", "multi-session"))
+    assert (
+        made_up["source"].endswith(":unanswerable")
+        and "doesn't know" in made_up["reply"]["rubric"][0]
+    )
+
+
+def test_one_conversation_plays_every_session_with_no_break() -> None:
+    case = to_case(_question("q1", "knowledge-update"), "same")
+    assert not any("break" in turn for turn in case["turns"])
+    dated = [t["message"] for t in case["turns"] if "conversation is on" in t.get("message", "")]
+    assert len(dated) == 2, "each session keeps its date"
+    assert case["turns"][-2] == {"memory_holds": "Hawaii"}
+    parse_case(case, "c")
+
+
+class _Plannable:
+    def __init__(self, breaks: bool) -> None:
+        self.capabilities = Capabilities(Isolation.NONE, "", conversation_break=breaks)
+
+
+def _plan_answer(**changed) -> str:
+    base = {
+        "verdict": "run",
+        "boundary": "same",
+        "size": "s",
+        "sample": 2,
+        "how": "h",
+        "why": "w",
+        "measures": "m",
+        "warnings": [],
+        "evidence": ["Each  person has ONE conversation."],
+    }
+    return json.dumps({**base, **changed})
+
+
+NOTES = "Notes.\nEach person has one conversation.\nMore."
+
+
+def test_a_plan_holds_only_if_code_agrees_with_it() -> None:
+    target = _Plannable(breaks=False)
+    plan = read_plan(_plan_answer(), NOTES, target)
+    assert (plan["boundary"], plan["size"], plan["sample"]) == ("same", "s", 2)
+    for wrong, said in [
+        ({"size": "quick"}, "tests nothing"),
+        ({"boundary": "break"}, "can't break"),
+        ({"boundary": "wipe"}, "boundary"),
+        ({"sample": 99}, "sample"),
+        ({"evidence": ["Something the notes never said."]}, "word for word"),
+        ({"why": ""}, "why"),
+    ]:
+        with pytest.raises(ValueError, match=said):
+            read_plan(_plan_answer(**wrong), NOTES, target)
+    assert "boundary" not in read_plan(_plan_answer(verdict="cannot", size="quick"), NOTES, target)
+    allowed = read_plan(_plan_answer(boundary="break", size="quick"), NOTES, _Plannable(True))
+    assert allowed["size"] == "quick", "a break clears the context, so a short history can test it"
+
+
+async def test_the_probe_says_what_it_found() -> None:
+    class Stub(Target):
+        name = "stub"
+        capabilities = Capabilities(Isolation.NONE, "", conversation_break=True)
+
+        def __init__(self) -> None:
+            self.broke = 0
+            self.closed = False
+            self.told = ""
+
+        async def open(self, run: str) -> Session:
+            return Session("s", "session.id", "s")
+
+        async def break_conversation(self, session: Session) -> None:
+            self.broke += 1
+
+        async def send(self, session, message, *, files=(), stop_after=None, deadline) -> Turn:
+            if "is called" in message:
+                self.told = message.split("is called ")[1].split(".")[0]
+            return Turn(self.told if "called?" in message else "ok", 0.0, 0.0)
+
+        async def close(self, session: Session) -> None:
+            self.closed = True
+
+    stub = Stub()
+    found = await probe(stub, "break")
+    assert found["ok"] and found["answered"] and not found["memory_readable"]
+    assert stub.broke == 2 and stub.closed
+    same = Stub()
+    assert (await probe(same, "same"))["ok"] and same.broke == 0
+
+
+def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
+    entries = [_question(f"q{n}", "multi-session") for n in range(30)]
+    entries += [_question("q-a", "single-session-assistant"), _question("q-b_abs", "multi-session")]
+    first = [e["question_id"] for e in sample(entries, 5)]
+    assert first == [e["question_id"] for e in sample(list(reversed(entries)), 5)]
+    assert len(first) == 6 and "q-a" not in first and "q-b_abs" in first
+    assert len(sample(entries, None)) == 31
+
+
+def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
+    def tried(outcome: str, source: str) -> dict:
+        check = {"id": "rubric:0", "kind": "rubric", "decided_by": "model", "role": "must"}
+        made = {
+            "outcome": outcome,
+            "checks": [{**check, "outcome": outcome, "why": "w"}],
+            "rules": 2,
+        }
+        memory = {"committed": outcome == "passed", "written": True}
+        spent = {"tokens": 10, "usd": 0.5, "seconds": 3.0, "messages": 2, "models": ["m"]}
+        attempt = {"n": 1, "judgements": [made], "memory": memory, **spent}
+        return {"source": source, "tries": [attempt]}
+
+    run = {
+        "run": "r",
+        "set": "longmemeval-quick",
+        "status": "running",
+        "current": {"name": "q", "stage": "playing", "turn": 2, "turns": 9},
+        "cases": {
+            "a": tried("passed", "longmemeval:multi-session"),
+            "b": tried("failed", "longmemeval:multi-session"),
+            "c": tried("failed", "longmemeval:temporal-reasoning"),
+            "d": tried("passed", "longmemeval:multi-session:unanswerable"),
+            "e": tried("failed", "someone-else"),
+            "f": {"source": "longmemeval:multi-session", "tries": []},
+        },
+    }
+    found = report(run)
+    assert (found["right"], found["judged"], found["accuracy"]) == (1, 3, 1 / 3)
+    assert found["task_average"] == 0.25
+    assert found["kinds"]["multi-session"] == {"right": 1, "judged": 2}
+    assert (found["admitted"], found["unanswerable"]) == (1, 1)
+    assert found["memory"] == {"measured": 3, "written": 3, "committed": 1, "used": 1}
+    assert found["write_recall"] == 1 / 3
+
+    shown = overview("bot", tmp_path, [run])["runs"][0]
+    assert shown["totals"] == {
+        "tokens": 40,
+        "usd": 2.0,
+        "median_seconds": 3.0,
+        "models": ["m"],
+    }, "only the benchmark's own questions count"
+    assert (
+        shown["current"]["turn"] == 2
+        and overview("bot", tmp_path, [{**run, "status": "done"}])["runs"][0]["current"] is None
+    )
+    played, waiting = shown["questions"][0], shown["questions"][-1]
+    assert (played["tokens"], played["messages"], played["models"]) == (10, 2, ["m"])
+    assert played["trace_url"] is None and (waiting["tokens"], waiting["models"]) == (None, [])
+    bare = overview("bot", tmp_path, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
+    assert bare["happened"] == "", "nothing played, nothing to say"
+    assert bare["totals"] == {"tokens": None, "usd": None, "median_seconds": None, "models": []}
+
+
+def test_what_happened_is_said_from_the_numbers() -> None:
+    def said(right=0, judged=10, admitted=0, unanswerable=0, unjudged=0, memory=None) -> str:
+        return happened(
+            {
+                "right": right,
+                "judged": judged,
+                "admitted": admitted,
+                "unanswerable": unanswerable,
+                "unjudged": unjudged,
+                "memory": dict(
+                    zip(
+                        ("measured", "written", "committed", "used"),
+                        memory or (0,) * 4,
+                        strict=True,
+                    )
+                ),
+            }
+        )
+
+    assert said(judged=0) == ""
+    assert said(judged=2, unjudged=4) == "Too few questions to say. 4 couldn't be judged."
+    assert said(judged=0, unjudged=9) == "Too few questions to say. 9 couldn't be judged."
+    assert said(memory=(10, 2, 2, 1)).startswith("Lost most facts before saving: 8 of 10 never")
+    assert said(memory=(10, 9, 3, 1)).startswith("Wrote facts but didn't commit them: 6 of 10")
+    assert said(memory=(10, 9, 8, 1)).startswith("Saved facts but didn't use them: 8 of 10 saved")
+    assert said(9, memory=(10, 9, 8, 7)) == "9 of 10 right, with 8 of 10 facts saved."
+    assert said(4) == "4 of 10 right; memory wasn't measured."
+    assert said(4, memory=(3, 0, 0, 0)) == "4 of 10 right.", "too few facts to say more"
+    assert said(judged=0, admitted=3, unanswerable=6).startswith("Said it didn't know 3 of 6")
+    assert said(9, admitted=1, unanswerable=5).endswith("Made up 4 of 5 answers it couldn't know.")
+    assert said(1, admitted=5, unanswerable=5).endswith("may only mean it remembers little.")

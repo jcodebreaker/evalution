@@ -1,5 +1,7 @@
 """A test set's pass marks, a test's file edited by hand, and a failed test's finding."""
 
+import asyncio
+import contextlib
 import json
 
 import httpx
@@ -8,14 +10,23 @@ import yaml
 from fastapi.testclient import TestClient
 
 from evalution import adapters
-from evalution.adapters.base import AppError, Capabilities, Isolation, Session, Target, TargetGone
+from evalution.adapters.base import (
+    AppError,
+    Capabilities,
+    Isolation,
+    Session,
+    Target,
+    TargetGone,
+    Turn,
+)
 from evalution.api.app import create_app
 from evalution.config import load
+from evalution.core.evidence import Failure
 from evalution.results.migrate import upcast
 from evalution.results.store import FileStore
 from evalution.results.views import case_detail, summary
 from evalution.runs.runner import Runs
-from evalution.suite.cases import meaning_changes
+from evalution.suite.cases import is_benchmark, meaning_changes, own_sets
 from evalution.targets import Targets
 
 
@@ -164,6 +175,87 @@ async def test_a_failed_run_records_what_kind_of_failure(
     assert summary(run)["tests"][-1]["reason"] == reason
 
 
+class _Hangs(_LosesTheApp):
+    """Runs out of time on every message, except the ones it answers."""
+
+    def __init__(self, answers: tuple[str, ...] = ()) -> None:
+        super().__init__("send", TargetGone("unused"))
+        self.answers = answers
+        self.asked = 0
+
+    async def send(self, session, message, *, files=(), stop_after=None, deadline) -> Turn:
+        if not message.startswith("msg"):  # the connection check before the run
+            return Turn("ok", 0.0, 0.0)
+        self.asked += 1
+        if message in self.answers:
+            return Turn("ok", 0.0, 0.0)
+        return Turn("", 0.0, 0.0, error="out of time", failure=Failure.TIMED_OUT, heard=True)
+
+
+@pytest.mark.parametrize(
+    ("answers", "asked", "status"),
+    [((), 3, "failed"), (("msg2", "msg5"), 6, "done")],
+)
+async def test_a_run_stops_when_try_after_try_hangs(
+    tmp_path, monkeypatch, answers, asked, status
+) -> None:
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
+    )
+    folder = tmp_path / "sets" / "bot" / "main"
+    folder.mkdir(parents=True)
+    (folder / "set.json").write_text(json.dumps({"name": "Main"}))
+    for n in range(6):
+        (folder / f"t{n}.case.json").write_text(
+            json.dumps({"name": f"t{n}", "turns": [{"message": f"msg{n}"}]})
+        )
+    config = load(tmp_path / "evalution.yaml")
+    target = _Hangs(answers)
+    monkeypatch.setitem(adapters._built, "bot", target)
+    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
+    await runs.wait()
+    run = runs.load(made["run"])
+    assert (run["status"], target.asked) == (status, asked)
+    if status == "failed":
+        assert "sleep" in run["stop_reason"]
+
+
+async def test_stop_reaches_a_run_another_process_is_playing(tmp_path, monkeypatch) -> None:
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
+    )
+    folder = tmp_path / "sets" / "bot" / "main"
+    folder.mkdir(parents=True)
+    (folder / "set.json").write_text(json.dumps({"name": "Main"}))
+    (folder / "t.case.json").write_text(json.dumps({"name": "t", "turns": [{"message": "msg"}]}))
+    config = load(tmp_path / "evalution.yaml")
+    playing = asyncio.Event()
+
+    class Slow(_LosesTheApp):
+        async def send(self, session, message, *, files=(), stop_after=None, deadline) -> Turn:
+            if message != "msg":
+                return Turn("ok", 0.0, 0.0)
+            playing.set()
+            await asyncio.sleep(60)
+            return Turn("late", 0.0, 0.0)
+
+    monkeypatch.setitem(adapters._built, "bot", Slow("send", TargetGone("unused")))
+    monkeypatch.setattr("evalution.runs.runner.STOP_POLL_SECONDS", 0.01)
+    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
+    await asyncio.wait_for(playing.wait(), 5)
+
+    # The page's server: the same files, and not the process that holds the run.
+    page = Runs(Targets(config), FileStore(config.data_dir), None)
+    page._orphans_marked = True
+    await page.stop(made["run"])
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(runs.wait(), 5)
+    run = page.load(made["run"])
+    assert (run["status"], run["stop_reason"]) == ("stopped", "Stopped by the admin")
+
+
 def test_a_test_file_edited_by_hand_is_checked_before_it_is_saved(client, tmp_path) -> None:
     url = "/v1/evals/sets/main/cases/greets/file"
     shown = client.get(url)
@@ -231,3 +323,22 @@ def test_a_review_covers_the_file_it_was_made_against(client, tmp_path) -> None:
     # Control: reviewed again over what's there now, it saves.
     fresh = client.put(url, content=typed, headers={"X-Reviewed": stale.json()["token"]})
     assert fresh.status_code == 200
+
+
+def test_a_benchmark_stays_out_of_the_apps_own_numbers(client, tmp_path) -> None:
+    other = tmp_path / "sets" / "bot" / "longmemeval-quick"
+    other.mkdir()
+    (other / "set.json").write_text(json.dumps({"name": "LongMemEval"}))
+    (other / "q.case.json").write_text(json.dumps({"name": "q", "turns": [{"message": "hi"}]}))
+    assert is_benchmark("longmemeval-quick") and not is_benchmark("main")
+    assert own_sets(tmp_path / "sets" / "bot") == ["main"]
+    seen = client.get("/v1/targets/bot/health", params={"period": "7d"})
+    assert seen.status_code == 200 and "LongMemEval" not in seen.text
+
+
+def test_benchmarks_list_their_sizes_and_stay_empty_until_played(client, tmp_path) -> None:
+    found = client.get("/v1/benchmarks", params={"target": "bot"}).json()
+    assert [entry["size"] for entry in found["sizes"]] == ["quick", "oracle", "s", "m"]
+    assert found["sizes"][0]["questions"] is None and found["runs"] == []
+    refused = client.post("/v1/benchmarks/install", json={"target": "bot", "size": "huge"})
+    assert refused.status_code == 400 and "huge" in refused.text

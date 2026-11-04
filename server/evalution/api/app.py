@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse
 
+from evalution.api.benchmarks import benchmarks_router
 from evalution.api.connect import connect_router
 from evalution.api.deps import answers_to, guard
 from evalution.api.health import health_router
@@ -77,6 +78,7 @@ def create_router(
         understanding_router(runs, agent, url),
         health_router(runs, watcher, llm),
         sets_router(runs),
+        benchmarks_router(runs),
         tests_router(runs, plans),
         runs_router(runs, plans),
         writer_router(targets, agent),

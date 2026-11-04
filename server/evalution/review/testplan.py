@@ -285,6 +285,15 @@ def mechanical(
                     "note": "Same person; what the app remembers of them stays.",
                 }
             )
+        elif turn.memory_holds is not None:
+            steps.append(
+                {
+                    "kind": "state",
+                    "title": "The app's memory is read, to measure",
+                    "items": [],
+                    "note": f"Does it hold this? {turn.memory_holds}",
+                }
+            )
         elif turn.state is not None:
             steps.append(
                 {

@@ -1,4 +1,4 @@
-import { ChartColumn, House, ListChecks, Network, Plus, Settings } from "lucide-react";
+import { ChartColumn, Gauge, House, ListChecks, Network, Plus, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { progressText } from "../../lib/format";
@@ -10,7 +10,7 @@ import type { Card } from "../learned/ProjectCard";
 import { CardRow } from "../learned/ProjectCard";
 
 /**
- * The app picker (with Connect), then Home, What it learned, Tests and Runs (with the going run
+ * The app picker (with Connect), then Home, What it learned, Tests, Benchmarks and Runs (with the going run
  * under it); Settings at the bottom.
  */
 export function Sidebar({
@@ -117,6 +117,7 @@ export function Sidebar({
         {item("home", <House className="size-4" aria-hidden />, "Home")}
         {item("app", <Network className="size-4" aria-hidden />, "What it learned")}
         {item("tests", <ListChecks className="size-4" aria-hidden />, "Tests")}
+        {item("benchmarks", <Gauge className="size-4" aria-hidden />, "Benchmarks")}
         {item("runs", <ChartColumn className="size-4" aria-hidden />, "Runs")}
         {going ? (
           <button

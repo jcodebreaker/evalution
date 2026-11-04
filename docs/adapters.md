@@ -97,6 +97,7 @@ Generated from each adapter's `Capabilities` and `INFO`; a test fails when this 
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | none | any |
 | `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | any |
+| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | any |
 <!-- matrix:end -->
 
 What each one does to deliver those: [architecture](architecture.md), and each module's opening comment.

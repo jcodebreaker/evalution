@@ -9,6 +9,8 @@ from evalution import llm
 from evalution.config import ModelConfig
 from evalution.core.evidence import (
     Clipped,
+    MemoryRecord,
+    ModelCallRecord,
     StateRecord,
     ToolRecord,
     TraceStatus,
@@ -19,9 +21,11 @@ from evalution.core.judgement import Basis, Outcome, Role, WhyUnjudged
 from evalution.core.rules import basis_of, judge_try, line_reason, steps_bind
 from evalution.judging import rubric
 from evalution.judging.checks import code_checks
+from evalution.judging.memory import grade_memory
 from evalution.judging.render import BUDGET, NEW_CONVERSATION, render
 from evalution.judging.rubric import (
     INSTRUCTIONS,
+    REFERENCE_LINE,
     SCEPTIC_INSTRUCTIONS,
     grade_reply,
     parse_grade,
@@ -36,9 +40,9 @@ def _line(ok: bool, sure: bool = True) -> dict:
     return {"pass": ok, "sure": sure, "reason": "r"}
 
 
-def _answer(*lines: dict, score: float = 0.9) -> str:
+def _answer(*lines: dict) -> str:
     numbered = [{"id": n, "line": "x", **line} for n, line in enumerate(lines, 1)]
-    return json.dumps({"lines": numbered, "score": score})
+    return json.dumps({"lines": numbered})
 
 
 def _evidence(reply: str = "reply", **fields) -> TryEvidence:
@@ -110,12 +114,13 @@ async def test_a_passing_failure_is_retried_once_and_only_the_answer_costs(monke
     assert down.spent_usd == 0.0
 
 
-async def test_a_high_score_does_not_pass_a_failed_line() -> None:
+async def test_the_score_is_the_share_of_lines_that_held() -> None:
     caller = _caller(
-        _answer(_line(True), _line(False), _line(False), score=0.95),
+        # A number of the model's own, as older grader answers carry, counts for nothing.
+        json.dumps({**json.loads(_answer(_line(True), _line(False), _line(False))), "score": 0.95}),
     )
     graded = await grade_reply(caller, _evidence(), "", RUBRIC)
-    assert graded.score == 0.95
+    assert graded.score == 0.333
     assert [c.outcome for c in graded.checks] == [Outcome.PASSED, Outcome.FAILED, Outcome.FAILED]
     assert len(caller.seen) == 1  # sure of every line: graded once
 
@@ -134,35 +139,36 @@ def _sceptic_caller(*answers: str):
 
 async def test_only_an_unsure_line_is_graded_again_sceptically() -> None:
     caller = _sceptic_caller(
-        _answer(_line(True), _line(True), _line(False, sure=False), score=0.6),
-        json.dumps({"lines": [{"id": 3, **_line(True)}], "score": 0.8}),
+        _answer(_line(True), _line(True), _line(False, sure=False)),
+        json.dumps({"lines": [{"id": 3, **_line(True)}]}),
     )
     graded = await grade_reply(caller, _evidence(), "", RUBRIC)
     assert [i for i, _ in caller.seen] == [INSTRUCTIONS, SCEPTIC_INSTRUCTIONS]
     again = caller.seen[1][1]
     assert "3. Short" in again and "Links both decks" not in again
     assert [c.outcome for c in graded.checks] == [Outcome.PASSED] * 3
-    assert graded.score == 0.6  # the first grading's; a number to show
+    assert graded.score == 1.0  # the second grading decided that line
     assert graded.lines[2]["split"] and graded.lines[2]["second"]["pass"] is True
 
 
 @pytest.mark.parametrize(
-    ("second", "want", "why"),
+    ("second", "want", "why", "score"),
     [
-        (_line(True, sure=False), Outcome.UNJUDGED, WhyUnjudged.JUDGE_UNSURE),
-        (_line(False, sure=False), Outcome.UNJUDGED, WhyUnjudged.JUDGE_UNSURE),
-        (_line(False), Outcome.FAILED, None),
+        (_line(True, sure=False), Outcome.UNJUDGED, WhyUnjudged.JUDGE_UNSURE, None),
+        (_line(False, sure=False), Outcome.UNJUDGED, WhyUnjudged.JUDGE_UNSURE, None),
+        (_line(False), Outcome.FAILED, None, 0.0),
     ],
 )
-async def test_a_second_grading(second, want, why) -> None:
+async def test_a_second_grading(second, want, why, score) -> None:
     caller = _sceptic_caller(
-        _answer(_line(True, sure=False)), json.dumps({"lines": [{"id": 1, **second}], "score": 0.5})
+        _answer(_line(True, sure=False)), json.dumps({"lines": [{"id": 1, **second}]})
     )
     graded = await grade_reply(caller, _evidence(), "", RUBRIC[:1])
     assert graded.checks[0].outcome is want and graded.checks[0].unjudged is why
+    assert graded.score == score
 
 
-@pytest.mark.parametrize("answer", ["I'd rather not", json.dumps({"lines": [], "score": 0.5})])
+@pytest.mark.parametrize("answer", ["I'd rather not", json.dumps({"lines": []})])
 async def test_a_grader_that_does_not_read_leaves_it_unjudged(answer) -> None:
     graded = await grade_reply(_caller(answer, answer), _evidence(), "ref", RUBRIC)
     assert graded.error and graded.score is None
@@ -180,13 +186,15 @@ async def test_n_of_the_lines_decide_with_the_lines_as_guides() -> None:
 
 
 async def test_a_reference_decides_only_when_it_is_all_there_is() -> None:
-    low = json.dumps({"lines": [], "score": 0.2})
-    alone = await grade_reply(_caller(low), _evidence(), "ref", [], mark=0.7)
+    caller = _caller(_answer(_line(False)))
+    alone = await grade_reply(caller, _evidence(), "ref", [], mark=0.7)
     assert [(c.id, c.role, c.outcome) for c in alone.checks] == [
         ("reference", Role.MUST, Outcome.FAILED)
     ]
+    assert alone.score == 0.0 and not alone.lines
+    assert f"1. {REFERENCE_LINE}" in caller.seen[0]
     beside = await grade_reply(
-        _caller(_answer(_line(True), _line(True), _line(True), score=0.2)),
+        _caller(_answer(_line(True), _line(True), _line(True), _line(False))),
         _evidence(),
         "ref",
         RUBRIC,
@@ -194,6 +202,54 @@ async def test_a_reference_decides_only_when_it_is_all_there_is() -> None:
     )
     assert beside.checks[-1].role is Role.GUIDE
     assert judge_try(beside.checks) is Outcome.PASSED
+    assert beside.score == 0.75 and len(beside.lines) == len(RUBRIC)
+
+
+async def test_memory_is_measured_committed_then_written() -> None:
+    def said(holds: bool) -> str:
+        return json.dumps({"holds": holds})
+
+    want = {"want": "Hawaii"}
+    only_written = MemoryRecord(
+        **want, committed=Clipped(text="old notes"), written=Clipped(text="went to Hawaii")
+    )
+    caller = _caller(said(False), said(True))
+    assert await grade_memory(caller, only_written) == {
+        "committed": False,
+        "written": True,
+        "reached": None,
+        "compacted": None,
+    }
+    assert "old notes" in caller.seen[0] and "went to Hawaii" in caller.seen[1]
+
+    committed = MemoryRecord(
+        **want, committed=Clipped(text="Hawaii"), written=Clipped(text="Hawaii")
+    )
+    caller = _caller(said(True))
+    assert (await grade_memory(caller, committed))["written"] is True
+    assert len(caller.seen) == 1
+
+    empty = MemoryRecord(**want)
+    assert (await grade_memory(_caller(), empty))["committed"] is False
+    unread = await grade_memory(_caller("nonsense", "nonsense"), committed)
+    assert (unread["committed"], unread["written"]) == (None, None)
+    no_read = await grade_memory(_caller(), MemoryRecord(**want, supported=False, compacted=True))
+    assert (no_read["committed"], no_read["compacted"]) == (None, True)
+
+    def call(text: str, elided: int = 0, helper: str | None = None) -> ModelCallRecord:
+        sent = Clipped(text=text, elided=elided)
+        return ModelCallRecord(
+            n=1, span="s", t=0.0, model="m", sent=sent, said=Clipped(), helper=helper
+        )
+
+    calls = [call("early"), call("the last call"), call("a helper's", helper="h")]
+    caller = _caller(said(True))
+    assert (await grade_memory(caller, empty, calls))["reached"] is True
+    assert "the last call" in caller.seen[0] and "helper" not in caller.seen[0]
+    cut = await grade_memory(_caller(said(False)), empty, [call("part", elided=5)])
+    assert cut["reached"] is None, "with part of it missing, a no can't be told"
+    assert (await grade_memory(_caller(said(False)), empty, [call("all")]))["reached"] is False
+    assert await grade_memory(_caller(), None) is None
 
 
 async def test_what_was_cut_is_on_the_check() -> None:

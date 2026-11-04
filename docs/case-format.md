@@ -69,6 +69,7 @@ At least one. They play in order, each waiting until the app is done.
 | `{"stop_after": 5}` | Alone, right after a message turn: presses Stop on that turn |
 | `{"filler": 20, "about": "..."}` | That many generated messages (1 to 200) on the topic, written by the set's filler model |
 | `{"expect_state": {...}}` | Checks what's true at this moment, one step per key. `context_contains` and `context_lacks` are decided from the call that answers the next message and take non-empty text. Any other key goes to the adapter's state checks and takes true/false, text or a number; on a target without them the step misses |
+| `{"memory_holds": "..."}` | Reads the app's memory here, on an adapter that can show it, and the Grader says whether it holds this. A measurement stored beside the try: it never decides it |
 | `{"break": "conversation"}` | The same person starts a new conversation, keeping what the app remembers of them. On a target without `conversation_break` the try fails, saying so |
 
 ## Tools
@@ -93,7 +94,7 @@ An agent varies, so `expected` is a guide: a different route to a good result is
 
 ## Reply
 
-- `reference`: what a good reply does; it sets the score to show and follow over runs. With only a reference and no rubric, that score is measured against the set's `pass_marks.reply`.
+- `reference`: what a good reply does; it counts as one more line in the reply score. With only a reference and no rubric, the score is 1 or 0, measured against the set's `pass_marks.reply`.
 - `rubric`: the lines that decide, judged on the last reply of the last turn. The Grader also sees the tool calls with their results and the state checks, so a line may say what the reply must be true to ("Links both files"). Each line is one checkable fact, never a degree ("good tone").
 - `pass`: how many lines must pass, from 1 to the number of lines. Left out, every line must.
 - `contains`, `lacks`: exact words the last reply must and must not have, whatever the case and spacing. Code decides these, and every one must hold. An empty reply fails both. Use them for facts with one right spelling; a fact that could be put another way belongs in the rubric.

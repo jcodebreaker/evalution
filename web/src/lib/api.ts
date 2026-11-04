@@ -12,6 +12,7 @@ import type {
 import {
   AdapterSchema,
   AgentSessionSchema,
+  BenchmarksSchema,
   CaseFileViewSchema,
   CaseRowSchema,
   CompareSchema,
@@ -194,6 +195,20 @@ export const api = {
   redraft: (name: string) => post(one(RedraftSchema), `/v1/targets/${enc(name)}/check/redraft`),
   setIsolation: (name: string, required: string[]) =>
     call("PUT", `/v1/targets/${enc(name)}/isolation`, { required }),
+  benchmarks: (target: string) => get(one(BenchmarksSchema), `/v1/benchmarks${query({ target })}`),
+  /** Work out how the benchmark plays on this app, and try it with a few real messages. */
+  planBenchmark: (target: string) => post((data) => data, "/v1/benchmarks/plan", { target }),
+  /** Write the planned test set, ready to run. */
+  approveBenchmarkPlan: (target: string) =>
+    post((data) => data as { set: string; questions: number }, "/v1/benchmarks/plan/approve", {
+      target,
+    }),
+  /** Write a size as a test set, downloading its data the first time. */
+  installBenchmark: (target: string, size: string) =>
+    post((data) => data as { set: string; questions: number }, "/v1/benchmarks/install", {
+      target,
+      size,
+    }),
   library: (target: string) => get(many(LibraryRowSchema), `/v1/library${query({ target })}`),
   sets: (target: string) => get(many(SetSummarySchema), `/v1/targets/${enc(target)}/sets`),
   cases: ({ target, set }: Scope) =>

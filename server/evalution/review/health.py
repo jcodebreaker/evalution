@@ -40,7 +40,7 @@ from evalution.results.record import (
 )
 from evalution.results.views import report_facts
 from evalution.suite import library
-from evalution.suite.cases import CaseError, list_sets, load_cases, load_set, slugify
+from evalution.suite.cases import CaseError, is_benchmark, load_cases, load_set, own_sets, slugify
 from evalution.targets import Targets
 
 DAY = 24 * 3600
@@ -547,7 +547,7 @@ def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[
     root = targets.sets(name)
     cases: dict[str, list[Case]] = {}
     titles: dict[str, str] = {}
-    for slug in list_sets(root):
+    for slug in own_sets(root):
         try:
             titles[slug] = load_set(slug, root).name
             cases[slug] = load_cases(slug, root)
@@ -559,7 +559,7 @@ def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[
         templates = library.load_templates(targets.config.library_dir)
     except library.LibraryError:
         templates = []
-    history = runs.all(name)
+    history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
     found = health(
         history,
         cases,

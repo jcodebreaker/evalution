@@ -23,7 +23,7 @@ from evalution.project.understanding.steering import marks, overlay, steers
 from evalution.project.understanding.store import load
 from evalution.results.views import latest_rows
 from evalution.suite import library
-from evalution.suite.cases import CaseError, list_sets, load_cases, slugify
+from evalution.suite.cases import CaseError, load_cases, own_sets, slugify
 from evalution.targets import Targets
 
 PATHS_SHOWN = 5
@@ -245,7 +245,7 @@ def _sets(targets: Targets, name: str) -> dict[str, list[Case]]:
     """The target's tests by set; a set that does not read is left out."""
     root = targets.sets(name)
     found = {}
-    for set_name in list_sets(root):
+    for set_name in own_sets(root):
         try:
             found[set_name] = load_cases(set_name, root)
         except CaseError:

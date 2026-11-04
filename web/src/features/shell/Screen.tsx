@@ -4,6 +4,7 @@ import type { Place } from "../../lib/router";
 import type { CaseRow, PassMarks } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
+import { BenchmarksView } from "../benchmarks/BenchmarksView";
 import { ConnectView } from "../connect/ConnectView";
 import { HomeView } from "../home/HomeView";
 import { AppView } from "../learned/AppView";
@@ -32,6 +33,7 @@ export function Screen({
   runMore,
   runAll,
   runSome,
+  runSet,
   showRun,
   showGoing,
   openTest,
@@ -47,6 +49,7 @@ export function Screen({
   runMore: (ids: readonly string[], tries: number) => void;
   runAll: () => void;
   runSome: (inSet: string, ids: readonly string[]) => void;
+  runSet: (inSet: string) => void;
   showRun: (id: string) => void;
   showGoing: () => void;
   openTest: (id: string, inRun?: string) => void;
@@ -130,7 +133,33 @@ export function Screen({
       />
     );
   }
+  if (place.view === "benchmarks") {
+    return (
+      <BenchmarksView
+        target={target}
+        selected={place.run}
+        onPick={(run) => go({ run })}
+        onRun={runSet}
+        onTry={(inSet, run, id) => go({ view: "runs", set: inSet, run, case: id })}
+      />
+    );
+  }
+  const benchmarks = {
+    benchmarks: workspace.benchmarkRuns,
+    onBenchmark: (run: string) => go({ view: "benchmarks", run, case: null, base: null }),
+  };
   if (!scope) {
+    if (place.view === "runs" && workspace.benchmarkRuns.length) {
+      return (
+        <RunsView
+          runs={[]}
+          label={runLabel}
+          onOpen={() => undefined}
+          empty={null}
+          {...benchmarks}
+        />
+      );
+    }
     return <Centered>No tests yet</Centered>;
   }
   if (cases.status === "loading" || runsLoad.status === "loading") {
@@ -221,6 +250,7 @@ export function Screen({
         runs={runs}
         label={runLabel}
         onOpen={(id, test) => go({ run: id, case: test })}
+        {...benchmarks}
         empty={
           rows.length ? (
             <RunAll

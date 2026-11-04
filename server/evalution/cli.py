@@ -59,6 +59,7 @@ from evalution.results.store import FileStore
 from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
 from evalution.runs.runner import RunBusyError, Runs
+from evalution.suite import benchmarks, planning
 from evalution.suite.cases import CaseError
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
@@ -362,6 +363,68 @@ def keeping(found: upgrade.Outcome) -> int:
 _STEP_MARK = {"ok": "ok ", "failed": "NO ", "skipped": "-- "}
 
 
+async def benchmark_plan(config: Config, args: argparse.Namespace) -> int:
+    targets = _targets(config)
+    llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
+    try:
+        if llm is None:
+            print("evalution: planning needs a model", file=sys.stderr)
+            return 1
+        plan = await planning.plan_for(
+            targets,
+            args.target,
+            targets.adapter(args.target),
+            llm.caller("strong"),
+            config.data_dir,
+        )
+        print(json.dumps(plan, indent=1))
+        return 0
+    finally:
+        await targets.close()
+        if llm is not None:
+            await llm.close()
+
+
+def benchmark(config: Config, args: argparse.Namespace) -> int:
+    if args.action == "plan":
+        return asyncio.run(benchmark_plan(config, args))
+    if args.action == "approve":
+        found = planning.approve(_targets(config), args.target)
+        print(f"evalution: {found['set']} has {found['questions']} questions")
+        return 0
+    if args.action == "install":
+        slug, count = benchmarks.install(args.size, args.target, config.sets_dir, config.data_dir)
+        print(f"evalution: {slug} has {count} questions, for target {args.target}")
+        print(f"evalution: run it with: evalution run --target {args.target} --set {slug}")
+        return 0
+    doc = FileStore(config.data_dir).load(args.run)
+    if doc is None:
+        print(f"evalution: no run {args.run}", file=sys.stderr)
+        return 1
+    found = benchmarks.report(doc)
+
+    def share(value: float | None) -> str:
+        return "-" if value is None else f"{value:.0%}"
+
+    print(f"answer accuracy  {share(found['accuracy'])}  {found['right']} of {found['judged']}")
+    print(f"task average     {share(found['task_average'])}")
+    saved = found["memory"]
+    print(
+        f"write recall     {share(found['write_recall'])}  "
+        f"{saved['committed']} of {saved['measured']} in committed memory, "
+        f"{saved['written']} written"
+    )
+    for kind, tally in found["kinds"].items():
+        print(f"  {kind:<26} {tally['right']} of {tally['judged']}")
+    print(
+        f"abstention       {share(found['abstention'])}  "
+        f"{found['admitted']} of {found['unanswerable']}"
+    )
+    if found["unjudged"]:
+        print(f"couldn't judge   {found['unjudged']}")
+    return 0
+
+
 def _print_step(step: contract.Step) -> None:
     print(f"{_STEP_MARK[step.status]} {step.name}" + (f": {step.detail}" if step.detail else ""))
 
@@ -537,6 +600,17 @@ def main(argv: list[str] | None = None) -> int:
     versus.add_argument("--target")
     versus.add_argument("--set")
     versus.add_argument("--json", action="store_true", help="the whole comparison, as JSON")
+    bench = sub.add_parser("benchmark", help="ready-made benchmarks: install one, read a run's")
+    bench_what = bench.add_subparsers(dest="action", required=True)
+    put = bench_what.add_parser("install", help="LongMemEval as a set: downloads its data once")
+    put.add_argument("--target", required=True)
+    put.add_argument("--size", choices=sorted(benchmarks.SIZES), default="quick")
+    worked = bench_what.add_parser("plan", help="work out how it plays on this app: sends a few")
+    worked.add_argument("--target", required=True)
+    agreed = bench_what.add_parser("approve", help="write the planned set, ready to run")
+    agreed.add_argument("--target", required=True)
+    read = bench_what.add_parser("report", help="a run's benchmark numbers, and how they add up")
+    read.add_argument("run")
     sub.add_parser("doctor", help="everything a first run needs, and what to do about it: free")
     service_cmd = sub.add_parser("service", help="keep the page running, from login on")
     service_cmd.add_argument("action", choices=("install", "uninstall", "status"))
@@ -596,6 +670,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "run":
             return asyncio.run(run(config, args))
+        if args.command == "benchmark":
+            return benchmark(config, args)
         if args.command == "hooks":
             return hooks(config, args)
         if args.command == "check":

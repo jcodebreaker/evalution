@@ -32,7 +32,7 @@ from evalution.llm import Caller, LLMError, cut, fenced, json_answer
 from evalution.project import drift
 from evalution.project.history import History
 from evalution.project.profile import fingerprint_hash, read_json, read_profile, updates, write_json
-from evalution.suite.cases import CaseError, list_sets, load_cases
+from evalution.suite.cases import CaseError, is_benchmark, load_cases, own_sets
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ def _forward(doc: Mapping[str, Any], tested: dict, history: Sequence[Mapping[str
 def _all_cases(targets: Targets, name: str) -> dict[str, list[Case]]:
     root = targets.sets(name)
     cases: dict[str, list[Case]] = {}
-    for slug in list_sets(root):
+    for slug in own_sets(root):
         try:
             cases[slug] = load_cases(slug, root)
         except CaseError:
@@ -226,7 +226,7 @@ def _look(runs: History, name: str) -> dict[str, Any] | None:
     if code is None:
         return None
     now = _snapshot(code)
-    history = runs.all(name)
+    history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
     with targets.guards.tested:
         doc = read_json(targets, name, TESTED_FILE) or {}
         tested = doc.get("tested")
@@ -278,7 +278,8 @@ def _settle(runs: History, name: str, look: Mapping[str, Any], result: Mapping[s
             "fingerprint": look["fingerprint"],
             "chars": _size(look),
         }
-        left, played = _left(current, runs.all(name))
+        history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
+        left, played = _left(current, history)
         if _settled(left, current, played):
             current, forward = None, played
     with targets.guards.tested:

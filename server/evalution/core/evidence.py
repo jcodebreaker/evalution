@@ -160,6 +160,25 @@ class StateRecord(Frozen):
     reason: str = ""
 
 
+class MemoryRecord(Frozen):
+    """The app's memory, read part-way through a try to measure whether it holds *want*.
+
+    :param committed: What a new conversation would be given.
+    :param written: What has been written, when that can differ; ``None`` when it can't.
+    :param supported: Whether this target can show its memory at all.
+    :param error: Why reading it failed.
+    :param compacted: Whether older turns had left the conversation by then; ``None`` when the
+        target can't say.
+    """
+
+    want: str
+    committed: Clipped = Clipped()
+    written: Clipped | None = None
+    supported: bool = True
+    error: str | None = None
+    compacted: bool | None = None
+
+
 class TryEvidence(Frozen):
     """One try: its transcript, tool calls, model calls and state checks, and how far its traces
     could be read. Span times are seconds from ``t0``, the first message."""
@@ -172,6 +191,7 @@ class TryEvidence(Frozen):
     tools: tuple[ToolRecord, ...] = ()
     model_calls: tuple[ModelCallRecord, ...] = ()
     states: tuple[StateRecord, ...] = ()
+    memory: MemoryRecord | None = None
     #: Where the person started a new conversation: how many turns had been played by then.
     breaks: tuple[int, ...] = ()
     #: Every AI span of the try, which a claim may cite.

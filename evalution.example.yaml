@@ -21,7 +21,7 @@ traces:                          # evalution runs its own Phoenix: pip install '
 #   kind: anthropic                # or openai (any OpenAI-compatible base_url, e.g. .../v1)
 #   base_url: https://api.anthropic.com
 #   api_key_env: EVALUTION_MODEL_KEY
-#   models: {strong: claude-opus-5-5, light: claude-haiku-5-5}  # judge: optional, grades; else strong
+#   models: {strong: claude-sonnet-5-5, light: claude-haiku-5-5}  # judge: optional, grades; else strong
 #   prices:                        # USD per million tokens; overrides the built-in table
 #     claude-opus-5-5: {input: 4, output: 20}
 #     claude-haiku-5-5: {input: 0.1, output: 0.5}

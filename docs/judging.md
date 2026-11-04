@@ -152,7 +152,7 @@ A score from 0 to 1 is shown and never decides, unless a reference is all a test
 
 ## The scores
 
-**Steps score** (stored as `tools`): the share of expected calls done, less 0.25 for each call to a `never` tool and, with `extras` off, 0.1 for each extra call, 0 at the least. It only decides when steps bind. **Reply score** (stored as `reply`): the grader's reading against the reference. A test with nothing to score shows neither, rather than 1.00. Tools a target lists as `automatic_tools` aren't in the steps score, and show as "automatic" on the test page, unless the test names them.
+**Steps score** (stored as `tools`): the share of expected calls done, less 0.25 for each call to a `never` tool and, with `extras` off, 0.1 for each extra call, 0 at the least. It only decides when steps bind. **Reply score** (stored as `reply`): lines that held / lines judged. The grader says yes or no to each rubric line, and to the reference as one more line. Lines it wasn't sure of on both gradings don't count. The grader gives no number of its own. A test with nothing to score shows neither, rather than 1.00. Tools a target lists as `automatic_tools` aren't in the steps score, and show as "automatic" on the test page, unless the test names them.
 
 ## Money
 

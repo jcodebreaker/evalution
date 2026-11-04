@@ -114,7 +114,7 @@ def test_nothing_is_deleted_unless_the_target_asks(target: Target) -> None:
 
 
 def test_the_registry_finds_each_module_under_its_own_name() -> None:
-    assert list(infos()) == ["http", "langgraph"]
+    assert list(infos()) == ["http", "langgraph", "letta"]
     for name, info in infos().items():
         assert info.name == name and set(info.required) <= set(info.options)
 
@@ -128,6 +128,15 @@ def test_what_the_api_says_each_can_do(monkeypatch) -> None:
     assert said == {
         "http": ["isolation", "parallel"],
         "langgraph": [
+            "blocks",
+            "cancel",
+            "conversation_break",
+            "isolation",
+            "parallel",
+            "reset",
+            "state",
+        ],
+        "letta": [
             "blocks",
             "cancel",
             "conversation_break",

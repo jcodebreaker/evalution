@@ -192,6 +192,15 @@ class StateResult:
     observed: bool = True
 
 
+@dataclass
+class MemoryRead:
+    """An app's memory as text. ``written`` is what isn't yet what a new conversation gets, when
+    the app has such a thing; ``None`` when what it has written is what it would use."""
+
+    committed: str
+    written: str | None = None
+
+
 #: A turn that ended on one of these never reached the app.
 UNREACHABLE_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError)
 
@@ -256,6 +265,10 @@ class Target(ABC):
 
     @abstractmethod
     async def close(self, session: Session) -> None: ...
+
+    async def read_memory(self, session: Session) -> MemoryRead | None:
+        """What the app keeps about this person, as text, to measure; ``None`` if it can't say."""
+        return None
 
     async def reset(self, session: Session) -> None:
         raise NotImplementedError(f"{self.name} can't reset a session")

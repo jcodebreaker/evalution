@@ -66,10 +66,18 @@ class CaseTurn:
     new_conversation: bool = False
     #: The test wants the app to stop and wait here (``"blocked": true``), an approval, say.
     expect_blocked: bool = False
+    #: Read the app's memory here, to measure whether it holds this (``{"memory_holds": "..."}``).
+    #: A measurement: it never decides the try.
+    memory_holds: str | None = None
 
     @property
     def is_message(self) -> bool:
-        return not self.filler and self.state is None and not self.new_conversation
+        return (
+            not self.filler
+            and self.state is None
+            and not self.new_conversation
+            and self.memory_holds is None
+        )
 
 
 @dataclass(frozen=True)

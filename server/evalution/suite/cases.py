@@ -28,6 +28,8 @@ from evalution.core.case import (
     EvalSet,
 )
 
+BENCHMARK_PREFIX = "longmemeval-"
+
 
 class CaseError(ValueError):
     """A set or case file that does not follow the schema; the message names file and field."""
@@ -140,6 +142,16 @@ def list_sets(root: Path) -> list[str]:
     return sorted(
         p.name for p in base.iterdir() if SLUG.match(p.name) and (p / "set.json").is_file()
     )
+
+
+def is_benchmark(slug: str | None) -> bool:
+    """Whether a set is a ready-made benchmark, kept apart from the app's own tests."""
+    return str(slug).startswith(BENCHMARK_PREFIX)
+
+
+def own_sets(root: Path) -> list[str]:
+    """The app's own tests: its sets, benchmarks left out."""
+    return [slug for slug in list_sets(root) if not is_benchmark(slug)]
 
 
 def _result(spec: Any, where: str) -> None:
@@ -302,6 +314,12 @@ def _turns(value: Any, where: str) -> tuple[CaseTurn, ...]:
             continue
         if "expect_state" in turn:
             turns.append(_state(turn, at))
+            continue
+        if "memory_holds" in turn:
+            wanted = turn["memory_holds"]
+            if set(turn) != {"memory_holds"} or not isinstance(wanted, str) or not wanted.strip():
+                raise CaseError(f"{at}: a memory_holds turn is only that, with non-empty text")
+            turns.append(CaseTurn("", memory_holds=wanted))
             continue
         if "break" in turn:
             if turn != {"break": "conversation"}:

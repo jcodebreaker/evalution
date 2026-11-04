@@ -118,6 +118,118 @@ export const RedraftSchema = z.object({
 export type Redraft = z.infer<typeof RedraftSchema>;
 
 /** A test of the library, with its fit for this app and what its owner is asked for. */
+const TallySchema = z.object({ right: z.number(), judged: z.number() });
+
+const BenchmarkPlanSchema = z.object({
+  verdict: z.string(),
+  how: z.string(),
+  why: z.string(),
+  measures: z.string(),
+  warnings: z.array(z.string()).default([]),
+  evidence: z.array(z.string()).default([]),
+  boundary: z.string().optional(),
+  size: z.string().optional(),
+  approved: z.boolean().default(false),
+  stale: z.boolean().default(false),
+  set: z.string().optional(),
+  questions: z.number().optional(),
+  messages: z.number().optional(),
+  hours: z.number().optional(),
+  probe: z
+    .object({
+      ok: z.boolean(),
+      answered: z.boolean().default(false),
+      memory_readable: z.boolean().default(false),
+      seconds_per_message: z.number().optional(),
+      error: z.string().optional(),
+    })
+    .optional(),
+});
+export type BenchmarkPlan = z.infer<typeof BenchmarkPlanSchema>;
+
+export const BenchmarksSchema = z.object({
+  plan: BenchmarkPlanSchema.nullable().default(null),
+  sizes: z.array(
+    z.object({
+      size: z.string(),
+      set: z.string(),
+      about: z.string(),
+      questions: z.number().nullable(),
+    }),
+  ),
+  runs: z.array(
+    z.object({
+      run: z.string(),
+      set: z.string(),
+      status: z.string().nullable(),
+      started_at: z.number().nullable(),
+      judge: z.string().nullable(),
+      plan: BenchmarkPlanSchema.nullable().default(null),
+      happened: z.string().default(""),
+      totals: z
+        .object({
+          tokens: z.number().nullable().default(null),
+          usd: z.number().nullable().default(null),
+          median_seconds: z.number().nullable().default(null),
+          models: z.array(z.string()).default([]),
+        })
+        .nullable()
+        .default(null),
+      current: z
+        .object({
+          name: z.string().default(""),
+          stage: z.string().default(""),
+          turn: z.number().optional(),
+          turns: z.number().optional(),
+        })
+        .nullable()
+        .default(null),
+      report: z.object({
+        accuracy: z.number().nullable(),
+        right: z.number(),
+        judged: z.number(),
+        task_average: z.number().nullable(),
+        kinds: z.record(z.string(), TallySchema),
+        abstention: z.number().nullable(),
+        admitted: z.number(),
+        unanswerable: z.number(),
+        unjudged: z.number(),
+        waiting: z.number(),
+        write_recall: z.number().nullable(),
+        memory: z.object({
+          measured: z.number(),
+          written: z.number(),
+          committed: z.number(),
+          used: z.number(),
+        }),
+      }),
+      questions: z.array(
+        z.object({
+          case: z.string(),
+          kind: z.string(),
+          unanswerable: z.boolean(),
+          question: z.string(),
+          verdict: z.string(),
+          memory: z
+            .object({ committed: z.boolean().nullable(), written: z.boolean().nullable() })
+            .nullable(),
+          right_is: z.string(),
+          reply: z.string(),
+          reason: z.string(),
+          error: z.string().nullable(),
+          seconds: z.number().nullable(),
+          tokens: z.number().nullable().default(null),
+          usd: z.number().nullable().default(null),
+          messages: z.number().nullable().default(null),
+          trace_url: z.string().nullable().default(null),
+          models: z.array(z.string()).default([]),
+        }),
+      ),
+    }),
+  ),
+});
+export type Benchmarks = z.infer<typeof BenchmarksSchema>;
+
 export const LibraryRowSchema = z.object({
   id: z.string(),
   title: z.string(),

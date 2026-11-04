@@ -220,6 +220,14 @@ def line_outcome(first: Mapping[str, Any], second: Mapping[str, Any] | None) -> 
     return Outcome.PASSED if said["pass"] else Outcome.FAILED
 
 
+def reply_score(lines: Sequence[Outcome]) -> float | None:
+    """The reply score: judged lines that held / judged lines. ``None`` with none judged."""
+    judged = [line for line in lines if line is not Outcome.UNJUDGED]
+    if not judged:
+        return None
+    return round(sum(line is Outcome.PASSED for line in judged) / len(judged), 3)
+
+
 def line_reason(line: Mapping[str, Any]) -> str:
     """Why a stored rubric line came out as it did: the grading that decided it, never one it
     replaced; with neither sure, the later."""

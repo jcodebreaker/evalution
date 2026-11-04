@@ -10,7 +10,7 @@ ROOT = Path(evalution.__file__).parent
 ADAPTERS = "adapters/"
 
 VENDOR = re.compile(
-    r"(?<![a-z])(langgraph|langchain)(?![a-z])",
+    r"(?<![a-z])(langgraph|langchain|letta)(?![a-z])",
     re.IGNORECASE,
 )
 #: ``word -> file -> why it may stay``.

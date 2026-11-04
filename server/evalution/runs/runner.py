@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -50,6 +51,7 @@ from evalution.core.rules import (
 )
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
+from evalution.judging.memory import grade_memory
 from evalution.judging.rubric import (
     FILLER_INSTRUCTIONS,
     PROMPT_HASH,
@@ -111,10 +113,19 @@ SETUP_SECONDS = 120.0
 #: Seconds a try waits for traces once an earlier one of the run waited in full and found none.
 NO_TRACES_WAIT = 2.0
 STOPPED_BY_ADMIN = "Stopped by the admin"
+#: How often a run looks for a stop asked of it from another process.
+STOP_POLL_SECONDS = 1.0
 SERVER_SHUTDOWN = "The server shut down during the run"
 STILL_WORKING = (
     "A try ran out of time with the app still working, and the adapter can't stop it, so the next "
     "try would start on top of it. Give the adapter a way to cancel."
+)
+#: Tries in a row that run out of time with nothing answered before the run stops: waiting out the
+#: rest would take hours and show nothing.
+HANGS = 3
+KEEPS_HANGING = (
+    f"{HANGS} tries in a row ran out of time with no answer at all, so the run stopped. "
+    "The app may be down, or this computer may have gone to sleep."
 )
 #: What ending a run with one of these says: the app was not there to play on.
 APP_NOT_READY_ERRORS = (
@@ -166,6 +177,15 @@ class RunBusyError(Exception):
     """A run or an analysis is already going; one at a time."""
 
 
+def _plan_beside(folder: Path) -> dict[str, Any] | None:
+    path = folder / "plan.json"
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
+class KeepsHanging(Exception):
+    """Try after try ran out of time with nothing answered."""
+
+
 class StillWorking(RuntimeError):
     """A try ran out of time with the app's work still going, and it can't be stopped."""
 
@@ -180,6 +200,7 @@ class Runs:
         self._plans: dict[str, _Plan] = {}
         self._regrades: dict[str, tuple[str, float]] = {}
         self._task: asyncio.Task[None] | None = None
+        self._stop_watch: asyncio.Task[None] | None = None
         self._running: str | None = None
         self._playing: str | None = None
         #: Targets a test message is on its way to, or that are being changed: no run starts.
@@ -359,6 +380,8 @@ class Runs:
             "set": plan.set,
             "scope": plan.scope,
             "started_at": started,
+            # How a benchmark was chosen to play, when a plan chose it.
+            "plan": _plan_beside(self.targets.sets(plan.target) / plan.set),
             "ended_at": None,
             "status": "running",
             # Short hash of the system prompt the target's first model call was sent.
@@ -408,7 +431,23 @@ class Runs:
         self._playing = plan.target
         self._stop_reason = None
         self._go(self._play(doc, eval_set, cases, plan.tries))
+        self._stop_watch = asyncio.get_running_loop().create_task(self._heed_stop(doc["run"]))
         return summary(doc)
+
+    async def _heed_stop(self, run: str) -> None:
+        """Stop *run* when asked from another process: a run started with ``evalution run`` is
+        stopped from the page's server, which doesn't hold it."""
+        task = self._task
+        assert task is not None
+        while not task.done():
+            if self.files.stop_asked(run):
+                self._stop_reason = STOPPED_BY_ADMIN
+                task.cancel()
+                break
+            await asyncio.sleep(STOP_POLL_SECONDS)
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait([task])
+        self.files.clear_stop(run)
 
     def _go(self, work: Coroutine[Any, Any, None]) -> None:
         """Run *work* in the background, holding the run lock until it ends."""
@@ -507,6 +546,7 @@ class Runs:
             attempt.setdefault("retried", []).append({"what": "grader", "why": graded.retried})
         attempt["rubric"] = graded.lines
         attempt["reply"] = graded.score
+        attempt["memory"] = await grade_memory(caller, evidence.memory, evidence.model_calls)
         return True
 
     async def wait(self) -> None:
@@ -569,7 +609,12 @@ class Runs:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+            doc = self.load(run)
+            return summary(doc) if doc else None
         doc = self.load(run)
+        if doc and doc.get("status") == "running":
+            # Not ours: it's another process's to stop. It looks for this while it plays.
+            self.files.ask_stop(run)
         return summary(doc) if doc else None
 
     async def _save(self, doc: Mapping[str, Any]) -> None:
@@ -615,12 +660,13 @@ class Runs:
             # Trace values earlier tries played on: their spans aren't the next one's.
             reused: set[str] = set()
             adapter_failures = 0
+            hangs = 0
 
             def opened() -> None:
                 doc["sessions"] = [s.as_dict() for s in sessions.values()]
 
             async def slot(index: int) -> None:
-                nonlocal adapter_failures
+                nonlocal adapter_failures, hangs
                 key = doc["run"] if slots == 1 else f"{doc['run']}-{index + 1}"
                 while queue:
                     case = queue.pop(0)
@@ -654,6 +700,10 @@ class Runs:
                         adapter_failures = adapter_failures + 1 if lost_adapter else 0
                         if adapter_failures >= ADAPTER_FAILURES:
                             raise AdapterBroken(attempt["error"] or "")
+                        hung = played.failure is Failure.TIMED_OUT and not played.turns
+                        hangs = hangs + 1 if hung else 0
+                        if hangs >= HANGS:
+                            raise KeepsHanging(KEEPS_HANGING)
                         left_going = (
                             lost_adapter
                             or played.failure is Failure.TIMED_OUT
@@ -683,6 +733,8 @@ class Runs:
             doc.update(
                 status="failed", failure=ADAPTER_BROKEN, stop_reason=str(exc), error=str(exc)
             )
+        except KeepsHanging as exc:
+            doc.update(status="failed", failure=APP_NOT_READY, stop_reason=str(exc), error=str(exc))
         except StillWorking as exc:
             doc.update(status="failed", failure=OTHER_FAILURE, stop_reason=str(exc), error=str(exc))
         except AppRefused as exc:
@@ -829,6 +881,7 @@ class Runs:
                 need=case.reply_pass,
                 mark=marks["reply"],
             )
+        memory = await grade_memory(grader, evidence.memory, evidence.model_calls)
         checks = [*code.checks, *graded.checks]
         graded_by = (
             JudgeStamp.model_validate(doc["judge"])
@@ -843,6 +896,7 @@ class Runs:
             "usd": view.usd,
             "tools": tools_score,
             "reply": graded.score,
+            "memory": memory,
             "judgements": [found.model_dump(mode="json")],
             "steps": [s.as_dict() for s in [*tool_steps, *code.states]],
             # What drafting a case from this try reads; not part of the API's ``Try``.

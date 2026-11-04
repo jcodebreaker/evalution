@@ -20,6 +20,7 @@ shows the message wasn't taken: a connection error, a 429 or a 503.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import secrets
@@ -50,6 +51,7 @@ from evalution.core.case import CONTEXT_CHECKS, Case, CaseTurn
 from evalution.core.evidence import (
     Clipped,
     Failure,
+    MemoryRecord,
     ModelCallRecord,
     StateRecord,
     ToolRecord,
@@ -123,6 +125,7 @@ class Played:
     failure: Failure | None = None
     records: list[TurnRecord] = field(default_factory=list)
     states: list[StateRecord] = field(default_factory=list)
+    memory: MemoryRecord | None = None
     view: TraceView = field(default_factory=TraceView)
     trace_url: str | None = None
     #: The session's trace values before a conversation break changed it, whose spans count too.
@@ -208,6 +211,8 @@ async def play_try(
         for turn in case.turns:
             if turn.state is not None:
                 await _check_state(target, session, played, turn.state)
+            elif turn.memory_holds is not None:
+                await _read_memory(target, session, played, turn.memory_holds)
             elif turn.new_conversation:
                 await _new_conversation(target, session, played)
             elif turn.filler:
@@ -506,6 +511,33 @@ async def _read_state(target: Target, session: Session, key: str, value: Any) ->
         return StateResult(False, None, said, observed=False)
 
 
+async def _read_memory(target: Target, session: Session, played: Played, want: str) -> None:
+    """Keep what the app's memory holds now. Only a measurement: a failed read fails nothing."""
+    compacted = None
+    if "checkpoint" in target.capabilities.state_checks:
+        with contextlib.suppress(Exception):
+            found = await asyncio.wait_for(
+                target.state(session, {"checkpoint": True}), ADAPTER_SECONDS
+            )
+            compacted = found.ok if found.observed else None
+    try:
+        read = await asyncio.wait_for(target.read_memory(session), ADAPTER_SECONDS)
+    except Exception as exc:  # the try goes on: this was only ever to be measured
+        said = net.said(exc) if isinstance(exc, httpx.HTTPError) else type(exc).__name__
+        played.memory = MemoryRecord(want=want, error=said, compacted=compacted)
+        return
+    if read is None:
+        played.memory = MemoryRecord(want=want, supported=False, compacted=compacted)
+        return
+    written = None if read.written is None else Clipped(text=read.written).capped()
+    played.memory = MemoryRecord(
+        want=want,
+        committed=Clipped(text=read.committed).capped(),
+        written=written,
+        compacted=compacted,
+    )
+
+
 async def _check_state(
     target: Target, session: Session, played: Played, checks: dict[str, Any]
 ) -> None:
@@ -650,6 +682,7 @@ def _evidence(
         tools=tuple(tools),
         model_calls=tuple(calls),
         states=tuple(played.states),
+        memory=played.memory,
         breaks=tuple(played.breaks),
         spans=tuple(row["id"] for row in view.timeline),
         trace=status,

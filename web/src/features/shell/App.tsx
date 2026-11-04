@@ -5,6 +5,7 @@ import { usePlace } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
+import { isBenchmark } from "../benchmarks/BenchmarksView";
 import type { RunTarget } from "../runs/RunConfirm";
 import { RunConfirm } from "../runs/RunConfirm";
 import { WriterPanel } from "../writer/WriterPanel";
@@ -34,6 +35,8 @@ export function App() {
     runLabel,
     testName,
     going,
+    goingBenchmark,
+    reloadBenchmarkRuns,
   } = workspace;
   const writer = useWriter(scope, reloadRuns, reloadCases);
   const { agent, ask, writerOpen, setWriterOpen, writerDraft, clearDraft } = writer;
@@ -51,16 +54,31 @@ export function App() {
   const runSome = (inSet: string, ids: readonly string[]) => {
     if (target && !going) setConfirm({ scope: { target, set: inSet }, cases: ids });
   };
+  const runSet = (inSet: string) => {
+    if (target) setConfirm({ scope: { target, set: inSet } });
+  };
   const showRun = (id: string) => go({ view: "runs", run: id, case: null, base: null });
+  const showBenchmark = (id: string) => go({ view: "benchmarks", run: id, case: null, base: null });
   const showGoing = () => {
     if (going) showRun(going.run);
   };
   const started = (summary: RunSummary) => {
+    const benchmark = confirm ? isBenchmark(confirm.scope.set) : false;
     setConfirm(null);
     void reloadRuns();
-    showRun(summary.run);
+    if (benchmark) {
+      void reloadBenchmarkRuns();
+      go({ view: "benchmarks", run: summary.run, case: null, base: null });
+    } else showRun(summary.run);
   };
-  const nav = (next: Partial<Place>) => go({ run: null, case: null, base: null, ...next });
+  const nav = (next: Partial<Place>) =>
+    go({
+      run: null,
+      case: null,
+      base: null,
+      ...(place.set && isBenchmark(place.set) ? { set: null } : {}),
+      ...next,
+    });
   const openTest = (id: string, inRun?: string) =>
     go({ view: "tests", case: id, run: inRun ?? null, base: null });
   const learnAgain = () => {
@@ -87,13 +105,16 @@ export function App() {
         target={target}
         sets={setList}
         set={set}
-        going={going}
-        goingLabel={going ? runLabel(going.run) : ""}
+        going={going ?? goingBenchmark}
+        goingLabel={going ? runLabel(going.run) : "Benchmark"}
         cards={cards}
         onTarget={(name) => nav({ target: name, set: null, view: "home" })}
         onSet={(id) => nav({ set: id })}
         onView={(view) => nav({ view })}
-        onGoing={showGoing}
+        onGoing={() => {
+          if (going) showGoing();
+          else if (goingBenchmark) showBenchmark(goingBenchmark.run);
+        }}
       />
       <main className="flex min-h-0 min-w-0 flex-col bg-content max-md:min-h-[70vh]">
         <Screen
@@ -107,6 +128,7 @@ export function App() {
           runMore={runMore}
           runAll={runAll}
           runSome={runSome}
+          runSet={runSet}
           showRun={showRun}
           showGoing={showGoing}
           openTest={openTest}

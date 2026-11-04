@@ -160,6 +160,17 @@ class FileStore:
         """Add one try to the run's sidecar, one writer at a time."""
         await self._in_turn(sidecar.append, self.runs, run, evidence)
 
+    def ask_stop(self, run: str) -> None:
+        """Ask whichever process is playing *run* to stop it."""
+        self.runs.mkdir(parents=True, exist_ok=True)
+        (self.runs / f"{run}.stop").touch()
+
+    def stop_asked(self, run: str) -> bool:
+        return (self.runs / f"{run}.stop").exists()
+
+    def clear_stop(self, run: str) -> None:
+        (self.runs / f"{run}.stop").unlink(missing_ok=True)
+
     def load(self, run: str) -> dict[str, Any] | None:
         path = self._path(run)
         if path is None or not path.is_file():

@@ -12,8 +12,9 @@ the Grader was not sure of is graded once more, by a prompt that looks for why i
 only that line. A call that failed on something passing (the network, a busy provider) is made once
 more after a short wait, and :attr:`Graded.retried` says so; a failed call was never charged, so
 this adds no spend of its own. When the Grader still can't be reached or doesn't read, its lines are
-unjudged, never failed. The score is only a number to show and follow over runs, unless a reference
-is all a test has.
+unjudged, never failed. The score is arithmetic, :func:`evalution.core.rules.reply_score`: the share
+of judged lines that held, the reference counted as one more line. It is only a number to show and
+follow over runs, unless a reference is all a test has.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from evalution.core.judgement import (
     Role,
     WhyUnjudged,
 )
-from evalution.core.rules import line_outcome, rubric_outcome
+from evalution.core.rules import line_outcome, reply_score, rubric_outcome
 from evalution.judging.claims import EvidenceIndex, checked_quotes, index_of
 from evalution.judging.render import render
 from evalution.llm import Caller, LLMError, ask_json, json_answer
@@ -91,12 +92,11 @@ the assistant really did: a link or a figure in the reply is real only if a tool
 returned it. Give one plain line of reason that quotes or names what decided it, and say \
 whether you are sure (false when the evidence is thin or the line is a close call), and copy \
 word for word the phrases of the final reply that decided it (at most three, none when the \
-reply has nothing to quote). Then give one overall score from 0 to 1 for how well the reply \
-does what the reference describes.
+reply has nothing to quote).
 
 Answer with one JSON object and nothing else:
 {"lines": [{"id": 1, "line": "<the rubric line>", "pass": true, "sure": true, "reason": "...", \
-"quotes": ["..."]}], "score": 0.8}
+"quotes": ["..."]}]}
 One entry per rubric line, every line given, with the number the line has in the rubric as its \
 id."""
 
@@ -119,16 +119,17 @@ decided it (at most three).
 
 Answer with one JSON object and nothing else:
 {"lines": [{"id": 1, "line": "<the rubric line>", "pass": true, "sure": true, "reason": "...", \
-"quotes": ["..."]}], "score": 0.8}
-One entry per line given, with the number it has there as its id; the score is how well the reply \
-does what the reference describes, from 0 to 1."""
+"quotes": ["..."]}]}
+One entry per line given, with the number it has there as its id."""
 #: What a judge stamp records of the prompts: changing them makes results not comparable.
 PROMPT_HASH = hashlib.sha256((INSTRUCTIONS + SCEPTIC_INSTRUCTIONS).encode()).hexdigest()[:12]
+#: How a test's reference is put to the Grader: as one more line.
+REFERENCE_LINE = "The reply does what the reference describes."
 
 
 @dataclass
 class Graded:
-    """What the Grader said: its lines as shown, its score, and the checks they come to.
+    """What the Grader said: its rubric lines as shown, the score they come to, and the checks.
 
     ``score`` is ``None`` when nothing was graded. ``error`` says why, when the Grader failed.
     """
@@ -184,10 +185,10 @@ def _by_line(
 
 
 def parse_grade(text: str, rubric: Sequence[str], numbers: Sequence[int] | None = None) -> Graded:
-    """The Grader's reply read strictly: an answer for every rubric line and a 0..1 score. *numbers*
-    are the lines' numbers as shown, when they aren't 1, 2, 3...
+    """The Grader's reply read strictly: an answer for every rubric line. *numbers* are the lines'
+    numbers as shown, when they aren't 1, 2, 3...
 
-    :raises ValueError: No JSON object, a missing line or a score out of range.
+    :raises ValueError: No JSON object, or a missing line.
     """
     data = json_answer(text)
     entries = data.get("lines")
@@ -212,10 +213,7 @@ def parse_grade(text: str, rubric: Sequence[str], numbers: Sequence[int] | None 
                 "quotes": quotes[:QUOTES],
             }
         )
-    score = data.get("score")
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 1:
-        raise ValueError("score must be 0..1")
-    return Graded(lines=lines, score=round(float(score), 3))
+    return Graded(lines=lines)
 
 
 def _line_check(
@@ -265,10 +263,15 @@ def rubric_checks(
 
 
 def _reference_check(
-    score: float | None, mark: float, role: Role, cut: int, why: str | None = None
+    score: float | None,
+    mark: float,
+    role: Role,
+    cut: int,
+    why: str | None = None,
+    missing: WhyUnjudged = WhyUnjudged.JUDGE_FAILED,
 ) -> CheckResult:
     if score is None:
-        outcome, words = Outcome.UNJUDGED, why or "the Grader gave no score"
+        outcome, words = Outcome.UNJUDGED, why or "the Grader wasn't sure of the reference"
     elif score >= mark:
         outcome, words = Outcome.PASSED, f"reply score {score:.2f}, needs {mark:.2f}"
     else:
@@ -280,7 +283,7 @@ def _reference_check(
         role=role,
         outcome=outcome,
         why=words,
-        unjudged=WhyUnjudged.JUDGE_FAILED if score is None else None,
+        unjudged=missing if score is None else None,
         score=score,
         cut=cut,
     )
@@ -382,12 +385,13 @@ async def grade_reply(
     test with only a reference needs."""
     if caller is None:
         return _ungraded(rubric, reference, mark, "no Grader model")
-    numbered = list(enumerate(rubric, 1))
+    asked = [*rubric, REFERENCE_LINE] if reference else list(rubric)
+    numbered = list(enumerate(asked, 1))
     rendered = render(evidence, reference, numbered, check_lines)
     retries: list[str] = []
     try:
         graded = await _asked(
-            caller, INSTRUCTIONS, rendered.text, lambda out: parse_grade(out, rubric), retries
+            caller, INSTRUCTIONS, rendered.text, lambda out: parse_grade(out, asked), retries
         )
     except ValueError as exc:
         _logger.warning("evals grader: unreadable reply (%s)", exc)
@@ -401,6 +405,10 @@ async def grade_reply(
         return graded
     await _second_grading(caller, evidence, reference, graded.lines, check_lines, retries)
     graded.retried = retries[0] if retries else None
+    outcomes = [line_outcome(line, line.get("second")) for line in graded.lines]
+    graded.score = reply_score(outcomes)
+    if reference:
+        graded.lines.pop()
     graded.checks = rubric_checks(graded.lines, need, rendered.cut, index_of([evidence]))
     for line, check in zip(
         graded.lines, graded.checks[-len(rubric) :] if rubric else (), strict=True
@@ -409,6 +417,9 @@ async def grade_reply(
         line["pass"] = check.outcome is Outcome.PASSED
     if reference:
         role = Role.GUIDE if rubric else Role.MUST
-        graded.checks.append(_reference_check(graded.score, mark, role, rendered.cut))
+        said = None if outcomes[-1] is Outcome.UNJUDGED else float(outcomes[-1] is Outcome.PASSED)
+        graded.checks.append(
+            _reference_check(said, mark, role, rendered.cut, missing=WhyUnjudged.JUDGE_UNSURE)
+        )
     graded.cut = rendered.cut
     return graded
