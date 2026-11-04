@@ -13,7 +13,7 @@ One word per concept, on the page and in every message a person reads (errors, t
 | **Test set** | a folder of tests with its pass marks and Grader | set (`set.json`, `/evals/sets/{set}`) |
 | **Run** | playing some or all tests of a set, each a number of times | run (`/evals/runs/{run}`) |
 | **Try** | one play of one test in a run | try (`Try`, `?try=`) |
-| **Test writer** | the agent that writes tests: the only way to make one, from words, a past conversation or a suggested test, always through plan → approve → save | the evals agent (`agent.py`, `/evals/agent/sessions`) |
+| **Test writer** | shown as "Ask AI"; the agent that answers from runs and traces and writes tests: the only way to make one, from words, a past conversation or a suggested test, always through plan → approve → save | the evals agent (`agent.py`, `/evals/agent/sessions`) |
 | **Suggested tests** | tests the test writer proposes for this app, the library's included; the only place the library shows | understanding `starters` |
 | **Pass mark** | the tool-call and reply score a try needs to pass, set once per test set | `pass_marks` (was `pass_scores`, still read) |
 | **Finding** | why a test failed in a run, written automatically after every run with a failure | try `analysis`, `CaseDetail.finding` |

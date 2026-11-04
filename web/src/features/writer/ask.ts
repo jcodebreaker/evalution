@@ -15,7 +15,7 @@ export function useAsk(ask: (text: string) => Promise<void>) {
       await ask(trimmed);
       return true;
     } catch (failure) {
-      setError(errorText(failure, "Couldn't reach the test writer."));
+      setError(errorText(failure, "Couldn't reach the AI."));
       return false;
     } finally {
       setBusy(false);

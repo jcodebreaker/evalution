@@ -75,12 +75,12 @@ export function WriterPanel({
 
   return (
     <aside
-      aria-label="Test writer"
+      aria-label="Ask AI"
       className="flex min-h-0 flex-col border-s border-separator bg-content max-md:fixed max-md:inset-0 max-md:z-40 max-md:border-s-0"
     >
       <header className="flex min-h-[52px] items-center gap-2 border-b border-separator px-4 py-2">
         <div className="flex min-w-0 flex-1 flex-col">
-          <h2 className="m-0 truncate text-[15px] font-semibold tracking-[-0.2px]">Test writer</h2>
+          <h2 className="m-0 truncate text-[15px] font-semibold tracking-[-0.2px]">Ask AI</h2>
           {session ? (
             <span className="truncate text-[12px] text-ink-3 tabular-nums">
               {usd(session.spent_usd)}
@@ -137,8 +137,8 @@ export function WriterPanel({
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={onEnter(submit)}
-            placeholder={session ? "Reply" : "What should we test?"}
-            aria-label={session ? "Reply to the test writer" : "What should we test?"}
+            placeholder={session ? "Reply" : "Ask about your tests or traces"}
+            aria-label={session ? "Reply" : "Ask about your tests or traces"}
             className={cn(TEXTAREA, "min-h-6 text-[14px]")}
           />
           <Button size="icon-sm" aria-label="Send" disabled={busy || !text.trim()} onClick={submit}>

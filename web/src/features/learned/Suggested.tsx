@@ -26,7 +26,7 @@ export function Suggested({
     try {
       await onAdd(picked.map((entry) => entry.id));
     } catch (failure) {
-      setError(errorText(failure, "Couldn't reach the test writer."));
+      setError(errorText(failure, "Couldn't reach the AI."));
     }
     setBusy(false);
   };

@@ -157,7 +157,7 @@ export function App() {
           onClick={() => setWriterOpen(true)}
         >
           {working ? <Spinner /> : <Bot />}
-          Test writer
+          Ask AI
         </Button>
       ) : null}
 

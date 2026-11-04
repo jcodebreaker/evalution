@@ -187,7 +187,7 @@ async function story({ page, api, mode, times }) {
 
   // 4. The test writer proposes
   scene("plan");
-  await page.getByRole("complementary", { name: "Test writer" }).waitFor();
+  await page.getByRole("complementary", { name: "Ask AI" }).waitFor();
   times.speed(3);
   const add = button("Add to tests");
   await add.waitFor({ timeout: 20_000 });
