@@ -216,6 +216,8 @@ export const BenchmarksSchema = z.object({
           unanswerable: z.boolean(),
           question: z.string(),
           verdict: z.string(),
+          tie_break: z.boolean().default(false),
+          leaning: z.string().nullable().default(null),
           memory: z
             .object({
               committed: z.boolean().nullable(),
@@ -580,6 +582,8 @@ export const ActualSchema = z.object({
   spans: z.array(z.string()).default([]),
   /** What the grader quoted for a line; `verified`: code found it in the evidence. */
   quotes: z.array(z.object({ text: z.string(), verified: z.boolean().nullable() })).default([]),
+  /** What the app said back to this message. */
+  reply: z.string().optional(),
 });
 export type Actual = z.infer<typeof ActualSchema>;
 

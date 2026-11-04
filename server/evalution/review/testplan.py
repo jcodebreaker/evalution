@@ -545,8 +545,11 @@ def _call_actual(found: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"passed": passed, "text": text, "calls": calls, **_spans(found)}
 
 
-def _sent(steps: Sequence[Mapping[str, Any]], attempt: Mapping[str, Any]) -> None:
-    """Each turn step's ``actual``: sent or reached, from the messages the try sent."""
+def _sent(
+    steps: Sequence[Mapping[str, Any]], attempt: Mapping[str, Any], replies: Sequence[str] = ()
+) -> None:
+    """Each turn step's ``actual``: sent or reached, from the messages the try sent, with what came
+    back to it when *replies* (one for each message played, in order) are given."""
     sent = int(attempt.get("messages") or 0)
     count = 0
     blocked = False
@@ -564,6 +567,8 @@ def _sent(steps: Sequence[Mapping[str, Any]], attempt: Mapping[str, Any]) -> Non
             else:
                 text = "Sent" if ok else "Not reached"
                 step["actual"] = {"passed": ok, "text": text}
+                if ok and kind == "say" and count <= len(replies):
+                    step["actual"]["reply"] = replies[count - 1]
         elif kind == "break":
             step["actual"] = {
                 "passed": not blocked,
@@ -787,10 +792,11 @@ def compare(
     n: int | None,
     reasons: Mapping[int, str | None] | None = None,
     marks: Mapping[str, float] | None = None,
+    replies: Sequence[str] = (),
 ) -> dict[str, Any]:
     """*plan* with try *n* of the run's case *entry* (the first that didn't pass when ``None``, else
     the first) laid over it. *reasons* are each try's one-line reason, *marks* the pass marks it was
-    held to.
+    held to, *replies* what came back to each message of the try.
 
     :raises LookupError: No such try.
     """
@@ -887,7 +893,7 @@ def compare(
                     }
                 else:
                     item["actual"] = {"passed": False, "text": attempt.get("error") or "Not graded"}
-    _sent(steps, attempt)
+    _sent(steps, attempt, replies)
     broken = list(attempt.get("limits_broken") or [])
     passes = next((s for s in steps if s["kind"] == "passes"), None)
     if passes is not None:

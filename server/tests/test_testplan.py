@@ -283,8 +283,10 @@ async def test_a_stored_try_laid_over_the_plan(tmp_path) -> None:
     }
     entry = upcast({"cases": {"c": {"expected": CASE["tools"], "tries": [passed, failed]}}})
     entry = entry["cases"]["c"]
-    shown = compare(plan, entry, None, {2: "No run_code call"})
+    shown = compare(plan, entry, None, {2: "No run_code call"}, None, ["The reply to it"])
     assert shown["try"] == 2 and not shown["passed"]  # the first failed try by default
+    said = [s["actual"].get("reply") for s in shown["steps"] if s["kind"] == "say"]
+    assert said[0] == "The reply to it" or not said[0]
     items = {i["id"]: i for s in shown["steps"] for i in s["items"]}
     assert items["call-0"]["actual"] == {"passed": False, "text": "Not done", "calls": []}
     assert items["never-hand_off"]["actual"]["calls"] == ["hand_off(task=sum)"]

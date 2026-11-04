@@ -95,6 +95,7 @@ from evalution.runs.preflight import (
 )
 from evalution.suite.cases import (
     CaseError,
+    is_benchmark,
     list_sets,
     load_case,
     load_cases,
@@ -538,6 +539,7 @@ class Runs:
             check_lines=[check_line(Step(**s)) for s in states],
             need=case.reply_pass,
             mark=pass_marks(doc)["reply"],
+            decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
         )
         if any(c.unjudged is WhyUnjudged.JUDGE_FAILED for c in graded.checks):
             return False
@@ -880,6 +882,7 @@ class Runs:
                 check_lines=[check_line(s) for s in code.states],
                 need=case.reply_pass,
                 mark=marks["reply"],
+                decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
             )
         memory = await grade_memory(grader, evidence.memory, evidence.model_calls)
         checks = [*code.checks, *graded.checks]

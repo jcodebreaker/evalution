@@ -27,6 +27,7 @@ from evalution.judging.rubric import (
     INSTRUCTIONS,
     REFERENCE_LINE,
     SCEPTIC_INSTRUCTIONS,
+    TIE_BREAK_INSTRUCTIONS,
     grade_reply,
     parse_grade,
 )
@@ -166,6 +167,30 @@ async def test_a_second_grading(second, want, why, score) -> None:
     graded = await grade_reply(caller, _evidence(), "", RUBRIC[:1])
     assert graded.checks[0].outcome is want and graded.checks[0].unjudged is why
     assert graded.score == score
+
+
+async def test_a_tie_break_gets_the_final_word_only_when_asked_for() -> None:
+    def unsure() -> tuple[str, str]:
+        return _answer(_line(True, sure=False)), _answer(_line(False, sure=False))
+
+    alone = await grade_reply(_caller(*unsure()), _evidence(), "", RUBRIC[:1])
+    assert alone.checks[0].unjudged is WhyUnjudged.JUDGE_UNSURE
+
+    decider = _sceptic_caller(_answer({"pass": False, "reason": "firm figures"}))
+    decided = await grade_reply(_caller(*unsure()), _evidence(), "", RUBRIC[:1], decider=decider)
+    assert decided.checks[0].outcome is Outcome.FAILED and decided.lines[0]["tie_break"]
+    assert decider.seen[0][0] == TIE_BREAK_INSTRUCTIONS and decided.score == 0.0
+
+    sure = _sceptic_caller()
+    settled = await grade_reply(
+        _caller(_answer(_line(True))), _evidence(), "", RUBRIC[:1], decider=sure
+    )
+    assert not sure.seen and settled.checks[0].outcome is Outcome.PASSED
+
+    down = await grade_reply(
+        _caller(*unsure()), _evidence(), "", RUBRIC[:1], decider=_caller("nope", "nope")
+    )
+    assert down.checks[0].unjudged is WhyUnjudged.JUDGE_UNSURE, "no tie-break leaves it as it was"
 
 
 @pytest.mark.parametrize("answer", ["I'd rather not", json.dumps({"lines": []})])

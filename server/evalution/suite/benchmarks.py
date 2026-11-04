@@ -283,6 +283,14 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _leaning(line: Mapping[str, Any]) -> str | None:
+    """Which way a line that couldn't be judged leaned, at its last grading."""
+    said = line.get("second")
+    if line.get("outcome") != "unjudged" or not said:
+        return None
+    return "right" if said.get("pass") else "wrong"
+
+
 def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Each question of a stored run: what was asked and said, and how it came out."""
     out = []
@@ -303,6 +311,8 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "question": asked.split("\n", 1)[-1],
                 "verdict": verdict_of(entry).kind.value,
                 "memory": _memory(entry),
+                "tie_break": bool(lines and lines[0].get("tie_break")),
+                "leaning": _leaning(lines[0]) if lines else None,
                 "right_is": str(rubric[0]) if rubric else "",
                 "reply": str(last.get("reply_text") or "")[:_REPLY_CHARS],
                 "reason": line_reason(lines[0]) if lines else "",

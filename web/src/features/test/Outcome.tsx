@@ -41,6 +41,13 @@ export function Outcome({
           ) : null}
         </span>
       ))}
+      {actual.reply ? (
+        <details className="group/reply mt-1.5">
+          <summary className="line-clamp-2 cursor-default list-none whitespace-pre-wrap text-foreground group-open/reply:line-clamp-none [&::-webkit-details-marker]:hidden">
+            {actual.reply}
+          </summary>
+        </details>
+      ) : null}
       {actual.calls.length ? (
         <span className="mt-1 flex flex-wrap gap-1">
           {actual.calls.map((call, index) => (

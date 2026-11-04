@@ -121,8 +121,20 @@ Answer with one JSON object and nothing else:
 {"lines": [{"id": 1, "line": "<the rubric line>", "pass": true, "sure": true, "reason": "...", \
 "quotes": ["..."]}]}
 One entry per line given, with the number it has there as its id."""
+TIE_BREAK_INSTRUCTIONS = (
+    SCEPTIC_INSTRUCTIONS.split("Answer with one JSON")[0]
+    + """Two graders could not decide these lines. Yours is the final word: make the closest call \
+you can, and give the reason.
+
+Answer with one JSON object and nothing else:
+{"lines": [{"id": 1, "line": "<the rubric line>", "pass": true, "sure": true, "reason": "...", \
+"quotes": ["..."]}]}
+One entry per line given, with the number it has there as its id."""
+)
 #: What a judge stamp records of the prompts: changing them makes results not comparable.
-PROMPT_HASH = hashlib.sha256((INSTRUCTIONS + SCEPTIC_INSTRUCTIONS).encode()).hexdigest()[:12]
+PROMPT_HASH = hashlib.sha256(
+    (INSTRUCTIONS + SCEPTIC_INSTRUCTIONS + TIE_BREAK_INSTRUCTIONS).encode()
+).hexdigest()[:12]
 #: How a test's reference is put to the Grader: as one more line.
 REFERENCE_LINE = "The reply does what the reference describes."
 
@@ -343,9 +355,11 @@ async def _second_grading(
     lines: list[dict[str, Any]],
     check_lines: Sequence[str],
     retries: list[str],
+    decider: Caller | None = None,
 ) -> None:
     """Grade the lines the Grader was not sure of again, and note it on them. A failure here leaves
-    them with one grading."""
+    them with one grading. With *decider*, a line still unsure after that gets its final word from
+    there, marked ``tie_break``."""
     unsure = [(n, line) for n, line in enumerate(lines, 1) if not line["sure"]]
     if not unsure:
         return
@@ -368,6 +382,29 @@ async def _second_grading(
         line["split"] = second["pass"] != line["pass"]
         if second["sure"]:
             line["quotes"] = second["quotes"]
+    if decider is None:
+        return
+    still = [(n, line) for n, line in unsure if not line["second"]["sure"]]
+    if not still:
+        return
+    numbers = [n for n, _ in still]
+    words = [str(line["line"]) for _, line in still]
+    rendered = render(evidence, reference, list(zip(numbers, words, strict=True)), check_lines)
+    try:
+        final = await _asked(
+            decider,
+            TIE_BREAK_INSTRUCTIONS,
+            rendered.text,
+            lambda out: parse_grade(out, words, numbers),
+            retries,
+        )
+    except Exception:
+        _logger.warning("evals grader: no tie-break", exc_info=True)
+        return
+    for (_, line), said in zip(still, final.lines, strict=True):
+        line["second"] = {"pass": said["pass"], "sure": True, "reason": said["reason"]}
+        line["tie_break"] = True
+        line["quotes"] = said["quotes"]
 
 
 async def grade_reply(
@@ -379,10 +416,12 @@ async def grade_reply(
     check_lines: Sequence[str] = (),
     need: int | None = None,
     mark: float = 0.7,
+    decider: Caller | None = None,
 ) -> Graded:
     """Grade the reply of *evidence* against *rubric*. Never raises: without a model, or on an
     unreadable answer, its checks are unjudged and ``error`` says why. *mark* is the reply score a
-    test with only a reference needs."""
+    test with only a reference needs. *decider* gives the final word on a line the Grader stays
+    unsure of; without one, such a line is unjudged."""
     if caller is None:
         return _ungraded(rubric, reference, mark, "no Grader model")
     asked = [*rubric, REFERENCE_LINE] if reference else list(rubric)
@@ -403,7 +442,7 @@ async def grade_reply(
         graded = _ungraded(rubric, reference, mark, "the Grader's model call failed")
         graded.retried = retries[0] if retries else None
         return graded
-    await _second_grading(caller, evidence, reference, graded.lines, check_lines, retries)
+    await _second_grading(caller, evidence, reference, graded.lines, check_lines, retries, decider)
     graded.retried = retries[0] if retries else None
     outcomes = [line_outcome(line, line.get("second")) for line in graded.lines]
     graded.score = reply_score(outcomes)

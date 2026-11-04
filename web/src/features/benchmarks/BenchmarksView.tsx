@@ -37,7 +37,7 @@ const FILTERS: [Filter, string][] = [
   ["all", "All"],
   ["wrong", "Wrong"],
   ["right", "Right"],
-  ["other", "Not judged"],
+  ["other", "Judge unsure"],
   ["waiting", "Waiting"],
 ];
 
@@ -67,7 +67,11 @@ function outcome(question: Question): { word: string; tone: string } {
     if (question.memory?.committed) return { word: "Saved, not used", tone: "text-warning" };
     return { word: "Wrong", tone: "text-destructive" };
   }
-  if (question.verdict === "unjudged") return { word: "Not judged", tone: "text-warning" };
+  if (question.verdict === "unjudged")
+    return {
+      word: question.leaning ? `Judge unsure, leaned ${question.leaning}` : "Not judged",
+      tone: "text-warning",
+    };
   return { word: "Waiting", tone: "text-ink-3" };
 }
 
@@ -503,7 +507,12 @@ function QuestionRow({ question, onOpen }: { question: Question; onOpen: () => v
         <dl className="m-0 flex flex-col gap-2.5 ps-5 text-[13.5px]">
           <Said label="What counts as right" text={question.right_is} />
           <Said label="The reply" text={question.reply || "–"} />
-          {question.reason ? <Said label="Why" text={question.reason} /> : null}
+          {question.reason ? (
+            <Said
+              label={question.tie_break ? "Why, by the tie-break" : "Why"}
+              text={question.reason}
+            />
+          ) : null}
           {question.error ? <Said label="What went wrong" text={question.error} /> : null}
           {more.length ? <dd className="m-0 text-[12px] text-ink-2">{more.join(" · ")}</dd> : null}
           <dd className="m-0">
