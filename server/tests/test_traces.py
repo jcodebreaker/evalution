@@ -10,6 +10,7 @@ import time
 from dataclasses import replace
 
 import httpx
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
@@ -110,11 +111,35 @@ async def test_where_a_targets_traces_are_read() -> None:
         ("http://127.0.0.1:6007", "default"),
         ("http://127.0.0.1:6006", "my-bot"),
     ]
+    assert managed.trace_url("t1") == "http://127.0.0.1:6006/redirects/traces/t1", "where it landed"
+    on_its_own = reader("my-bot", None, "http://127.0.0.1:6007")
+    assert on_its_own.trace_url("t1") == "http://127.0.0.1:6007/redirects/traces/t1"
+    await on_its_own.close()
     alone = reader("my-bot", own, None)
     assert alone is not None and alone.conf.project == "my-bot" and not alone.also
     assert reader("my-bot", None, None) is None
     for made in (managed, alone):
         await made.close()
+
+
+async def test_one_trace_source_gone_loses_only_its_own_spans() -> None:
+    request = httpx.Request("GET", "http://x")
+
+    class Gone(SpanReader):
+        async def own_pages(self, start, end, trace_id=None):
+            raise httpx.ConnectError("gone", request=request)
+            yield []
+
+    class Has(SpanReader):
+        async def own_pages(self, start, end, trace_id=None):
+            yield []
+
+    gone, kept = Gone(), Gone()
+    gone.also = [Has()]
+    assert await gone.spans(0.0, 1.0) == []
+    kept.also = [Gone()]
+    with pytest.raises(httpx.ConnectError):
+        await kept.spans(0.0, 1.0)
 
 
 def test_the_detector_on_fake_projects() -> None:

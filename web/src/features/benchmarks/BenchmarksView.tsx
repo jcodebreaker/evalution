@@ -22,6 +22,16 @@ export function isBenchmark(set: string): boolean {
   return set.startsWith("longmemeval-");
 }
 
+/** The two datasets a person chooses between, each with its own runs. */
+const DATASETS = [
+  { key: "short", label: "Short histories", about: "About 11 messages a question" },
+  { key: "long", label: "Long histories", about: "About 270 messages a question" },
+] as const;
+
+function datasetOf(set: string): "short" | "long" {
+  return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
+}
+
 const KINDS: Record<string, string> = {
   "single-session-user": "Single-session facts",
   "single-session-preference": "Preferences",
@@ -96,6 +106,7 @@ export function BenchmarksView({
   onRun: (set: string) => void;
   onTry: (set: string, run: string, id: string) => void;
 }) {
+  const [dataset, setDataset] = useState<"short" | "long" | null>(null);
   const [state, reload] = useLoad(target, () => api.benchmarks(target));
   const data = state.status === "ready" ? state.data : null;
   const going = data?.runs.some((run) => run.status === "running") ?? false;
@@ -116,37 +127,76 @@ export function BenchmarksView({
     data.runs.find((entry) => entry.status === "running" || played(entry) > 0) ??
     data.runs[0] ??
     null;
-  const plan = (
-    <PlanCard
-      target={target}
-      plan={data.plan}
-      ran={data.runs.length > 0}
-      going={going}
-      onRun={onRun}
-      onChanged={reload}
-    />
-  );
-  // A plan with no run yet, or one waiting for approval, is what there is to do: it goes first.
-  const awaiting = !run || (data.plan !== null && !data.plan.approved);
+  const shownDataset = dataset ?? (run ? datasetOf(run.set) : going ? "long" : DATASETS[0].key);
+  const inDataset = data.runs.filter((entry) => datasetOf(entry.set) === shownDataset);
+  const active =
+    inDataset.find((entry) => entry.run === selected) ??
+    inDataset.find((entry) => entry.status === "running" || played(entry) > 0) ??
+    null;
   return (
     <Page wide>
       <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
-      {awaiting ? plan : null}
-      {run ? (
+      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+        {DATASETS.map((entry) => {
+          const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
+          const latest = own.find((other) => played(other) > 0);
+          const going = own.some((other) => other.status === "running");
+          return (
+            <button
+              key={entry.key}
+              type="button"
+              aria-pressed={shownDataset === entry.key}
+              onClick={() => {
+                setDataset(entry.key);
+                onPick("");
+              }}
+              className={cn(
+                "group-card flex min-w-0 flex-col gap-1 p-4 text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
+                shownDataset === entry.key && "bg-selection-strong ring-1 ring-tint",
+              )}
+            >
+              <span className="text-[14px] font-semibold">{entry.label}</span>
+              <span className="text-[12.5px] text-ink-2">{entry.about}</span>
+              <span className="mt-2 font-display text-[28px] leading-none font-bold tabular-nums">
+                {latest?.report.accuracy != null ? share(latest.report.accuracy) : "No score yet"}
+              </span>
+              <span className="text-[12.5px] text-ink-2 tabular-nums">
+                {going
+                  ? "Running now"
+                  : `${own.length} ${own.length === 1 ? "run" : "runs"}${latest ? ` · last ${when(latest.started_at ?? 0)}` : ""}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {shownDataset === "long" ? (
+        <PlanCard
+          target={target}
+          plan={data.plan}
+          ran={inDataset.length > 0}
+          going={going}
+          onRun={onRun}
+          onChanged={reload}
+        />
+      ) : (
+        <Sizes
+          target={target}
+          sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
+          onRun={onRun}
+          onInstalled={reload}
+        />
+      )}
+      {active ? (
         <RunResult
-          key={run.run}
-          run={run}
-          runs={data.runs}
+          key={active.run}
+          run={active}
+          runs={inDataset}
           onPick={onPick}
           onTry={onTry}
           onStopped={reload}
         />
       ) : null}
-      {run ? <RunList runs={data.runs} selected={run} onPick={onPick} /> : null}
-      {awaiting ? null : plan}
-      <Fold title="Other sizes">
-        <Sizes target={target} sizes={data.sizes} onRun={onRun} onInstalled={reload} />
-      </Fold>
+      {active ? <RunList runs={inDataset} selected={active} onPick={onPick} /> : null}
     </Page>
   );
 }

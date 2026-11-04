@@ -283,17 +283,21 @@ class SpanReader:
     ) -> AsyncIterator[list[Span]]:
         """The spans that started in ``[start, end]`` (of trace *trace_id*), a page at a time."""
         seen: set[str] = set()
-        for n, source in enumerate([self, *self.also]):
+        sources = [self, *self.also]
+        failed: list[httpx.HTTPError] = []
+        for source in sources:
             try:
                 async with contextlib.aclosing(source.own_pages(start, end, trace_id)) as pages:
                     async for page in pages:
                         fresh = [s for s in page if s.id not in seen]
                         seen.update(s.id for s in fresh)
                         yield fresh
-            except httpx.HTTPError:
-                if n == 0:
-                    raise
+            except httpx.HTTPError as exc:
+                failed.append(exc)
                 _logger.info("traces: %s not read", type(source).__name__, exc_info=True)
+        # One gone is no reason to lose the others; only with none read is there nothing to say.
+        if len(failed) == len(sources):
+            raise failed[0]
 
     async def spans(
         self, start: float, end: float, *, trace_id: str | None = None, max_spans: int = MAX_SPANS
