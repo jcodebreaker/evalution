@@ -53,12 +53,12 @@ export function Sidebar({
   const card = target ? (cards?.get(target) ?? null) : null;
   return (
     <aside aria-label="Navigation" className="glass flex min-h-0 flex-col">
-      <div className="flex items-center gap-2.5 px-5 pt-5 pb-3 max-md:hidden">
+      <div className="flex items-center gap-2.5 border-b border-separator px-4 py-3.5 max-md:hidden">
         <Logo />
-        <span className="font-display text-[17px] font-semibold tracking-[-0.02em]">evalution</span>
+        <span className="text-[16px] font-semibold tracking-[-0.02em]">evalution</span>
       </div>
       {target ? (
-        <div className="flex min-w-0 flex-col gap-1 px-3 pt-1 pb-2 max-md:pt-3">
+        <div className="flex min-w-0 flex-col gap-1 px-3 pt-3 pb-2 max-md:pt-3">
           <Picker
             label="App"
             value={
@@ -92,7 +92,7 @@ export function Sidebar({
                 onClick: () => onView("connect"),
               },
             ]}
-            className="w-full justify-between rounded-[14px] px-2.5 py-2 font-normal ring-1 ring-separator"
+            className="w-full justify-between rounded-lg bg-muted px-2.5 py-2 font-normal"
           />
           {sets.length > 1 ? (
             <Picker
@@ -144,7 +144,7 @@ export function Sidebar({
 
 function NavLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="px-2.5 pt-3.5 pb-1 text-[11.5px] font-medium text-ink-3 max-md:hidden">
+    <span className="px-2.5 pt-3 pb-1 text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase max-md:hidden">
       {children}
     </span>
   );
@@ -167,8 +167,8 @@ function NavItem({
       aria-current={selected ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-start text-[13.5px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto",
-        selected ? "bg-selection-strong font-semibold text-tint" : "text-ink hover:bg-selection",
+        "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-start text-[13px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto",
+        selected ? "bg-muted font-medium text-ink" : "text-ink-2 hover:bg-selection",
       )}
     >
       <span className={cn("grid size-4 shrink-0 place-items-center", !selected && "text-ink-2")}>
@@ -186,7 +186,7 @@ function NavItem({
 /** The mark: a spider chart whose data shape is the bot. */
 function Logo() {
   return (
-    <svg viewBox="0 0 64 64" aria-hidden className="size-8 shrink-0">
+    <svg viewBox="0 0 64 64" aria-hidden className="size-7 shrink-0">
       <path
         d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z"
         fill="none"

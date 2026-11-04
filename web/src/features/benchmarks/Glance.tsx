@@ -1,3 +1,13 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CircleHelp,
+  Database,
+  Scissors,
+  Send,
+  Target,
+} from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -7,7 +17,21 @@ import { Button } from "../../ui/button";
 import { TextLink } from "../shared/group";
 
 export type Run = Benchmarks["runs"][number];
-type MetricKey = "accuracy" | "average" | "recall" | "reached" | "abstention" | "retrieval";
+const ICONS: Partial<Record<MetricKey, LucideIcon>> = {
+  accuracy: Target,
+  recall: Database,
+  reached: Send,
+  abstention: CircleHelp,
+  compacted: Scissors,
+};
+type MetricKey =
+  | "accuracy"
+  | "average"
+  | "recall"
+  | "reached"
+  | "compacted"
+  | "abstention"
+  | "retrieval";
 type Metric = { key: MetricKey; label: string; value: number | null; note: string };
 
 export function share(value: number | null): string {
@@ -49,6 +73,13 @@ function howCalculated(key: MetricKey, run: Run): { lines: string; who: string }
     return {
       lines: `golden answers in what the model was sent / questions measured\n= ${memory.reached} / ${memory.reach_measured} = ${share(report.reached)}\n\nmessages compacted by then: ${memory.compacted} of ${memory.compact_measured}`,
       who: `Read from the traces of the call that answered. ${judge} says whether it holds the golden answer. Without traces this isn't measured.`,
+    };
+  }
+  if (key === "compacted") {
+    const { memory } = report;
+    return {
+      lines: `questions whose prompt really shrank / questions measured\n= ${memory.compacted} / ${memory.compact_measured}`,
+      who: "Read from the size of each prompt. Where nothing folded, the raw chat was still there, so the score doesn't test memory.",
     };
   }
   if (key === "abstention") {
@@ -93,6 +124,12 @@ function metrics(report: Run["report"]): Metric[] {
       label: "Reached the model",
       value: report.reached,
       note: `${memory.reached} of ${memory.reach_measured}`,
+    },
+    {
+      key: "compacted",
+      label: "Questions that folded",
+      value: memory.compact_measured ? memory.compacted / memory.compact_measured : null,
+      note: `${memory.compacted} of ${memory.compact_measured}`,
     },
     {
       key: "abstention",
@@ -142,7 +179,7 @@ export function Glance({
       {run.happened ? (
         <p
           className={cn(
-            "glass m-0 rounded-2xl px-5 py-3 text-[14.5px] font-semibold",
+            "glass m-0 rounded-xl px-4 py-3 text-[14px] font-semibold",
             run.untested && "text-warning",
           )}
         >
@@ -151,9 +188,10 @@ export function Glance({
       ) : null}
       {running ? <Progress run={run} onStopped={onStopped} big={!cards.length} /> : null}
       {cards.length ? (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3.5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3">
           {cards.map((card) => {
             const delta = change(card.value, was.find((old) => old.key === card.key)?.value);
+            const Icon = ICONS[card.key] ?? Target;
             return (
               <button
                 key={card.key}
@@ -161,35 +199,44 @@ export function Glance({
                 aria-expanded={open === card.key}
                 onClick={() => pick(card.key)}
                 className={cn(
-                  "glass flex min-w-0 flex-col gap-0.5 rounded-2xl px-5 py-4 text-start focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                  open === card.key && "ring-2 ring-chart",
+                  "glass flex min-w-0 flex-col gap-2 rounded-xl p-4 text-start hover:border-input focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  open === card.key && "ring-1 ring-chart",
                 )}
               >
-                <span className="text-[12.5px] font-medium text-ink-2">{card.label}</span>
-                <span className="font-display text-[30px] leading-tight font-semibold tracking-[-0.03em]">
-                  {share(card.value)}
+                <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-ink-2">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-md border border-separator">
+                    <Icon className="size-3.5 text-ink-2" aria-hidden />
+                  </span>
+                  <span className="truncate">{card.label}</span>
                 </span>
-                <span className="flex flex-wrap gap-x-2 text-[12.5px] text-ink-3 tabular-nums">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="text-[24px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+                    {share(card.value)}
+                  </span>
                   {delta ? (
                     <span
                       className={cn(
-                        "font-semibold",
-                        delta > 0 ? "text-success" : "text-destructive",
+                        "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                        delta > 0 ? "bg-up text-success" : "bg-down text-destructive",
                       )}
                     >
-                      {delta > 0 ? "+" : "−"}
                       {Math.abs(delta)} pts
+                      {delta > 0 ? (
+                        <ArrowUpRight className="size-3" aria-label="up" />
+                      ) : (
+                        <ArrowDownRight className="size-3" aria-label="down" />
+                      )}
                     </span>
                   ) : null}
-                  {card.note}
                 </span>
+                <span className="text-[12px] text-ink-3 tabular-nums">{card.note}</span>
               </button>
             );
           })}
         </div>
       ) : null}
       {how ? (
-        <div className="glass flex flex-col gap-1.5 rounded-2xl px-5 py-3.5">
+        <div className="glass flex flex-col gap-1.5 rounded-xl px-5 py-3.5">
           <pre
             title={how.who}
             className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
@@ -251,7 +298,7 @@ function Progress({
           : `Sending this question's chat history, message ${current.turn ?? 0} of ${current.turns}`
         : current?.name;
   return (
-    <div className={cn("glass flex flex-col gap-2.5 rounded-2xl px-5 py-4", big && "gap-3 py-6")}>
+    <div className={cn("glass flex flex-col gap-2.5 rounded-xl px-5 py-4", big && "gap-3 py-6")}>
       <div className="flex items-center gap-3">
         <span
           className={cn(

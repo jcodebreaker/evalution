@@ -125,8 +125,8 @@ export function HomeView({
           </div>
         ) : load.status === "loading" ? (
           <>
-            <Skeleton className="h-48 rounded-2xl" />
-            <Skeleton className="h-72 rounded-2xl" />
+            <Skeleton className="h-48 rounded-xl" />
+            <Skeleton className="h-72 rounded-xl" />
           </>
         ) : !health ? (
           <Centered>Couldn't load how it's doing.</Centered>

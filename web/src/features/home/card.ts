@@ -1,1 +1,1 @@
-export const CARD = "glass rounded-2xl p-[22px]";
+export const CARD = "glass rounded-xl p-[22px]";

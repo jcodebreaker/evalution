@@ -63,7 +63,7 @@ _SAMPLE_SEED = 0
 #: How many unrelated messages a "middle" history plays after the sessions holding the answer, and
 #: the tokens it asks the app to fold from, so those sessions leave the prompt in that many messages.
 _MIDDLE_UNRELATED = 25
-_MIDDLE_FOLD = 40_000
+_MIDDLE_FOLD = 25_000
 _REPLY_CHARS = 4000
 _RUNS_SHOWN = 20
 #: Fewer answers than this, or facts measured, and a sentence about them would claim too much.
@@ -376,6 +376,9 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "messages": last.get("messages"),
                 "trace_url": last.get("trace_url"),
                 "models": last.get("models") or [],
+                "prompts": [
+                    c["tokens_in"] for c in last.get("context") or [] if c.get("tokens_in")
+                ],
             }
         )
     return out

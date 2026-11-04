@@ -62,7 +62,7 @@ export function Tiles({ health, period }: { health: Health; period: Period }) {
   return (
     <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-3">
       {tiles.map((tile) => (
-        <div key={tile.label} className="flex flex-col gap-1 glass rounded-2xl p-4">
+        <div key={tile.label} className="flex flex-col gap-1 glass rounded-xl p-4">
           <span className="text-[13px] text-ink-2">{tile.label}</span>
           <span className="font-display text-[30px] leading-tight font-semibold tracking-[-0.03em] tabular-nums">
             {tile.value}

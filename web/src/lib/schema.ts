@@ -218,6 +218,7 @@ export const BenchmarksSchema = z.object({
           verdict: z.string(),
           tie_break: z.boolean().default(false),
           leaning: z.string().nullable().default(null),
+          prompts: z.array(z.number()).default([]),
           memory: z
             .object({
               committed: z.boolean().nullable(),

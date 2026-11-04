@@ -1,4 +1,15 @@
-import { ArrowDown, ArrowUp, ChevronRight, Sparkles } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChartPie,
+  ChevronRight,
+  Eye,
+  Layers,
+  ListFilter,
+  Sparkles,
+  Timer,
+  TrendingUp,
+} from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -10,7 +21,15 @@ import { Skeleton } from "../../ui/field";
 import { Fold, Group, GroupHeading, TextLink } from "../shared/group";
 import { Centered, Page } from "../shared/layout";
 import { VerdictGlyph } from "../shared/marks";
-import { BarChart, ChartPanel, ColumnChart, LineChart } from "./Charts";
+import {
+  BarChart,
+  ChartPanel,
+  ColumnChart,
+  FlowChart,
+  LineChart,
+  Outcomes,
+  PromptChart,
+} from "./Charts";
 import type { Run } from "./Glance";
 import { benchmarkName, Glance, played, share } from "./Glance";
 
@@ -184,8 +203,8 @@ export function BenchmarksView({
             <div
               key={entry.key}
               className={cn(
-                "group-card flex min-w-0 flex-col gap-3 p-4",
-                shownDataset === entry.key && "bg-selection-strong ring-1 ring-tint",
+                "group-card flex min-w-0 flex-col gap-2 p-3.5",
+                shownDataset === entry.key && "border-chart! ring-1 ring-chart",
               )}
             >
               <button
@@ -198,16 +217,16 @@ export function BenchmarksView({
                 className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
               >
                 <span className="flex items-baseline gap-2">
-                  <span className="text-[15px] font-semibold">{entry.label}</span>
+                  <span className="text-[14px] font-semibold">{entry.label}</span>
                   {latest?.report.accuracy != null ? (
-                    <span className="ms-auto font-display text-[22px] font-bold tabular-nums">
+                    <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
                       {share(latest.report.accuracy)}
                     </span>
                   ) : null}
                 </span>
-                <span className="text-[13px] text-ink-2">{entry.about}</span>
+                <span className="text-[12.5px] text-ink-2">{entry.about}</span>
               </button>
-              <div className="flex min-h-8 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
+              <div className="flex min-h-7 items-center gap-2 text-[12px] text-ink-2 tabular-nums">
                 {mine ? (
                   <span className="font-medium text-tint">
                     Running, {played(mine)} of {mine.questions.length} questions done
@@ -576,6 +595,7 @@ function RunResult({
   const trend = sameSet.filter((entry) => entry.report.accuracy !== null).reverse();
   const timed = run.questions.filter((question) => question.seconds);
   const { memory } = report;
+  const prompted = run.questions.filter((question) => question.prompts.length > 1);
   return (
     <>
       {tab === "overview" ? <Glance run={run} previous={previous} onStopped={onStopped} /> : null}
@@ -609,9 +629,9 @@ function RunResult({
         </section>
       ) : null}
       {tab === "overview" && anyPlayed ? (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3.5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3">
           {trend.length > 1 ? (
-            <ChartPanel title="Answer accuracy by run" unit="% right">
+            <ChartPanel icon={TrendingUp} title="Answer accuracy by run" unit="% right">
               <LineChart
                 name="Answer accuracy by run"
                 onPick={onPick}
@@ -631,29 +651,24 @@ function RunResult({
             </ChartPanel>
           ) : null}
           {memory.measured ? (
-            <ChartPanel title="How far facts got" unit="% of questions">
-              <BarChart
-                rows={[
-                  { name: "Told the agent", value: memory.measured, of: memory.measured },
-                  { name: "Written to memory", value: memory.written, of: memory.measured },
+            <ChartPanel icon={ListFilter} title="How far facts got" unit="% of questions">
+              <FlowChart
+                steps={[
+                  { name: "Told", value: memory.measured, of: memory.measured },
+                  { name: "Written", value: memory.written, of: memory.measured },
                   { name: "Committed", value: memory.committed, of: memory.measured },
                   ...(memory.reach_measured
-                    ? [
-                        {
-                          name: "Reached the model",
-                          value: memory.reached,
-                          of: memory.reach_measured,
-                        },
-                      ]
+                    ? [{ name: "Reached", value: memory.reached, of: memory.reach_measured }]
                     : []),
-                  { name: "Answered right", value: memory.used, of: memory.measured },
+                  { name: "Right", value: memory.used, of: memory.measured },
                 ]}
               />
             </ChartPanel>
           ) : null}
           {kinds.length ? (
-            <ChartPanel title="By kind of question" unit="% right">
+            <ChartPanel icon={Layers} title="By kind of question" unit="% right">
               <BarChart
+                head="Kind"
                 rows={kinds
                   .map(([kind, tally]) => ({
                     name: KINDS[kind] ?? kind,
@@ -666,6 +681,7 @@ function RunResult({
           ) : null}
           {timed.length > 1 ? (
             <ChartPanel
+              icon={Timer}
               title="Time per question"
               unit={
                 run.totals?.median_seconds
@@ -681,6 +697,48 @@ function RunResult({
                   value: question.seconds ?? 0,
                   detail: question.question,
                 }))}
+              />
+            </ChartPanel>
+          ) : null}
+          {prompted.length ? (
+            <ChartPanel
+              icon={Eye}
+              title="What the model could still see"
+              unit="prompt size per model call, tokens"
+            >
+              <PromptChart
+                questions={prompted.map((question) => ({
+                  id: question.case,
+                  name: question.question,
+                  sizes: question.prompts,
+                }))}
+              />
+            </ChartPanel>
+          ) : null}
+          {report.judged ? (
+            <ChartPanel icon={ChartPie} title="Results" unit={`${report.judged} judged`}>
+              <Outcomes
+                headline={share(report.accuracy)}
+                parts={[
+                  {
+                    name: "Right",
+                    value: report.right,
+                    color: "stroke-chart",
+                    dot: "bg-chart",
+                  },
+                  {
+                    name: "Wrong",
+                    value: report.judged - report.right,
+                    color: "stroke-chart-2",
+                    dot: "bg-chart-2",
+                  },
+                  {
+                    name: "Not played",
+                    value: report.waiting,
+                    color: "stroke-[url(#not-played)]",
+                    dot: "bg-chart-soft",
+                  },
+                ]}
               />
             </ChartPanel>
           ) : null}
@@ -790,7 +848,7 @@ function QuestionTable({ rows, onOpen }: { rows: Question[]; onOpen: (id: string
     <Group>
       <table className="w-full table-fixed border-collapse text-[13px]">
         <thead>
-          <tr className="text-start text-[12px] text-ink-3">
+          <tr className="bg-head text-start text-[10.5px] tracking-[0.06em] text-ink-3 uppercase">
             <th scope="col" className="px-3 py-2 text-start font-medium">
               Question
             </th>

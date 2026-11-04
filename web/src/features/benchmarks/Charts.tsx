@@ -1,21 +1,31 @@
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 
 /** A chart's card: what it plots and in what unit. */
 export function ChartPanel({
+  icon: Icon,
   title,
   unit,
+  className,
   children,
 }: {
+  icon: LucideIcon;
+  className?: string;
   title: string;
   unit: string;
   children: ReactNode;
 }) {
   return (
-    <section className="glass flex min-w-0 flex-col gap-3 rounded-2xl p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <h3 className="m-0 text-[13.5px] font-semibold">{title}</h3>
+    <section className={cn("glass flex min-w-0 flex-col gap-3 rounded-xl p-4", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3">
+        <h3 className="m-0 flex items-center gap-2 text-[13px] font-medium">
+          <span className="grid size-6 place-items-center rounded-md border border-separator">
+            <Icon className="size-3.5 text-ink-2" aria-hidden />
+          </span>
+          {title}
+        </h3>
         <span className="text-[12px] text-ink-3">{unit}</span>
       </div>
       {children}
@@ -55,7 +65,7 @@ const tipLeft = (x: number, width: number) =>
 
 const HEIGHT = 190;
 const AXIS_LEFT = 36;
-const TOP = 12;
+const TOP = 18;
 const BASE = HEIGHT - 22;
 
 /** A hairline across the plot and its value on the axis. */
@@ -96,7 +106,7 @@ export function LineChart({
 }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
-  const right = width - 34;
+  const right = width - 46;
   const step = (right - AXIS_LEFT - 8) / Math.max(1, points.length - 1);
   const x = (index: number) => AXIS_LEFT + 8 + index * step;
   const y = (value: number) => BASE - value * (BASE - TOP);
@@ -220,6 +230,11 @@ export function ColumnChart({
   const bar = Math.max(1, Math.min(24, slot - 2));
   const left = (index: number) => AXIS_LEFT + index * slot + (slot - bar) / 2;
   const shown = hover === null ? null : columns[hover];
+  const slowest = columns.reduce(
+    (best, column, index) => (column.value > (columns[best]?.value ?? 0) ? index : best),
+    0,
+  );
+  const lit = hover ?? slowest;
   return (
     <div ref={ref} className="relative">
       {width ? (
@@ -230,6 +245,12 @@ export function ColumnChart({
           aria-label={`${columns.length} questions${median ? `, median ${Math.round(median)} ${unit}` : ""}`}
           className="block"
         >
+          <defs>
+            <linearGradient id="lit-column" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="var(--chart)" />
+              <stop offset="1" stopColor="var(--chart-3)" stopOpacity="0.55" />
+            </linearGradient>
+          </defs>
           {[0, top / 2, top].map((value) => (
             <GridLine key={value} y={y(value)} width={width} label={`${value}`} />
           ))}
@@ -252,11 +273,24 @@ export function ColumnChart({
                 <rect x={at - 1} y={0} width={slot} height={BASE} fill="transparent" />
                 <path
                   d={`M${at} ${BASE}V${BASE - high + round}Q${at} ${BASE - high} ${at + round} ${BASE - high}H${at + bar - round}Q${at + bar} ${BASE - high} ${at + bar} ${BASE - high + round}V${BASE}Z`}
-                  className={cn(
-                    column.value > top ? "fill-warning" : "fill-chart",
-                    hover !== null && hover !== index && "opacity-40",
-                  )}
+                  className={
+                    column.value > top
+                      ? "fill-warning"
+                      : index === lit
+                        ? "fill-[url(#lit-column)]"
+                        : "fill-chart-soft"
+                  }
                 />
+                {index === lit && hover === null ? (
+                  <text
+                    x={at + bar / 2}
+                    y={BASE - high - 5}
+                    textAnchor="middle"
+                    className="fill-foreground text-[11px] font-medium tabular-nums"
+                  >
+                    {Math.round(column.value)}
+                  </text>
+                ) : null}
               </g>
             );
           })}
@@ -266,8 +300,9 @@ export function ColumnChart({
               x2={width}
               y1={y(median)}
               y2={y(median)}
-              className="stroke-ink-2"
+              className="stroke-ink-3"
               strokeWidth={1}
+              strokeDasharray="3 4"
             >
               <title>{`Median ${Math.round(median)} ${unit}`}</title>
             </line>
@@ -286,62 +321,336 @@ export function ColumnChart({
   );
 }
 
-/** Horizontal bars on one 0 to 100% axis, each with its count at the end. */
+/** A table of a name, a thin rate bar on one 0 to 100% track, and the count. */
 export function BarChart({
   rows,
+  head,
 }: {
   rows: { name: string; value: number; of: number; note?: string }[];
+  head: string;
 }) {
-  const [hover, setHover] = useState<string | null>(null);
-  const grid =
-    "grid grid-cols-[minmax(0,136px)_minmax(0,1fr)_50px] items-center gap-x-3 max-md:grid-cols-[minmax(0,118px)_minmax(0,1fr)_50px]";
+  const cell = "border-t border-separator px-4 py-2.5";
   return (
-    <div className="flex flex-col text-[13px]">
-      {rows.map(({ name, value, of, note }) => {
-        const part = of ? (value / of) * 100 : 0;
-        return (
-          <div
-            key={name}
-            className={cn(grid, "py-1.5")}
-            onPointerEnter={() => setHover(name)}
-            onPointerLeave={() => setHover(null)}
-          >
-            <span className="min-w-0 truncate text-ink-2">{name}</span>
-            <div className="relative h-3">
-              <div className="absolute inset-y-[-6px] start-0 w-px bg-separator" />
-              <div className="absolute inset-y-[-6px] start-1/2 w-px bg-separator" />
-              <div className="absolute inset-y-[-6px] end-0 w-px bg-separator" />
-              {part ? (
-                <div
-                  className={cn(
-                    "relative h-full rounded-e-[4px] bg-chart",
-                    hover && hover !== name && "opacity-40",
-                  )}
-                  style={{ width: `${part}%` }}
+    <div className="-mx-4 -mb-4 overflow-x-auto">
+      <table className="w-full border-collapse text-[13px]">
+        <thead>
+          <tr className="bg-head text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase">
+            <th scope="col" className="px-4 py-2 text-start font-medium">
+              {head}
+            </th>
+            <th scope="col" className="w-[42%] px-4 py-2 text-start font-medium">
+              Rate
+            </th>
+            <th scope="col" className="px-4 py-2 text-end font-medium">
+              Right
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ name, value, of, note }) => {
+            const part = of ? (value / of) * 100 : 0;
+            return (
+              <tr key={name} title={note}>
+                <td className={cell}>{name}</td>
+                <td className={cell}>
+                  <span className="flex items-center gap-2.5">
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-chart-soft">
+                      <span
+                        className="block h-full rounded-full bg-chart"
+                        style={{ width: `${part}%` }}
+                      />
+                    </span>
+                    <span className="w-9 text-end text-[12px] text-ink-2 tabular-nums">
+                      {Math.round(part)}%
+                    </span>
+                  </span>
+                </td>
+                <td className={cn(cell, "text-end whitespace-nowrap text-ink-2 tabular-nums")}>
+                  {value} of {of}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const PROMPT_HEIGHT = 250;
+const PROMPT_LINES = ["stroke-chart", "stroke-chart-2", "stroke-chart-4", "stroke-chart-3"];
+/** A prompt this share of the one before it, or less, lost older turns. As the server reads it. */
+const FOLD_SHRINKS = 0.8;
+
+/** How big each question's prompt got, call by call. A drop is the app folding older turns, the
+ * moment the raw chat leaves what the model can see. A few questions get a colour; many stay grey,
+ * and the one under the pointer lights up. */
+export function PromptChart({
+  questions,
+}: {
+  questions: { id: string; name: string; sizes: number[] }[];
+}) {
+  const [ref, width] = useWidth();
+  const [hover, setHover] = useState<string | null>(null);
+  const longest = Math.max(...questions.map((question) => question.sizes.length), 2);
+  const highest = Math.max(...questions.flatMap((question) => question.sizes), 1);
+  const top = niceTop(highest / 1000) * 1000;
+  const base = PROMPT_HEIGHT - 22;
+  const x = (index: number) => AXIS_LEFT + (index / (longest - 1)) * (width - AXIS_LEFT - 8);
+  const y = (size: number) => base - (size / top) * (base - TOP);
+  const few = questions.length <= PROMPT_LINES.length;
+  return (
+    <div ref={ref} className="flex flex-col gap-2">
+      {width ? (
+        <svg
+          width={width}
+          height={PROMPT_HEIGHT}
+          role="img"
+          aria-label={`Prompt size call by call for ${questions.length} questions`}
+          className="block"
+        >
+          {[0, top / 2, top].map((value) => (
+            <GridLine key={value} y={y(value)} width={width} label={`${value / 1000}k`} />
+          ))}
+          <text x={AXIS_LEFT} y={PROMPT_HEIGHT - 4} className="fill-ink-3 text-[11px]">
+            First call
+          </text>
+          <text x={width} y={PROMPT_HEIGHT - 4} textAnchor="end" className="fill-ink-3 text-[11px]">
+            Last
+          </text>
+          {questions.map((question, index) => {
+            const lit = few || hover === question.id;
+            const color = few ? PROMPT_LINES[index] : lit ? "stroke-chart" : "stroke-chart-soft";
+            const line = question.sizes.map((size, at) => `${x(at)},${y(size)}`).join(" ");
+            return (
+              <g
+                key={question.id}
+                onPointerEnter={() => setHover(question.id)}
+                onPointerLeave={() => setHover(null)}
+              >
+                <title>{question.name}</title>
+                <polyline
+                  points={line}
+                  fill="none"
+                  strokeWidth={lit ? 2 : 1.5}
+                  strokeLinejoin="round"
+                  className={color}
                 />
-              ) : null}
-              {hover === name ? (
-                <Tip left={`${Math.max(20, Math.min(80, part))}%`} top={-6}>
-                  <strong className="tabular-nums">{Math.round(part)}%</strong>
-                  <div className="text-ink-2">{note ?? `${value} of ${of}`}</div>
-                </Tip>
-              ) : null}
-            </div>
-            <span className="text-end text-[12px] whitespace-nowrap text-ink-2 tabular-nums">
-              {value} of {of}
+                {lit
+                  ? question.sizes.map((size, at) => {
+                      const before = question.sizes[at - 1];
+                      const first = question.sizes[0] ?? 0;
+                      if (!before || size >= before * FOLD_SHRINKS || size <= first) return null;
+                      return (
+                        <g key={at}>
+                          <circle
+                            cx={x(at)}
+                            cy={y(size)}
+                            r={4.5}
+                            strokeWidth={2}
+                            className={cn("fill-group", color)}
+                          />
+                          <text
+                            x={x(at) + 8}
+                            y={y(size) + (index % 2 ? 16 : -8)}
+                            className="fill-foreground text-[11px] font-medium tabular-nums"
+                          >
+                            {Math.round(before / 1000)}k → {Math.round(size / 1000)}k
+                          </text>
+                        </g>
+                      );
+                    })
+                  : null}
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
+      {few ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2">
+          {questions.map((question, index) => (
+            <span key={question.id} className="flex min-w-0 items-center gap-1.5">
+              <svg width="8" height="8" aria-hidden className="shrink-0">
+                <line x1="0" x2="8" y1="4" y2="4" strokeWidth="4" className={PROMPT_LINES[index]} />
+              </svg>
+              <span className="max-w-[260px] truncate">{question.name}</span>
             </span>
-          </div>
-        );
-      })}
-      <div className={cn(grid, "pt-1 text-[11px] text-ink-3 tabular-nums")}>
-        <span />
-        <div className="relative h-4">
-          <span className="absolute start-0">0</span>
-          <span className="absolute start-1/2 -translate-x-1/2">50</span>
-          <span className="absolute end-0">100</span>
+          ))}
         </div>
-        <span />
-      </div>
+      ) : null}
+    </div>
+  );
+}
+
+const GAUGE_RADIUS = 76;
+const GAUGE_WIDTH = 24;
+
+/** How the run's questions came out: the shares on a half circle, the counts above it. */
+export function Outcomes({
+  parts,
+  headline,
+}: {
+  parts: { name: string; value: number; color: string; dot: string }[];
+  headline: string;
+}) {
+  const total = parts.reduce((sum, part) => sum + part.value, 0);
+  const box = (GAUGE_RADIUS + GAUGE_WIDTH / 2) * 2;
+  const middle = box / 2;
+  const arc = `M${middle - GAUGE_RADIUS} ${middle}A${GAUGE_RADIUS} ${GAUGE_RADIUS} 0 0 1 ${middle + GAUGE_RADIUS} ${middle}`;
+  let start = 0;
+  return (
+    <div className="flex flex-col gap-3">
+      <dl className="m-0 flex flex-wrap gap-x-6 gap-y-2">
+        {parts.map((part) => (
+          <div key={part.name} className="flex flex-col gap-0.5">
+            <dt className="flex items-center gap-1.5 text-[12px] text-ink-2">
+              <span className={cn("h-3 w-0.5 rounded-full", part.dot)} />
+              {part.name}
+            </dt>
+            <dd className="m-0 text-[16px] font-semibold tabular-nums">{part.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <svg
+        viewBox={`0 0 ${box} ${middle + 4}`}
+        role="img"
+        aria-label={parts.map((part) => `${part.name} ${part.value}`).join(", ")}
+        className="mx-auto block w-full max-w-[260px]"
+      >
+        <defs>
+          <pattern
+            id="not-played"
+            width="5"
+            height="5"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="5" height="5" className="fill-chart-soft" />
+            <line x1="0" x2="0" y1="0" y2="5" strokeWidth="2" className="stroke-group" />
+          </pattern>
+        </defs>
+        {total
+          ? parts.map((part) => {
+              const length = (part.value / total) * 100;
+              const offset = start;
+              start += length;
+              return part.value ? (
+                <path
+                  key={part.name}
+                  d={arc}
+                  pathLength={100}
+                  fill="none"
+                  strokeWidth={GAUGE_WIDTH}
+                  strokeDasharray={`${Math.max(length - 0.8, 0.4)} 100`}
+                  strokeDashoffset={-offset}
+                  className={part.color}
+                />
+              ) : null;
+            })
+          : null}
+        <text
+          x={middle}
+          y={middle - 6}
+          textAnchor="middle"
+          className="fill-foreground text-[26px] font-semibold tabular-nums"
+        >
+          {headline}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+const FLOW_COLUMN = 56;
+const FLOW_GAP = 3;
+const FLOW_MOST = 5;
+const FLOW_FILLS = ["fill-chart", "fill-chart-3", "fill-chart-4", "fill-chart-2", "fill-chart-5"];
+/** The blocks in a column: one a question while they fit, then an even five. */
+const blocks = (value: number) => Array.from({ length: Math.min(value, FLOW_MOST) });
+
+/** How far something got, stage by stage: a stack for each, with a soft band to the next. */
+export function FlowChart({ steps }: { steps: { name: string; value: number; of: number }[] }) {
+  const [ref, width] = useWidth();
+  const top = 22;
+  const base = HEIGHT - 26;
+  const slot = width / Math.max(1, steps.length);
+  const column = Math.min(FLOW_COLUMN, slot * 0.55);
+  const x = (index: number) => slot * index + (slot - column) / 2;
+  const y = (step: { value: number; of: number }) =>
+    base - (step.of ? step.value / step.of : 0) * (base - top);
+  return (
+    <div ref={ref}>
+      {width ? (
+        <svg
+          width={width}
+          height={HEIGHT}
+          role="img"
+          aria-label={steps.map((step) => `${step.name} ${step.value} of ${step.of}`).join(", ")}
+          className="block"
+        >
+          {steps.slice(1).map((step, index) => {
+            const before = steps[index];
+            if (!before) return null;
+            const from = x(index) + column;
+            const to = x(index + 1);
+            const bend = (to - from) / 2;
+            return (
+              <path
+                key={step.name}
+                d={`M${from} ${y(before)}C${from + bend} ${y(before)} ${to - bend} ${y(step)} ${to} ${y(step)}V${base}H${from}Z`}
+                className="fill-chart opacity-[0.08]"
+              />
+            );
+          })}
+          {steps.map((step, index) => {
+            const high = base - y(step);
+            return (
+              <g key={step.name}>
+                <title>{`${step.name}: ${step.value} of ${step.of}`}</title>
+                <rect
+                  x={x(index)}
+                  y={top}
+                  width={column}
+                  height={base - top}
+                  rx={5}
+                  className="fill-chart-soft opacity-60"
+                />
+                {blocks(step.value).map((_, block) => {
+                  const count = blocks(step.value).length;
+                  const each = (high - FLOW_GAP * (count - 1)) / count;
+                  return each > 0 ? (
+                    <rect
+                      key={block}
+                      x={x(index)}
+                      y={base - (block + 1) * each - block * FLOW_GAP}
+                      width={column}
+                      height={each}
+                      rx={4}
+                      className={FLOW_FILLS[block % FLOW_FILLS.length]}
+                    />
+                  ) : null;
+                })}
+                <text
+                  x={x(index) + column / 2}
+                  y={y(step) - 6}
+                  textAnchor="middle"
+                  className="fill-foreground text-[11.5px] font-medium tabular-nums"
+                >
+                  {step.of ? `${Math.round((step.value / step.of) * 100)}%` : "–"}
+                </text>
+                <text
+                  x={x(index) + column / 2}
+                  y={HEIGHT - 8}
+                  textAnchor="middle"
+                  className="fill-ink-2 text-[11px]"
+                >
+                  {step.name}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
     </div>
   );
 }

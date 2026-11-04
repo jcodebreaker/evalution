@@ -24,7 +24,7 @@ export function StepBody({
         <div className="group-card flex flex-col">
           {message ? (
             <div className="px-3.5 py-3">
-              <p className="m-0 w-fit max-w-[560px] rounded-2xl bg-bubble px-3 py-2 text-[14px] whitespace-pre-wrap">
+              <p className="m-0 w-fit max-w-[560px] rounded-xl bg-bubble px-3 py-2 text-[14px] whitespace-pre-wrap">
                 {step.message}
               </p>
             </div>

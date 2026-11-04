@@ -1,106 +1,57 @@
 @import "tailwindcss";
 
 /*
- * The design tokens: every colour and material of the look lives here, so a finish swaps in one place.
- * Cool neutrals, one blue for what holds (tint, success) and for chart marks (chart), orange for what
- * needs attention (warning), red for failures (destructive). `panel*` and `wash-*` are the glass:
- * `group` is its solid fallback, and `canvas` the layered ground behind it.
+ * The design tokens: every colour of the look lives here, so a finish swaps in one place.
+ * Flat white cards on a pale ground, hairline borders, indigo for marks and what's selected, teal as
+ * the second chart colour and for what went up, red for failures, orange for what needs attention.
  */
 :root {
   color-scheme: light;
   --background: #ffffff;
-  --foreground: #141824;
+  --foreground: #14162b;
   --card: #ffffff;
-  --card-foreground: #141824;
+  --card-foreground: #14162b;
   --popover: #ffffff;
-  --popover-foreground: #141824;
-  --primary: #141824;
+  --popover-foreground: #14162b;
+  --primary: #14162b;
   --primary-foreground: #ffffff;
-  --secondary: rgba(20, 24, 40, 0.06);
-  --secondary-foreground: #141824;
-  --muted: #eef0f5;
-  --muted-foreground: #4f5668;
+  --secondary: #f1f2f6;
+  --secondary-foreground: #14162b;
+  --muted: #eff0f5;
+  --muted-foreground: #5c6178;
   --destructive: #c1301f;
   --destructive-foreground: #ffffff;
-  --border: #e2e5ec;
-  --input: #d6dae3;
-  --ring: rgba(63, 85, 230, 0.5);
-  --success: #3f55e6;
+  --border: #e7e8ef;
+  --input: #e1e3eb;
+  --ring: rgba(85, 70, 216, 0.5);
+  --success: #0d8f80;
   --warning: #a65a00;
   --overlay: rgba(17, 18, 22, 0.32);
   --scrollbar: #d0d4dd;
-  --window: #eceff5;
-  --content: #eceff5;
-  --glass: #f8f9fc;
-  --glass-line: rgba(20, 24, 40, 0.09);
-  --group: #f8f9fc;
-  --separator: rgba(20, 24, 40, 0.09);
-  --selection-strong: rgba(63, 85, 230, 0.1);
-  --tint: #3f55e6;
-  --ink: #141824;
-  --ink-2: #4f5668;
-  --ink-3: #5a6275;
-  --bubble: #eef0f5;
-  --selection: rgba(20, 24, 40, 0.05);
-  --mid: #6f7688;
+  --window: #f6f7f9;
+  --content: #f6f7f9;
+  --glass: #ffffff;
+  --glass-line: #e7e8ef;
+  --group: #ffffff;
+  --separator: #e9eaf0;
+  --selection-strong: rgba(85, 70, 216, 0.09);
+  --tint: #5546d8;
+  --ink: #14162b;
+  --ink-2: #5c6178;
+  --ink-3: #6a6f85;
+  --bubble: #f1f2f6;
+  --selection: rgba(20, 22, 43, 0.04);
+  --mid: #747990;
   --radius: 0.75rem;
-  --chart: #3f55e6;
-  --panel: rgba(255, 255, 255, 0.62);
-  --panel-edge: rgba(255, 255, 255, 0.85);
-  --panel-shine: rgba(255, 255, 255, 0.75);
-  --panel-shadow: 0 1px 1px rgba(20, 24, 40, 0.04), 0 12px 32px rgba(40, 50, 90, 0.1);
-  --panel-blur: 22px;
-  --wash-1: #d3dcff;
-  --wash-2: #dcf2ee;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --background: #0c0f16;
-    --foreground: #eef0f6;
-    --card: #1b1e28;
-    --card-foreground: #eef0f6;
-    --popover: #232733;
-    --popover-foreground: #eef0f6;
-    --primary: #eef0f6;
-    --primary-foreground: #0c0f16;
-    --secondary: rgba(255, 255, 255, 0.1);
-    --secondary-foreground: #eef0f6;
-    --muted: #262a36;
-    --muted-foreground: #aeb4c2;
-    --destructive: #ff8577;
-    --destructive-foreground: #ffffff;
-    --border: rgba(255, 255, 255, 0.1);
-    --input: rgba(255, 255, 255, 0.14);
-    --ring: rgba(160, 140, 255, 0.6);
-    --success: #8c9bff;
-    --warning: #f0a95a;
-    --overlay: rgba(0, 0, 0, 0.6);
-    --scrollbar: #343946;
-    --window: #0c0f16;
-    --content: #0c0f16;
-    --glass: #1b1e28;
-    --glass-line: rgba(255, 255, 255, 0.09);
-    --group: #1b1e28;
-    --separator: rgba(255, 255, 255, 0.09);
-    --selection-strong: rgba(140, 155, 255, 0.16);
-    --tint: #8c9bff;
-    --ink: #eef0f6;
-    --ink-2: #aeb4c2;
-    --ink-3: #979eae;
-    --bubble: #262a36;
-    --selection: rgba(255, 255, 255, 0.06);
-    --mid: #9098ab;
-    --chart: #8c9bff;
-    --panel: rgba(30, 34, 46, 0.58);
-    --panel-edge: rgba(255, 255, 255, 0.12);
-    --panel-shine: rgba(255, 255, 255, 0.09);
-    --panel-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 14px 36px rgba(0, 0, 0, 0.35);
-    --panel-blur: 22px;
-    --wash-1: #1a2350;
-    --wash-2: #0e3230;
-  }
+  --chart: #5546d8;
+  --chart-2: #14b8a6;
+  --chart-3: #8b7ff0;
+  --chart-4: #5a8bf0;
+  --chart-5: #7fe3d6;
+  --chart-soft: #eceef3;
+  --head: #f6f7f9;
+  --up: #d9f5f0;
+  --down: #fde8e6;
 }
 
 :root[data-theme="dark"] {
@@ -141,13 +92,14 @@
   --selection: rgba(255, 255, 255, 0.06);
   --mid: #9098ab;
   --chart: #8c9bff;
-  --panel: rgba(30, 34, 46, 0.58);
-  --panel-edge: rgba(255, 255, 255, 0.12);
-  --panel-shine: rgba(255, 255, 255, 0.09);
-  --panel-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 14px 36px rgba(0, 0, 0, 0.35);
-  --panel-blur: 22px;
-  --wash-1: #1a2350;
-  --wash-2: #0e3230;
+  --chart-2: #2dd4bf;
+  --chart-3: #6c60e0;
+  --chart-4: #6f9cf5;
+  --chart-5: #1b8f82;
+  --chart-soft: #2c3040;
+  --head: #20232f;
+  --up: #123c37;
+  --down: #47211d;
 }
 
 @theme inline {
@@ -189,6 +141,14 @@
   --color-selection: var(--selection);
   --color-mid: var(--mid);
   --color-chart: var(--chart);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-head: var(--head);
+  --color-chart-soft: var(--chart-soft);
+  --color-up: var(--up);
+  --color-down: var(--down);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
 }
@@ -223,36 +183,19 @@
 }
 
 @layer components {
-  /* The ground the glass sits on. */
+  /* The ground the cards sit on. */
   .canvas {
     background-color: var(--window);
-    background-image:
-      radial-gradient(900px 600px at 90% -10%, var(--wash-1), transparent 65%),
-      radial-gradient(800px 560px at 5% 105%, var(--wash-2), transparent 65%);
-    background-attachment: fixed;
   }
-  /* The material: solid wherever blur isn't there or isn't wanted, so text keeps its contrast. */
+  /* The card: flat, on a hairline. */
   .glass,
   .group-card {
     background-color: var(--group);
-    box-shadow:
-      var(--panel-shadow),
-      inset 0 1px 0 var(--panel-shine),
-      0 0 0 1px var(--panel-edge);
-  }
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    @media not (prefers-reduced-transparency: reduce) {
-      .glass,
-      .group-card {
-        background-color: var(--panel);
-        -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(170%);
-        backdrop-filter: blur(var(--panel-blur)) saturate(170%);
-      }
-    }
+    border: 1px solid var(--border);
   }
   /* An inset grouped list: one rounded card, rows split by hairlines. */
   .group-card {
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
   }
 }
