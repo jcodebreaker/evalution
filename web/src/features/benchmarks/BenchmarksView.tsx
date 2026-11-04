@@ -840,6 +840,11 @@ function RunList({
             {run.report.accuracy === null ? null : (
               <span className="font-semibold tabular-nums">{share(run.report.accuracy)}</span>
             )}
+            {run.report.judged ? (
+              <span className="text-ink-2 tabular-nums">
+                {run.report.right} of {run.report.judged}
+              </span>
+            ) : null}
             <span className="min-w-0 text-ink-2">{benchmarkName(run.set)}</span>
             {run.status === "running" ? <span className="text-ink-2">Running</span> : null}
             {didntFinish(run) ? <span className="text-ink-3">Didn't finish</span> : null}
