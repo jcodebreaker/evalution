@@ -170,6 +170,11 @@ export function BenchmarksView({
               <span className="mt-2 font-display text-[28px] leading-none font-bold tabular-nums">
                 {latest?.report.accuracy != null ? share(latest.report.accuracy) : "No score yet"}
               </span>
+              {latest?.report.judged ? (
+                <span className="text-[12.5px] text-ink-2 tabular-nums">
+                  {latest.report.right} of {latest.report.judged} right, last finished run
+                </span>
+              ) : null}
               <span className="text-[12.5px] text-ink-2 tabular-nums">
                 {going
                   ? "Running now"
