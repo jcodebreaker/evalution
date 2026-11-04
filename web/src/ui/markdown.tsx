@@ -45,7 +45,16 @@ type Block =
   | { kind: "p" | "quote"; lines: string[] }
   | { kind: "h"; level: number; text: string }
   | { kind: "ul" | "ol"; items: string[] }
-  | { kind: "code"; text: string };
+  | { kind: "code"; text: string }
+  | { kind: "table"; head: string[]; rows: string[][] };
+
+const cells = (line: string) =>
+  line
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+const RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 function blocks(source: string): Block[] {
   const out: Block[] = [];
@@ -63,6 +72,15 @@ function blocks(source: string): Block[] {
     }
     if (!line.trim()) {
       out.push({ kind: "p", lines: [] });
+      continue;
+    }
+    if (line.includes("|") && RULE.test(lines[at + 1] ?? "")) {
+      const rows: string[][] = [];
+      for (at += 2; at < lines.length && (lines[at] ?? "").includes("|"); at++) {
+        rows.push(cells(lines[at] ?? ""));
+      }
+      at--;
+      out.push({ kind: "table", head: cells(line), rows });
       continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -122,6 +140,33 @@ export function Markdown({ text, className }: { text: string; className?: string
               </List>
             );
           }
+          case "table":
+            return (
+              <div key={index} className="overflow-x-auto rounded-lg border border-separator">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="bg-head text-ink-2">
+                      {block.head.map((cell, at) => (
+                        <th key={at} scope="col" className="px-2.5 py-1.5 text-start font-medium">
+                          {inline(cell)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, at) => (
+                      <tr key={at} className="border-t border-separator">
+                        {row.map((cell, column) => (
+                          <td key={column} className="px-2.5 py-1.5 tabular-nums">
+                            {inline(cell)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
           case "quote":
             return (
               <blockquote key={index} className="m-0 border-s-2 border-separator ps-3 text-ink-2">

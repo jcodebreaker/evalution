@@ -54,6 +54,14 @@ export function useAgent(scope: Scope | null) {
     );
   }, [key]);
 
+  /** Leaves this thread for an empty one; it stays stored on the server. */
+  const newChat = useCallback(() => {
+    const asked = scopeRef.current;
+    if (asked) store(asked, null);
+    setSession(null);
+    setQueued([]);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!session) return;
     const found = await api.agent.session(session.id);
@@ -123,7 +131,7 @@ export function useAgent(scope: Scope | null) {
     setSession(await api.agent.stop(session.id));
   }, [session]);
 
-  return { session, queued, ask, approve, adopt, refresh, stop };
+  return { session, queued, ask, approve, adopt, refresh, stop, newChat };
 }
 
 export type Agent = ReturnType<typeof useAgent>;

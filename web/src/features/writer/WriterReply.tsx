@@ -1,4 +1,4 @@
-import { Check, ChevronRight, CircleAlert, FileText, Network, Play, Plus } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
 import { count, usd } from "../../lib/format";
 import type { AgentMessage, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
@@ -43,13 +43,23 @@ export function WriterReply({
   const { plan, review, run, saved } = message;
   const changed = !!plan?.changes?.length;
   return (
-    <div className="flex flex-col gap-2.5 text-[14px] leading-[1.5]">
-      {message.read?.map((line, index) => (
-        <p key={index} className="m-0 flex items-start gap-1.5 text-[12px] text-ink-3">
-          <FileText className="mt-px size-3.5 shrink-0" aria-hidden />
-          <span className="min-w-0">{line}</span>
-        </p>
-      ))}
+    <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
+      {message.read?.length ? (
+        <details className="group text-[12px] text-ink-3">
+          <summary className="flex cursor-default list-none items-center gap-1.5 hover:text-ink-2 [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              className="size-3.5 transition-transform group-open:rotate-90"
+              aria-hidden
+            />
+            Read {message.read.length} {message.read.length === 1 ? "source" : "sources"}
+          </summary>
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 pt-1 ps-5">
+            {message.read.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {message.text ? <Markdown text={message.text} /> : null}
       {LEARNED.test(message.text) ? (
         <Group>

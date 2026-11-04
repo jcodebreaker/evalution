@@ -1,4 +1,4 @@
-import { ArrowUp, Square, X } from "lucide-react";
+import { ArrowUp, Square, SquarePen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import { usd } from "../../lib/format";
@@ -15,6 +15,12 @@ import { WriterReply } from "./WriterReply";
  * the tests it added and the runs it reviewed; the reply field at the bottom also takes a message
  * while it works.
  */
+const STARTERS = [
+  "Why did my last run fail?",
+  "Which test should I write next?",
+  "Where are the tokens going?",
+];
+
 export function WriterPanel({
   agent,
   runs,
@@ -78,19 +84,23 @@ export function WriterPanel({
       aria-label="Ask AI"
       className="flex min-h-0 flex-col border-s border-separator bg-content max-md:fixed max-md:inset-0 max-md:z-40 max-md:border-s-0"
     >
-      <header className="flex min-h-[52px] items-center gap-2 border-b border-separator px-4 py-2">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <h2 className="m-0 truncate text-[15px] font-semibold tracking-[-0.2px]">Ask AI</h2>
-          {session ? (
-            <span className="truncate text-[12px] text-ink-3 tabular-nums">
-              {usd(session.spent_usd)}
-            </span>
-          ) : null}
-        </div>
+      <header className="flex min-h-[52px] items-center gap-1 border-b border-separator ps-4 pe-2 py-2">
+        <h2 className="m-0 flex-1 truncate text-[14px] font-semibold tracking-[-0.2px]">Ask AI</h2>
         {working ? (
           <Button size="sm" variant="secondary" onClick={() => void agent.stop()}>
             <Square />
             Stop
+          </Button>
+        ) : null}
+        {session && !working ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="New chat"
+            title="New chat"
+            onClick={agent.newChat}
+          >
+            <SquarePen />
           </Button>
         ) : null}
         <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>
@@ -99,7 +109,22 @@ export function WriterPanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="flex flex-col gap-3.5 px-4 pt-4 pb-4">
+        <div className="flex flex-col gap-4 px-4 pt-4 pb-4">
+          {session ? null : (
+            <div className="flex flex-col gap-2 pt-1">
+              <p className="m-0 text-[14px] font-medium">What do you want to know?</p>
+              {STARTERS.map((starter) => (
+                <button
+                  key={starter}
+                  type="button"
+                  onClick={() => void send(starter)}
+                  className="rounded-lg border border-separator bg-group px-3 py-2 text-start text-[13px] text-ink-2 hover:border-input hover:text-ink focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  {starter}
+                </button>
+              ))}
+            </div>
+          )}
           {session?.messages.map((message) =>
             message.role === "admin" ? (
               <Bubble key={message.id} text={message.text} />
@@ -129,22 +154,33 @@ export function WriterPanel({
         </div>
       </div>
 
-      <div className="border-t border-separator px-4 py-3">
-        <div className="flex items-end gap-2">
+      <div className="px-3 pt-1 pb-3">
+        <div className="flex items-end gap-2 rounded-2xl border border-input bg-group px-3 py-2 focus-within:border-tint focus-within:ring-1 focus-within:ring-tint">
           <textarea
             // biome-ignore lint/a11y/noAutofocus: the panel opens to be written in
             autoFocus={!session}
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={onEnter(submit)}
-            placeholder={session ? "Reply" : "Ask about your tests or traces"}
-            aria-label={session ? "Reply" : "Ask about your tests or traces"}
-            className={cn(TEXTAREA, "min-h-6 text-[14px]")}
+            placeholder="Ask about your runs, traces or tests"
+            aria-label="Ask about your runs, traces or tests"
+            className={cn(TEXTAREA, "min-h-6 py-0.5 text-[13.5px]")}
           />
-          <Button size="icon-sm" aria-label="Send" disabled={busy || !text.trim()} onClick={submit}>
+          <Button
+            size="icon-sm"
+            aria-label="Send"
+            disabled={busy || !text.trim()}
+            className="rounded-full"
+            onClick={submit}
+          >
             <ArrowUp />
           </Button>
         </div>
+        {session ? (
+          <p className="m-0 px-3 pt-1.5 text-[11.5px] text-ink-3 tabular-nums">
+            This chat has cost {usd(session.spent_usd)}
+          </p>
+        ) : null}
         {error || approval.error ? (
           <p className="m-0 pt-2 text-[12px] text-destructive">{error ?? approval.error}</p>
         ) : null}
