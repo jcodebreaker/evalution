@@ -512,7 +512,7 @@ def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
     }
     kept = trimmed(long)
     assert kept["haystack_sessions"][0] == [{"role": "user", "content": "the fact"}]
-    assert kept["haystack_dates"] == ["d2", "d2"] and len(kept["haystack_sessions"]) == 2
+    assert kept["haystack_dates"] == ["d2", "d2", "d2"] and len(kept["haystack_sessions"]) == 3
     case = to_case(kept, "same", 40_000)
     assert parse_case(case, "set/q").fold_at_tokens == 40_000
     with pytest.raises(CaseError, match="fold_at_tokens"):

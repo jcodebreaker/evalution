@@ -52,7 +52,7 @@ SIZES: dict[str, tuple[str, int | None]] = {
 ABOUT = {
     "quick": "A fixed sample with short histories: 10 of each kind of question",
     "oracle": "Every question that can play, with short histories",
-    "middle": "The same questions, then about 25 unrelated messages, with the app folding older turns early",
+    "middle": "The same questions, then about 40 unrelated messages, with the app folding older turns early",
     "s": "The same questions among unrelated conversations, about 40 per question",
     "m": "The same questions among about 500 conversations each",
 }
@@ -62,7 +62,7 @@ _SOURCE = re.compile(rf"^{NAME}:([a-z-]+)(:unanswerable)?$")
 _SAMPLE_SEED = 0
 #: How many unrelated messages a "middle" history plays after the sessions holding the answer, and
 #: the tokens it asks the app to fold from, so those sessions leave the prompt in that many messages.
-_MIDDLE_UNRELATED = 25
+_MIDDLE_UNRELATED = 40
 _MIDDLE_FOLD = 25_000
 _REPLY_CHARS = 4000
 _RUNS_SHOWN = 20
