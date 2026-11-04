@@ -279,22 +279,7 @@ export function BenchmarksView({
         />
       ) : null}
       {shownTab === "setup" && shownDataset === "short" ? (
-        active ? (
-          <Fold title="Other sizes">
-            <Sizes
-              target={target}
-              going={going}
-              sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
-              onRun={onRun}
-              onInstalled={reload}
-            />
-          </Fold>
-        ) : (
-          <p className="m-0 px-1 text-[13.5px] text-ink-2">
-            Not run yet. It clears the conversation between sessions, so only saved memory can
-            answer. Runs a fixed sample of 60 questions.
-          </p>
-        )
+        <p className="m-0 px-1 text-[13.5px] text-ink-2">Not run yet.</p>
       ) : null}
       {shownTab === "runs" && active ? (
         <RunList
@@ -992,71 +977,6 @@ function Said({ label, text }: { label: string; text: string }) {
       <dt className="text-[12px] font-semibold text-ink-2">{label}</dt>
       <dd className="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</dd>
     </div>
-  );
-}
-
-function Sizes({
-  target,
-  going,
-  sizes,
-  onRun,
-  onInstalled,
-}: {
-  target: string;
-  /** Only one run goes at a time. */
-  going: boolean;
-  sizes: Benchmarks["sizes"];
-  onRun: (set: string) => void;
-  onInstalled: () => Promise<void> | void;
-}) {
-  const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const start = async (size: string, set: string, ready: boolean) => {
-    setError(null);
-    if (!ready) {
-      setWorking(size);
-      try {
-        await api.installBenchmark(target, size);
-        await onInstalled();
-      } catch (failed) {
-        setError(errorText(failed, "Couldn't get the benchmark ready."));
-        return;
-      } finally {
-        setWorking(null);
-      }
-    }
-    onRun(set);
-  };
-  return (
-    <section className="ps-5">
-      <Group>
-        {sizes.map((entry) => (
-          <div
-            key={entry.size}
-            className="flex flex-wrap items-center gap-3 border-t border-separator px-4 py-2.5 first:border-t-0"
-          >
-            <div className="min-w-0 flex-1 basis-60">
-              <div className="text-[13.5px] font-semibold">
-                {SIZES[entry.size] ?? entry.size}
-                {entry.questions ? (
-                  <span className="font-normal text-ink-2"> · {entry.questions} questions</span>
-                ) : null}
-              </div>
-              <div className="text-[12.5px] text-ink-2">{entry.about}</div>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={working !== null || going}
-              onClick={() => void start(entry.size, entry.set, entry.questions !== null)}
-            >
-              {working === entry.size ? "Getting it ready" : "Run"}
-            </Button>
-          </div>
-        ))}
-      </Group>
-      {error ? <p className="m-0 px-1 pt-2 text-[13px] text-destructive">{error}</p> : null}
-    </section>
   );
 }
 
