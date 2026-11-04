@@ -41,13 +41,19 @@ export function isBenchmark(set: string): boolean {
   return set.startsWith("longmemeval-");
 }
 
-/** The two datasets a person chooses between, each with its own runs. */
+/** The three datasets a person chooses between, each with its own runs. */
 const DATASETS = [
   {
     key: "short",
     label: "Short histories",
     about:
       "Does it save a fact and recall it later? About 11 messages a question, holding only what it needs to know.",
+  },
+  {
+    key: "middle",
+    label: "Middle histories",
+    about:
+      "Can it still answer once older chat is folded away? About 50 messages a question, in one conversation.",
   },
   {
     key: "long",
@@ -57,8 +63,11 @@ const DATASETS = [
   },
 ] as const;
 
-function datasetOf(set: string): "short" | "long" {
-  return /^longmemeval-(s|m|middle)(-|$)/.test(set) ? "long" : "short";
+type Dataset = (typeof DATASETS)[number]["key"];
+
+function datasetOf(set: string): Dataset {
+  if (set.startsWith("longmemeval-middle")) return "middle";
+  return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
 }
 
 const SHORT_CHARS = 110;
@@ -148,7 +157,7 @@ export function BenchmarksView({
   onRun: (set: string) => void;
   onTry: (set: string, run: string, id: string) => void;
 }) {
-  const [dataset, setDataset] = useState<"short" | "long" | null>(null);
+  const [dataset, setDataset] = useState<Dataset | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [state, reload] = useLoad(target, () => api.benchmarks(target));
   const data = state.status === "ready" ? state.data : null;
@@ -170,23 +179,26 @@ export function BenchmarksView({
     data.runs.find((entry) => entry.status === "running" || played(entry) > 0) ??
     data.runs[0] ??
     null;
-  const shownDataset = dataset ?? (run ? datasetOf(run.set) : going ? "long" : DATASETS[0].key);
+  const goingIn = data.runs.find((entry) => entry.status === "running");
+  const shownDataset =
+    dataset ?? (run ? datasetOf(run.set) : goingIn ? datasetOf(goingIn.set) : DATASETS[0].key);
   const inDataset = data.runs.filter((entry) => datasetOf(entry.set) === shownDataset);
   const active =
     inDataset.find((entry) => entry.run === selected) ??
     inDataset.find((entry) => entry.status === "running" || played(entry) > 0) ??
     null;
-  const runDataset = async (key: "short" | "long") => {
+  const runDataset = async (key: Dataset) => {
     setDataset(key);
     if (key === "long") {
       if (data.plan?.approved && data.plan.set) onRun(data.plan.set);
       else setTab("setup");
       return;
     }
-    const quick = data.sizes.find((entry) => entry.size === "quick");
-    if (!quick) return;
-    if (quick.questions === null) await api.installBenchmark(target, "quick");
-    onRun(quick.set);
+    const size = key === "middle" ? "middle" : "quick";
+    const entry = data.sizes.find((listed) => listed.size === size);
+    if (!entry) return;
+    if (entry.questions === null) await api.installBenchmark(target, size);
+    onRun(entry.set);
   };
   const listed = inDataset.filter((entry) => entry.status === "running" || played(entry) > 0);
   // With no run yet there's nothing to tab between: only the way to run it.
@@ -194,7 +206,7 @@ export function BenchmarksView({
   return (
     <Page wide>
       <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
-      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+      <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
         {DATASETS.map((entry) => {
           const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
           const latest = own.find((other) => other.report.judged > 0);
@@ -297,7 +309,7 @@ export function BenchmarksView({
           onChanged={reload}
         />
       ) : null}
-      {shownTab === "setup" && shownDataset === "short" ? (
+      {shownTab === "setup" && shownDataset !== "long" ? (
         <p className="m-0 px-1 text-[13.5px] text-ink-2">Not run yet.</p>
       ) : null}
       {shownTab === "runs" && active ? (
@@ -537,23 +549,24 @@ function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string
         event.preventDefault();
         send(text);
       }}
-      className="group-card flex flex-wrap items-center gap-2 px-3 py-2"
+      className="group-card flex flex-col gap-2.5 p-3"
     >
-      <Sparkles className="size-4 shrink-0 text-tint" aria-hidden />
-      <input
-        id="ask-traces"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder="Ask AI about this run's traces"
-        aria-label="Ask AI about this run's traces"
-        className="min-w-[12rem] flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-3"
-      />
-      {text.trim() ? (
-        <Button type="submit" size="sm">
+      <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-2.5 py-1.5 focus-within:border-chart focus-within:ring-1 focus-within:ring-chart">
+        <Sparkles className="size-4 shrink-0 text-tint" aria-hidden />
+        <input
+          id="ask-traces"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="Ask anything about this run's traces"
+          aria-label="Ask anything about this run's traces"
+          className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-3"
+        />
+        <Button type="submit" size="sm" disabled={!text.trim()}>
           Ask
         </Button>
-      ) : (
-        ASK_STARTERS.map((starter) => (
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {ASK_STARTERS.map((starter) => (
           <button
             key={starter}
             type="button"
@@ -562,8 +575,8 @@ function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string
           >
             {starter}
           </button>
-        ))
-      )}
+        ))}
+      </div>
     </form>
   );
 }

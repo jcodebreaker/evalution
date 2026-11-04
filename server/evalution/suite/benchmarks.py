@@ -44,7 +44,7 @@ _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/
 SIZES: dict[str, tuple[str, int | None]] = {
     "quick": ("longmemeval_oracle.json", 10),
     "oracle": ("longmemeval_oracle.json", None),
-    "middle": ("longmemeval_s_cleaned.json", None),
+    "middle": ("longmemeval_s_cleaned.json", 5),
     "s": ("longmemeval_s_cleaned.json", None),
     "m": ("longmemeval_m_cleaned.json", None),
 }
@@ -225,6 +225,11 @@ def size_of(size: str, each: int | None, data_dir: Path) -> tuple[int, int]:
     return len(chosen), sent
 
 
+def _slug(size: str, boundary: str = "break") -> str:
+    """The set a size is installed as: a middle history only means something in one conversation."""
+    return f"{NAME}-{size}" + ("-same" if boundary == "same" or size == "middle" else "")
+
+
 def install(
     size: str,
     target: str,
@@ -237,7 +242,8 @@ def install(
 ) -> tuple[str, int]:
     """Write the benchmark's *size* as a set of *target*, *plan* beside it if a plan chose it. Its
     name, which says how it plays, and how many questions it has."""
-    slug = f"{NAME}-{size}" + ("-same" if boundary == "same" else "")
+    boundary = "same" if size == "middle" else boundary
+    slug = _slug(size, boundary)
     folder = sets_dir / target / slug
     folder.mkdir(parents=True, exist_ok=True)
     for old in folder.glob("*.case.json"):
@@ -472,7 +478,7 @@ def overview(target: str, sets_dir: Path, runs: Iterable[Mapping[str, Any]]) -> 
     """The sizes that can be run on *target* and the runs it has had, newest first."""
     sizes = []
     for size in SIZES:
-        folder = sets_dir / target / f"{NAME}-{size}"
+        folder = sets_dir / target / _slug(size)
         sizes.append(
             {
                 "size": size,

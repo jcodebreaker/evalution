@@ -129,9 +129,9 @@ One sentence is enough. No datasets or scorers to wire up.
 
 ### 4. Approve the plan
 
-The test writer reads your code and traces, then proposes the test in plain steps. Nothing is added until you say so.
+Ask AI reads your code and traces, then proposes the test in plain steps. Nothing is added until you say so.
 
-<img src="docs/demo/steps/04-plan.png" alt="The test writer proposing a plan" width="100%">
+<img src="docs/demo/steps/04-plan.png" alt="Ask AI proposing a plan" width="100%">
 
 ### 5. Read the test before it runs
 
@@ -159,7 +159,7 @@ It spots what moved and which tests to run again, and you decide when.
 
 ### 9. Ask about it
 
-Ask a question in your own words, and the test writer answers from the run.
+Ask a question in your own words, and Ask AI answers from the run.
 
 <img src="docs/demo/steps/09-ask.png" alt="Asking about a run" width="100%">
 
@@ -169,7 +169,7 @@ Ask a question in your own words, and the test writer answers from the run.
 flowchart LR
     F[Your project folder] --> L[What it learned]
     T[Your traces] --> L
-    L --> W[Test writer proposes]
+    L --> W[Ask AI proposes]
     W -->|you approve| S[Tests]
     S -->|you press Run| P[Isolated tries]
     P --> A[Your agent]
@@ -212,7 +212,7 @@ A pass that rests only on a model reading the reply says so: **Passed, judged by
 
 ## Writing tests
 
-Usually you just describe it to the test writer. Tests are plain JSON in `sets/<app>/<set>/`, made for code review:
+Usually you just describe it to Ask AI. Tests are plain JSON in `sets/<app>/<set>/`, made for code review:
 
 ```json
 {
@@ -249,7 +249,7 @@ A conversation can be more than one message:
 
 Tool order can be `exact`, `in_order` or `any_order`; expected tools can check arguments, counts and parallel calls. Tools in `never` always count against a try, while `expected` is a guide unless the test sets `strict`, asks for `exact` order, disallows extras, or has no reply to judge.
 
-**The stateful library** in `library/stateful/` holds ready-made tests, which the test writer adapts to your app: fact recall, corrections, withdrawn instructions, forgetting on request, compaction keeping an early decision, compaction dropping a withdrawn fact, recall from the right conversation, preferences and tasks across conversations, and long chats keeping a name and role.
+**The stateful library** in `library/stateful/` holds ready-made tests, which Ask AI adapts to your app: fact recall, corrections, withdrawn instructions, forgetting on request, compaction keeping an early decision, compaction dropping a withdrawn fact, recall from the right conversation, preferences and tasks across conversations, and long chats keeping a name and role.
 
 ## When your code changes
 
@@ -261,7 +261,7 @@ When code differs from what was last tested and the app's updates are set to *Au
 > 2 areas have no test: conversation compaction, context checkpoint
 
 - **Affected tests** get a *Run them* button. Nothing runs by itself.
-- **Areas with no test** link to the test writer, with the ask ready for you to send.
+- **Areas with no test** link to Ask AI, with the ask ready for you to send.
 - **Regressions** name the commits: *"Memory recall passed on abc1234, fails on def5678"*.
 - **A change that can't affect behaviour** shows no card, but it isn't forgotten: it's read again with the next change until a run covers it.
 - **Set to *When I ask*** (the default), the card shows the changed files and all the tests, with no model call, and *Read this change* asks for the reading, with its rough cost on the button.
@@ -349,11 +349,11 @@ Both the OpenInference and OpenTelemetry GenAI conventions are understood, and p
 
 ## Cost and privacy
 
-**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Nothing stops a run partway because of cost, so try an expensive-looking test with one try first. The test writer has its own budget per session, shown in its panel.
+**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Nothing stops a run partway because of cost, so try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
 
 **What stays local.** Results, tests and settings all live on your machine. There's no hosted service and no login. Each run also keeps what it saw in `data/runs/<run>.evidence.jsonl.gz`: prompts your app sent, tool arguments and outputs, in full up to 64 KB an item. That file is owner-only and git-ignored, and sits beside the run until you delete it.
 
-**What goes to your model.** The model you configure sees code the test writer reads, diffs of changes, traces and replies. Secret files are never read, but they're recognised by file name: a key pasted into a normal source file could be sent in a diff.
+**What goes to your model.** The model you configure sees code Ask AI reads, diffs of changes, traces and replies. Secret files are never read, but they're recognised by file name: a key pasted into a normal source file could be sent in a diff.
 
 **Secrets.** They stay in `data/secrets.json` (owner-only), or in environment variables you name. They are never returned by the API, logged or sent to the model.
 

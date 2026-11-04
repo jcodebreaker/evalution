@@ -150,7 +150,7 @@ export function App() {
           draft={writerDraft}
           onDrafted={clearDraft}
         />
-      ) : agent.session && scope ? (
+      ) : scope ? (
         <Button
           variant="secondary"
           className="fixed end-4 bottom-4 z-30 h-9 rounded-full bg-group px-3.5 shadow-lg ring-1 ring-separator"

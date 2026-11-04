@@ -185,7 +185,7 @@ async function story({ page, api, mode, times }) {
   await hold(250);
   await click(button("Write the test"), 340);
 
-  // 4. The test writer proposes
+  // 4. Ask AI proposes
   scene("plan");
   await page.getByRole("complementary", { name: "Ask AI" }).waitFor();
   times.speed(3);
