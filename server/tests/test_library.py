@@ -554,8 +554,8 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
             "c": tried("failed", "longmemeval:temporal-reasoning"),
             "d": tried("passed", "longmemeval:multi-session:unanswerable"),
             "e": tried("failed", "someone-else"),
-            "f": {"source": "longmemeval:multi-session", "tries": []},
             "g": broke_off,
+            "f": {"source": "longmemeval:multi-session", "tries": []},
         },
     }
     found = report(run)
@@ -583,6 +583,7 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
         and overview("bot", tmp_path, [{**run, "status": "done"}])["runs"][0]["current"] is None
     )
     played, waiting = shown["questions"][0], shown["questions"][-1]
+    assert shown["questions"][-2]["verdict"] == "unjudged", "it broke off, so it wasn't wrong"
     assert (played["tokens"], played["messages"], played["models"]) == (10, 2, ["m"])
     assert played["trace_url"] is None and (waiting["tokens"], waiting["models"]) == (None, [])
     bare = overview("bot", tmp_path, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
