@@ -50,6 +50,11 @@
   --chart-5: #7fe3d6;
   --chart-soft: #eceef3;
   --head: #f6f7f9;
+  --deep: #15123a;
+  --deep-line: rgba(160, 150, 255, 0.38);
+  --deep-fg: #f2f1fb;
+  --deep-fg-2: #bdbadd;
+  --deep-accent: #7669f0;
   --up: #d9f5f0;
   --down: #fde8e6;
 }
@@ -98,6 +103,11 @@
   --chart-5: #1b8f82;
   --chart-soft: #2c3040;
   --head: #20232f;
+  --deep: #1b1848;
+  --deep-line: rgba(160, 150, 255, 0.4);
+  --deep-fg: #f2f1fb;
+  --deep-fg-2: #bdbadd;
+  --deep-accent: #7669f0;
   --up: #123c37;
   --down: #47211d;
 }
@@ -146,6 +156,11 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-head: var(--head);
+  --color-deep: var(--deep);
+  --color-deep-line: var(--deep-line);
+  --color-deep-fg: var(--deep-fg);
+  --color-deep-fg-2: var(--deep-fg-2);
+  --color-deep-accent: var(--deep-accent);
   --color-chart-soft: var(--chart-soft);
   --color-up: var(--up);
   --color-down: var(--down);
