@@ -31,6 +31,22 @@ class SessionFiles:
         tmp.write_text(json.dumps(session, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
 
+    def chats(self, target: str) -> list[dict[str, Any]]:
+        """Every session of *target* with something said in it, latest first, for going back to."""
+        found = []
+        files = sorted(self.dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for path in files:
+            session = self.load(path.stem)
+            if not session or session.get("target") != target:
+                continue
+            asked = next(
+                (m.get("text") for m in session.get("messages") or [] if m.get("role") == "admin"),
+                None,
+            )
+            if asked:
+                found.append({"id": session["id"], "asked": asked, "at": path.stat().st_mtime})
+        return found
+
     def load(self, session: str) -> dict[str, Any] | None:
         path = self._path(session)
         if path is None or not path.is_file():

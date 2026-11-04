@@ -136,6 +136,7 @@ export function App() {
       </main>
       {panel ? (
         <WriterPanel
+          target={scope?.target ?? null}
           agent={agent}
           runs={runs}
           runLabel={runLabel}

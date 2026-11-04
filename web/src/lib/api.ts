@@ -11,6 +11,7 @@ import type {
 } from "./schema";
 import {
   AdapterSchema,
+  AgentChatSchema,
   AgentSessionSchema,
   BenchmarksSchema,
   CaseFileViewSchema,
@@ -335,6 +336,8 @@ export const api = {
     open: ({ target, set }: Scope) =>
       post(one(AgentSessionSchema), "/v1/evals/agent/sessions", { target, set }),
     session: (id: string) => get(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}`),
+    chats: (target: string) =>
+      get(many(AgentChatSchema), `/v1/evals/agent/sessions${query({ target })}`),
     send: (id: string, text: string, run?: string) =>
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/messages`, { text, run }),
     approve: (id: string, plan_id: string) =>

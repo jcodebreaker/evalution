@@ -875,6 +875,9 @@ export const AgentSessionSchema = z.object({
 });
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 
+/** The app's earlier chats, latest first. */
+export const AgentChatSchema = z.object({ id: z.string(), asked: z.string(), at: z.number() });
+
 /** Where a line of the understanding comes from: `ref` names the file, section or traces. */
 export const EvidenceSchema = z.object({
   kind: z.enum(["prompt", "code", "traces", "docs", "admin"]),

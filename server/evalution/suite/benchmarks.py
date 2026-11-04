@@ -3,8 +3,10 @@
 LongMemEval (Wu et al., ICLR 2025, https://github.com/xiaowu0162/LongMemEval, MIT) asks questions
 with known answers about a person's chat history. :func:`install` writes its questions as cases
 under ``sets/<target>/longmemeval-<size>/``, in the usual case format, so they play, are graded and
-are stored like any test. The data stays out of this repository: it is fetched into
-``<data_dir>/benchmarks/`` the first time it's needed.
+are stored like any test. The questions of the sizes people run are in this repository, in
+``longmemeval/``, so they work offline; the full files are fetched into
+``<data_dir>/benchmarks/`` the first time they're needed. To change a bundled size, run
+:func:`bundle`.
 
 **How a question plays.** The person's recorded messages are sent one by one, so the agent's own way
 of saving things is what gets tested, then a new conversation asks the question. The agent's replies
@@ -52,7 +54,7 @@ SIZES: dict[str, tuple[str, int | None]] = {
 ABOUT = {
     "quick": "A fixed sample of 5 questions with short histories",
     "oracle": "Every question that can play, with short histories",
-    "middle": "10 questions, then about 40 unrelated messages, with the app folding older turns early",
+    "middle": "10 questions, then about 40 unrelated messages, with older turns folded early",
     "s": "The same questions among unrelated conversations, about 40 per question",
     "m": "The same questions among about 500 conversations each",
 }
@@ -60,8 +62,9 @@ ABOUT = {
 _CANNOT_PLAY = "single-session-assistant"
 _SOURCE = re.compile(rf"^{NAME}:([a-z-]+)(:unanswerable)?$")
 _SAMPLE_SEED = 0
+_BUNDLED = Path(__file__).parent / NAME
 #: How many unrelated messages a "middle" history plays after the sessions holding the answer, and
-#: the tokens it asks the app to fold from, so those sessions leave the prompt in that many messages.
+#: the tokens it asks the app to fold from. Enough that those sessions leave the prompt.
 _MIDDLE_UNRELATED = 40
 _MIDDLE_FOLD = 25_000
 _REPLY_CHARS = 4000
@@ -223,13 +226,41 @@ def spread(entries: Iterable[Mapping[str, Any]], total: int) -> list[Mapping[str
     return [entry for turn in turns for entry in turn if entry is not None][:total]
 
 
+def _bundled(size: str) -> Path:
+    return _BUNDLED / f"{size}.json"
+
+
+def bundle(size: str, data_dir: Path) -> None:
+    """Write a size's questions into the repository, with only what playing them reads."""
+    file, total = SIZES[size]
+    if total is None:
+        raise ValueError(f"{size} is every question: too big to keep here")
+    chosen = spread(json.loads(fetch(file, data_dir).read_text()), total)
+    fields = ("question_id", "question_type", "question", "answer", "question_date")
+    kept = [
+        {
+            **{field: entry[field] for field in fields},
+            "haystack_dates": entry["haystack_dates"],
+            "haystack_sessions": [
+                [
+                    {"role": "user", "content": turn["content"]}
+                    for turn in session
+                    if turn["role"] == "user"
+                ]
+                for session in entry["haystack_sessions"]
+            ],
+        }
+        for entry in map(trimmed if size == "middle" else dict, chosen)
+    ]
+    _bundled(size).write_text(json.dumps(kept, ensure_ascii=False, indent=0) + "\n")
+
+
 def _chosen(size: str, each: int | None, data_dir: Path) -> list[Mapping[str, Any]]:
+    if each is None and _bundled(size).exists():
+        return list(json.loads(_bundled(size).read_text()))
     file, total = SIZES[size]
     entries = json.loads(fetch(file, data_dir).read_text())
-    if each is not None or total is None:
-        chosen = sample(entries, each)
-    else:
-        chosen = spread(entries, total)
+    chosen = sample(entries, each) if each is not None or total is None else spread(entries, total)
     return [trimmed(entry) for entry in chosen] if size == "middle" else chosen
 
 

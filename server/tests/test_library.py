@@ -18,6 +18,7 @@ from evalution.runs.runner import Runs
 from evalution.suite import planning
 from evalution.suite.benchmarks import (
     happened,
+    install,
     known_answer,
     overview,
     report,
@@ -509,6 +510,17 @@ def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
     ]
     assert {e["question_type"] for e in few} == {"multi-session", "single-session-preference"}
     assert any("_abs" in e["question_id"] for e in few)
+
+
+def test_the_sizes_people_run_need_no_download(tmp_path: Path) -> None:
+    sets, data = tmp_path / "sets", tmp_path / "data"
+    assert install("quick", "bot", sets, data) == ("longmemeval-quick", 5)
+    assert install("middle", "bot", sets, data) == ("longmemeval-middle-same", 10)
+    assert not data.exists(), "nothing was fetched"
+    played = json.loads(
+        next((sets / "bot/longmemeval-middle-same").glob("*.case.json")).read_text()
+    )
+    assert played["fold_at_tokens"] and len(played["turns"]) > 40
 
     chat = [{"role": "user", "content": "unrelated"}] * 30
     long = {

@@ -1,8 +1,10 @@
-import { ArrowUp, Square, SquarePen, X } from "lucide-react";
+import { ArrowUp, History, Square, SquarePen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { usd } from "../../lib/format";
+import { ago, usd } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
+import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import type { Agent } from "./agent";
 import { onEnter, TEXTAREA, useAsk } from "./ask";
@@ -21,7 +23,47 @@ const STARTERS = [
   "Where are the tokens going?",
 ];
 
+const ABOUT_RUN = /^About benchmark run \S+, reading its traces: /;
+
+/** The app's earlier chats, latest first. */
+function PastChats({
+  target,
+  current,
+  onPick,
+}: {
+  target: string;
+  current: string | null;
+  onPick: (id: string) => void;
+}) {
+  const [chats] = useLoad(`chats:${target}`, () => api.agent.chats(target));
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto p-2">
+      {chats.status === "ready" && !chats.data.length ? (
+        <p className="m-0 p-2 text-[13px] text-ink-2">No past chats yet.</p>
+      ) : null}
+      {chats.status === "ready"
+        ? chats.data.map((chat) => (
+            <button
+              key={chat.id}
+              type="button"
+              aria-current={chat.id === current ? "true" : undefined}
+              onClick={() => onPick(chat.id)}
+              className={cn(
+                "flex min-w-0 flex-col gap-0.5 rounded-lg px-2.5 py-2 text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
+                chat.id === current && "bg-selection-strong",
+              )}
+            >
+              <span className="truncate text-[13px]">{chat.asked.replace(ABOUT_RUN, "")}</span>
+              <span className="text-[11.5px] text-ink-3">{ago(chat.at)}</span>
+            </button>
+          ))
+        : null}
+    </div>
+  );
+}
+
 export function WriterPanel({
+  target,
   agent,
   runs,
   runLabel,
@@ -35,6 +77,7 @@ export function WriterPanel({
   draft,
   onDrafted,
 }: {
+  target: string | null;
   agent: Agent;
   runs: readonly RunSummary[];
   runLabel: (run: string) => string;
@@ -51,6 +94,7 @@ export function WriterPanel({
   onDrafted: () => void;
 }) {
   const { session, queued } = agent;
+  const [past, setPast] = useState(false);
   const [text, setText] = useState("");
   useEffect(() => {
     if (!draft) return;
@@ -92,13 +136,28 @@ export function WriterPanel({
             Stop
           </Button>
         ) : null}
+        {working ? null : (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Past chats"
+            aria-expanded={past}
+            title="Past chats"
+            onClick={() => setPast((now) => !now)}
+          >
+            <History />
+          </Button>
+        )}
         {session && !working ? (
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label="New chat"
             title="New chat"
-            onClick={agent.newChat}
+            onClick={() => {
+              setPast(false);
+              agent.newChat();
+            }}
           >
             <SquarePen />
           </Button>
@@ -108,7 +167,17 @@ export function WriterPanel({
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      {past && target ? (
+        <PastChats
+          target={target}
+          current={session?.id ?? null}
+          onPick={(id) => {
+            setPast(false);
+            void agent.openChat(id);
+          }}
+        />
+      ) : null}
+      <div className={cn("min-h-0 flex-1 overflow-auto", past && target && "hidden")}>
         <div className="flex flex-col gap-4 px-4 pt-4 pb-4">
           {session ? null : (
             <div className="flex flex-col gap-2 pt-1">

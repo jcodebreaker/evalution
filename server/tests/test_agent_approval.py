@@ -59,6 +59,10 @@ async def test_a_question_never_unlocks_saving(agent) -> None:
     saved = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": CASE})
     assert saved.startswith("Refused: that plan is not approved")
 
+    chats = agent.files.chats("bot")
+    assert chats and chats[0]["asked"], "a chat with something said in it can be gone back to"
+    assert agent.files.chats("someone-else") == []
+
 
 async def test_add_to_tests_approves_one_case(agent) -> None:
     session, plan_id = await _shown(agent)

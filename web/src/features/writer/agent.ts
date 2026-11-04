@@ -62,6 +62,15 @@ export function useAgent(scope: Scope | null) {
     setQueued([]);
   }, []);
 
+  /** Back to an earlier thread of this app. */
+  const openChat = useCallback(async (id: string) => {
+    const asked = scopeRef.current;
+    const found = await api.agent.session(id);
+    if (asked) store(asked, id);
+    setQueued([]);
+    setSession(found);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!session) return;
     const found = await api.agent.session(session.id);
@@ -131,7 +140,7 @@ export function useAgent(scope: Scope | null) {
     setSession(await api.agent.stop(session.id));
   }, [session]);
 
-  return { session, queued, ask, approve, adopt, refresh, stop, newChat };
+  return { session, queued, ask, approve, adopt, refresh, stop, newChat, openChat };
 }
 
 export type Agent = ReturnType<typeof useAgent>;

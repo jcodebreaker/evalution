@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter
@@ -22,6 +23,11 @@ def writer_router(targets: Targets, agent: Agent) -> APIRouter:
             raise invalid("set: required")
         set_root(targets, name, set_name)
         return await agent.create(name, set_name)
+
+    @router.get("/evals/agent/sessions")
+    async def list_agent(target: str) -> list[dict[str, Any]]:
+        """The app's past chats, latest first."""
+        return await asyncio.to_thread(agent.files.chats, target_name(targets, target))
 
     @router.get("/evals/agent/sessions/{session_id}")
     async def get_agent(session_id: str) -> dict[str, Any]:

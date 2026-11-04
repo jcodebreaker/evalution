@@ -1,8 +1,22 @@
 # Benchmarks
 
-A benchmark is a public golden dataset: questions with known answers. evalution ships [LongMemEval](https://github.com/xiaowu0162/LongMemEval) (Wu et al., ICLR 2025, MIT) and downloads its data the first time it's needed. Benchmarks stay apart from your own tests: their scores never count in Home's numbers.
+A benchmark is a public golden dataset: questions with known answers. evalution ships [LongMemEval](https://github.com/xiaowu0162/LongMemEval) (Wu et al., ICLR 2025, MIT) with the questions the page runs in this repository. Benchmarks stay apart from your own tests: their scores never count in Home's numbers.
 
-## How one comes to run on your app
+## On the page
+
+| Dataset | Questions | Messages each | What it tests |
+|---|---|---|---|
+| Short histories | 5 | About 11 | Whether saved memory alone can answer: the conversation is cleared between chats |
+| Middle histories | 10 | About 50 | Whether it can still answer once older chat is folded away, in one conversation |
+
+Press Run on a card; a confirm step shows the estimate first. These questions are in the repository (`server/evalution/suite/longmemeval/`, with the dataset's MIT license), so they need no download, and they stay the same so runs compare. Middle is our own variation, so its scores don't compare with published ones. A question that broke off (the app hung, the computer slept) reads as not judged rather than wrong.
+
+A laptop that sleeps stops a run, and closing the lid sleeps it even with sleep blocked.
+
+## From the command line
+
+The full-length sizes (`s`, `m`, `oracle`) and the plan below aren't on the page. They download the full data, and a long question costs about ten times a middle one.
+
 
 A benchmark says what it needs, not how to play it, because apps differ. One has a new conversation per chat; another has one conversation per person forever.
 
