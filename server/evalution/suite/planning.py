@@ -193,6 +193,20 @@ async def plan_for(
 ) -> dict[str, Any]:
     """The agent's plan for *name*, checked and tried for real, with how long it would take."""
     notes = notes_on(targets, name, target)
+    if "memory" not in target.capabilities.starts_clean():
+        # Every question needs a try to start with no earlier memory: no need to ask a model.
+        said = "This app's adapter can't promise that a try starts with no earlier memory."
+        plan = {
+            "verdict": "cannot",
+            "how": said,
+            "why": said,
+            "measures": "Nothing.",
+            "warnings": [],
+        }
+        plan |= {"evidence": [], "notes": hashlib.sha256(notes.encode()).hexdigest()[:12]}
+        plan["approved"] = False
+        save(targets, name, plan)
+        return plan
     asked = fenced("the notes on this app", notes)
     plan = await ask_json(caller, INSTRUCTIONS, asked, lambda text: read_plan(text, notes, target))
     plan["notes"] = hashlib.sha256(notes.encode()).hexdigest()[:12]

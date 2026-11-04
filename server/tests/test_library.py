@@ -4,15 +4,19 @@ adapting with profile evidence, and the conversation break it relies on."""
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 import yaml
 
-from evalution.adapters.base import Capabilities, Isolation, Session, Target, Turn
+from evalution import adapters
+from evalution.adapters.base import Capabilities, Isolation, MemoryRead, Session, Target, Turn
 from evalution.config import load
+from evalution.llm import LLM
 from evalution.results.store import FileStore
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
-from evalution.suite.benchmarks import happened, overview, report, sample, to_case
+from evalution.suite import planning
+from evalution.suite.benchmarks import happened, overview, report, sample, to_case, untested
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.library import (
     KINDS,
@@ -346,6 +350,129 @@ async def test_the_probe_says_what_it_found() -> None:
     assert (await probe(same, "same"))["ok"] and same.broke == 0
 
 
+class _RemembersByProfile(Target):
+    """A made-up app whose new chats read a saved profile."""
+
+    name = "bot"
+    capabilities = Capabilities(Isolation.IDENTITY, "", conversation_break=True, reset=True)
+
+    def __init__(self) -> None:
+        self.told: list[str] = []
+        self.breaks = 0
+
+    async def open(self, run: str) -> Session:
+        return Session(run, "session.id", run)
+
+    async def break_conversation(self, session: Session) -> None:
+        self.breaks += 1
+
+    async def send(self, session, message, *, files=(), stop_after=None, deadline) -> Turn:
+        self.told.append(message)
+        if "parrot called?" in message:
+            return Turn(self.told[0].split("is called ")[1].split(".")[0], 0.0, 0.0)
+        return Turn("ok", 0.0, 0.0)
+
+    async def close(self, session: Session) -> None:
+        return None
+
+    async def read_memory(self, session: Session) -> MemoryRead:
+        return MemoryRead("\n".join(self.told))
+
+    async def reset(self, session: Session) -> None:
+        self.told.clear()
+
+
+class _OneThreadForever(_RemembersByProfile):
+    """A made-up app with one conversation per person, and no way to start another."""
+
+    capabilities = Capabilities(Isolation.IDENTITY, "", conversation_break=False, reset=True)
+
+
+@pytest.mark.parametrize(
+    ("app", "boundary", "breaks"),
+    [(_RemembersByProfile, "break", True), (_OneThreadForever, "same", False)],
+)
+async def test_any_app_goes_from_plan_to_report(
+    tmp_path, monkeypatch, app, boundary, breaks
+) -> None:
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}},
+                "model": {
+                    "kind": "openai",
+                    "base_url": "http://model",
+                    "models": {"strong": "m", "light": "m"},
+                },
+            }
+        )
+    )
+    config = load(tmp_path / "evalution.yaml")
+    folder = config.data_dir / "benchmarks" / "longmemeval"
+    folder.mkdir(parents=True)
+    data = [_question(f"q{n}", "single-session-user") for n in range(3)]
+    (folder / "longmemeval_s_cleaned.json").write_text(json.dumps(data))
+    target = app()
+    monkeypatch.setitem(adapters._built, "bot", target)
+
+    def model(request: httpx.Request) -> httpx.Response:
+        asked = json.dumps(json.loads(request.content))
+        if "You plan how a memory benchmark" in asked:
+            said = _plan_answer(boundary=boundary, sample=None, evidence=["conversation break"])
+        elif "whether a text an assistant had" in asked:
+            said = json.dumps({"holds": "Hawaii" in asked.split("the text")[-1]})
+        else:
+            said = json.dumps({"lines": [{"id": 1, "pass": True, "sure": True, "reason": "r"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": said}}], "usage": {}})
+
+    llm = LLM(config.model, transport=httpx.MockTransport(model))
+    targets = Targets(config)
+    runs = Runs(targets, FileStore(config.data_dir), llm)
+    plan = await planning.plan_for(targets, "bot", target, llm.caller("strong"), config.data_dir)
+    assert plan["boundary"] == boundary and plan["probe"]["ok"] and plan["probe"]["answered"]
+    assert plan["questions"] == 3 and plan["messages"] == 12
+
+    made = planning.approve(targets, "bot")
+    assert made["set"] == ("longmemeval-s-same" if boundary == "same" else "longmemeval-s")
+    target.breaks = 0
+    target.told.clear()
+    started = await runs.start(runs.estimate("bot", made["set"], None, 1)["token"])
+    await runs.wait()
+    run = runs.load(started["run"])
+    assert run["status"] == "done" and run["plan"]["boundary"] == boundary
+    found = report(run)
+    assert (found["right"], found["judged"]) == (3, 3)
+    assert (found["memory"]["measured"], found["memory"]["committed"]) == (3, 3)
+    assert (target.breaks > 0) is breaks, "the plan decides, with nothing special in the adapter"
+    await llm.close()
+    await targets.close()
+
+
+async def test_an_app_that_cant_start_clean_is_told_so_without_asking_a_model(tmp_path) -> None:
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
+    )
+    config = load(tmp_path / "evalution.yaml")
+
+    class Shared(_RemembersByProfile):
+        capabilities = Capabilities(Isolation.NONE, "")
+
+    async def never(**_: object) -> str:
+        raise AssertionError("no model is needed for this")
+
+    plan = await planning.plan_for(Targets(config), "bot", Shared(), never, config.data_dir)
+    assert plan["verdict"] == "cannot" and "earlier memory" in plan["why"]
+
+
+def test_one_conversation_that_never_compacted_says_so() -> None:
+    found = {"memory": {"compact_measured": 2, "compacted": 0}}
+    assert untested(found, {"boundary": "same"})
+    assert "didn't test memory" in happened(found, {"boundary": "same"})
+    assert not untested(found, {"boundary": "break"})
+    assert not untested({"memory": {"compact_measured": 2, "compacted": 1}}, {"boundary": "same"})
+    assert not untested({"memory": {"compact_measured": 0, "compacted": 0}}, {"boundary": "same"})
+
+
 def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
     entries = [_question(f"q{n}", "multi-session") for n in range(30)]
     entries += [_question("q-a", "single-session-assistant"), _question("q-b_abs", "multi-session")]
@@ -387,7 +514,12 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     assert found["task_average"] == 0.25
     assert found["kinds"]["multi-session"] == {"right": 1, "judged": 2}
     assert (found["admitted"], found["unanswerable"]) == (1, 1)
-    assert found["memory"] == {"measured": 3, "written": 3, "committed": 1, "used": 1}
+    assert {k: found["memory"][k] for k in ("measured", "written", "committed", "used")} == {
+        "measured": 3,
+        "written": 3,
+        "committed": 1,
+        "used": 1,
+    }
     assert found["write_recall"] == 1 / 3
 
     shown = overview("bot", tmp_path, [run])["runs"][0]

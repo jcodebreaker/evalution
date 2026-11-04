@@ -57,6 +57,7 @@ function outcome(question: Question): { word: string; tone: string } {
   }
   if (question.verdict === "fail" || question.verdict === "flaky") {
     if (question.unanswerable) return { word: "Made it up", tone: "text-destructive" };
+    if (question.memory?.reached) return { word: "Had it, answered wrong", tone: "text-warning" };
     if (question.memory?.written === false) {
       return { word: "Never saved", tone: "text-destructive" };
     }
@@ -452,12 +453,15 @@ function Lost({ memory }: { memory: Run["report"]["memory"] }) {
   const of = memory.measured;
   return (
     <section>
-      <GroupHeading title="Where facts get lost" />
+      <GroupHeading title="How far facts got" />
       <Bars
         rows={[
           { name: "Told the agent", value: of, of },
           { name: "Written to memory", value: memory.written, of },
           { name: "Committed", value: memory.committed, of },
+          ...(memory.reach_measured
+            ? [{ name: "Reached the model", value: memory.reached, of: memory.reach_measured }]
+            : []),
           { name: "Answered right", value: memory.used, of },
         ]}
       />

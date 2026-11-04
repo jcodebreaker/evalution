@@ -224,7 +224,16 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
     kinds: dict[str, list[int]] = {}
     admitted = [0, 0]
     unjudged = waiting = 0
-    saved = {"measured": 0, "written": 0, "committed": 0, "used": 0}
+    saved = {
+        "measured": 0,
+        "written": 0,
+        "committed": 0,
+        "used": 0,
+        "reach_measured": 0,
+        "reached": 0,
+        "compact_measured": 0,
+        "compacted": 0,
+    }
     for entry in (run.get("cases") or {}).values():
         found = _SOURCE.match(str(entry.get("source") or ""))
         if not found:
@@ -240,11 +249,19 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
         tally[0] += said is VerdictKind.PASS
         tally[1] += 1
         memory = _memory(entry)
-        if not found[2] and memory and None not in memory.values():
+        if found[2] or not memory:
+            continue
+        if memory.get("committed") is not None and memory.get("written") is not None:
             saved["measured"] += 1
             saved["written"] += memory["written"]
             saved["committed"] += memory["committed"]
             saved["used"] += said is VerdictKind.PASS
+        if memory.get("reached") is not None:
+            saved["reach_measured"] += 1
+            saved["reached"] += memory["reached"]
+        if memory.get("compacted") is not None:
+            saved["compact_measured"] += 1
+            saved["compacted"] += memory["compacted"]
     right = sum(tally[0] for tally in kinds.values())
     judged = sum(tally[1] for tally in kinds.values())
     return {
@@ -256,6 +273,7 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "kinds": {k: {"right": t[0], "judged": t[1]} for k, t in sorted(kinds.items())},
         "write_recall": saved["committed"] / saved["measured"] if saved["measured"] else None,
+        "reached": saved["reached"] / saved["reach_measured"] if saved["reach_measured"] else None,
         "memory": saved,
         "abstention": admitted[0] / admitted[1] if admitted[1] else None,
         "admitted": admitted[0],
@@ -318,6 +336,9 @@ def _facts(found: Mapping[str, Any]) -> str:
         )
     if (written - committed) * 2 > measured:
         return f"Wrote facts but didn't commit them: {written - committed} of {measured}."
+    reached, asked = memory.get("reached", 0), memory.get("reach_measured", 0)
+    if asked >= _TOO_FEW and reached * 2 >= asked and memory["used"] * 2 < reached:
+        return f"Had the answer but didn't use it: {reached} of {asked} reached the model."
     if committed * 2 >= measured and memory["used"] * 2 < committed:
         return (
             f"Saved facts but didn't use them: {committed} of {measured} saved, "
@@ -338,9 +359,23 @@ def _abstained(found: Mapping[str, Any]) -> str:
     return ""
 
 
-def happened(found: Mapping[str, Any]) -> str:
+def untested(found: Mapping[str, Any], plan: Mapping[str, Any] | None) -> bool:
+    """Whether the run couldn't have tested memory: in one conversation, older messages never left
+    the context, so the answer was still in front of the model."""
+    memory = found.get("memory") or {}
+    return bool(
+        plan
+        and plan.get("boundary") == "same"
+        and memory.get("compact_measured")
+        and not memory.get("compacted")
+    )
+
+
+def happened(found: Mapping[str, Any], plan: Mapping[str, Any] | None = None) -> str:
     """A stored run's :func:`report` in a sentence or two, from the numbers alone; empty if nothing
     was played."""
+    if untested(found, plan):
+        return "Nothing compacted, so the answers were still in context. This didn't test memory."
     answered = found["judged"] + found["unanswerable"]
     unjudged = found["unjudged"]
     if not answered and not unjudged:
@@ -394,7 +429,8 @@ def _run_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "judge": ((run.get("judge") or {}).get("model")),
         "plan": run.get("plan"),
         "report": found,
-        "happened": happened(found),
+        "happened": happened(found, run.get("plan")),
+        "untested": untested(found, run.get("plan")),
         "totals": _totals(run),
         "current": run.get("current") if run.get("status") == "running" else None,
         "questions": questions(run),

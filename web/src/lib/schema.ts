@@ -164,6 +164,7 @@ export const BenchmarksSchema = z.object({
       status: z.string().nullable(),
       started_at: z.number().nullable(),
       judge: z.string().nullable(),
+      untested: z.boolean().default(false),
       plan: BenchmarkPlanSchema.nullable().default(null),
       happened: z.string().default(""),
       totals: z
@@ -196,11 +197,16 @@ export const BenchmarksSchema = z.object({
         unjudged: z.number(),
         waiting: z.number(),
         write_recall: z.number().nullable(),
+        reached: z.number().nullable().default(null),
         memory: z.object({
           measured: z.number(),
           written: z.number(),
           committed: z.number(),
           used: z.number(),
+          reach_measured: z.number().default(0),
+          reached: z.number().default(0),
+          compact_measured: z.number().default(0),
+          compacted: z.number().default(0),
         }),
       }),
       questions: z.array(
@@ -211,7 +217,12 @@ export const BenchmarksSchema = z.object({
           question: z.string(),
           verdict: z.string(),
           memory: z
-            .object({ committed: z.boolean().nullable(), written: z.boolean().nullable() })
+            .object({
+              committed: z.boolean().nullable(),
+              written: z.boolean().nullable(),
+              reached: z.boolean().nullable().default(null),
+              compacted: z.boolean().nullable().default(null),
+            })
             .nullable(),
           right_is: z.string(),
           reply: z.string(),

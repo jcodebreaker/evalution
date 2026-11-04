@@ -7,7 +7,7 @@ import { Button } from "../../ui/button";
 import { Group } from "../shared/group";
 
 export type Run = Benchmarks["runs"][number];
-type MetricKey = "accuracy" | "average" | "recall" | "abstention" | "retrieval";
+type MetricKey = "accuracy" | "average" | "recall" | "reached" | "abstention" | "retrieval";
 
 export function share(value: number | null): string {
   return value === null ? "–" : `${Math.round(value * 100)}%`;
@@ -41,6 +41,13 @@ function howCalculated(key: MetricKey, run: Run): { lines: string; who: string }
     return {
       lines: `golden answers in committed memory / questions measured\n= ${memory.committed} / ${memory.measured} = ${share(report.write_recall)}\n\nwritten, committed or not = ${memory.written}`,
       who: `Memory is read just before the question. ${judge} says whether it holds the golden answer, and never decides the question. Questions where memory couldn't be read aren't counted.`,
+    };
+  }
+  if (key === "reached") {
+    const { memory } = report;
+    return {
+      lines: `golden answers in what the model was sent / questions measured\n= ${memory.reached} / ${memory.reach_measured} = ${share(report.reached)}\n\nmessages compacted by then: ${memory.compacted} of ${memory.compact_measured}`,
+      who: `Read from the traces of the call that answered. ${judge} says whether it holds the golden answer. Without traces this isn't measured.`,
     };
   }
   if (key === "abstention") {
@@ -146,6 +153,17 @@ export function Glance({ run, onStopped }: { run: Run; onStopped: () => Promise<
       tone: "text-foreground",
     },
     {
+      key: "reached" as const,
+      label: "Reached the model",
+      value: report.reached,
+      note: report.memory.reach_measured
+        ? `${report.memory.reached} of ${report.memory.reach_measured}`
+        : played(run)
+          ? "Not measured"
+          : "",
+      tone: "text-warning",
+    },
+    {
       key: "abstention" as const,
       label: "Abstention",
       value: report.abstention,
@@ -174,11 +192,16 @@ export function Glance({ run, onStopped }: { run: Run; onStopped: () => Promise<
         <Rings rings={rings} open={open} onPick={pick} />
         <div className="flex min-w-0 flex-1 basis-80 flex-col gap-3">
           {run.happened ? (
-            <p className="m-0 px-1.5 font-display text-[16px] font-bold tracking-[-0.2px]">
+            <p
+              className={cn(
+                "m-0 px-1.5 font-display text-[16px] font-bold tracking-[-0.2px]",
+                run.untested && "text-warning",
+              )}
+            >
               {run.happened}
             </p>
           ) : null}
-          <div className="grid grid-cols-3 gap-1">
+          <div className="grid grid-cols-4 gap-1 max-[520px]:grid-cols-2">
             {rings.map((ring) => (
               <button
                 key={ring.key}
