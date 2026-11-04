@@ -210,7 +210,7 @@ export function BenchmarksView({
               <div className="flex min-h-8 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
                 {mine ? (
                   <span className="font-medium text-tint">
-                    Running, {played(mine)} of {mine.questions.length} done
+                    Running, {played(mine)} of {mine.questions.length} questions done
                   </span>
                 ) : going ? (
                   <span>Can run when the current one ends</span>

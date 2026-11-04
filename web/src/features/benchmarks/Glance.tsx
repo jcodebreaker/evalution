@@ -244,10 +244,12 @@ function Progress({
   const part = total ? Math.min((done + within) / total, 1) : 0;
   const step =
     current?.stage === "grading"
-      ? "Judging"
+      ? "Judging an answer"
       : current?.turns
-        ? `Message ${current.turn ?? 0} of ${current.turns}`
-        : "";
+        ? (current.turn ?? 0) >= current.turns
+          ? "Asking the question"
+          : `Sending this question's chat history, message ${current.turn ?? 0} of ${current.turns}`
+        : current?.name;
   return (
     <div className={cn("glass flex flex-col gap-2.5 rounded-2xl px-5 py-4", big && "gap-3 py-6")}>
       <div className="flex items-center gap-3">
@@ -257,7 +259,7 @@ function Progress({
             big ? "text-[34px] leading-tight tracking-[-0.03em]" : "text-[15px]",
           )}
         >
-          {done} of {total}
+          {done} of {total} questions
         </span>
         <Button
           size="sm"
@@ -279,11 +281,7 @@ function Progress({
       >
         <div className="h-full rounded-full bg-chart" style={{ width: `${part * 100}%` }} />
       </div>
-      {step || current?.name ? (
-        <p className="m-0 truncate text-[12.5px] text-ink-2">
-          {[step, current?.name].filter(Boolean).join(" · ")}
-        </p>
-      ) : null}
+      {step ? <p className="m-0 truncate text-[12.5px] text-ink-2 tabular-nums">{step}</p> : null}
       {failed ? <p className="m-0 text-[13px] text-destructive">{failed}</p> : null}
     </div>
   );
