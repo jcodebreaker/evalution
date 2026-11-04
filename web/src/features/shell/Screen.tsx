@@ -133,7 +133,12 @@ export function Screen({
       />
     );
   }
-  if (place.view === "benchmarks") {
+  // A benchmark's run reads on the Benchmarks screen, whichever way it was reached.
+  const benchmarkRun =
+    place.view === "runs" &&
+    !place.case &&
+    workspace.benchmarkRuns.some((entry) => entry.run === place.run);
+  if (place.view === "benchmarks" || benchmarkRun) {
     return (
       <BenchmarksView
         target={target}
