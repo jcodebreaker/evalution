@@ -539,6 +539,8 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     bare = overview("bot", tmp_path, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
     assert bare["happened"] == "", "nothing played, nothing to say"
     assert bare["totals"] == {"tokens": None, "usd": None, "median_seconds": None, "models": []}
+    empty = {**run, "status": "stopped", "cases": {"f": run["cases"]["f"]}}
+    assert overview("bot", tmp_path, [empty])["runs"] == [], "stopped with nothing played"
 
 
 def test_what_happened_is_said_from_the_numbers() -> None:

@@ -425,8 +425,16 @@ def overview(target: str, sets_dir: Path, runs: Iterable[Mapping[str, Any]]) -> 
                 "questions": len(list(folder.glob("*.case.json"))) or None,
             }
         )
-    played = [run for run in runs if str(run.get("set")).startswith(NAME) and questions(run)]
+    played = [run for run in runs if str(run.get("set")).startswith(NAME) and _got_going(run)]
     return {"sizes": sizes, "runs": [_run_view(run) for run in played[:_RUNS_SHOWN]]}
+
+
+def _got_going(run: Mapping[str, Any]) -> bool:
+    """Whether a run has anything to show: it is going, or played at least one try."""
+    if not questions(run):
+        return False
+    cases = (run.get("cases") or {}).values()
+    return run.get("status") == "running" or any(entry.get("tries") for entry in cases)
 
 
 def _run_view(run: Mapping[str, Any]) -> dict[str, Any]:
