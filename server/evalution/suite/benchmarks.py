@@ -40,19 +40,19 @@ from evalution.suite.cases import parse_case
 
 NAME = "longmemeval"
 _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/"
-#: Each size: the file it comes from, and how many questions of each kind a sample takes.
+#: Each size: the file it comes from, and how many questions it plays, spread across the kinds.
 SIZES: dict[str, tuple[str, int | None]] = {
-    "quick": ("longmemeval_oracle.json", 10),
+    "quick": ("longmemeval_oracle.json", 5),
     "oracle": ("longmemeval_oracle.json", None),
-    "middle": ("longmemeval_s_cleaned.json", 5),
+    "middle": ("longmemeval_s_cleaned.json", 10),
     "s": ("longmemeval_s_cleaned.json", None),
     "m": ("longmemeval_m_cleaned.json", None),
 }
 #: What each size is, as a person chooses between them.
 ABOUT = {
-    "quick": "A fixed sample with short histories: 10 of each kind of question",
+    "quick": "A fixed sample of 5 questions with short histories",
     "oracle": "Every question that can play, with short histories",
-    "middle": "The same questions, then about 40 unrelated messages, with the app folding older turns early",
+    "middle": "10 questions, then about 40 unrelated messages, with the app folding older turns early",
     "s": "The same questions among unrelated conversations, about 40 per question",
     "m": "The same questions among about 500 conversations each",
 }
@@ -212,9 +212,24 @@ def trimmed(entry: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def spread(entries: Iterable[Mapping[str, Any]], total: int) -> list[Mapping[str, Any]]:
+    """*total* questions that can play, one kind at a time so each kind gets its share. The same
+    questions every time, so runs compare."""
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for entry in sample(entries, total):
+        kind = "unanswerable" if _unanswerable(entry) else entry["question_type"]
+        groups.setdefault(kind, []).append(entry)
+    turns = zip(*(group + [None] * (total - len(group)) for group in groups.values()), strict=True)
+    return [entry for turn in turns for entry in turn if entry is not None][:total]
+
+
 def _chosen(size: str, each: int | None, data_dir: Path) -> list[Mapping[str, Any]]:
-    file, default = SIZES[size]
-    chosen = sample(json.loads(fetch(file, data_dir).read_text()), each or default)
+    file, total = SIZES[size]
+    entries = json.loads(fetch(file, data_dir).read_text())
+    if each is not None or total is None:
+        chosen = sample(entries, each)
+    else:
+        chosen = spread(entries, total)
     return [trimmed(entry) for entry in chosen] if size == "middle" else chosen
 
 

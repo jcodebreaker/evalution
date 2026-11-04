@@ -45,7 +45,7 @@ has one ongoing conversation per person.
 
 size: how long each question's history is.
 - "quick" or "oracle": about 11 messages, only the sessions holding the answer. "quick" is a \
-sample of 60 questions, "oracle" is all 444.
+sample of 5 questions, "oracle" is all 444.
 - "s": 233 to 305 messages, among unrelated sessions.
 - "m": about 2,500 messages, among about 500 sessions.
 A short history is still in front of the model unless a break clears it, so with "same" only \

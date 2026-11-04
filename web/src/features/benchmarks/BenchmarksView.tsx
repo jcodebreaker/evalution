@@ -299,6 +299,7 @@ export function BenchmarksView({
       {active && played(active) > 0 && shownTab !== "setup" ? (
         <AskTraces run={active} onAsk={onAsk} />
       ) : null}
+      {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
       {shownTab === "setup" && shownDataset === "long" ? (
         <PlanCard
           target={target}
@@ -308,9 +309,6 @@ export function BenchmarksView({
           onRun={onRun}
           onChanged={reload}
         />
-      ) : null}
-      {shownTab === "setup" && shownDataset !== "long" ? (
-        <p className="m-0 px-1 text-[13.5px] text-ink-2">Not run yet.</p>
       ) : null}
       {shownTab === "runs" && active ? (
         <RunList
@@ -535,6 +533,65 @@ const ASK_STARTERS = [
 ];
 
 /** Ask the agent about this run: it reads the run and its traces. */
+const SETUPS: Record<
+  Dataset,
+  { questions: string; messages: string; history: string; memory: string }
+> = {
+  short: {
+    questions: "5",
+    messages: "About 11",
+    history: "Only the chats holding the answer. The conversation is cleared between chats.",
+    memory: "Only what it saved can answer.",
+  },
+  middle: {
+    questions: "10",
+    messages: "About 50",
+    history: "The chats holding the answer, then about 40 unrelated messages, in one conversation.",
+    memory: "Your app folds older chat, so the raw messages are gone.",
+  },
+  long: {
+    questions: "Set by the plan",
+    messages: "About 270",
+    history: "The chats holding the answer among many unrelated ones, in one conversation.",
+    memory: "It folds on its own, as in real use.",
+  },
+};
+
+/** How a dataset plays, for someone who hasn't run it yet. */
+function HowItRuns({ dataset }: { dataset: Dataset }) {
+  const setup = SETUPS[dataset];
+  const steps = [
+    ["Send the history", setup.history],
+    ["Check memory", "Is the fact saved? Measured, and never decides the score."],
+    ["Ask the question", setup.memory],
+    ["Judge the reply", "The grader compares it with the known answer: right or wrong."],
+  ];
+  return (
+    <section className="group-card flex flex-col gap-4 p-4">
+      <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2">
+        <div>
+          <dt className="text-[12px] text-ink-2">Questions</dt>
+          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.questions}</dd>
+        </div>
+        <div>
+          <dt className="text-[12px] text-ink-2">Messages each</dt>
+          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.messages}</dd>
+        </div>
+      </dl>
+      <ol className="m-0 grid list-none grid-cols-4 gap-3 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        {steps.map(([title, detail], index) => (
+          <li key={title} className="flex min-w-0 flex-col gap-1 border-t border-separator pt-2.5">
+            <span className="text-[13px] font-medium">
+              {index + 1}. {title}
+            </span>
+            <span className="text-[12.5px] text-ink-2">{detail}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string) => void }) {
   const [text, setText] = useState("");
   const send = (asked: string) => {

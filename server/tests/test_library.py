@@ -22,6 +22,7 @@ from evalution.suite.benchmarks import (
     overview,
     report,
     sample,
+    spread,
     to_case,
     trimmed,
     untested,
@@ -501,6 +502,13 @@ def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
     assert first == [e["question_id"] for e in sample(list(reversed(entries)), 5)]
     assert len(first) == 6 and "q-a" not in first and "q-b_abs" in first
     assert len(sample(entries, None)) == 31
+    entries += [_question(f"p{n}", "single-session-preference") for n in range(9)]
+    few = spread(entries, 5)
+    assert len(few) == 5 and [e["question_id"] for e in spread(reversed(entries), 5)] == [
+        e["question_id"] for e in few
+    ]
+    assert {e["question_type"] for e in few} == {"multi-session", "single-session-preference"}
+    assert any("_abs" in e["question_id"] for e in few)
 
     chat = [{"role": "user", "content": "unrelated"}] * 30
     long = {
