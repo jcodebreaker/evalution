@@ -1,9 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="evalution">
-  <style>
-    path { stroke: #3f55e6; }
-    @media (prefers-color-scheme: dark) {
-      path { stroke: #8c9bff; }
-    }
-  </style>
-  <path d="M10 32H54A22 22 0 1 0 48.853 46.141" fill="none" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z" fill="none" stroke="#14161a" stroke-width="1.5" stroke-linejoin="round" opacity=".32"/>
+  <path d="M6.1 21.3 57.9 42.7M57.9 21.3 6.1 42.7M21.3 6.1l21.4 51.8M42.7 6.1 21.3 57.9" fill="none" stroke="#14161a" opacity=".2"/>
+  <path d="M54.2 22.8 37.7 18.1H26.3L9.8 22.8l3.7 16.9 13.1 5.2h10.8l13.1-5.2z" fill="#3b4bdb" stroke="#3b4bdb" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="26.5" cy="29.5" r="3.2" fill="#fff"/>
+  <circle cx="37.5" cy="29.5" r="3.2" fill="#fff"/>
 </svg>

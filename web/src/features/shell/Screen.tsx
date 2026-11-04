@@ -143,6 +143,7 @@ export function Screen({
       <BenchmarksView
         target={target}
         selected={place.run}
+        onAsk={(text, run) => void ask(text, run)}
         onPick={(run) => go({ run })}
         onRun={runSet}
         onTry={(inSet, run, id) => go({ view: "runs", set: inSet, run, case: id })}

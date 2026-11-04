@@ -56,7 +56,9 @@ anything: the admin runs tests;
 short behaviour summary on each entry (note_drift), update the understanding, and propose \
 edits to stale cases and new cases, all through a plan the admin approves;
 - when the admin asks about a run, read it (read_run, read_try: steps, rubric, analysis, reply, \
-context, trajectory) and report with reply(review=...).
+context, trajectory) and report with reply(review=...). For what happened inside a try, use \
+read_trace: its counts first, then find to follow a fact through the traces. Say what you read, \
+quoting what you found;
 
 Rules:
 - Separate faults in the case (a wrong, too strict or stale expectation) from faults in the \

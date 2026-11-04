@@ -1,19 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" role="img" aria-label="evalution: regression tests for assistants that remember">
   <style>
-    .ground { fill: #eceff5; }
-    .ink { fill: #141824; }
-    .soft { fill: #4f5668; }
-    .mark { stroke: #3f55e6; }
-    text { font-family: -apple-system, BlinkMacSystemFont, Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .ground { fill: #f4f5f7; }
+    .ink { fill: #14161a; }
+    .soft { fill: #5b616e; }
+    .web { stroke: #14161a; }
+    .body { fill: #3b4bdb; stroke: #3b4bdb; }
+    .eye { fill: #ffffff; }
+    text { font-family: Manrope, Inter, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
     @media (prefers-color-scheme: dark) {
-      .ground { fill: #0c0f16; }
-      .ink { fill: #eef0f6; }
-      .soft { fill: #aeb4c2; }
-      .mark { stroke: #8c9bff; }
+      .ground { fill: #15171c; }
+      .ink { fill: #eceef2; }
+      .soft { fill: #a4a9b4; }
+      .web { stroke: #eceef2; }
+      .body { fill: #9aa5ff; stroke: #9aa5ff; }
+      .eye { fill: #15171c; }
     }
   </style>
   <rect class="ground" width="960" height="240" rx="20"/>
-  <path class="mark" transform="translate(64 56) scale(2)" d="M10 32H54A22 22 0 1 0 48.853 46.141" fill="none" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <text class="ink" x="222" y="124" font-size="68" font-weight="700" letter-spacing="-2.4">evalution</text>
-  <text class="soft" x="225" y="166" font-size="24" font-weight="500">Regression tests for assistants that remember.</text>
+  <g transform="translate(64 40) scale(2.5)">
+    <path class="web" d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z" fill="none" stroke-width="1.2" stroke-linejoin="round" opacity=".32"/>
+    <path class="web" d="M6.1 21.3 57.9 42.7M57.9 21.3 6.1 42.7M21.3 6.1l21.4 51.8M42.7 6.1 21.3 57.9" fill="none" stroke-width=".8" opacity=".2"/>
+    <path class="body" d="M54.2 22.8 37.7 18.1H26.3L9.8 22.8l3.7 16.9 13.1 5.2h10.8l13.1-5.2z" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle class="eye" cx="26.5" cy="29.5" r="3.2"/>
+    <circle class="eye" cx="37.5" cy="29.5" r="3.2"/>
+  </g>
+  <text class="ink" x="262" y="124" font-size="68" font-weight="700" letter-spacing="-2">evalution</text>
+  <text class="soft" x="265" y="166" font-size="24" font-weight="500">Regression tests for assistants that remember.</text>
 </svg>

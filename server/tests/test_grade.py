@@ -31,6 +31,7 @@ from evalution.judging.rubric import (
     grade_reply,
     parse_grade,
 )
+from evalution.results.evidence import look_into
 from evalution.review.findings import try_input
 from evalution.suite.cases import CaseError, parse_case
 
@@ -277,6 +278,24 @@ async def test_memory_is_measured_committed_then_written() -> None:
     ] is False
     assert (await grade_memory(_caller(), empty, [call("late", 20.0)], turn))["reached"] is None
     assert await grade_memory(_caller(), None) is None
+
+
+def test_a_try_s_traces_can_be_looked_into() -> None:
+    call = ModelCallRecord(
+        n=1,
+        span="s",
+        t=2.0,
+        model="m",
+        sent=Clipped(text="saved: he lives in Oslo"),
+        said=Clipped(),
+    )
+    kept = _evidence(reply="In Oslo.", tools=(_tool(1, "Oslo, Norway"),), model_calls=(call,))
+    plain = look_into(kept)
+    assert plain["models"] == {"m": 1} and plain["tools"] == {"tool_1": 1} and "first" not in plain
+    found = look_into(kept, "oslo")
+    assert found["appears"] == 3
+    assert {hit["where"] for hit in found["first"]} == {"reply", "model sent", "tool tool_1"}
+    assert look_into(kept, "Bergen")["first"] == []
 
 
 async def test_what_was_cut_is_on_the_check() -> None:

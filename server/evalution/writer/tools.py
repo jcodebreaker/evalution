@@ -18,6 +18,7 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.llm import cut, fenced
 from evalution.project import drift, knowledge, library_fit, profile, understanding
+from evalution.results import evidence as sidecar
 from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
 from evalution.runs.estimate import suggest_seconds
@@ -32,6 +33,8 @@ from evalution.writer.schemas import STEP_KINDS
 FIXTURE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.(csv|tsv|json|txt|md|xml)$")
 FIXTURE_BYTES = 200_000
 OUTPUT_CHARS = 12_000
+#: How many of a try's model calls read_try shows; read_trace goes through the rest.
+_CONTEXT_SHOWN = 3
 
 
 @dataclass
@@ -72,6 +75,7 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "estimate": f"Estimating the cost of {case or 'the set'}",
         "read_run": f"Reading the results of run {run}",
         "read_try": f"Reading try {args.get('try')} of {case}",
+        "read_trace": f"Reading the traces of {case}",
         "read_profile": "Reading the profile",
         "read_understanding": "Reading what I understood",
         "write_understanding": "Saving what I understood",
@@ -336,7 +340,27 @@ class Tools:
             "context",
             "trajectory",
         )
-        return {k: attempt.get(k) for k in keys}
+        found = {k: attempt.get(k) for k in keys}
+        # A long try made hundreds of calls: read_trace goes through them without this much text.
+        if len(found.get("context") or ()) > _CONTEXT_SHOWN:
+            found["context"] = found["context"][-_CONTEXT_SHOWN:]
+            found["context_note"] = "only the last calls are here: use read_trace for the rest"
+        return found
+
+    async def read_trace(self, turn: AgentTurn, args: dict) -> Any:
+        run, case, n = str(args.get("run") or ""), str(args.get("case") or ""), args.get("try")
+        find = args.get("find")
+        kept = await asyncio.to_thread(
+            lambda: next(
+                (e for e in sidecar.read(self.runs.files.runs, run) if e.case == case and e.n == n),
+                None,
+            )
+        )
+        if kept is None:
+            raise LookupError(f"no traces kept for try {n} of {case} in run {run}")
+        turn.read.append(f"Read the traces of try {n} of {case}")
+        looked = sidecar.look_into(kept, str(find) if find else None)
+        return fenced("the traces", json.dumps(looked, ensure_ascii=False))
 
     async def read_profile(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the profile")
@@ -619,6 +643,7 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "read_profile": Tools.read_profile,
     "read_understanding": Tools.read_understanding,
     "write_understanding": Tools.write_understanding,
+    "read_trace": Tools.read_trace,
     "read_trace_digest": Tools.read_trace_digest,
     "list_code": Tools.list_code,
     "read_code": Tools.read_code,

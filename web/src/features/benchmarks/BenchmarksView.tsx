@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -114,6 +114,7 @@ export function BenchmarksView({
   target,
   selected,
   onPick,
+  onAsk,
   onRun,
   onTry,
 }: {
@@ -121,6 +122,7 @@ export function BenchmarksView({
   /** The run to show; left out, the newest. */
   selected: string | null;
   onPick: (run: string) => void;
+  onAsk: (text: string, run: string) => void;
   onRun: (set: string) => void;
   onTry: (set: string, run: string, id: string) => void;
 }) {
@@ -228,6 +230,9 @@ export function BenchmarksView({
           );
         })}
       </div>
+      {active && played(active) > 0 && shownTab !== "setup" ? (
+        <AskTraces run={active} onAsk={onAsk} />
+      ) : null}
       {shownTab === "setup" ? (
         shownDataset === "long" ? (
           <PlanCard
@@ -469,6 +474,58 @@ function planLine(plan: NonNullable<Benchmarks["plan"]>): string {
   return [way, size, plan.questions ? `${plan.questions} questions` : null, length]
     .filter(Boolean)
     .join(" · ");
+}
+
+const ASK_STARTERS = [
+  "Why did it get these wrong?",
+  "Where did the tokens go?",
+  "Which models did it use?",
+];
+
+/** Ask the agent about this run: it reads the run and its traces. */
+function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string) => void }) {
+  const [text, setText] = useState("");
+  const send = (asked: string) => {
+    const clean = asked.trim();
+    if (!clean) return;
+    onAsk(`About benchmark run ${run.run}, reading its traces: ${clean}`, run.run);
+    setText("");
+  };
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        send(text);
+      }}
+      className="group-card flex flex-wrap items-center gap-2 px-3 py-2"
+    >
+      <Sparkles className="size-4 shrink-0 text-tint" aria-hidden />
+      <input
+        id="ask-traces"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder="Ask AI about this run's traces"
+        aria-label="Ask AI about this run's traces"
+        className="min-w-[12rem] flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-3"
+      />
+      {text.trim() ? (
+        <Button type="submit" size="sm">
+          Ask
+        </Button>
+      ) : (
+        ASK_STARTERS.map((starter) => (
+          <button
+            key={starter}
+            type="button"
+            onClick={() => send(starter)}
+            className="rounded-full px-2.5 py-1 text-[12px] text-ink-2 ring-1 ring-separator hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            {starter}
+          </button>
+        ))
+      )}
+    </form>
+  );
 }
 
 function RunResult({

@@ -152,6 +152,13 @@ TOOLS = [
         {"run": _RUN, "case": _STR, "try": {"type": "integer"}},
         ["run", "case", "try"],
     ),
+    _tool(
+        "read_trace",
+        "A try's traces: model and tool call counts and, with find, where a word or phrase "
+        "appears across what the person said, the replies, what models were sent and tool results.",
+        {"run": _RUN, "case": _STR, "try": {"type": "integer"}, "find": _STR},
+        ["run", "case", "try"],
+    ),
     _tool("read_profile", "The target's profile (targets/<target>/profile.md).", {}, []),
     _tool(
         "read_understanding",

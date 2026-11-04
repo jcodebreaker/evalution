@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="evalution">
-  <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5068f0"/>
-      <stop offset="1" stop-color="#3144c8"/>
-    </linearGradient>
-  </defs>
-  <rect width="96" height="96" rx="22" fill="url(#tile)"/>
-  <path transform="translate(16 16)" d="M10 32H54A22 22 0 1 0 48.853 46.141" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="96" height="96" rx="22" fill="#3b4bdb"/>
+  <g transform="translate(16 16)">
+    <path d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" opacity=".4"/>
+    <path d="M54.2 22.8 37.7 18.1H26.3L9.8 22.8l3.7 16.9 13.1 5.2h10.8l13.1-5.2z" fill="#fff" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="26.5" cy="29.5" r="3.2" fill="#3b4bdb"/>
+    <circle cx="37.5" cy="29.5" r="3.2" fill="#3b4bdb"/>
+  </g>
 </svg>
