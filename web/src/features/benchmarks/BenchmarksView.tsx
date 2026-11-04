@@ -158,7 +158,8 @@ export function BenchmarksView({
     inDataset.find((entry) => entry.status === "running" || played(entry) > 0) ??
     null;
   const listed = inDataset.filter((entry) => entry.status === "running" || played(entry) > 0);
-  const shownTab = tab;
+  // With no run yet there's nothing to tab between: only the way to run it.
+  const shownTab: Tab = active ? tab : "setup";
   return (
     <Page wide>
       <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
@@ -199,40 +200,42 @@ export function BenchmarksView({
           );
         })}
       </div>
-      <div
-        role="tablist"
-        aria-label="This dataset"
-        className="flex flex-wrap gap-1 border-b border-separator"
-      >
-        {TABS.map(([key, label]) => {
-          const many =
-            key === "questions"
-              ? active
-                ? played(active)
-                : 0
-              : key === "runs"
-                ? listed.length
-                : 0;
-          return (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={shownTab === key}
-              onClick={() => setTab(key)}
-              className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
-                shownTab === key
-                  ? "border-tint text-foreground"
-                  : "border-transparent text-ink-2 hover:text-foreground",
-              )}
-            >
-              {label}
-              {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
-            </button>
-          );
-        })}
-      </div>
+      {active ? (
+        <div
+          role="tablist"
+          aria-label="This dataset"
+          className="flex flex-wrap gap-1 border-b border-separator"
+        >
+          {TABS.map(([key, label]) => {
+            const many =
+              key === "questions"
+                ? active
+                  ? played(active)
+                  : 0
+                : key === "runs"
+                  ? listed.length
+                  : 0;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={shownTab === key}
+                onClick={() => setTab(key)}
+                className={cn(
+                  "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
+                  shownTab === key
+                    ? "border-tint text-foreground"
+                    : "border-transparent text-ink-2 hover:text-foreground",
+                )}
+              >
+                {label}
+                {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       {active && played(active) > 0 && shownTab !== "setup" ? (
         <AskTraces run={active} onAsk={onAsk} />
       ) : null}
@@ -249,6 +252,7 @@ export function BenchmarksView({
         ) : (
           <Sizes
             target={target}
+            going={going}
             sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
             onRun={onRun}
             onInstalled={reload}
@@ -275,14 +279,6 @@ export function BenchmarksView({
           onTry={onTry}
           onStopped={reload}
         />
-      ) : null}
-      {!active && shownTab !== "setup" ? (
-        <Centered>
-          <p className="m-0">No runs on this dataset yet.</p>
-          <Button variant="secondary" onClick={() => setTab("setup")}>
-            Set it up
-          </Button>
-        </Centered>
       ) : null}
     </Page>
   );
@@ -964,11 +960,14 @@ function Said({ label, text }: { label: string; text: string }) {
 
 function Sizes({
   target,
+  going,
   sizes,
   onRun,
   onInstalled,
 }: {
   target: string;
+  /** Only one run goes at a time. */
+  going: boolean;
   sizes: Benchmarks["sizes"];
   onRun: (set: string) => void;
   onInstalled: () => Promise<void> | void;
@@ -1011,7 +1010,7 @@ function Sizes({
             <Button
               variant="secondary"
               size="sm"
-              disabled={working !== null}
+              disabled={working !== null || going}
               onClick={() => void start(entry.size, entry.set, entry.questions !== null)}
             >
               {working === entry.size ? "Getting it ready" : "Run"}
