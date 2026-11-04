@@ -11,10 +11,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
-import { api, errorText } from "../../lib/api";
+import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { seconds, tokens, usd, when } from "../../lib/format";
-import type { Benchmarks, Verdict } from "../../lib/schema";
+import type { Verdict } from "../../lib/schema";
 import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
@@ -41,7 +41,7 @@ export function isBenchmark(set: string): boolean {
   return set.startsWith("longmemeval-");
 }
 
-/** The three datasets a person chooses between, each with its own runs. */
+/** The two datasets a person chooses between, each with its own runs. */
 const DATASETS = [
   {
     key: "short",
@@ -55,19 +55,13 @@ const DATASETS = [
     about:
       "Can it still answer once older chat is folded away? About 50 messages a question, in one conversation.",
   },
-  {
-    key: "long",
-    label: "Long histories",
-    about:
-      "Can it still find a fact buried in a long chat? About 270 messages a question, mostly unrelated.",
-  },
 ] as const;
 
 type Dataset = (typeof DATASETS)[number]["key"];
 
 function datasetOf(set: string): Dataset {
-  if (set.startsWith("longmemeval-middle")) return "middle";
-  return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
+  // Runs of the full-length sizes, played from the command line, sit with the histories they most resemble.
+  return /^longmemeval-(middle|s|m)(-|$)/.test(set) ? "middle" : "short";
 }
 
 const SHORT_CHARS = 110;
@@ -87,12 +81,6 @@ const KINDS: Record<string, string> = {
   "multi-session": "Across conversations",
   "temporal-reasoning": "Dates and order",
   "knowledge-update": "Updated facts",
-};
-const SIZES: Record<string, string> = {
-  quick: "Quick",
-  oracle: "Full",
-  s: "Full, S",
-  m: "Full, M",
 };
 const FILTERS: [Filter, string][] = [
   ["all", "All"],
@@ -189,11 +177,6 @@ export function BenchmarksView({
     null;
   const runDataset = async (key: Dataset) => {
     setDataset(key);
-    if (key === "long") {
-      if (data.plan?.approved && data.plan.set) onRun(data.plan.set);
-      else setTab("setup");
-      return;
-    }
     const size = key === "middle" ? "middle" : "quick";
     const entry = data.sizes.find((listed) => listed.size === size);
     if (!entry) return;
@@ -206,7 +189,7 @@ export function BenchmarksView({
   return (
     <Page wide>
       <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
-      <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         {DATASETS.map((entry) => {
           const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
           const latest = own.find((other) => other.report.judged > 0);
@@ -300,16 +283,6 @@ export function BenchmarksView({
         <AskTraces run={active} onAsk={onAsk} />
       ) : null}
       {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
-      {shownTab === "setup" && shownDataset === "long" ? (
-        <PlanCard
-          target={target}
-          plan={data.plan}
-          ran={inDataset.length > 0}
-          going={going}
-          onRun={onRun}
-          onChanged={reload}
-        />
-      ) : null}
       {shownTab === "runs" && active ? (
         <RunList
           runs={inDataset}
@@ -335,197 +308,6 @@ export function BenchmarksView({
   );
 }
 
-function hours(value: number): string {
-  return value < 1 ? "under an hour" : `about ${Math.round(value)} hours`;
-}
-
-/** How the benchmark will play on this app, why, and the way to start it. Once approved and run, one line. */
-function PlanCard({
-  target,
-  plan,
-  ran,
-  going,
-  onRun,
-  onChanged,
-}: {
-  target: string;
-  plan: Benchmarks["plan"];
-  ran: boolean;
-  going: boolean;
-  onRun: (set: string) => void;
-  onChanged: () => Promise<void> | void;
-}) {
-  const [working, setWorking] = useState<"planning" | "approving" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const act = async (what: "planning" | "approving", work: () => Promise<void>) => {
-    setWorking(what);
-    setError(null);
-    try {
-      await work();
-      await onChanged();
-    } catch (failed) {
-      setError(errorText(failed, "That didn't work. Try again."));
-    } finally {
-      setWorking(null);
-    }
-  };
-  const makePlan = () =>
-    act("planning", async () => {
-      await api.planBenchmark(target);
-    });
-  const approve = () =>
-    act("approving", async () => {
-      const made = await api.approveBenchmarkPlan(target);
-      onRun(made.set);
-    });
-  const planning = working === "planning";
-  const again = (
-    <Button
-      variant={plan || ran ? "ghost" : "default"}
-      size="sm"
-      disabled={working !== null || going}
-      onClick={() => void makePlan()}
-    >
-      {planning ? "Planning and trying it" : plan ? "Plan again" : "Plan how to run this"}
-    </Button>
-  );
-  const failure = error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null;
-  if (!plan) {
-    if (ran) {
-      return (
-        <div className="flex flex-col items-start gap-2">
-          {again}
-          {failure}
-        </div>
-      );
-    }
-    return (
-      <section>
-        <GroupHeading title="How this will run on your app" />
-        <Group className="flex flex-col items-start gap-3 p-6 max-md:p-5">
-          <p className="m-0 text-[13.5px] text-ink-2">
-            Picks how to play it on this app and tries a few real messages. You approve before
-            anything long runs.
-          </p>
-          {again}
-          {failure}
-        </Group>
-      </section>
-    );
-  }
-  const works = plan.verdict === "run" && plan.probe?.ok === true;
-  const warnings = (
-    <>
-      {plan.stale ? (
-        <p className="m-0 font-semibold text-warning">
-          What evalution knows of this app has changed since this plan. Plan again.
-        </p>
-      ) : null}
-      {plan.verdict === "cannot" ? (
-        <p className="m-0 font-semibold text-warning">This can't be measured on this app.</p>
-      ) : null}
-    </>
-  );
-  const details = (
-    <dl className="m-0 flex flex-col gap-3">
-      <Said label="Why" text={plan.why} />
-      <Said label="What the score will mean" text={plan.measures} />
-      {plan.probe ? (
-        <Said
-          label="Tried"
-          text={
-            plan.probe.ok
-              ? `It played through${plan.probe.seconds_per_message ? `, ${plan.probe.seconds_per_message} s a message` : ""}. It ${plan.probe.answered ? "answered" : "didn't answer"} the test question. Memory ${plan.probe.memory_readable ? "can" : "can't"} be read.`
-              : `It didn't play through: ${plan.probe.error ?? "no reason given"}`
-          }
-        />
-      ) : null}
-      {plan.questions && plan.messages ? (
-        <Said
-          label="Size"
-          text={`${plan.questions} questions, ${plan.messages.toLocaleString()} messages${plan.hours ? `, ${hours(plan.hours)} at least. Keep this computer awake.` : "."}`}
-        />
-      ) : null}
-    </dl>
-  );
-  const sources = (
-    <Fold title="What it read, and what to watch for">
-      <div className="flex flex-col gap-2.5 ps-5">
-        {plan.evidence.map((quote) => (
-          <blockquote key={quote} className="m-0 border-s-2 border-separator ps-3 text-ink-2">
-            {quote}
-          </blockquote>
-        ))}
-        {plan.warnings.length ? (
-          <ul className="m-0 flex flex-col gap-1 ps-4">
-            {plan.warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </Fold>
-  );
-  const actions = (
-    <div className="flex flex-wrap items-center gap-2">
-      {works && !going ? (
-        <Button size="sm" disabled={working !== null || plan.stale} onClick={() => void approve()}>
-          {working === "approving"
-            ? "Getting it ready"
-            : plan.approved
-              ? "Run again"
-              : "Approve and run"}
-        </Button>
-      ) : null}
-      {again}
-    </div>
-  );
-  // A plan still waiting for approval stays open, whatever has run before it: it has to be read.
-  if (ran && plan.approved) {
-    return (
-      <div className="flex flex-col gap-2 text-[13.5px]">
-        {warnings}
-        <Fold title={planLine(plan)}>
-          <div className="flex flex-col gap-3 ps-5">
-            <p className="m-0 font-semibold">{plan.how}</p>
-            {details}
-            {sources}
-            {actions}
-          </div>
-        </Fold>
-        {failure}
-      </div>
-    );
-  }
-  return (
-    <section>
-      <GroupHeading title="How this will run on your app" />
-      <Group className="flex flex-col gap-3 p-6 text-[13.5px] max-md:p-5">
-        {warnings}
-        <p className="m-0 font-semibold">{plan.how}</p>
-        {details}
-        {sources}
-        {actions}
-        {failure}
-      </Group>
-    </section>
-  );
-}
-
-function planLine(plan: NonNullable<Benchmarks["plan"]>): string {
-  if (plan.verdict === "cannot") return "Can't be measured on this app";
-  const way = plan.boundary === "same" ? "One conversation" : "New conversations";
-  const size = SIZES[plan.size ?? ""] ?? plan.size;
-  const length = plan.hours
-    ? plan.hours < 1
-      ? "under 1 h"
-      : `≈${Math.round(plan.hours)} h`
-    : null;
-  return [way, size, plan.questions ? `${plan.questions} questions` : null, length]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 const ASK_STARTERS = [
   "Why did it get these wrong?",
   "Where did the tokens go?",
@@ -548,12 +330,6 @@ const SETUPS: Record<
     messages: "About 50",
     history: "The chats holding the answer, then about 40 unrelated messages, in one conversation.",
     memory: "Your app folds older chat, so the raw messages are gone.",
-  },
-  long: {
-    questions: "Set by the plan",
-    messages: "About 270",
-    history: "The chats holding the answer among many unrelated ones, in one conversation.",
-    memory: "It folds on its own, as in real use.",
   },
 };
 
