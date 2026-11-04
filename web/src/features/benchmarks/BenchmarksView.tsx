@@ -284,13 +284,13 @@ function PlanCard({
   );
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
-      {works ? (
-        <Button
-          size="sm"
-          disabled={working !== null || going || plan.stale}
-          onClick={() => void approve()}
-        >
-          {working === "approving" ? "Getting it ready" : "Approve and run"}
+      {works && !going ? (
+        <Button size="sm" disabled={working !== null || plan.stale} onClick={() => void approve()}>
+          {working === "approving"
+            ? "Getting it ready"
+            : plan.approved
+              ? "Run again"
+              : "Approve and run"}
         </Button>
       ) : null}
       {again}
