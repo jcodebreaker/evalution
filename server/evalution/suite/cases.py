@@ -415,6 +415,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         "limits",
         "must_hold",
         "needs_clean",
+        "fold_at_tokens",
     }
     unknown = set(data) - known
     if unknown:
@@ -445,6 +446,13 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         isinstance(need, bool) or not isinstance(need, int) or not 1 <= need <= len(rubric)
     ):
         raise CaseError(f"{where}: reply.pass: must be a whole number from 1 to {len(rubric)}")
+    fold_at_tokens = data.get("fold_at_tokens")
+    if fold_at_tokens is not None and (
+        not isinstance(fold_at_tokens, int)
+        or isinstance(fold_at_tokens, bool)
+        or fold_at_tokens < 1
+    ):
+        raise CaseError(f"{where}: fold_at_tokens: a positive number")
     needs_clean = data.get("needs_clean", [])
     if not isinstance(needs_clean, list) or set(map(str, needs_clean)) - set(CLEAN_KINDS):
         raise CaseError(f"{where}: needs_clean: a list of {', '.join(CLEAN_KINDS)}")
@@ -468,6 +476,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         reply_contains=words["contains"],
         reply_lacks=words["lacks"],
         needs_clean=tuple(needs_clean),
+        fold_at_tokens=fold_at_tokens,
     )
 
 

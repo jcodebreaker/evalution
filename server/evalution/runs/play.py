@@ -208,6 +208,8 @@ async def play_try(
     if any(turn.fresh for turn in case.turns):
         session.extra["fresh"] = secrets.token_hex(4)
     try:
+        if case.fold_at_tokens:
+            await asyncio.wait_for(target.fold_at(session, case.fold_at_tokens), ADAPTER_SECONDS)
         for turn in case.turns:
             if turn.state is not None:
                 await _check_state(target, session, played, turn.state)

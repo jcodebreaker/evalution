@@ -51,7 +51,7 @@ from evalution.core.rules import (
 )
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
-from evalution.judging.memory import grade_memory
+from evalution.judging.memory import grade_memory, with_fold
 from evalution.judging.rubric import (
     FILLER_INSTRUCTIONS,
     PROMPT_HASH,
@@ -556,8 +556,9 @@ class Runs:
             attempt.setdefault("retried", []).append({"what": "grader", "why": graded.retried})
         attempt["rubric"] = graded.lines
         attempt["reply"] = graded.score
-        attempt["memory"] = await grade_memory(
-            caller, evidence.memory, evidence.model_calls, _last_turn(evidence)
+        attempt["memory"] = with_fold(
+            await grade_memory(caller, evidence.memory, evidence.model_calls, _last_turn(evidence)),
+            attempt.get("context") or [],
         )
         return True
 
@@ -911,7 +912,7 @@ class Runs:
             "usd": view.usd,
             "tools": tools_score,
             "reply": graded.score,
-            "memory": memory,
+            "memory": with_fold(memory, view.context),
             "judgements": [found.model_dump(mode="json")],
             "steps": [s.as_dict() for s in [*tool_steps, *code.states]],
             # What drafting a case from this try reads; not part of the API's ``Try``.

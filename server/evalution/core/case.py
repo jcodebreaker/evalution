@@ -114,3 +114,6 @@ class Case:
     #: What the test needs a try to start clean of (``needs_clean``): ``conversation``, ``memory``,
     #: ``files``. An app that can't promise it refuses the test rather than weakening it.
     needs_clean: tuple[str, ...] = ()
+    #: Ask the app to fold older turns from this many tokens (``fold_at_tokens``), so a short
+    #: history reaches what a long one would. An app that can't is measured as never folding.
+    fold_at_tokens: int | None = None

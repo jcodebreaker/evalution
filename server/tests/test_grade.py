@@ -21,7 +21,7 @@ from evalution.core.judgement import Basis, Outcome, Role, WhyUnjudged
 from evalution.core.rules import basis_of, judge_try, line_reason, steps_bind
 from evalution.judging import rubric
 from evalution.judging.checks import code_checks
-from evalution.judging.memory import grade_memory
+from evalution.judging.memory import grade_memory, with_fold
 from evalution.judging.render import BUDGET, NEW_CONVERSATION, render
 from evalution.judging.rubric import (
     INSTRUCTIONS,
@@ -261,6 +261,16 @@ async def test_memory_is_measured_committed_then_written() -> None:
     assert (unread["committed"], unread["written"]) == (None, None)
     no_read = await grade_memory(_caller(), MemoryRecord(**want, supported=False, compacted=True))
     assert (no_read["committed"], no_read["compacted"]) == (None, True)
+
+    def prompts(*sizes: int) -> list[dict]:
+        return [{"tokens_in": size} for size in sizes]
+
+    assert with_fold(no_read, prompts(26_000, 65_000, 42_000))["compacted"] is True
+    assert with_fold(no_read, prompts(26_000, 84_000))["compacted"] is False
+    # A small call beside the conversation isn't a fold, and too little to tell keeps the reading.
+    assert with_fold(no_read, prompts(26_000, 70_000, 19_000, 71_000))["compacted"] is False
+    assert with_fold(no_read, prompts(26_000))["compacted"] is True
+    assert with_fold(None, prompts(26_000, 84_000)) is None
 
     def call(text: str, t: float = 5.0, elided: int = 0) -> ModelCallRecord:
         sent = Clipped(text=text, elided=elided)

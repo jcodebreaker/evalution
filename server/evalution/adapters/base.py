@@ -270,6 +270,10 @@ class Target(ABC):
         """What the app keeps about this person, as text, to measure; ``None`` if it can't say."""
         return None
 
+    async def fold_at(self, session: Session, tokens: int) -> None:
+        """Have the app fold older turns from *tokens*. Optional: most can't, and then a test that
+        asks is measured as never folding."""
+
     async def reset(self, session: Session) -> None:
         raise NotImplementedError(f"{self.name} can't reset a session")
 

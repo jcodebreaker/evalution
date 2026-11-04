@@ -4,8 +4,9 @@ nothing, with no need to ask."""
 
 from __future__ import annotations
 
+import itertools
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from evalution.core.evidence import Clipped, MemoryRecord, ModelCallRecord
@@ -21,6 +22,10 @@ Answer holds true if the text holds what is needed to give the information, in a
 if it holds none of it or only part of it.
 
 Answer with one JSON object and nothing else: {"holds": true}"""
+
+
+#: A prompt this share of the one before it, or less, has lost older turns.
+_FOLD_SHRINKS = 0.8
 
 
 def _parse(text: str) -> bool:
@@ -67,6 +72,27 @@ async def _reached(
     sent = answering.sent
     found = await _holds(caller, want, sent)
     return None if found is False and sent.elided else found
+
+
+def folded(context: Sequence[Mapping[str, Any]]) -> bool | None:
+    """Whether older turns left the prompt: it shrank by a fifth or more and stayed above where the
+    try began, as a smaller call beside the conversation wouldn't. ``None`` with too little to tell.
+    A saved checkpoint doesn't count: an app can save one and go on sending everything."""
+    sizes = [int(call["tokens_in"]) for call in context if call.get("tokens_in")]
+    if len(sizes) < 2:
+        return None
+    return any(
+        after < before * _FOLD_SHRINKS and after > sizes[0]
+        for before, after in itertools.pairwise(sizes)
+    )
+
+
+def with_fold(
+    memory: dict[str, Any] | None, context: Sequence[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """*memory* with ``compacted`` from what the model was really sent, when that can be told."""
+    seen = folded(context)
+    return memory if memory is None or seen is None else {**memory, "compacted": seen}
 
 
 async def grade_memory(

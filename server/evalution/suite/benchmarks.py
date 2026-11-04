@@ -52,7 +52,7 @@ SIZES: dict[str, tuple[str, int | None]] = {
 ABOUT = {
     "quick": "A fixed sample with short histories: 10 of each kind of question",
     "oracle": "Every question that can play, with short histories",
-    "middle": "The same questions, then about 50 unrelated messages to push the answer out of view",
+    "middle": "The same questions, then about 25 unrelated messages, with the app folding older turns early",
     "s": "The same questions among unrelated conversations, about 40 per question",
     "m": "The same questions among about 500 conversations each",
 }
@@ -60,8 +60,10 @@ ABOUT = {
 _CANNOT_PLAY = "single-session-assistant"
 _SOURCE = re.compile(rf"^{NAME}:([a-z-]+)(:unanswerable)?$")
 _SAMPLE_SEED = 0
-#: How many unrelated messages a "middle" history plays after the sessions holding the answer.
-_MIDDLE_UNRELATED = 50
+#: How many unrelated messages a "middle" history plays after the sessions holding the answer, and
+#: the tokens it asks the app to fold from, so those sessions leave the prompt in that many messages.
+_MIDDLE_UNRELATED = 25
+_MIDDLE_FOLD = 40_000
 _REPLY_CHARS = 4000
 _RUNS_SHOWN = 20
 #: Fewer answers than this, or facts measured, and a sentence about them would claim too much.
@@ -137,7 +139,9 @@ def sample(entries: Iterable[Mapping[str, Any]], each: int | None) -> list[Mappi
     ]
 
 
-def to_case(entry: Mapping[str, Any], boundary: str = "break") -> dict[str, Any]:
+def to_case(
+    entry: Mapping[str, Any], boundary: str = "break", fold: int | None = None
+) -> dict[str, Any]:
     """One question as a case file's JSON. *boundary* is how one dated session gives way to the
     next: ``break``, a new conversation; ``same``, on in one conversation, for an app that has only
     one per person."""
@@ -162,11 +166,13 @@ def to_case(entry: Mapping[str, Any], boundary: str = "break") -> dict[str, Any]
     turns[0]["fresh"] = True
     line = (_UNANSWERABLE if unanswerable else _LINES[kind]).format(answer=answer)
     question = " ".join(str(entry["question"]).split())
+    fold_at = {"fold_at_tokens": fold} if fold else {}
     return {
         "name": question[:70],
         "about": f"LongMemEval {entry['question_id']}.",
         "source": f"{NAME}:{kind}" + (":unanswerable" if unanswerable else ""),
         "needs_clean": ["memory"],
+        **fold_at,
         "turns": turns,
         "reply": {"rubric": [line]},
         "limits": {
@@ -240,7 +246,7 @@ def install(
     if plan is not None:
         (folder / "plan.json").write_text(json.dumps(plan, indent=1))
     for entry in chosen:
-        case = to_case(entry, boundary)
+        case = to_case(entry, boundary, _MIDDLE_FOLD if size == "middle" else None)
         stem = re.sub(r"[^a-z0-9_-]", "-", str(entry["question_id"]).lower())
         parse_case(case, f"{slug}/{stem}")
         (folder / f"{stem}.case.json").write_text(json.dumps(case, indent=1))
