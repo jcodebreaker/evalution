@@ -101,9 +101,9 @@ export const live = (run: Pick<RunSummary, "status" | "analyzing">) =>
   run.status === "running" || run.analyzing;
 
 /** How far a going run is, in tests when the server says, else in tries. */
-export function progressText(run: Pick<RunSummary, "progress">): string {
+export function progressText(run: Pick<RunSummary, "progress">, unit = "tests"): string {
   const { tests_done, tests_total, done, total } = run.progress;
-  if (tests_total) return `${tests_done ?? 0} of ${tests_total} tests`;
+  if (tests_total) return `${tests_done ?? 0} of ${tests_total} ${unit}`;
   return `${done} of ${total || "…"} tries`;
 }
 

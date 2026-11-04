@@ -128,7 +128,10 @@ export function Sidebar({
           >
             <Spinner />
             <span className="truncate">
-              {goingLabel} · {going.analyzing ? "Analyzing" : progressText(going)}
+              {goingLabel} ·{" "}
+              {going.analyzing
+                ? "Analyzing"
+                : progressText(going, goingLabel === "Benchmark" ? "questions" : "tests")}
             </span>
           </button>
         ) : null}

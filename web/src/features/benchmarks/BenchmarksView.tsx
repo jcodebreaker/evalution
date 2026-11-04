@@ -228,7 +228,7 @@ export function BenchmarksView({
                 }}
                 className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
               >
-                <span className="flex items-baseline gap-2">
+                <span className="flex h-6 items-center gap-2">
                   <span className="text-[14px] font-semibold">{entry.label}</span>
                   {latest?.report.accuracy != null ? (
                     <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
