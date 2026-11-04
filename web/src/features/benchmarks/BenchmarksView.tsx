@@ -42,6 +42,14 @@ function datasetOf(set: string): "short" | "long" {
   return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
 }
 
+type Tab = "overview" | "questions" | "runs" | "setup";
+const TABS: [Tab, string][] = [
+  ["overview", "Overview"],
+  ["questions", "Questions"],
+  ["runs", "Runs"],
+  ["setup", "Setup"],
+];
+
 const KINDS: Record<string, string> = {
   "single-session-user": "Single-session facts",
   "single-session-preference": "Preferences",
@@ -117,6 +125,7 @@ export function BenchmarksView({
   onTry: (set: string, run: string, id: string) => void;
 }) {
   const [dataset, setDataset] = useState<"short" | "long" | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
   const [state, reload] = useLoad(target, () => api.benchmarks(target));
   const data = state.status === "ready" ? state.data : null;
   const going = data?.runs.some((run) => run.status === "running") ?? false;
@@ -143,6 +152,8 @@ export function BenchmarksView({
     inDataset.find((entry) => entry.run === selected) ??
     inDataset.find((entry) => entry.status === "running" || played(entry) > 0) ??
     null;
+  const listed = inDataset.filter((entry) => entry.status === "running" || played(entry) > 0);
+  const shownTab = tab;
   return (
     <Page wide>
       <h1 className="m-0 -mb-3 px-1 text-[22px] font-semibold tracking-[-0.02em]">Benchmarks</h1>
@@ -165,53 +176,106 @@ export function BenchmarksView({
                 shownDataset === entry.key && "bg-selection-strong ring-1 ring-tint",
               )}
             >
-              <span className="text-[14px] font-semibold">{entry.label}</span>
-              <span className="text-[12.5px] text-ink-2">{entry.about}</span>
-              <span className="mt-2 font-display text-[28px] leading-none font-bold tabular-nums">
-                {latest?.report.accuracy != null ? share(latest.report.accuracy) : "No score yet"}
-              </span>
-              {latest?.report.judged ? (
-                <span className="text-[12.5px] text-ink-2 tabular-nums">
-                  {latest.report.right} of {latest.report.judged} right, last finished run
+              <span className="flex items-baseline gap-2">
+                <span className="text-[14px] font-semibold">{entry.label}</span>
+                <span className="ms-auto font-display text-[20px] font-bold tabular-nums">
+                  {latest?.report.accuracy != null ? share(latest.report.accuracy) : "–"}
                 </span>
-              ) : null}
-              <span className="text-[12.5px] text-ink-2 tabular-nums">
+              </span>
+              <span className="text-[12.5px] text-ink-2">{entry.about}</span>
+              <span className="text-[12px] text-ink-3 tabular-nums">
                 {going
                   ? "Running now"
-                  : `${own.length} ${own.length === 1 ? "run" : "runs"}${latest ? ` · last ${when(latest.started_at ?? 0)}` : ""}`}
+                  : latest?.report.judged
+                    ? `${latest.report.right} of ${latest.report.judged} right, last finished run`
+                    : "Not run yet"}
               </span>
             </button>
           );
         })}
       </div>
-      {shownDataset === "long" ? (
-        <PlanCard
-          target={target}
-          plan={data.plan}
-          ran={inDataset.length > 0}
-          going={going}
-          onRun={onRun}
-          onChanged={reload}
+      <div
+        role="tablist"
+        aria-label="This dataset"
+        className="flex flex-wrap gap-1 border-b border-separator"
+      >
+        {TABS.map(([key, label]) => {
+          const many =
+            key === "questions"
+              ? active
+                ? played(active)
+                : 0
+              : key === "runs"
+                ? listed.length
+                : 0;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={shownTab === key}
+              onClick={() => setTab(key)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
+                shownTab === key
+                  ? "border-tint text-foreground"
+                  : "border-transparent text-ink-2 hover:text-foreground",
+              )}
+            >
+              {label}
+              {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {shownTab === "setup" ? (
+        shownDataset === "long" ? (
+          <PlanCard
+            target={target}
+            plan={data.plan}
+            ran={inDataset.length > 0}
+            going={going}
+            onRun={onRun}
+            onChanged={reload}
+          />
+        ) : (
+          <Sizes
+            target={target}
+            sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
+            onRun={onRun}
+            onInstalled={reload}
+          />
+        )
+      ) : null}
+      {shownTab === "runs" && active ? (
+        <RunList
+          runs={inDataset}
+          selected={active}
+          onPick={(id) => {
+            onPick(id);
+            setTab("overview");
+          }}
         />
-      ) : (
-        <Sizes
-          target={target}
-          sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
-          onRun={onRun}
-          onInstalled={reload}
-        />
-      )}
-      {active ? (
+      ) : null}
+      {active && (shownTab === "overview" || shownTab === "questions") ? (
         <RunResult
           key={active.run}
           run={active}
           runs={inDataset}
+          tab={shownTab}
           onPick={onPick}
           onTry={onTry}
           onStopped={reload}
         />
       ) : null}
-      {active ? <RunList runs={inDataset} selected={active} onPick={onPick} /> : null}
+      {!active && shownTab !== "setup" ? (
+        <Centered>
+          <p className="m-0">No runs on this dataset yet.</p>
+          <Button variant="secondary" onClick={() => setTab("setup")}>
+            Set it up
+          </Button>
+        </Centered>
+      ) : null}
     </Page>
   );
 }
@@ -410,6 +474,7 @@ function planLine(plan: NonNullable<Benchmarks["plan"]>): string {
 function RunResult({
   run,
   runs,
+  tab,
   onPick,
   onTry,
   onStopped,
@@ -417,6 +482,7 @@ function RunResult({
   run: Run;
   /** Every run, newest first. */
   runs: Run[];
+  tab: "overview" | "questions";
   onPick: (run: string) => void;
   onStopped: () => Promise<void> | void;
   onTry: (set: string, run: string, id: string) => void;
@@ -434,8 +500,8 @@ function RunResult({
   const { memory } = report;
   return (
     <>
-      <Glance run={run} previous={previous} onStopped={onStopped} />
-      {anyPlayed ? (
+      {tab === "overview" ? <Glance run={run} previous={previous} onStopped={onStopped} /> : null}
+      {tab === "questions" && anyPlayed ? (
         <section>
           <div className="flex flex-wrap items-center gap-2 px-1 pb-2.5">
             <h3 className="m-0 text-[15px] font-semibold">Questions</h3>
@@ -464,7 +530,7 @@ function RunResult({
           <QuestionTable rows={rows} onOpen={(id) => onTry(run.set, run.run, id)} />
         </section>
       ) : null}
-      {anyPlayed ? (
+      {tab === "overview" && anyPlayed ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3.5">
           {trend.length > 1 ? (
             <ChartPanel title="Answer accuracy by run" unit="% right">
@@ -894,7 +960,6 @@ function RunList({
   onPick: (run: string) => void;
 }) {
   const listed = runs.filter((run) => run.status === "running" || played(run) > 0);
-  if (!listed.some((run) => run.run !== selected.run)) return null;
   return (
     <section>
       <GroupHeading title="Runs" />

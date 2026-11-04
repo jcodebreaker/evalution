@@ -113,8 +113,8 @@ export function Sidebar({
       >
         {item("home", <House className="size-4" aria-hidden />, "Home")}
         {item("app", <Network className="size-4" aria-hidden />, "What it learned")}
+        <NavLabel>Your tests</NavLabel>
         {item("tests", <ListChecks className="size-4" aria-hidden />, "Tests")}
-        {item("benchmarks", <Gauge className="size-4" aria-hidden />, "Benchmarks")}
         {item("runs", <ChartColumn className="size-4" aria-hidden />, "Runs")}
         {going ? (
           <button
@@ -132,11 +132,21 @@ export function Sidebar({
             </span>
           </button>
         ) : null}
+        <NavLabel>Standard</NavLabel>
+        {item("benchmarks", <Gauge className="size-4" aria-hidden />, "Benchmarks")}
       </nav>
       <div className="px-3 pb-3 max-md:pt-0">
         {item("model", <Settings className="size-4" aria-hidden />, "Settings")}
       </div>
     </aside>
+  );
+}
+
+function NavLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="px-2.5 pt-3.5 pb-1 text-[11.5px] font-medium text-ink-3 max-md:hidden">
+      {children}
+    </span>
   );
 }
 
