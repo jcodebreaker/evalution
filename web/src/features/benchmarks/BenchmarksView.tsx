@@ -157,6 +157,18 @@ export function BenchmarksView({
     inDataset.find((entry) => entry.run === selected) ??
     inDataset.find((entry) => entry.status === "running" || played(entry) > 0) ??
     null;
+  const runDataset = async (key: "short" | "long") => {
+    setDataset(key);
+    if (key === "long") {
+      if (data.plan?.approved && data.plan.set) onRun(data.plan.set);
+      else setTab("setup");
+      return;
+    }
+    const quick = data.sizes.find((entry) => entry.size === "quick");
+    if (!quick) return;
+    if (quick.questions === null) await api.installBenchmark(target, "quick");
+    onRun(quick.set);
+  };
   const listed = inDataset.filter((entry) => entry.status === "running" || played(entry) > 0);
   // With no run yet there's nothing to tab between: only the way to run it.
   const shownTab: Tab = active ? tab : "setup";
@@ -166,37 +178,54 @@ export function BenchmarksView({
       <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         {DATASETS.map((entry) => {
           const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
-          const latest = own.find((other) => played(other) > 0);
-          const going = own.some((other) => other.status === "running");
+          const latest = own.find((other) => other.report.judged > 0);
+          const mine = own.find((other) => other.status === "running");
           return (
-            <button
+            <div
               key={entry.key}
-              type="button"
-              aria-pressed={shownDataset === entry.key}
-              onClick={() => {
-                setDataset(entry.key);
-                onPick("");
-              }}
               className={cn(
-                "group-card flex min-w-0 flex-col gap-1 p-4 text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
+                "group-card flex min-w-0 flex-col gap-3 p-4",
                 shownDataset === entry.key && "bg-selection-strong ring-1 ring-tint",
               )}
             >
-              <span className="flex items-baseline gap-2">
-                <span className="text-[14px] font-semibold">{entry.label}</span>
-                <span className="ms-auto font-display text-[20px] font-bold tabular-nums">
-                  {latest?.report.accuracy != null ? share(latest.report.accuracy) : "–"}
+              <button
+                type="button"
+                aria-pressed={shownDataset === entry.key}
+                onClick={() => {
+                  setDataset(entry.key);
+                  onPick("");
+                }}
+                className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <span className="flex items-baseline gap-2">
+                  <span className="text-[15px] font-semibold">{entry.label}</span>
+                  {latest?.report.accuracy != null ? (
+                    <span className="ms-auto font-display text-[22px] font-bold tabular-nums">
+                      {share(latest.report.accuracy)}
+                    </span>
+                  ) : null}
                 </span>
-              </span>
-              <span className="text-[12.5px] text-ink-2">{entry.about}</span>
-              <span className="text-[12px] text-ink-3 tabular-nums">
-                {going
-                  ? "Running now"
-                  : latest?.report.judged
-                    ? `${latest.report.right} of ${latest.report.judged} right, last finished run`
-                    : "Not run yet"}
-              </span>
-            </button>
+                <span className="text-[13px] text-ink-2">{entry.about}</span>
+              </button>
+              <div className="flex min-h-8 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
+                {mine ? (
+                  <span className="font-medium text-tint">
+                    Running, {played(mine)} of {mine.questions.length} done
+                  </span>
+                ) : going ? (
+                  <span>Can run when the current one ends</span>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={() => void runDataset(entry.key)}>
+                    Run
+                  </Button>
+                )}
+                {latest?.report.judged ? (
+                  <span className="ms-auto">
+                    {latest.report.right} of {latest.report.judged} right
+                  </span>
+                ) : null}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -239,24 +268,32 @@ export function BenchmarksView({
       {active && played(active) > 0 && shownTab !== "setup" ? (
         <AskTraces run={active} onAsk={onAsk} />
       ) : null}
-      {shownTab === "setup" ? (
-        shownDataset === "long" ? (
-          <PlanCard
-            target={target}
-            plan={data.plan}
-            ran={inDataset.length > 0}
-            going={going}
-            onRun={onRun}
-            onChanged={reload}
-          />
+      {shownTab === "setup" && shownDataset === "long" ? (
+        <PlanCard
+          target={target}
+          plan={data.plan}
+          ran={inDataset.length > 0}
+          going={going}
+          onRun={onRun}
+          onChanged={reload}
+        />
+      ) : null}
+      {shownTab === "setup" && shownDataset === "short" ? (
+        active ? (
+          <Fold title="Other sizes">
+            <Sizes
+              target={target}
+              going={going}
+              sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
+              onRun={onRun}
+              onInstalled={reload}
+            />
+          </Fold>
         ) : (
-          <Sizes
-            target={target}
-            going={going}
-            sizes={data.sizes.filter((entry) => datasetOf(entry.set) === "short")}
-            onRun={onRun}
-            onInstalled={reload}
-          />
+          <p className="m-0 px-1 text-[13.5px] text-ink-2">
+            Not run yet. It clears the conversation between sessions, so only saved memory can
+            answer. Runs a fixed sample of 60 questions.
+          </p>
         )
       ) : null}
       {shownTab === "runs" && active ? (
