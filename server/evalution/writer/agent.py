@@ -9,6 +9,9 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
   :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
   :data:`SAME_CALL_TIMES` times in a row. A person can always say go on.
+* **A long chat** is summarized past :data:`HISTORY_CHARS`: the older exchanges become one summary
+  written by the light model, the newest stay word for word. If that fails, they are cut instead.
+  The page's chat is kept apart and loses nothing.
 * **Tools** (:mod:`evalution.writer.tools`) run in process over the functions the routes use; the
   model speaks only through ``reply``, so the page gets ``plan`` and ``review`` as data. Every tool
   result reaches the model fenced as data. Code is read only through the target's ``code`` scope
@@ -34,12 +37,12 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.config import ConfigError
 from evalution.core.case import CASE_SUFFIX
-from evalution.llm import LLM, cut, fenced
+from evalution.llm import LLM, LLMError, cut, fenced
 from evalution.project import drift
 from evalution.project.profile import read_profile, required_clean
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, list_sets, load_case
-from evalution.writer.prompts import INSTRUCTIONS
+from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionFiles
 from evalution.writer.tools import HANDLERS, OUTPUT_CHARS, AgentTurn, Tools, activity_line, say
@@ -54,8 +57,14 @@ MAX_SECONDS = 20 * 60
 SAME_CALL_TIMES = 3
 #: Activity lines the page gets: what the agent did last, newest at the end.
 ACTIVITY_SHOWN = 12
-#: Past this, the oldest tool results in the transcript are cut, then the oldest exchanges.
+#: Past this, the older exchanges in the transcript are summarized.
 HISTORY_CHARS = 300_000
+#: What stays word for word when they are.
+KEEP_CHARS = 100_000
+#: Each message's share of what the summary is written from.
+DIGEST_CHARS = 2_000
+SUMMARY_TOKENS = 1_500
+EARLIER_SAID = "(Earlier conversation, summarized to save room.)"
 EARLIER_CUT = "(Earlier conversation was cut to save room.)"
 #: The set's cases go into the instructions in full up to this; past it, by name.
 CASES_CHARS = 30_000
@@ -96,11 +105,43 @@ def _repair(history: list[dict[str, Any]]) -> None:
                 )
 
 
+def _size(history: list[dict[str, Any]]) -> int:
+    return len(json.dumps(history, ensure_ascii=False))
+
+
+def _fold_point(history: list[dict[str, Any]]) -> int | None:
+    """Where the words kept start: a person's message, the earliest that leaves at most
+    :data:`KEEP_CHARS`, and always the newest. ``None`` when nothing before it is left to
+    summarize."""
+    start = 1 if str(history[0].get("content")).startswith(EARLIER_SAID) else 0
+    people = [i for i, m in enumerate(history) if i > start and m.get("role") == "user"]
+    for index in people:
+        if _size(history[index:]) <= KEEP_CHARS:
+            return index
+    return people[-1] if people else None
+
+
+def _digest(messages: list[dict[str, Any]]) -> str:
+    """*messages* as the summary reads them: an earlier summary whole, the rest short."""
+    lines = []
+    for message in messages:
+        text = str(message.get("content") or "")
+        if text.startswith(EARLIER_SAID):
+            lines.append(text)
+            continue
+        who = {"user": "Admin", "assistant": "Agent"}.get(message["role"], "Tool result")
+        if text:
+            lines.append(f"{who}: {cut(text, DIGEST_CHARS)}")
+        for call in message.get("tool_calls") or []:
+            args = json.dumps(call["arguments"], ensure_ascii=False)
+            lines.append(f"Agent called {call['name']}: {cut(args, DIGEST_CHARS)}")
+    return "\n".join(lines)
+
+
 def _trim(history: list[dict[str, Any]]) -> None:
-    """Get the transcript under :data:`HISTORY_CHARS`: the oldest tool results go first, then the
-    oldest exchanges whole, so that it still starts on a person's message. The page's chat is kept
-    apart and loses nothing."""
-    size = len(json.dumps(history, ensure_ascii=False))
+    """Get the transcript under :data:`HISTORY_CHARS` when a summary didn't: the oldest tool results
+    go first, then the oldest exchanges whole, so that it still starts on a person's message."""
+    size = _size(history)
     for message in history:
         if size <= HISTORY_CHARS:
             return
@@ -113,7 +154,14 @@ def _trim(history: list[dict[str, Any]]) -> None:
         if not later:
             return
         history[: later[0]] = [{"role": "user", "content": EARLIER_CUT}]
-        size = len(json.dumps(history, ensure_ascii=False))
+        size = _size(history)
+
+
+def _doing(session: dict[str, Any], text: str) -> None:
+    """Add *text* to the activity the page shows."""
+    activity = session.setdefault("activity", [])
+    activity.append({"at": time.time(), "text": text})
+    del activity[: -ACTIVITY_SHOWN * 4]
 
 
 class Agent:
@@ -289,6 +337,7 @@ class Agent:
             instructions = await asyncio.to_thread(self._instructions, session)
             async with limit:
                 while True:
+                    await self._fold(session, history)
                     _trim(history)
                     reply = await self.llm.chat(
                         "strong", instructions, copy.deepcopy(history), TOOLS
@@ -347,6 +396,28 @@ class Agent:
                 self._tasks.pop(session["id"], None)
                 self._live.pop(session["id"], None)
 
+    async def _fold(self, session: dict[str, Any], history: list[dict[str, Any]]) -> None:
+        """Past :data:`HISTORY_CHARS`, put the older exchanges into one summary, which the next one
+        folds in. A failed call leaves the history as it was, for :func:`_trim`."""
+        if _size(history) <= HISTORY_CHARS or (at := _fold_point(history)) is None:
+            return
+        assert self.llm is not None  # _work doesn't get this far without one
+        _doing(session, "Summarizing the earlier chat")
+        try:
+            reply = await self.llm.chat(
+                "light" if self.llm.model_id("light") else "strong",
+                SUMMARY_INSTRUCTIONS,
+                [{"role": "user", "content": fenced("the conversation", _digest(history[:at]))}],
+                max_tokens=SUMMARY_TOKENS,
+            )
+        except LLMError:
+            _logger.warning("agent: session %s: no summary", session["id"], exc_info=True)
+            return
+        session["model_usd"] = float(session["model_usd"]) + reply.usd
+        if summary := reply.text.strip():
+            said = f"{EARLIER_SAID}\n{fenced('the summary', summary)}"
+            history[:at] = [{"role": "user", "content": said}]
+
     async def _call(self, turn: AgentTurn, name: str, args: dict[str, Any]) -> str:
         """Run tool *name*; its result for the model, fenced as data unless it is a refusal."""
         try:
@@ -354,9 +425,7 @@ class Agent:
             if handler is None:
                 return f"Error: no tool {name}"
             if doing := activity_line(name, args):
-                activity = turn.session.setdefault("activity", [])
-                activity.append({"at": time.time(), "text": doing})
-                del activity[: -ACTIVITY_SHOWN * 4]
+                _doing(turn.session, doing)
                 await self._save(turn.session)
             result = await handler(self.tools, turn, args)
         except (CaseError, CodeError, ValueError, LookupError, TypeError, OSError) as exc:
