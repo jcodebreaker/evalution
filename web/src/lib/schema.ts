@@ -227,6 +227,7 @@ export const BenchmarksSchema = z.object({
             })
             .nullable(),
           right_is: z.string(),
+          known: z.string().default(""),
           reply: z.string(),
           reason: z.string(),
           error: z.string().nullable(),

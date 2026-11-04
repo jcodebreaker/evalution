@@ -42,6 +42,9 @@ function datasetOf(set: string): "short" | "long" {
   return /^longmemeval-(s|m)(-|$)/.test(set) ? "long" : "short";
 }
 
+const SHORT_CHARS = 110;
+const REPLY_CHARS = 220;
+
 type Tab = "overview" | "questions" | "runs" | "setup";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
@@ -898,42 +901,56 @@ function QuestionRow({
       {open ? (
         <tr>
           <td colSpan={6} className="px-3 pb-3 ps-[30px]">
-            <dl className="m-0 flex flex-col gap-2.5 text-[13.5px]">
-              <Said label="Question" text={question.question} />
-              <div className="lg:hidden">
-                <Said label="Kind" text={kindOf(question)} />
-              </div>
-              <Said label="What counts as right" text={question.right_is} />
-              {question.reply ? <Said label="The reply" text={question.reply} /> : null}
+            <dl className="m-0 flex flex-col gap-2 text-[13.5px]">
+              <Said label="Known answer" text={question.known || question.right_is} />
+              {question.reply ? <Said label="It said" text={shortened(question.reply)} /> : null}
               {question.reason ? (
                 <Said
-                  label={question.tie_break ? "Why, by the tie-break" : "Why"}
-                  text={question.reason}
+                  label={question.tie_break ? "Verdict, by the tie-break" : "Verdict"}
+                  text={`${outcome(question).word}. ${firstSentence(question.reason)}`}
                 />
               ) : null}
               {question.error ? <Said label="What went wrong" text={question.error} /> : null}
-              {more.length ? (
-                <dd className="m-0 text-[12px] text-ink-2">{more.join(" · ")}</dd>
-              ) : null}
-              <dd className="m-0">
+              <dd className="m-0 flex flex-wrap items-center gap-3">
                 <TextLink onClick={onOpen}>Every step, reply and trace</TextLink>
                 {trace ? (
                   <a
                     href={trace}
                     target="_blank"
                     rel="noreferrer"
-                    className="ms-3 text-ink-2 underline decoration-ink-3 underline-offset-2 hover:text-foreground"
+                    className="text-ink-2 underline decoration-ink-3 underline-offset-2 hover:text-foreground"
                   >
                     First trace in Phoenix
                   </a>
                 ) : null}
               </dd>
+              <Fold title="Details">
+                <div className="flex flex-col gap-2 ps-5">
+                  <Said label="Question" text={question.question} />
+                  <Said label="What counts as right" text={question.right_is} />
+                  {question.reply ? <Said label="The whole reply" text={question.reply} /> : null}
+                  {question.reason ? (
+                    <Said label="The judge's reason" text={question.reason} />
+                  ) : null}
+                  {more.length ? <Said label="Used" text={more.join(" · ")} /> : null}
+                </div>
+              </Fold>
             </dl>
           </td>
         </tr>
       ) : null}
     </>
   );
+}
+
+/** The first sentence of a reason, as far as a line goes. */
+function firstSentence(text: string): string {
+  const first = text.split(/(?<=[.!?])\s/)[0] ?? text;
+  return first.length > SHORT_CHARS ? `${first.slice(0, SHORT_CHARS).trimEnd()}…` : first;
+}
+
+function shortened(text: string): string {
+  return text.length > REPLY_CHARS ? `${text.slice(0, REPLY_CHARS).trimEnd()}…` : text;
 }
 
 function Said({ label, text }: { label: string; text: string }) {

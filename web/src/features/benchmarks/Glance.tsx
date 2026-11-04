@@ -190,10 +190,12 @@ export function Glance({
       ) : null}
       {how ? (
         <div className="glass flex flex-col gap-1.5 rounded-2xl px-5 py-3.5">
-          <pre className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+          <pre
+            title={how.who}
+            className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+          >
             {how.lines}
           </pre>
-          <p className="m-0 text-[13px] text-ink-2">{how.who}</p>
           <div className="flex flex-wrap gap-x-3 text-[12px]">
             {report.task_average === null || open === "average" ? null : (
               <TextLink onClick={() => pick("average")}>

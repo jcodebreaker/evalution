@@ -16,7 +16,15 @@ from evalution.results.store import FileStore
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
 from evalution.suite import planning
-from evalution.suite.benchmarks import happened, overview, report, sample, to_case, untested
+from evalution.suite.benchmarks import (
+    happened,
+    known_answer,
+    overview,
+    report,
+    sample,
+    to_case,
+    untested,
+)
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.library import (
     KINDS,
@@ -462,6 +470,18 @@ async def test_an_app_that_cant_start_clean_is_told_so_without_asking_a_model(tm
 
     plan = await planning.plan_for(Targets(config), "bot", Shared(), never, config.data_dir)
     assert plan["verdict"] == "cannot" and "earlier memory" in plan["why"]
+
+
+def test_the_known_answer_comes_out_of_the_rubric_line() -> None:
+    for kind, qid in (
+        ("single-session-user", "q1"),
+        ("knowledge-update", "q2"),
+        ("temporal-reasoning", "q3"),
+        ("single-session-preference", "q4"),
+        ("multi-session", "q5_abs"),
+    ):
+        line = to_case(_question(qid, kind))["reply"]["rubric"][0]
+        assert known_answer(line) == "Hawaii", kind
 
 
 def test_one_conversation_that_never_compacted_says_so() -> None:

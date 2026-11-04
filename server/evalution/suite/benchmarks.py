@@ -84,6 +84,11 @@ _LINES = {
         "necessarily every point of this: {answer}"
     ),
 }
+_KNOWN = re.compile(
+    r"(?:the correct answer: |every point of this: |Why it can't be answered: )"
+    r"(.*?)(?:\. It (?:counts|still counts) .*)?$",
+    re.DOTALL,
+)
 _UNANSWERABLE = (
     "The reply says it doesn't know, or that the information is missing or incomplete, rather "
     "than answering as if it knew. Why it can't be answered: {answer}"
@@ -283,6 +288,12 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def known_answer(line: str) -> str:
+    """The golden answer alone, out of a rubric line that also holds what the judge allows."""
+    found = _KNOWN.search(line)
+    return found[1].strip() if found else line
+
+
 def _leaning(line: Mapping[str, Any]) -> str | None:
     """Which way a line that couldn't be judged leaned, at its last grading."""
     said = line.get("second")
@@ -314,6 +325,7 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "tie_break": bool(lines and lines[0].get("tie_break")),
                 "leaning": _leaning(lines[0]) if lines else None,
                 "right_is": str(rubric[0]) if rubric else "",
+                "known": known_answer(str(rubric[0])) if rubric else "",
                 "reply": str(last.get("reply_text") or "")[:_REPLY_CHARS],
                 "reason": line_reason(lines[0]) if lines else "",
                 "error": last.get("error"),
