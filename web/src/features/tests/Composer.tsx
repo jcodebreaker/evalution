@@ -1,10 +1,13 @@
-import { CornerDownLeft, MessageSquare } from "lucide-react";
+import { LayoutTemplate, MessageSquare, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
-import { cn } from "../../lib/cn";
 import type { LibraryRow, Source } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/field";
 import { Spinner } from "../../ui/loading";
+import { Group } from "../shared/group";
+import { Row } from "../shared/Row";
 import { onEnter, TEXTAREA, useAsk } from "../writer/ask";
 import { Conversations } from "./Conversations";
 
@@ -30,10 +33,11 @@ export function Composer({
 }) {
   const [text, setText] = useState("");
   const [picking, setPicking] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [kind, setKind] = useState<LibraryRow | null>(null);
   const [words, setWords] = useState<Record<string, string>>({});
   const { busy, error, send } = useAsk(onAsk);
-  const [library] = useLoad(`library:${target}`, () => api.library(target));
+  const [library] = useLoad(choosing ? `library:${target}` : null, () => api.library(target));
   const kinds =
     library.status === "ready" ? library.data.filter((entry) => entry.kind !== null) : [];
   const filled = kind?.asks.every((ask) => words[ask.name]?.trim()) ?? false;
@@ -44,6 +48,7 @@ export function Composer({
         if (sent) {
           setKind(null);
           setWords({});
+          setChoosing(false);
         }
       });
       return;
@@ -52,128 +57,105 @@ export function Composer({
       if (sent) setText("");
     });
   };
-  const label = "font-mono text-[10.5px] tracking-[0.08em] text-deep-fg-2 uppercase";
-  const disabled = busy || (kind ? !filled : !text.trim());
   return (
-    <section className="overflow-hidden rounded-xl border border-deep-line bg-deep text-deep-fg">
-      <div className="flex flex-col gap-3.5 p-5">
-        <span className={label}>Write a test</span>
+    <Group className="flex flex-col">
+      <div className="flex flex-col gap-2.5 px-3.5 pt-3.5 pb-2.5">
+        {kind ? null : (
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onEnter(submit)}
+            placeholder="What should we test?"
+            aria-label="What should we test?"
+            className={TEXTAREA}
+          />
+        )}
         {kind ? (
-          <div className="flex flex-col gap-2">
-            <span className="flex items-center gap-3 text-[15px] font-medium">
-              {kind.title}
-              <button
-                type="button"
-                className="text-[12px] font-normal text-deep-fg-2 underline underline-offset-4 hover:text-deep-fg"
-                onClick={() => setKind(null)}
-              >
-                Back
-              </button>
-            </span>
+          <div className="flex flex-col">
+            <span className="pb-1 text-[13px] font-medium">{kind.title}</span>
             {kind.asks.map((ask) => (
-              <label key={ask.name} className="flex flex-col gap-1 text-[12.5px] text-deep-fg-2">
-                {ask.label}
-                <input
+              <Row key={ask.name} label={ask.label}>
+                <Input
                   value={words[ask.name] ?? ""}
                   onChange={(event) =>
                     setWords((now) => ({ ...now, [ask.name]: event.target.value }))
                   }
-                  className="rounded-md border border-deep-line bg-transparent px-2.5 py-1.5 text-[13.5px] text-deep-fg outline-none focus:border-deep-fg-2"
                 />
-              </label>
+              </Row>
             ))}
           </div>
         ) : null}
-        <div className="flex items-end gap-2 rounded-lg border border-deep-line p-2 focus-within:border-deep-fg-2">
-          {kind ? (
-            <span className="min-w-0 flex-1 px-1.5 py-1 text-[13px] text-deep-fg-2">
-              Ready when every field is filled
-            </span>
-          ) : (
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={onEnter(submit)}
-              placeholder="What should we test?"
-              aria-label="What should we test?"
-              className={cn(
-                TEXTAREA,
-                "px-1.5 py-1 text-[14.5px] text-deep-fg placeholder:text-deep-fg-2",
-              )}
-            />
-          )}
-          <button
-            type="button"
-            aria-label="Write the test"
-            title="Write the test"
-            disabled={disabled}
-            onClick={submit}
-            className="grid size-9 shrink-0 place-items-center rounded-md bg-deep-accent text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-deep-fg disabled:opacity-40"
-          >
-            {busy ? (
-              <Spinner className="border-white border-r-transparent" />
-            ) : (
-              <CornerDownLeft className="size-4" aria-hidden />
-            )}
-          </button>
-        </div>
-        {error ? <p className="m-0 text-[12px] text-red-300">{error}</p> : null}
-        <div className="flex flex-col gap-2">
-          <span className={label}>Or start from</span>
-          <div className="flex flex-wrap gap-1.5">
-            {kinds.map((entry) => {
-              const fits = entry.fit.verdict === "fits";
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  disabled={!fits}
-                  aria-pressed={kind?.id === entry.id}
-                  title={fits ? entry.checks : entry.fit.label}
+        {choosing && !kind ? (
+          <div className="flex flex-col gap-1.5">
+            {kinds.map((entry) => (
+              <div key={entry.id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  disabled={entry.fit.verdict !== "fits"}
+                  title={entry.checks}
                   onClick={() => setKind(entry)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border border-deep-line px-2.5 py-1.5 text-[12.5px] hover:border-deep-fg-2 focus-visible:outline-2 focus-visible:outline-deep-fg disabled:opacity-55 disabled:hover:border-deep-line",
-                    kind?.id === entry.id && "border-deep-fg-2 bg-deep-accent/25",
-                  )}
                 >
                   {entry.title}
-                  <span
-                    className={cn(
-                      "flex items-center gap-1 font-mono text-[9.5px] tracking-[0.06em] uppercase",
-                      fits ? "text-chart-5" : "text-deep-fg-2",
-                    )}
-                  >
-                    <span
-                      className={cn("size-1.5 rounded-full", fits ? "bg-chart-2" : "bg-deep-fg-2")}
-                    />
-                    {fits ? "Ready" : "Can't run here"}
-                  </span>
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              aria-expanded={picking}
-              onClick={() => setPicking((now) => !now)}
-              className="flex items-center gap-2 rounded-md border border-deep-line px-2.5 py-1.5 text-[12.5px] hover:border-deep-fg-2 focus-visible:outline-2 focus-visible:outline-deep-fg"
-            >
-              <MessageSquare className="size-3.5" aria-hidden />A real conversation
-            </button>
+                </Button>
+                {entry.fit.verdict === "fits" ? null : (
+                  <span className="min-w-0 text-ink-3">{entry.fit.label}</span>
+                )}
+              </div>
+            ))}
           </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={choosing}
+            className="-ms-1.5 text-ink-2"
+            onClick={() => {
+              setChoosing((now) => !now);
+              setKind(null);
+            }}
+          >
+            <LayoutTemplate />
+            …of a kind
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={picking}
+            className="-ms-1.5 text-ink-2"
+            onClick={() => setPicking((now) => !now)}
+          >
+            <MessageSquare />
+            …from a real conversation
+          </Button>
+          {error ? (
+            <p className="m-0 min-w-0 flex-1 text-[12px] text-destructive">{error}</p>
+          ) : null}
+          <Button
+            className="ms-auto"
+            disabled={busy || (kind ? !filled : !text.trim())}
+            onClick={submit}
+          >
+            {busy ? (
+              <Spinner className="border-primary-foreground border-r-transparent" />
+            ) : (
+              <Sparkles />
+            )}
+            Write the test
+          </Button>
         </div>
       </div>
       {picking ? (
-        <div className="bg-group text-foreground">
-          <Conversations
-            target={target}
-            onPick={(source) => {
-              void send(fromConversation(source)).then((sent) => {
-                if (sent) setPicking(false);
-              });
-            }}
-          />
-        </div>
+        <Conversations
+          target={target}
+          onPick={(source) => {
+            void send(fromConversation(source)).then((sent) => {
+              if (sent) setPicking(false);
+            });
+          }}
+        />
       ) : null}
-    </section>
+    </Group>
   );
 }

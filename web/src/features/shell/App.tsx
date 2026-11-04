@@ -1,8 +1,9 @@
-import { Sparkles } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useState } from "react";
 import type { Place } from "../../lib/router";
 import { usePlace } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
+import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
 import { isBenchmark } from "../benchmarks/BenchmarksView";
 import type { RunTarget } from "../runs/RunConfirm";
@@ -150,20 +151,14 @@ export function App() {
           onDrafted={clearDraft}
         />
       ) : scope ? (
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          className="fixed end-4 bottom-4 z-30 h-9 rounded-full bg-group px-3.5 shadow-lg ring-1 ring-separator"
           onClick={() => setWriterOpen(true)}
-          className="fixed end-4 bottom-4 z-30 flex items-center gap-2.5 rounded-lg border border-deep-line bg-deep py-1.5 ps-1.5 pe-3.5 text-[13px] font-medium text-deep-fg shadow-lg hover:border-deep-fg-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          <span className="grid size-7 place-items-center rounded-md bg-deep-accent text-white">
-            {working ? (
-              <Spinner className="border-white border-r-transparent" />
-            ) : (
-              <Sparkles className="size-4" aria-hidden />
-            )}
-          </span>
+          {working ? <Spinner /> : <Bot />}
           Ask AI
-        </button>
+        </Button>
       ) : null}
 
       {confirm ? (
