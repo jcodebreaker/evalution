@@ -93,9 +93,12 @@ def reader(
     if not managed_url:
         return Phoenix(own, api_key=api_key) if own else None
     others: list[SpanReader] = [Phoenix(PhoenixConfig(managed_url, DEFAULT_TARGET))]
+    # An app with its own Phoenix sends its traces there, so that's where a link to one must go.
+    shown = None
     if own and own.url.rstrip("/") != managed_url.rstrip("/"):
         others.append(Phoenix(own, api_key=api_key))
-    return Phoenix(PhoenixConfig(managed_url, project(target)), also=others)
+        shown = own.public_url or own.url
+    return Phoenix(PhoenixConfig(managed_url, project(target), public_url=shown), also=others)
 
 
 def landing(name: str, managed_url: str, store: SpanStore | None) -> TraceSource:

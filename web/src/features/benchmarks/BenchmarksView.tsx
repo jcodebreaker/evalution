@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronRight, ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -371,6 +371,35 @@ function RunResult({
     <>
       <Glance run={run} previous={previous} onStopped={onStopped} />
       {anyPlayed ? (
+        <section>
+          <div className="flex flex-wrap items-center gap-2 px-1 pb-2.5">
+            <h3 className="m-0 text-[15px] font-semibold">Questions</h3>
+            <div className="ms-auto flex flex-wrap gap-1">
+              {FILTERS.map(([key, label]) => {
+                const many = run.questions.filter((question) => shown(question, key)).length;
+                return key === "all" || many ? (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={filter === key}
+                    onClick={() => setFilter(key)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring",
+                      filter === key
+                        ? "bg-selection-strong font-semibold text-tint"
+                        : "text-ink-2 hover:bg-selection",
+                    )}
+                  >
+                    {label} <span className="tabular-nums opacity-70">{many}</span>
+                  </button>
+                ) : null;
+              })}
+            </div>
+          </div>
+          <QuestionTable rows={rows} onOpen={(id) => onTry(run.set, run.run, id)} />
+        </section>
+      ) : null}
+      {anyPlayed ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3.5">
           {trend.length > 1 ? (
             <ChartPanel title="Answer accuracy by run" unit="% right">
@@ -447,35 +476,6 @@ function RunResult({
             </ChartPanel>
           ) : null}
         </div>
-      ) : null}
-      {anyPlayed ? (
-        <section>
-          <div className="flex flex-wrap items-center gap-2 px-1 pb-2.5">
-            <h3 className="m-0 text-[15px] font-semibold">Questions</h3>
-            <div className="ms-auto flex flex-wrap gap-1">
-              {FILTERS.map(([key, label]) => {
-                const many = run.questions.filter((question) => shown(question, key)).length;
-                return key === "all" || many ? (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={filter === key}
-                    onClick={() => setFilter(key)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring",
-                      filter === key
-                        ? "bg-selection-strong font-semibold text-tint"
-                        : "text-ink-2 hover:bg-selection",
-                    )}
-                  >
-                    {label} <span className="tabular-nums opacity-70">{many}</span>
-                  </button>
-                ) : null;
-              })}
-            </div>
-          </div>
-          <QuestionTable rows={rows} onOpen={(id) => onTry(run.set, run.run, id)} />
-        </section>
       ) : null}
     </>
   );
@@ -576,7 +576,7 @@ function QuestionTable({ rows, onOpen }: { rows: Question[]; onOpen: (id: string
   const head = { by, down, onSort };
   const hasTokens = rows.some((question) => question.tokens);
   const hasSeconds = rows.some((question) => question.seconds);
-  const hasTrace = rows.some((question) => traceLink(question.trace_url));
+  const hasTrace = rows.some((question) => question.verdict !== "not_run");
   return (
     <Group>
       <table className="w-full table-fixed border-collapse text-[13px]">
@@ -695,16 +695,14 @@ function QuestionRow({
         ) : null}
         {hasTrace ? (
           <td className="py-2 pe-3 text-end">
-            {trace ? (
-              <a
-                href={trace}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Trace"
-                className="inline-flex rounded text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            {question.verdict !== "not_run" ? (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="rounded font-semibold text-tint hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               >
-                <ExternalLink className="size-3.5" aria-hidden />
-              </a>
+                View
+              </button>
             ) : null}
           </td>
         ) : null}
@@ -730,7 +728,17 @@ function QuestionRow({
                 <dd className="m-0 text-[12px] text-ink-2">{more.join(" · ")}</dd>
               ) : null}
               <dd className="m-0">
-                <TextLink onClick={onOpen}>Open the whole try</TextLink>
+                <TextLink onClick={onOpen}>Every step, reply and trace</TextLink>
+                {trace ? (
+                  <a
+                    href={trace}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ms-3 text-ink-2 underline decoration-ink-3 underline-offset-2 hover:text-foreground"
+                  >
+                    First trace in Phoenix
+                  </a>
+                ) : null}
               </dd>
             </dl>
           </td>

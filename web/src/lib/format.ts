@@ -9,6 +9,7 @@ export const seconds = (value: number, precise = false) =>
 
 export function tokens(value: number): string {
   if (value < 1000) return String(Math.round(value));
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   const k = value / 1000;
   return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`;
 }

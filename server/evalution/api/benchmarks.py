@@ -11,6 +11,17 @@ from fastapi import APIRouter
 from evalution.api.deps import busy, invalid, target_name
 from evalution.runs.runner import Runs
 from evalution.suite import benchmarks, planning
+from evalution.traces.base import TraceSource
+
+
+def _relink(found: dict[str, Any], source: TraceSource | None) -> None:
+    """Each question's trace link as it should read now: older runs may name the wrong Phoenix."""
+    if source is None:
+        return
+    for run in found["runs"]:
+        for question in run["questions"]:
+            if url := question.get("trace_url"):
+                question["trace_url"] = source.trace_url(url.rsplit("/", 1)[-1])
 
 
 def benchmarks_router(runs: Runs) -> APIRouter:
@@ -24,6 +35,7 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         await runs.recover()
         played = await asyncio.to_thread(runs.all, name)
         found = benchmarks.overview(name, targets.config.sets_dir, played)
+        _relink(found, targets.source(name))
         found["plan"] = await asyncio.to_thread(
             planning.current, targets, name, targets.adapter(name)
         )
