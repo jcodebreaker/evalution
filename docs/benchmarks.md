@@ -28,7 +28,7 @@ evalution benchmark report <run>
 | Memory write recall | known answers in committed memory / questions measured | The grader says yes or no on the memory, read just before the question. It never decides a question |
 | Abstention | said it didn't know / unanswerable questions | The grader says yes or no |
 
-A line the grader stays unsure of after two gradings goes to the stronger model for a final answer, on benchmarks only, and the question says so. If that fails too, it reads "Judge unsure", with which way it leaned, and stays out of the numbers.
+A line the grader stays unsure of after two gradings goes to the stronger model for a final answer, on benchmarks only, and the question says so. If that fails too, it reads "Unsure", with which way it leaned, and stays out of the numbers.
 
 An agent that remembers nothing scores well on abstention, so read it beside accuracy. Retrieval recall needs an adapter that shows what the agent retrieved, in order, and none does yet.
 

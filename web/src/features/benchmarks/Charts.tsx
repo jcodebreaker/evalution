@@ -189,12 +189,17 @@ export function LineChart({
 }
 
 /** A clean top for an axis over `value`: 1, 2 or 5 times a power of ten, doubled to halve evenly. */
+/** How many medians above the median a column may go before it stops at the top of the axis. */
+const OFF_SCALE = 4;
+
 function niceTop(value: number): number {
   const power = 10 ** Math.floor(Math.log10(Math.max(value, 1)));
   return ([1, 2, 5, 10].find((step) => step * power >= value) ?? 10) * power;
 }
 
-/** Columns in play order, one axis from zero, with the median marked. */
+/** Columns in play order, one axis from zero, with the median marked. A few far above the rest
+ * (a question that hung, say) would flatten everything else, so they stop at the top of the axis,
+ * in another colour and counted; each one's real value is in its tooltip. */
 export function ColumnChart({
   columns,
   median,
@@ -206,8 +211,11 @@ export function ColumnChart({
 }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
-  const top = niceTop(Math.max(...columns.map((column) => column.value), 1));
-  const y = (value: number) => BASE - (value / top) * (BASE - TOP);
+  const highest = Math.max(...columns.map((column) => column.value), 1);
+  const limit = median ? median * OFF_SCALE : highest;
+  const top = niceTop(Math.min(highest, limit));
+  const y = (value: number) => BASE - (Math.min(value, top) / top) * (BASE - TOP);
+  const above = columns.filter((column) => column.value > top).length;
   const slot = (width - AXIS_LEFT) / Math.max(1, columns.length);
   const bar = Math.max(1, Math.min(24, slot - 2));
   const left = (index: number) => AXIS_LEFT + index * slot + (slot - bar) / 2;
@@ -229,7 +237,7 @@ export function ColumnChart({
             First
           </text>
           <text x={width} y={HEIGHT - 4} textAnchor="end" className="fill-ink-3 text-[11px]">
-            Last
+            {above ? `${above} above ${top} ${unit} · Last` : "Last"}
           </text>
           {columns.map((column, index) => {
             const high = BASE - y(column.value);
@@ -244,7 +252,10 @@ export function ColumnChart({
                 <rect x={at - 1} y={0} width={slot} height={BASE} fill="transparent" />
                 <path
                   d={`M${at} ${BASE}V${BASE - high + round}Q${at} ${BASE - high} ${at + round} ${BASE - high}H${at + bar - round}Q${at + bar} ${BASE - high} ${at + bar} ${BASE - high + round}V${BASE}Z`}
-                  className={cn("fill-chart", hover !== null && hover !== index && "opacity-40")}
+                  className={cn(
+                    column.value > top ? "fill-warning" : "fill-chart",
+                    hover !== null && hover !== index && "opacity-40",
+                  )}
                 />
               </g>
             );

@@ -65,7 +65,7 @@ function outcome(question: Question): { word: string; tone: string } {
   }
   if (question.verdict === "unjudged")
     return {
-      word: question.leaning ? `Judge unsure, leaned ${question.leaning}` : "Not judged",
+      word: question.leaning ? `Unsure, leaned ${question.leaning}` : "Not judged",
       tone: "text-warning",
     };
   return { word: "Waiting", tone: "text-ink-3" };
