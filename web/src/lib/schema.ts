@@ -271,7 +271,7 @@ export const DiscoverySchema = z.object({
   steps: z.array(z.object({ text: z.string(), state: z.enum(["doing", "done", "problem"]) })),
   questions: z.array(z.object({ key: z.string(), text: z.string(), hint: z.string() })),
   target: TargetDetailSchema.nullable().default(null),
-  /** How to send the app's traces to evalution's own Phoenix, when it runs one. */
+  /** How to send the app's traces to evalution. */
   traces: z
     .object({
       traced: z.boolean(),
@@ -290,16 +290,16 @@ export type TargetBody = {
   name: string;
   adapter: string;
   options: Record<string, unknown>;
-  /** The app's own Phoenix; `null` when evalution's own Phoenix is all it has. */
+  /** The app's own Phoenix, read too; `null` when evalution's own traces are all it has. */
   phoenix: { url: string; project: string } | null;
   code: { path: string; ignore: string[] } | null;
   secrets: Record<string, string>;
 };
 
-/** Whether evalution runs its own Phoenix, and where. */
+/** Where apps send traces (the OTLP endpoint's base), and whether they need a traces token. */
 export const TracesSchema = z.object({
-  managed: z.boolean(),
-  url: z.string().nullable(),
+  url: z.string(),
+  token: z.boolean(),
 });
 
 /** Something a model says: `verified` when its refs exist and its quotes occur in the evidence. */
@@ -1322,12 +1322,17 @@ export const InviteSchema = z.object({ url: z.string(), expires_at: AtSchema.opt
 
 export const AcceptedSchema = z.object({ workspace: WorkspaceSchema });
 
+export const TokenScopeSchema = z.enum(["all", "traces"]);
+export type TokenScope = z.infer<typeof TokenScopeSchema>;
+
 export const ApiTokenSchema = z.object({
   id: z.string(),
   name: z.string(),
   prefix: z.string(),
   created_at: AtSchema,
   last_used_at: AtSchema.nullable().default(null),
+  /** `traces`: it can only send spans. */
+  scope: TokenScopeSchema.default("all"),
 });
 export type ApiToken = z.infer<typeof ApiTokenSchema>;
 

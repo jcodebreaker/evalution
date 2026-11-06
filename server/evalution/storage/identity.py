@@ -57,6 +57,8 @@ api_tokens = Table(
     Column("created_by", String(64), nullable=False),
     Column("created_at", Float, nullable=False),
     Column("last_used_at", Float),
+    #: ``all``, or ``traces``: it can only send spans (:mod:`evalution.accounts.tokens`).
+    Column("scope", String(16), nullable=False, server_default="all"),
 )
 logins = Table(
     "logins",

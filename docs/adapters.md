@@ -56,7 +56,7 @@ It looks at the adapter, never the agent: what your app answers isn't judged, on
 | Declares what it implements, exports `INFO` | A capability and its method don't match, or there's no `INFO` |
 | `open` gives unique sessions | Two sessions share an `id` or a `trace_value` |
 | `send` returns a reply and ends | It raises, ends on an error, or reads an empty reply |
-| The trace value finds spans | No AI spans carry the session's value. Skipped with no trace source |
+| The trace value finds spans | No AI spans carry the session's value. Skipped while no traces have come from the target |
 | Each state check declared | It raises, or says it couldn't read (`observed=False`). What it finds isn't judged |
 | Each `probe` if declared | The same, on a session that hasn't sent anything yet |
 | `sections`, `files`, `stop`, `reset`, `conversation_break` if declared | It raises or refuses, or the session doesn't work after |

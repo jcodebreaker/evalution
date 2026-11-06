@@ -92,7 +92,7 @@ mkdir -p data sets targets backups
 docker compose up --build
 ```
 
-Set `traces: {managed: builtin}` in `evalution.yaml`, since Phoenix isn't in the image. Your apps stay outside the container, so address one on this computer as `host.docker.internal`, and to connect a project by its folder, mount that folder in `compose.yaml`. Secrets go in a `.env` beside it, never in the file. On Linux, set `EVALUTION_UID` and `EVALUTION_GID` if you aren't user 1000.
+Your apps stay outside the container, so address one on this computer as `host.docker.internal`, and to connect a project by its folder, mount that folder in `compose.yaml`. Secrets go in a `.env` beside it, never in the file. On Linux, set `EVALUTION_UID` and `EVALUTION_GID` if you aren't user 1000.
 
 To host it for a team, on Postgres with sign-in, see [deploying](docs/deploy.md).
 
@@ -339,15 +339,14 @@ The test checks the adapter and not your agent: sessions are unique, a turn ends
 
 ## Traces
 
-Steps, context and cost come from traces. All reading goes through one interface, so you choose where they live:
+Steps, context and cost come from traces. Apps send them to evalution over standard OpenTelemetry (OTLP/HTTP to `/v1/traces`), and it keeps them in its database for `traces.keep_days` (default 30). Nothing extra to install or run. Connecting an app by its folder shows the lines to add. If your app already sends traces to its own Phoenix, tick "Use my existing Phoenix" on the target and evalution reads that too.
 
-| Option | Set with | Good for |
-|---|---|---|
-| **evalution's own Phoenix** (default) | `traces: {managed: true}` | A full trace UI, run for you on port 6007 |
-| **Your app's Phoenix** | `traces: {managed: false}`, plus `phoenix:` on the target | You already run Phoenix |
-| **Built in, no Phoenix** | `traces: {managed: builtin}` | Nothing extra to install: apps send OTLP to `/v1/traces`, kept in a capped SQLite file |
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8080
+OTEL_RESOURCE_ATTRIBUTES=evalution.target=my-bot
+```
 
-Both the OpenInference and OpenTelemetry GenAI conventions are understood, and plain HTTP and framework spans are left out of the timeline. For a built-in source, name the app with the resource attribute `evalution.target`, and put each conversation's id on its spans as `session.id` or `gen_ai.conversation.id`.
+Both the OpenInference and OpenTelemetry GenAI conventions are understood, and plain HTTP and framework spans are left out of the timeline. Name the app with the resource attribute `evalution.target`, and put each conversation's id on its spans as `session.id` or `gen_ai.conversation.id`. Hosted, apps send them with a traces token: see [hosting](docs/hosting.md#traces).
 
 ## Cost and privacy
 
@@ -445,10 +444,9 @@ uv run --project server evalution adapter new my_app            # a starter for 
 | Path | Holds | In git? |
 |---|---|---|
 | `sets/<app>/<set>/` | Your tests and fixtures as files, from `sets export`, for `sets import` and CI | Not in this repo: set `sets_dir` to a folder in your own |
-| `data/evalution.db` | Everything evalution keeps: tests, runs and what each try saw, what it learned of each app, Ask AI chats, what the page sets. Owner-only | No |
+| `data/evalution.db` | Everything evalution keeps: tests, runs and what each try saw, the traces apps send, what it learned of each app, Ask AI chats, what the page sets. Owner-only | No |
 | `data/secret.key` | The key secrets are encrypted with, unless `EVALUTION_SECRET_KEY` is set | No |
 | `library/` | Ready-made tests | Yes |
-| `data/phoenix/`, `data/traces/` | Traces | No |
 | `evalution.yaml` | Settings by hand | No |
 | `backups/<time>/` | Copies from `backup` and `upgrade`, secrets included, owner-only | No |
 
@@ -469,7 +467,7 @@ These are the things to keep in mind when reading a result. Most are on the list
 - Import tracing is best-effort by language, and one update sends at most 60 claims; the rest stay marked for the next press.
 - Watching stops at 2,000 files, in path order, so a very large monorepo is partly covered.
 - Results are local files, so a team can't share history yet, and pages slow down at thousands of runs.
-- The built-in trace source hasn't been tested with an app running in Docker.
+- Traces sent to evalution haven't been tested from an app running in Docker.
 - The Docker setup is checked by reading it, and hasn't been built or run by the tests or CI.
 
 ### Development
@@ -485,4 +483,4 @@ Design and behaviour: [architecture](docs/architecture.md) · [case format](docs
 
 ### Licence
 
-Private, with no licence granted yet. The optional managed trace store is Arize Phoenix under the Elastic License 2.0, installed only with the `traces` group; see [NOTICE](NOTICE). The built-in source doesn't use it.
+Private, with no licence granted yet.

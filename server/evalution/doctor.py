@@ -67,7 +67,7 @@ async def _target(targets: Targets, name: str) -> list[Finding]:
         have = ", ".join(infos())
         fix = f"Have: {have}. Your own goes in {where}"
         return [Finding(False, f"{name}: no adapter {conf.adapter!r}", fix)]
-    said = await check(conf, {}, targets.managed_url, targets.store)
+    said = await check(conf, {}, targets.store)
     found = []
     for part_name, part in said.items():
         if isinstance(part, dict) and "ok" in part:

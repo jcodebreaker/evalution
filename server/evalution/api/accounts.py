@@ -187,19 +187,30 @@ def accounts_router(settings: AuthSettings) -> APIRouter:
                 "prefix": t.prefix,
                 "created_at": t.created_at,
                 "last_used_at": t.last_used_at,
+                "scope": t.scope,
             }
             for t in found
         ]
 
     @router.post("/tokens")
     async def create_token(request: Request) -> dict[str, Any]:
-        """A token for the workspace, shown this once."""
+        """A token for the workspace, shown this once: ``scope`` ``traces`` for one that can only
+        send spans, else one that reaches everything."""
         user = _person(request)
-        name = _name(await read_body(request))
+        body = await read_body(request)
+        name, scope = _name(body), body.get("scope") or tokens.ALL
+        if scope not in tokens.SCOPES:
+            raise invalid(f"scope: {' or '.join(tokens.SCOPES)}")
         made, value = await asyncio.to_thread(
-            tokens.create, request.app.state.accounts, request.state.workspace, user, name
+            tokens.create, request.app.state.accounts, request.state.workspace, user, name, scope
         )
-        return {"id": made.id, "name": made.name, "prefix": made.prefix, "token": value}
+        return {
+            "id": made.id,
+            "name": made.name,
+            "prefix": made.prefix,
+            "scope": made.scope,
+            "token": value,
+        }
 
     @router.delete("/tokens/{token_id}", status_code=204)
     async def delete_token(request: Request, token_id: str) -> Response:

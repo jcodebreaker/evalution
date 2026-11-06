@@ -131,7 +131,7 @@ FORBIDDEN_CALL = {"message": f"Please use {FORBIDDEN}."}
 ASKS = {"message": ASK}
 
 
-# 1. No trace source
+# 1. No traces sent
 
 
 @pytest.mark.parametrize(
@@ -141,11 +141,11 @@ ASKS = {"message": ASK}
         pytest.param({"never": [FORBIDDEN]}, id="never"),
     ],
 )
-async def test_1_no_trace_source_is_unjudged_for_trace_checks(make_rig, tools) -> None:
-    rig = make_rig(["no_trace_source"])
+async def test_1_no_traces_sent_is_unjudged_for_trace_checks(make_rig, tools) -> None:
+    rig = make_rig(["sends_no_traces"])
     rig.add(_case(FORBIDDEN_CALL, tools=tools))
     doc = await rig.run()
-    given(rig.targets.source(TARGET) is None, "the target has a trace source")
+    given(rig.agent.store is None, "its spans reach nothing")
     assert _verdict(doc) == "unjudged"
 
 
@@ -157,8 +157,8 @@ async def test_1_control_with_traces_the_same_try_fails_on_its_never_call(make_r
     assert [s["status"] for s in _tries(doc)[0]["steps"]] == ["never"]
 
 
-async def test_1_a_reply_only_test_with_no_trace_source_rests_on_the_model(make_rig) -> None:
-    rig = make_rig(["no_trace_source"])
+async def test_1_a_reply_only_test_with_no_traces_sent_rests_on_the_model(make_rig) -> None:
+    rig = make_rig(["sends_no_traces"])
     rig.add(_case(ASKS, tools={"expected": [{"name": "memory_search"}]}))
     doc = await rig.run()
     ((_, entry),) = doc["cases"].items()
@@ -167,7 +167,7 @@ async def test_1_a_reply_only_test_with_no_trace_source_rests_on_the_model(make_
     judged = current(entry["tries"][0])
     assert judged.route is Route.UNKNOWN
     steps = next(c for c in judged.checks if c.id == "steps")
-    assert (steps.role, steps.unjudged) == (Role.GUIDE, WhyUnjudged.NO_TRACE_SOURCE)
+    assert (steps.role, steps.unjudged) == (Role.GUIDE, WhyUnjudged.NO_TRACES)
     assert doc["totals"]["passed_model_only"] == 1 and doc["totals"]["passed_checked"] == 0
 
 
@@ -517,7 +517,7 @@ async def test_7_a_runs_own_exception_keeps_no_login_or_query(make_rig) -> None:
 
 def _readers(rig, capsys, monkeypatch, tries: set[int]) -> tuple[dict[str, str | None], int]:
     """Play through the real CLI, then what each reader says of the one stored document."""
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     stem = rig.add({"name": "Proof case", "turns": [ASKS], "limits": {"tries": 2}})
     rig.agent.no_spans_on_tries = tries
     capsys.readouterr()
@@ -819,7 +819,7 @@ async def test_12_it_stops_soon_after_the_agent_finished(make_rig, clock, fault)
 
 
 async def test_12_without_traces_the_deadline_still_holds(make_rig, clock) -> None:
-    rig = make_rig(["ignores_deadline", "no_trace_source"])
+    rig = make_rig(["ignores_deadline", "sends_no_traces"])
     rig.add({**ONE_TURN, "limits": {"tries": 2, "seconds": 60}})
     began = clock.now
     doc = await rig.run()
@@ -932,7 +932,7 @@ def test_12_an_app_with_no_traces_is_warned_of_and_still_played(
         }
     )
     monkeypatch.setattr(rig.targets, "source", lambda _name: _Source())
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     command = ["--config", str(rig.config_file), "check", "--target", TARGET]
     capsys.readouterr()
     assert cli.main(command) == 0
@@ -1211,11 +1211,11 @@ async def test_15_an_agent_that_never_started_is_not_a_failure(make_rig) -> None
     assert report_facts(doc)["failed"][0]["label"] == "Timed out"
     assert not _tries(doc)[0]["limits_broken"], "the limit it broke is the same fact"
 
-    # With no traces nothing shows it never started: the app was asked, and didn't answer.
-    rig = make_rig(["never_starts", "no_trace_source"])
+    # An app that sends no traces looks the same: its traces are read, and show nothing started.
+    rig = make_rig(["never_starts", "sends_no_traces"])
     rig.add(slow)
     doc = await rig.run()
-    assert _verdict(doc) == "fail" and _label(doc) == "Timed out"
+    assert _verdict(doc) == "unjudged"
     assert _tries(doc)[0]["called"] is False
 
 
@@ -2008,7 +2008,7 @@ def test_17_a_pass_with_quiet_tries_says_so_on_its_verdict_line(
     rig = make_rig()
     stem = rig.add({"name": "Answers", "turns": [ASKS], "limits": {"tries": 3, "seconds": 60}})
     _hangs_then_answers(rig, 2)
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     capsys.readouterr()
     cli.main(["--config", str(rig.config_file), "run", "--target", TARGET, "--set", SET, "--yes"])
     row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith(stem))
@@ -2204,7 +2204,7 @@ THE_RUN = ["run", "--target", TARGET, "--set", SET, "--yes"]
 
 def test_17_a_cli_run_says_what_it_left_out_and_doesnt_pass(make_rig, capsys, monkeypatch) -> None:
     rig = make_rig()
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     rig.add({"name": "Answers", "turns": [ASKS], "limits": {"tries": 1}})
     argv = ["--config", str(rig.config_file), *THE_RUN]
     assert cli.main(argv) == 0, "control: nothing left out"
@@ -2218,7 +2218,7 @@ def test_17_a_cli_run_says_what_it_left_out_and_doesnt_pass(make_rig, capsys, mo
 
 def test_17_a_cli_run_with_only_refused_tests_plays_nothing(make_rig, capsys, monkeypatch) -> None:
     rig = make_rig()
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     rig.add(NEEDS_MORE)
     capsys.readouterr()
     assert cli.main(["--config", str(rig.config_file), *THE_RUN]) != 0
@@ -2252,7 +2252,7 @@ def test_17_a_grader_that_fails_leaves_the_results_standing(make_rig, capsys, mo
     assert after["judgements"] == before["judgements"] and after["rubric"] == before["rubric"]
 
     # Told so by the CLI, which doesn't say it graded what it didn't.
-    monkeypatch.setattr(cli, "_targets", lambda _config: rig.targets)
+    monkeypatch.setattr(cli, "Targets", lambda _config: rig.targets)
     monkeypatch.setattr(cli, "Runs", lambda *_args: rig.runs)
     capsys.readouterr()
     argv = ["--config", str(rig.config_file), "regrade", run, "--judge", "--yes"]

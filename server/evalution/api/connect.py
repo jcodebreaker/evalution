@@ -169,7 +169,7 @@ def connect_router() -> APIRouter:
 
     @router.post("/targets/discover/{job_id}/traces", dependencies=hosted_off)
     async def check_traces(ws: Current, job_id: str) -> dict[str, Any]:
-        """Check again whether the app's spans reach evalution's own traces."""
+        """Check again whether the app's spans reach evalution."""
         job = _job(ws, job_id)
         await _found(ws).check_traces(job)
         return job.view()
@@ -288,6 +288,6 @@ def connect_router() -> APIRouter:
             overlay = {k: v for k, v in changes.items() if v}
         else:
             conf, overlay = targets.conf(target_name(targets, target)), {}
-        return await connect.check(conf, overlay, targets.managed_url, targets.store)
+        return await connect.check(conf, overlay, targets.store)
 
     return router

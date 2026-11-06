@@ -243,7 +243,7 @@ class _Sequence:
     ) -> None:
         name = "the trace value finds spans"
         if spans is None:
-            self.said(name, "skipped", "this target has no trace source")
+            self.said(name, "skipped", "no traces from this target yet")
             return
         stop = time.time() + settle
         try:

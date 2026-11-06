@@ -71,7 +71,7 @@ BEHAVIOUR_FAULTS = frozenset(
     }
 )
 TRACE_FAULTS = frozenset({"content_capture_off", "late_span_batch", "partial_trace"})
-RUN_FAULTS = frozenset({"no_trace_source", "unreachable_mid_try"})
+RUN_FAULTS = frozenset({"sends_no_traces", "unreachable_mid_try"})
 #: What an adapter can have wrong, the app doing its part: it reads its answer from the wrong place
 #: (``nested_reply_read_flat``), waits for one it will never read (``polls_for_unread_reply``), and
 #: on top of that the app restarts while it waits (``restart_while_polling``).
@@ -878,8 +878,7 @@ class Rig:
         options: dict[str, Any] | None = None,
     ) -> None:
         self.faults = frozenset(faults)
-        managed: bool | str = False if "no_trace_source" in self.faults else "builtin"
-        traces: dict[str, Any] = {"managed": managed, **(traces_options or {})}
+        traces: dict[str, Any] = {**(traces_options or {})}
         block = {
             "adapter": "scripted_agent",
             "faults": sorted(self.faults),
@@ -904,7 +903,9 @@ class Rig:
         self.docs = self.targets.docs
         save_set(self.docs, TARGET, SET, {"name": "Proof"})
         self.agent: ScriptedAgent = self.targets.adapter(TARGET)  # type: ignore[assignment]
-        self.agent.wire(clock, self.targets.store)
+        # Its spans reach nothing evalution reads.
+        sent_to = None if "sends_no_traces" in self.faults else self.targets.store
+        self.agent.wire(clock, sent_to)
 
     def fill(self, template_id: str) -> str:
         """Library test *template_id* through the real fit and fill paths, saved as a case."""

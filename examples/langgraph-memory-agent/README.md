@@ -15,7 +15,7 @@ uv run langgraph dev --no-browser
 
 ## Traces
 
-`agent.py` registers Phoenix's OpenTelemetry exporter and OpenInference's LangChain instrumentation. With the `.env` above its spans go to evalution's own Phoenix (`evalution serve` prints its port) in project `evalution-memory-agent`. OpenInference puts the thread id on every span as `session.id`, which is how evalution finds a try's spans.
+`agent.py` registers Phoenix's OpenTelemetry exporter and OpenInference's LangChain instrumentation. With the `.env` above its spans go to evalution (`evalution serve`, on port 8080) for the target `memory-agent`, named by the project `evalution-memory-agent`. OpenInference puts the thread id on every span as `session.id`, which is how evalution finds a try's spans.
 
 ## Connect it
 

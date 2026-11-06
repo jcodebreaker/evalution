@@ -2,12 +2,12 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { ago } from "../../lib/format";
-import type { Member } from "../../lib/schema";
+import type { Member, TokenScope } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { CopyField } from "../../ui/copy-field";
 import { ConfirmDialog } from "../../ui/dialog";
-import { Input } from "../../ui/field";
+import { Input, Select } from "../../ui/field";
 import { Group, GroupHeading } from "../shared/group";
 import { Row } from "../shared/Row";
 import type { Account } from "./account";
@@ -154,15 +154,18 @@ function Tokens({ act }: { act: Act }) {
   const [load, reload] = useLoad("tokens", api.tokens.list);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
+  /** A traces token can only send an app's spans: the one to put in an app's environment. */
+  const [scope, setScope] = useState<TokenScope>("all");
   /** The token just made: its value is sent once, and kept only here. */
   const [created, setCreated] = useState<string | null>(null);
   const tokens = load.status === "ready" ? load.data : [];
   const create = () =>
     act(async () => {
-      const made = await api.tokens.create(name.trim());
+      const made = await api.tokens.create(name.trim(), scope);
       setCreated(made.token);
       setNaming(false);
       setName("");
+      setScope("all");
       await reload();
     }, "Couldn't make the token.");
   return (
@@ -199,6 +202,15 @@ function Tokens({ act }: { act: Act }) {
                 onChange={(event) => setName(event.target.value)}
                 autoFocus
               />
+              <Select
+                aria-label="Token scope"
+                className="w-auto"
+                value={scope}
+                onChange={(event) => setScope(event.target.value as TokenScope)}
+              >
+                <option value="all">All</option>
+                <option value="traces">Traces only</option>
+              </Select>
               <Button type="submit" size="sm" disabled={!name.trim()}>
                 Create
               </Button>
@@ -222,7 +234,12 @@ function Tokens({ act }: { act: Act }) {
           ) : null}
           {tokens.map((token) => (
             <div key={token.id} className={`${TOKEN_GRID} px-3.5 py-1.5 text-[13px] tabular-nums`}>
-              <span className="truncate">{token.name}</span>
+              <span className="truncate">
+                {token.name}
+                {token.scope === "traces" ? (
+                  <span className="text-ink-3"> · Traces only</span>
+                ) : null}
+              </span>
               <span className="truncate font-mono text-[12px] text-ink-2">{token.prefix}…</span>
               <span className="truncate text-ink-2 max-sm:hidden">{ago(token.created_at)}</span>
               <span className="truncate text-ink-2 max-sm:hidden">

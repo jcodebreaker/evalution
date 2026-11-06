@@ -1,11 +1,12 @@
-"""Traces, offline: evalution's own Phoenix with a fake process, where a target's traces are
-read from, the tracing detector on tiny fake projects, the digest and drift on fake spans, and
-the built-in source: OTLP in, retention, and both conventions giving the same view."""
+"""Traces, offline: where a target's traces are read from, the tracing detector on tiny fake
+projects, the digest and drift on fake spans, and the built-in source: OTLP in, kept per
+workspace, retention, and both conventions giving the same view."""
 
 import asyncio
 import gzip
 import json
-import socket
+import logging
+import subprocess
 import time
 from dataclasses import replace
 
@@ -18,6 +19,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceResponse,
 )
 
+from evalution import config as config_module
 from evalution.adapters import own_traffic
 from evalution.api.app import create_app
 from evalution.config import PhoenixConfig, load
@@ -30,95 +32,49 @@ from evalution.storage import Database
 from evalution.targets import Targets
 from evalution.traces import setup
 from evalution.traces.base import Span, SpanRead, SpanReader, nest
-from evalution.traces.builtin import Builtin, Received, SpanStore
-from evalution.traces.managed import STATE_FILE, Supervisor, free_port, project, reader
+from evalution.traces.builtin import Builtin, Received, SpanStore, project, prune, reader
 from evalution.traces.otlp import MAX_BODY
 from evalution.traces.phoenix import Phoenix, span_of
 from evalution.traces.profile import conversations, digest, render
 from evalution.traces.view import build, helper_of
 
 
-class FakeProcess:
-    def __init__(self) -> None:
-        self.code: int | None = None
-        self.stopped = False
+def test_serve_runs_no_phoenix_and_an_old_config_still_loads(tmp_path, monkeypatch, caplog) -> None:
+    """A config from when evalution ran Phoenix loads, says once what changed, and nothing is
+    started: the built-in store takes the spans."""
 
-    def poll(self) -> int | None:
-        return self.code
+    def spawn(*args, **kwargs):
+        raise AssertionError("nothing is started")
 
-    def terminate(self) -> None:
-        self.stopped, self.code = True, 0
-
-    def kill(self) -> None:
-        self.code = -9
-
-    def wait(self, timeout: float | None = None) -> int:
-        return self.code or 0
-
-
-async def test_supervisor_starts_restarts_and_stops(tmp_path) -> None:
-    spawned: list[tuple[list[str], dict[str, str], FakeProcess]] = []
-
-    def spawn(command, env, log):
-        spawned.append((command, env, FakeProcess()))
-        return spawned[-1][2]
-
-    async def healthy(url: str) -> bool:
-        return True
-
-    with socket.socket() as taken:
-        taken.bind(("127.0.0.1", 0))
-        taken.listen()
-        busy = taken.getsockname()[1]
-        phoenix = Supervisor(tmp_path / "phoenix", busy, spawn=spawn, healthy=healthy, every=0.01)
-        notes = await phoenix.start()
-    assert phoenix.port != busy and f"port {busy} is taken" in notes[0]
-    command, env, first = spawned[0]
-    assert command[1:] == ["-m", "phoenix.server.main", "serve"]
-    assert env["PHOENIX_WORKING_DIR"] == str(tmp_path / "phoenix")
-    assert env["PHOENIX_PORT"] == str(phoenix.port) and env["PHOENIX_GRPC_PORT"] == "0"
-    state = json.loads((tmp_path / "phoenix" / STATE_FILE).read_text())
-    assert state["url"] == phoenix.url
-
-    first.code = 1  # Phoenix died: the supervisor starts it again.
-    for _ in range(200):
-        if phoenix.restarts:
-            break
-        await asyncio.sleep(0.01)
-    assert phoenix.restarts == 1 and len(spawned) == 2
-
-    await phoenix.stop()
-    assert spawned[1][2].stopped and not (tmp_path / "phoenix" / STATE_FILE).exists()
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(config_module, "_said_retired", False)
+    file = tmp_path / "evalution.yaml"
+    old = {"managed": True, "port": 6007, "grpc": 4317, "keep_mb": 500, "keep_days": 3}
+    file.write_text(yaml.safe_dump({"targets": {}, "traces": old}))
+    with caplog.at_level(logging.WARNING, logger="evalution.config"):
+        loaded = load(file)
+        load(file)
+    said = [r.getMessage() for r in caplog.records]
+    assert len(said) == 1 and "traces.managed, traces.port" in said[0] and "Phoenix" in said[0]
+    assert loaded.traces.keep_days == 3 and load(tmp_path / "none.yaml").traces.keep_days == 30
+    with TestClient(create_app(loaded, url="http://127.0.0.1:8080")) as client:
+        assert client.get("/v1/traces").json() == {"url": "http://127.0.0.1:8080", "token": False}
+        assert client.post("/v1/traces", json={}).status_code == 200
 
 
-def test_free_port_skips_a_taken_one() -> None:
-    with socket.socket() as taken:
-        taken.bind(("127.0.0.1", 0))
-        taken.listen()
-        port = taken.getsockname()[1]
-        assert free_port(port) not in (None, port)
-
-
-async def test_where_a_targets_traces_are_read() -> None:
+async def test_where_a_targets_traces_are_read(tmp_path) -> None:
     own = PhoenixConfig("http://127.0.0.1:6006", "my-bot")
     assert project("my-bot") == "evalution-my-bot"
+    store = SpanStore(Database.open(tmp_path), "local")
 
-    managed = reader("my-bot", own, "http://127.0.0.1:6007")
-    assert managed is not None
-    sources = [(p.conf.url, p.conf.project) for p in [managed, *managed.also]]
-    assert sources == [
-        ("http://127.0.0.1:6007", "evalution-my-bot"),
-        ("http://127.0.0.1:6007", "default"),
-        ("http://127.0.0.1:6006", "my-bot"),
-    ]
-    assert managed.trace_url("t1") == "http://127.0.0.1:6006/redirects/traces/t1", "where it landed"
-    on_its_own = reader("my-bot", None, "http://127.0.0.1:6007")
-    assert on_its_own.trace_url("t1") == "http://127.0.0.1:6007/redirects/traces/t1"
-    await on_its_own.close()
-    alone = reader("my-bot", own, None)
-    assert alone is not None and alone.conf.project == "my-bot" and not alone.also
-    assert reader("my-bot", None, None) is None
-    for made in (managed, alone):
+    both = reader("my-bot", own, store)
+    assert [type(s).__name__ for s in [both, *both.also]] == ["Builtin", "Builtin", "Phoenix"]
+    assert [s.target for s in [both, *both.also][:2]] == ["my-bot", "default"]
+    assert both.trace_url("t1") == "http://127.0.0.1:6006/redirects/traces/t1", "its own page"
+    alone = reader("my-bot", None, store)
+    assert alone.trace_url("t1") is None, "spans kept here have no page"
+    for made in (both, alone):
         await made.close()
 
 
@@ -150,7 +106,7 @@ def test_the_detector_on_fake_projects() -> None:
         }
     )
     assert registered["register"] and registered["project"] == "shop"
-    told = setup.advice(registered, "http://127.0.0.1:6006", "evalution-shop")
+    told = setup.advice(registered, "http://127.0.0.1:8080", "evalution-shop")
     assert told["traced"] and "PHOENIX_PROJECT_NAME=evalution-shop" in told["lines"]
     assert '"shop"' in told["text"]
 
@@ -161,18 +117,14 @@ def test_the_detector_on_fake_projects() -> None:
         }
     )
     assert node["language"] == "js" and node["otel"] and not node["register"]
-    lines = setup.advice(node, "http://127.0.0.1:6006", "evalution-x")["lines"]
-    assert "OTEL_RESOURCE_ATTRIBUTES=openinference.project.name=evalution-x" in lines
+    # The standard lines naming the target, and no Phoenix package.
+    lines = setup.advice(node, "http://127.0.0.1:8080", "evalution-x")["lines"]
+    assert "OTEL_RESOURCE_ATTRIBUTES=evalution.target=x" in lines
 
     bare = setup.detect({"requirements.txt": "anthropic\nfastapi\n", "main.py": "import anthropic"})
     assert not bare["otel"] and bare["framework"] == "anthropic"
-    told = setup.advice(bare, "http://127.0.0.1:6006", "evalution-x")
+    told = setup.advice(bare, "http://127.0.0.1:8080", "evalution-x")
     assert not told["traced"] and "openinference-instrumentation-anthropic" in told["lines"]
-
-    # With the built-in source: the standard lines naming the target, and no Phoenix package.
-    lines = setup.advice(node, "http://127.0.0.1:8080", "evalution-x", builtin=True)["lines"]
-    assert "OTEL_RESOURCE_ATTRIBUTES=evalution.target=x" in lines
-    told = setup.advice(bare, "http://127.0.0.1:8080", "evalution-x", builtin=True)
     assert 'OTLPSpanExporter(endpoint="http://127.0.0.1:8080/v1/traces")' in told["lines"]
     assert '"evalution.target": "x"' in told["lines"] and "phoenix" not in told["lines"]
 
@@ -442,8 +394,12 @@ async def _built_in_spans(store: SpanStore, target: str = "default") -> list[Spa
 
 def _client(tmp_path) -> TestClient:
     file = tmp_path / "evalution.yaml"
-    file.write_text(yaml.safe_dump({"targets": {}, "traces": {"managed": "builtin"}}))
+    file.write_text(yaml.safe_dump({"targets": {}}))
     return TestClient(create_app(load(file)))
+
+
+def _store(tmp_path, workspace: str = "local") -> SpanStore:
+    return SpanStore(Database.open(tmp_path / "data"), workspace)
 
 
 async def test_both_conventions_give_the_same_view_over_plain_spans(tmp_path) -> None:
@@ -454,8 +410,7 @@ async def test_both_conventions_give_the_same_view_over_plain_spans(tmp_path) ->
     with _client(tmp_path) as client:
         sent = client.post("/v1/traces", json=_otlp_json([*PLAIN, *GENAI]))
     assert sent.status_code == 200 and sent.json() == {}
-    store = SpanStore(tmp_path / "data" / "traces" / "spans.db")
-    from_otlp = await _built_in_spans(store)
+    from_otlp = await _built_in_spans(_store(tmp_path))
     assert {s.kind for s in from_otlp if s.id in (ROOT, HEALTH)} == {"UNKNOWN"}
 
     one = build(from_phoenix, 1_000.0, price=price)
@@ -527,41 +482,35 @@ async def test_otlp_over_protobuf_and_json_with_gzip_and_limits(tmp_path) -> Non
         }
         assert [r.status_code for r in refused.values()] == [415, 400, 400, 413, 413]
 
-    store = SpanStore(tmp_path / "data" / "traces" / "spans.db")
+    store = _store(tmp_path)
     assert await _built_in_spans(store, "shop") == []
     spans = await _built_in_spans(store, "bar")
     assert sorted(s.id for s in spans) == sorted([AGENT, MODEL, TOOL])
 
 
-def test_the_intake_is_off_without_the_built_in_source(tmp_path) -> None:
-    file = tmp_path / "evalution.yaml"
-    file.write_text(yaml.safe_dump({"targets": {}, "traces": {"managed": False}}))
-    with TestClient(create_app(load(file))) as client:
-        assert client.post("/v1/traces", json={}).status_code == 404
-
-
-async def test_retention_drops_by_age_then_size_keeping_ai_longest(tmp_path) -> None:
-    store = SpanStore(tmp_path / "traces" / "spans.db", keep_mb=1, keep_days=1)
+async def test_spans_are_kept_per_workspace_paged_and_pruned_by_age(tmp_path) -> None:
+    database = Database.open(tmp_path)
+    mine, theirs = SpanStore(database, "w1"), SpanStore(database, "w2")
     now = time.time()
 
-    def spans(prefix: str, count: int, attrs: dict) -> list[Received]:
+    def spans(prefix: str, count: int) -> list[Received]:
+        attrs = {"gen_ai.operation.name": "chat"}
         return [
-            Received("t", TRACE, f"{prefix}{n:015x}", None, "x", 1.0, 2.0, "OK", attrs)
+            Received("t", TRACE, f"{prefix}{n:015x}", None, "x", 1.0 + n, 2.0 + n, "OK", attrs)
             for n in range(count)
         ]
 
-    filler = "x" * 1_000
-    store.add(spans("a", 1, {"gen_ai.operation.name": "chat"}), now=now - 2 * 86_400)
-    store.add(spans("b", 1, {"gen_ai.operation.name": "chat"}), now=now)
-    assert [s.id[0] for s in await _built_in_spans(store, "t")] == ["b"]
+    mine.add(spans("a", 1), now=now - 31 * 86_400)
+    mine.add(spans("b", 1_500), now=now)
+    theirs.add(spans("b", 1), now=now)
+    assert len(await _built_in_spans(mine, "t")) == 1_501, "read a page at a time"
+    assert [s.id[0] for s in await _built_in_spans(theirs, "t")] == ["b"], "the same ids, apart"
+    assert await Builtin(theirs, "t").project_exists()
+    assert not await Builtin(SpanStore(database, "w3"), "t").project_exists()
 
-    store.add(spans("c", 20, {"gen_ai.operation.name": "chat", "note": "keep"}), now=now)
-    store.add(spans("d", 2_000, {"http.route": "/health", "note": filler}), now=now)
-    left = await _built_in_spans(store, "t")
-    assert store.path.stat().st_size < 2 * store.keep_bytes
-    assert any(s.id[0] == "d" for s in left)
-    assert sum(s.id[0] == "c" for s in left) == 20  # plain spans went first
-    assert len([s for s in left if s.id[0] == "d"]) < 2_000
+    assert prune(database, 30, now=now) == 1
+    assert not any(s.id[0] == "a" for s in await _built_in_spans(mine, "t"))
+    assert len(await _built_in_spans(theirs, "t")) == 1
 
 
 def test_an_agent_wrapped_on_one_session_is_not_a_helper() -> None:

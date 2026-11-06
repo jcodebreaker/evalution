@@ -1,6 +1,6 @@
 # Architecture
 
-evalution tests agent apps (**targets**). It plays cases through an **adapter**, reads what happened from its **traces** (evalution's own Phoenix, its built-in store, or the target's Phoenix; see "Traces"), then grades, analyses and reports. This page is how it is built.
+evalution tests agent apps (**targets**). It plays cases through an **adapter**, reads what happened from its **traces** (evalution's built-in store, plus the target's own Phoenix when it has one; see "Traces"), then grades, analyses and reports. This page is how it is built.
 
 ## Words
 
@@ -49,9 +49,8 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     traces/base.py      the neutral Span, the TraceSource interface, what kind a span is
     traces/view.py      what spans say, in either convention: the TraceView a try records
     traces/phoenix.py   a TraceSource over Phoenix REST v1
-    traces/builtin.py   a TraceSource over evalution's own SQLite file, with retention
-    traces/otlp.py      POST /v1/traces: standard OTLP into that file
-    traces/managed.py   evalution's own Phoenix: the supervisor, where a target's spans are read
+    traces/builtin.py   a TraceSource over the spans table, retention, where a target's spans are read
+    traces/otlp.py      POST /v1/traces: standard OTLP into that table
     traces/mirror.py    finished runs mirrored to a target's Phoenix, its run sink
     traces/setup.py     how to point an app at it: the tracing detector and the lines to add
     traces/profile.py   the digest of recent asks, and the fingerprint drift compares
@@ -87,7 +86,7 @@ compose.yaml       evalution alone, with what it keeps in bind mounts; it points
 
 ```yaml
 data_dir: ./data
-traces: {managed: true, port: 6007}   # evalution's own Phoenix, or managed: builtin (see "Traces")
+traces: {keep_days: 30}      # how long spans apps send are kept (see "Traces")
 model:                       # evalution's own model, for Grader, filler, analysis, agent
   kind: anthropic            # or openai (any OpenAI-compatible base_url)
   base_url: https://api.anthropic.com
@@ -133,39 +132,21 @@ One database holds what evalution learns and writes: SQLite in `<data_dir>/evalu
 
 Everything reads spans through one interface, `TraceSource` (`traces/base.py`: `pages`, `spans`, `session`, `trace`, `trace_url`, `project_exists`, `close`), with two implementations: `traces/phoenix.py` and the built-in `traces/builtin.py`. What spans mean is in `traces/view.py` alone ("Two conventions").
 
-`traces.managed` says where evalution keeps traces itself:
+Apps send their spans to evalution, which keeps them in its database. A target's traces are read from its spans there, then the `default` ones, then the app's own Phoenix when the target has one ("Use my existing Phoenix" in Details), merged by span id (`traces/builtin.py`, `reader`). Tries are found by session and trace id, so `default` mixing apps is harmless there; the profile reads all three, so the app's own Phoenix gives it the history of real traffic. A trace links to the app's own Phoenix when it has one, and to nothing otherwise: the page's own timeline is what there is.
 
-| `traces.managed` | Traces land in | Reads |
-|---|---|---|
-| `true` (default) | evalution's own Phoenix | its `evalution-<target>` and `default` projects, then the app's own Phoenix |
-| `builtin` | evalution's own file | its spans for the target and the `default` ones, then the app's own Phoenix |
-| `false` | wherever the app sends them | the app's own Phoenix, as set on the target |
-
-Why Phoenix stays the default for now: [ADR 0004](adr/0004-traces-behind-one-interface.md).
-
-### Managed Phoenix
-
-`evalution serve` starts Phoenix (the optional `arize-phoenix` package, pinned, in the `traces` group; Elastic License 2.0, see NOTICE) as a child process (`traces/managed.py`):
-
-- data under `data/phoenix/`; the UI and OTLP over HTTP on 127.0.0.1 at `traces.port` (default 6007, leaving 6006 to an app's own Phoenix), or the next free port, which `serve` prints;
-- Phoenix can't turn gRPC off, so unless `traces.grpc` names a port it listens on a random local one nobody is told about;
-- `/healthz` is checked every few seconds; Phoenix is started again when it exits or stops answering three times in a row, and stopped when `serve` stops. `data/phoenix/serving.json` says where it runs, so `evalution run` in another process reads the same traces.
-
-Not installed: `serve` prints one line on how to install it (`pip install 'evalution[traces]'` or `uv sync --group traces`) and uses each target's own Phoenix. `traces: {managed: false}` does that on purpose (the behaviour before evalution had its own).
-
-**Projects.** Each target's spans go to project `evalution-<target>`. The app is told the name where it can be: `PHOENIX_PROJECT_NAME` for Phoenix's `register()`, else the OTLP resource attribute `openinference.project.name` (`OTEL_RESOURCE_ATTRIBUTES`). An app that can't name it lands in `default`. A target's traces are read from `evalution-<target>`, then `default`, then the app's own Phoenix when the target has one ("Use my existing Phoenix" in Details), merged by span id (`traces/managed.py`, `reader`). Tries are found by session and trace id, so the default project mixing apps is harmless there; the profile reads all three, so the app's own Phoenix gives it the history of real traffic.
+evalution no longer runs Phoenix itself. A config that still sets `traces.managed`, `port`, `grpc` or `keep_mb` loads, says once that they no longer apply, and uses the built-in store. Span files an older evalution left in `data/traces/` or `data/phoenix/` are not read.
 
 **Tagging eval traffic.** Every try's session carries its run: the langgraph adapter plays as user `eval-<run>` (its threads carry metadata `evalution_user`, its runs `evalution_run`); the http adapter's session id is `evalution-<run>-t<try>-<random>` and each request carries `X-Evalution-Run` and `X-Evalution-Try`, for an app that copies them onto its spans as `evalution.run` / `evalution.try`, which then decide whose spans they are ([judging.md](judging.md), "Traces"). The digest, profile and drift leave that traffic out.
 
 ### The built-in source
 
-With `traces: {managed: builtin}` nothing else runs and no vendor package is needed. The server takes spans itself:
+Nothing else runs and no vendor package is needed. The server takes spans itself:
 
-- **`POST /v1/traces`**, standard OTLP over HTTP: `application/x-protobuf` or `application/json`, optionally `Content-Encoding: gzip`, so `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8080` is all an exporter needs. Answers follow the OTLP spec (the request's encoding, `partial_success` for rejected spans, a `Status` body on an error, 503 when the store fails). Without `builtin` the route answers 404.
-- **Which target.** The resource attribute **`evalution.target`** (`OTEL_RESOURCE_ATTRIBUTES=evalution.target=<target>`). `openinference.project.name` works too, with or without the `evalution-` prefix, so an app already pointed at managed Phoenix only changes its endpoint. A span naming neither lands in `default`, which every target reads, as with managed Phoenix: tries are found by session and trace id. There is no project header.
-- **Input limits.** It answers as the rest of the server does: only this computer, unless `serve --host` opened it on purpose. Bodies are capped at 32 MB on the wire and after gunzip (413). Any other content type is 415, which also means a web page can't post here without a preflight it would fail. Trace and span ids and times must be what OTLP says or the span is rejected; attribute count, key length, value length and nesting are capped. Span contents may hold prompts: they are never logged or echoed.
-- **Storage.** `<data_dir>/traces/spans.db`, one SQLite file, owner-only. Retention runs on each write: spans received more than `traces.keep_days` ago (default 14, which is how far the digest looks back) go, then past `traces.keep_mb` (default 500) the oldest received go, plain spans before AI spans. A span sent again replaces itself. `evalution run` in another process reads the same file.
-- **No trace page.** `trace_url` is `null`, so a try links to no trace; the page's own timeline is what there is.
+- **`POST /v1/traces`**, standard OTLP over HTTP: `application/x-protobuf` or `application/json`, optionally `Content-Encoding: gzip`, so `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8080` is all an exporter needs. Answers follow the OTLP spec (the request's encoding, `partial_success` for rejected spans, a `Status` body on an error, 503 when the store fails). `evalution run` with no server up listens for them itself while it plays (`--traces-port`, `api/traces.py` `intake_router`).
+- **Who may send.** Locally, as the rest of the server: only this computer, unless `serve --host` opened it on purpose, with no token. Hosted, a workspace token in `Authorization: Bearer evt_...`, and the spans land in its workspace; a token made with scope `traces` can only do this ([hosting.md](hosting.md), "Traces").
+- **Which target.** The resource attribute **`evalution.target`** (`OTEL_RESOURCE_ATTRIBUTES=evalution.target=<target>`). `openinference.project.name` works too, with or without the `evalution-` prefix, so an app traced with Phoenix's `register()` only changes its endpoint. A span naming neither lands in `default`, which every target reads: tries are found by session and trace id. There is no project header.
+- **Input limits.** Bodies are capped at 32 MB on the wire and after gunzip (413). Any other content type is 415, which also means a web page can't post here without a preflight it would fail. Trace and span ids and times must be what OTLP says or the span is rejected; attribute count, key length, value length and nesting are capped. Span contents may hold prompts: they are never logged or echoed.
+- **Storage.** The `spans` table of evalution's database (`storage/spans.py`), each workspace's apart: SQLite locally, Postgres hosted. A table of its own rather than documents, since a try reads spans by time window, trace id and target, and exporters' retries dedupe by span id: a span sent again replaces itself. `serve` drops spans received more than `traces.keep_days` ago (default 30) when it starts and once a day. `evalution run` in another process reads the same database.
 
 ### Two conventions
 
@@ -188,10 +169,10 @@ With `traces: {managed: builtin}` nothing else runs and no vendor package is nee
 evalution can't restart someone's app, so when it connects one by folder it says what to change (`traces/setup.py`) and checks that spans arrive:
 
 - An app traced with Phoenix's `register()` (found in its code): `PHOENIX_COLLECTOR_ENDPOINT` and `PHOENIX_PROJECT_NAME`, and a note when the code fixes `project_name`.
-- An app traced with OpenTelemetry / OpenInference otherwise (packages in `pyproject.toml` / `package.json`, `instrument(` / `registerInstrumentations(` calls): the three `OTEL_*` lines.
-- No tracing: tests still play and are graded on replies, but steps and context need tracing; the snippet for its language (Python `arize-phoenix-otel` + OpenInference with `register(...)`, JS `@arizeai/phoenix-otel` + `@arizeai/openinference-*`), with the instrumentation package for the LLM library it uses.
+- An app traced with OpenTelemetry / OpenInference otherwise (packages in `pyproject.toml` / `package.json`, `instrument(` / `registerInstrumentations(` calls): the `OTEL_*` lines.
+- No tracing: tests still play and are graded on replies, but steps and context need tracing; the plain OpenTelemetry SDK exporting OTLP for its language (`opentelemetry-sdk` + `opentelemetry-exporter-otlp-proto-http`, JS `@opentelemetry/sdk-node` + `@opentelemetry/exporter-trace-otlp-proto`), with the OpenInference instrumentation package for the LLM library it uses.
 
-With the built-in source the endpoint is evalution's own server. The `OTEL_*` lines name the target as `evalution.target` and turn metrics and logs off, since only traces are taken, and an app with no tracing gets the plain OpenTelemetry SDK exporting OTLP (`opentelemetry-sdk` + `opentelemetry-exporter-otlp-proto-http`, JS `@opentelemetry/sdk-node` + `@opentelemetry/exporter-trace-otlp-proto`) instead of a Phoenix package.
+The endpoint is evalution's own server. The `OTEL_*` lines name the target as `evalution.target` and turn metrics and logs off, since only traces are taken. Hosted, nothing is read from folders, so the page's Details show the endpoint instead, to send with a traces token.
 
 ## Connecting a target
 
@@ -199,7 +180,7 @@ The page connects a target without touching `evalution.yaml`. The usual way is b
 
 - `POST /v1/targets/discover` `{path}` starts looking at the folder in the background and returns `{id, folder, status: "working"|"ready"|"failed", steps: [{text, state: "doing"|"done"|"problem"}], questions: [{key, text, hint}], target}`; `GET /v1/targets/discover/{id}` returns it again as it goes. Steps are plain sentences; `target` (once ready) is the proposed target in the shape `GET /v1/targets/{name}` returns, with secret keys only.
 - In order, each adapter's `detect` (see "The adapter seam"): **LangGraph** by `langgraph.json`, or `langgraph` among its packages: the langgraph adapter, the assistant from the first graph in `langgraph.json` (else `agent`), the URL from a `langgraph dev|up --port` in the README or scripts, else a published port of a compose service that mentions langgraph, else 8123 when the project runs `langgraph up`, else `langgraph dev`'s 2024; tracing is read as for any app (`openinference-instrumentation-langchain`). **Any other app**: route definitions (FastAPI, Flask, Express, Next API routes) give the chat endpoint, the body fields it reads and its reply field; `PORT`, compose ports or the code give the port (else the framework's usual one); `phoenix.otel.register(project_name=...)`, `PHOENIX_COLLECTOR_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` and OpenInference packages give Phoenix. When the routes don't say, the evals model (light) reads a compact digest: file list, README, package files, route code and the key names of `.env.example`. **Verify** with the check below (no chat message is sent). **Code**: the folder; everything in it that is source is watched (see "Knowing a target").
-- **Send traces here**, when evalution keeps traces itself: the step "Send traces to evalution" and `traces: {traced, text, lines, command, arriving}` on the discovery (see "Traces"). `POST /v1/targets/discover/{id}/traces` checks again whether AI spans arrived in the last hour (in `evalution-<target>`). The page connects on its own once they arrive, or on Connect. In this mode the proposed target has a `phoenix` block only when the project names an existing Phoenix; `GET /v1/traces` returns `{managed, url}` (`url`: where apps send traces, evalution's own server with the built-in source).
+- **Send traces here**: the step "Send traces to evalution" and `traces: {traced, text, lines, command, arriving}` on the discovery (see "Traces"). `POST /v1/targets/discover/{id}/traces` checks again whether AI spans for the target arrived in the last hour. The page connects on its own once they arrive, or on Connect. The proposed target has a `phoenix` block only when the project names an existing Phoenix. `GET /v1/traces` returns `{url, token}`: where apps send traces (this server as they reach it, the public address hosted) and whether they need a traces token (hosted).
 - What it could not tell becomes at most two questions: "Which port does it run on?" (asked when the app doesn't answer on a guessed port) and "Which address takes chat messages?".
 - `.env` is read only for the keys named above (`PORT`, `PHOENIX_*` for other apps). A secret found there (`phoenix_api_key`) stays in memory until the target is saved; it is never returned, logged or sent to the model.
 - `POST /v1/targets/discover/{id}/accept` `{answers?, name?}` saves the target like `POST /v1/targets` (secrets stored, encrypted) and returns it; with `{target}` it saves that body instead (the page's Details), keeping the secrets found unless the body gives its own.
@@ -209,7 +190,7 @@ The technical way (`connect.py`), used by the page's Details and Settings:
 - `POST /v1/targets` `{name, adapter: "http"|"langgraph", options, phoenix: {url, project, public_url?} | null, code?: {path, ignore?}, secrets: {key: value}}` validates the body (a slug name; http needs `send`, `reply`, `done`; langgraph needs `url`, `assistant_id`) and stores the block. Secret values (`phoenix_api_key`, `api_key` for langgraph, `authorization` for http) are stored secrets named `targets/<target>/<key>`, and the block names them through the usual `*_env` keys. A new target with no set gets an empty `main` set.
 - `PUT /v1/targets/{name}` takes the same body; a secret left out is kept, `null` removes it. `DELETE /v1/targets/{name}` removes the block and its secrets; its sets, runs and profile stay on disk. Both refuse a target set in `evalution.yaml`.
 - `GET /v1/targets/{name}` returns the editable target with the keys of its stored secrets, never their values. No route returns a secret, and none is logged.
-- `POST /v1/targets/{name}/reach` tries each part without playing anything, and returns `{adapter: {ok, detail}, phoenix: {ok, detail, sessions_seen, has_llm_spans}, code: {ok, detail, files_matched}}`. Adapter: http `GET`s its `health` URL when set, else sends `OPTIONS` to the send URL; langgraph `GET`s `/ok`, then looks for the assistant (by id or graph name) in `POST /assistants/search`. Phoenix: the project exists, and how many recent conversations it holds. Code: the folder exists and how many source files it has. With a target body, it checks the unsaved form (its secrets are used for that check only).
+- `POST /v1/targets/{name}/reach` tries each part without playing anything, and returns `{adapter: {ok, detail}, phoenix: {ok, detail, sessions_seen, has_llm_spans}, code: {ok, detail, files_matched}}`. Adapter: http `GET`s its `health` URL when set, else sends `OPTIONS` to the send URL; langgraph `GET`s `/ok`, then looks for the assistant (by id or graph name) in `POST /assistants/search`. Traces (`phoenix`): how many recent conversations the target's traces hold. Code: the folder exists and how many source files it has. With a target body, it checks the unsaved form (its secrets are used for that check only).
 - `POST /v1/targets/{name}/check` sends one real message through the saved target (`runs/preflight.py`) and returns `{ok, reply, seconds, tools, spans, traces, problems, warnings, next, can_redraft}`; a pass is remembered as a run's first check remembers it, and `GET /v1/targets` then says `checked` until the adapter or its settings change. Refused while a run plays.
 - `POST /v1/targets/{name}/check/redraft` (`connect/probe.py`), after a failed message on an http target: the model gets the failure, the settings and what the app answered, with secrets taken out and capped, and proposes corrected settings, each tried with one more message, at most two rounds. Config only: routes must stay on the app's own address and must carry the message. It returns `{ok, options, tried}` and saves nothing; the page saves `options` with `PUT` once its owner presses the button.
 - `PUT /v1/targets/{name}/isolation` `{required}` is what every new test of the app must start clean of, from what its adapter promises (`GET /v1/targets`: `starts_clean`, `isolation_note`, `required_clean`); by default nothing. The test writer is told, and a plan lacking it is flagged.
@@ -283,7 +264,7 @@ All that evalution knows about an app or a vendor is in its adapter's module, `a
 | `options`, `required`, `secrets` | What the page may send for it (`connect.parse`) |
 | `check(client, block, lookup)` | The app's part of `POST /v1/targets/{name}/check`; `refused` is the discovery step when the app turned the secret down |
 | `detect(folder)` | Whether a project folder is its kind of app, and what that tells, as a `Detection`. Highest `rank` first; `http` has none, and takes any app nothing else claims |
-| `trace_setup(url, builtin)` | How to point it at evalution's traces, when that isn't what its code shows; `trace_project` is where its spans land if it can't name one |
+| `trace_setup(url)` | How to point it at evalution's traces, when that isn't what its code shows; `trace_project` is where its spans land if it can't name one |
 | `own_traffic` | How its eval traffic is marked in traces (session prefixes, span attributes, `user.id` patterns), left out of digests and drift |
 | `framework` | A package word and name for the understanding's stack |
 | `validate`, `block`, `page_options`, `propose` | The shape of its options, when it isn't flat strings: checking them, writing them into a target's block, reading them back for the page, and proposing them from discovery |

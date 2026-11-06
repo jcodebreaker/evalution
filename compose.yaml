@@ -1,8 +1,8 @@
 # evalution alone, on 127.0.0.1:8080. Before the first `docker compose up --build`:
 #   cp evalution.example.yaml evalution.yaml && mkdir -p data sets targets backups
 # Your apps are outside this container: in evalution.yaml, address one on this computer as
-# host.docker.internal. Phoenix isn't in the image, so set `traces: {managed: builtin}` or point the
-# target at a Phoenix of your own, and to connect a project by its folder, mount it here too.
+# host.docker.internal; it sends traces to http://127.0.0.1:8080, like the page. To connect a
+# project by its folder, mount it here too.
 # Secrets don't go in this file: put them in .env, which is git-ignored and is read if it's there.
 # Hosted, on Postgres with sign-in: `COMPOSE_PROFILES=hosted` and the rest in .env (docs/deploy.md).
 services:

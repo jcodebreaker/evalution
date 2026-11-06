@@ -123,7 +123,7 @@ async def test_the_writer_drafts_from_a_past_conversation(agent, monkeypatch) ->
     opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
     refused = await agent._call(turn, "draft_from_conversation", {"session_id": "s1"})
-    assert refused == "Error: this app has no traces to read conversations from"
+    assert refused == "Error: no conversation s1 in the last week", "its traces hold none"
     monkeypatch.setattr(agent.targets, "source", lambda _name: object())
     monkeypatch.setattr(module, "from_traces", material)
     found = await agent.tools.draft_from_conversation(turn, {"session_id": "s1"})

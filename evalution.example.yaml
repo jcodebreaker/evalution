@@ -6,14 +6,9 @@ filler_usd: 0.04                 # cost of one generated message, for estimates
 spend_cap: 3                     # a run stops once the app spent this many times what its tries were estimated at; 0: never
 # allowed_hosts: [evals.example.test]  # more names it answers under, say behind a proxy; $EVALUTION_ALLOWED_HOSTS wins
 
-traces:                          # evalution runs its own Phoenix: pip install 'evalution[traces]'
-  managed: true                  # false: each target's own Phoenix, as set on the target
-                                 # builtin: no Phoenix; apps send OTLP to this server's /v1/traces
-  # keep_days: 14                # builtin: spans older than this go
-  # keep_mb: 500                 # builtin: past this the oldest go, plain spans first
-  # settle_seconds: 6             # a try's spans must hold still this long before they count as all
-  port: 6007                     # the UI and OTLP over HTTP; the next free port when taken
-  # grpc: 4317                   # also take OTLP over gRPC (off unless set)
+traces:                          # apps send OTLP to this server's /v1/traces
+  # keep_days: 30                # spans received longer ago than this go, once a day
+  # settle_seconds: 6            # a try's spans must hold still this long before they count as all
 
 # evalution's own model. Set it on the page (Settings, Model), or uncomment this: a model here wins
 # over the page, which then can't change it.

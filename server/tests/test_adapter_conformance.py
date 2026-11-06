@@ -507,7 +507,7 @@ def own_folder(tmp_path, monkeypatch):
 def _config(root: Path, adapter: str, url: str) -> str:
     block = {"adapter": adapter, "url": url}
     file = root / "evalution.yaml"
-    file.write_text(yaml.safe_dump({"traces": {"managed": False}, "targets": {"t": block}}))
+    file.write_text(yaml.safe_dump({"targets": {"t": block}}))
     return str(file)
 
 
@@ -554,7 +554,7 @@ async def test_the_starter_keeps_the_contract_as_written(own_folder, chat_app, c
     assert await asyncio.to_thread(main, [*test, "--yes"]) == 0
     out = capsys.readouterr().out
     assert "2 messages sent. The adapter keeps its contract" in out
-    assert "--  the trace value finds spans: this target has no trace source" in out
+    assert "--  the trace value finds spans: no traces from this target yet" in out
     assert len(chat_app.said) == 2
     assert len({said["session"] for said in chat_app.said}) == 2
 

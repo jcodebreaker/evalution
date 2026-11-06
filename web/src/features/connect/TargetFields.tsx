@@ -4,6 +4,7 @@ import { api, errorText } from "../../lib/api";
 import type { TargetBody, TargetDetail } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
+import { CopyField } from "../../ui/copy-field";
 import { Input, Select, Textarea } from "../../ui/field";
 import { Spinner } from "../../ui/loading";
 import { Group, GroupHeading } from "../shared/group";
@@ -15,7 +16,7 @@ import { BLANK, bodyOf, formOf, HTTP, labelOf, secretsLeftBehind } from "./targe
 import { useCheck } from "./use-check";
 
 /**
- * The target form: the app, its Phoenix project and, optionally, its code. The generic HTTP adapter
+ * The target form: the app, where its traces go and, optionally, its code. The generic HTTP adapter
  * has its own fields; any other draws what it declares. Check tries the form as it stands; the main
  * action saves it.
  */
@@ -41,8 +42,10 @@ export function TargetFields({
   const [adapterList] = useLoad("adapters", api.adapters);
   const adapters = adapterList.status === "ready" ? adapterList.data : [];
   const info = adapters.find((entry) => entry.name === form.adapter);
-  const managed = traces.status === "ready" && traces.data.managed;
-  const own = form.ownPhoenix || !managed;
+  // Hosted, apps send traces here with a token: say where.
+  const endpoint =
+    traces.status === "ready" && traces.data.token ? `${traces.data.url}/v1/traces` : null;
+  const own = form.ownPhoenix;
   const set = (patch: Partial<Form>) => setForm((now) => ({ ...now, ...patch }));
   const field = (key: TextKey) => ({
     value: form[key],
@@ -55,14 +58,14 @@ export function TargetFields({
   const http = form.adapter === HTTP;
   const secretKeys = http ? ["authorization"] : (info?.secrets ?? []);
   const changing = !!saved && form.adapter !== saved.adapter;
-  const asItStands = saved && !fresh ? bodyOf(form, keep, managed) : null;
+  const asItStands = saved && !fresh ? bodyOf(form, keep) : null;
   const leavesKey =
     saved && asItStands && typeof asItStands !== "string"
       ? secretsLeftBehind(saved, asItStands).length > 0
       : false;
 
   const body = () => {
-    const made = bodyOf(form, keep, managed);
+    const made = bodyOf(form, keep);
     if (typeof made === "string") setError(made);
     return typeof made === "string" ? null : made;
   };
@@ -203,18 +206,21 @@ export function TargetFields({
       </Group>
 
       <section>
-        <GroupHeading title="Phoenix" />
+        <GroupHeading title="Traces" />
         <Group>
-          {managed ? (
-            <label className="flex items-center gap-2.5 px-3.5 py-2.5 text-[13px]">
-              <input
-                type="checkbox"
-                checked={form.ownPhoenix}
-                onChange={(event) => set({ ownPhoenix: event.target.checked })}
-              />
-              Use my existing Phoenix
-            </label>
+          {endpoint ? (
+            <Row label="Send to" hint="With a traces token from Settings">
+              <CopyField value={endpoint} label="Traces endpoint" />
+            </Row>
           ) : null}
+          <label className="flex items-center gap-2.5 px-3.5 py-2.5 text-[13px]">
+            <input
+              type="checkbox"
+              checked={form.ownPhoenix}
+              onChange={(event) => set({ ownPhoenix: event.target.checked })}
+            />
+            Use my existing Phoenix
+          </label>
           {own ? (
             <>
               <Row label="URL">

@@ -174,7 +174,13 @@ def test_numbers_come_from_the_digest_runs_and_library(target) -> None:
         "library_total": sum(r["fit"]["verdict"] != "not_applicable" for r in rows),
     }
     card = found["card"]
-    assert card["stack"] == ["Python · FastAPI", "React web", "Claude models", "HTTP adapter"]
+    assert card["stack"] == [
+        "Python · FastAPI",
+        "React web",
+        "Claude models",
+        "HTTP adapter",
+        "Traces: evalution",
+    ]
     assert card["status"] == "up_to_date" and card["watched"] == ["code"]
     edges = {(e["from"], e["to"]): e["asks"] for e in found["diagram"]["edges"]}
     assert edges == {("you", "bot"): 4, ("bot", "shop"): 3, ("bot", "helper"): 1}

@@ -3,7 +3,8 @@
 Locally nothing changes: no login, the one workspace :data:`LOCAL`, and :func:`deps.guard` keeps
 everyone off but this computer. Hosted, a request is signed in by its ``evalution_login`` cookie
 (a browser) or an ``Authorization: Bearer evt_...`` token (the CLI, CI), and runs in one workspace:
-the token's own, else the ``X-Workspace`` the page names, else the person's personal one.
+the token's own, else the ``X-Workspace`` the page names, else the person's personal one. A traces
+token (:data:`tokens.TRACES`) gets only ``POST /v1/traces``, where apps send their spans.
 
 A browser sends its cookie with whatever any page asks of it, so a write signed in by cookie must
 carry ``X-Requested-With: evalution``, which a page on another site can't add without asking first.
@@ -40,6 +41,8 @@ CSRF_HEADER = "x-requested-with"
 CSRF_VALUE = "evalution"
 #: Answered signed out too: whether the server is up, and who (if anyone) is signed in.
 OPEN_PATHS = frozenset({"/v1/health", "/v1/me"})
+#: All a traces token may reach.
+TRACES_PATH = "/v1/traces"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -49,6 +52,7 @@ class Who:
     workspace: str | None = None
     by_cookie: bool = False
     refused: tuple[int, str] | None = None
+    scope: str = tokens.ALL
 
 
 def safe_next(value: Any) -> str:
@@ -72,8 +76,10 @@ def _who(database: Database, request: Request) -> Who:
     if header:
         if scheme.lower() != "bearer":
             return Who(refused=(401, "sign in"))
-        workspace = tokens.workspace_of(database, value.strip())
-        return Who(workspace=workspace) if workspace else Who(refused=(401, "sign in"))
+        grant = tokens.grant_of(database, value.strip())
+        if grant is None:
+            return Who(refused=(401, "sign in"))
+        return Who(workspace=grant[0], scope=grant[1])
     cookie = request.cookies.get(LOGIN_COOKIE)
     user = logins.user_of(database, cookie) if cookie else None
     if user is None:
@@ -98,6 +104,8 @@ async def identify(request: Request, call_next: RequestResponseEndpoint) -> Resp
     if who.refused:
         return JSONResponse({"detail": who.refused[1]}, status_code=who.refused[0])
     path = request.url.path
+    if who.scope == tokens.TRACES and (request.method, path) != ("POST", TRACES_PATH):
+        return JSONResponse({"detail": "this token only sends traces"}, status_code=403)
     if who.workspace is None and path.startswith("/v1/") and path not in OPEN_PATHS:
         return JSONResponse({"detail": "sign in"}, status_code=401)
     if (

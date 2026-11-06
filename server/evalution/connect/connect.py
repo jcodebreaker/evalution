@@ -33,8 +33,7 @@ from evalution.core import net
 from evalution.core.case import SLUG
 from evalution.storage import Docs
 from evalution.suite.store import list_sets, save_set
-from evalution.traces.builtin import SpanStore
-from evalution.traces.managed import reader
+from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.profile import recent_sessions
 
 CHECK_SECONDS = 10.0
@@ -291,23 +290,14 @@ async def _adapter(conf: TargetConfig, lookup: Any) -> dict[str, Any]:
 
 
 async def _phoenix(
-    conf: TargetConfig,
-    attribute: str,
-    lookup: Any,
-    managed_url: str | None,
-    store: SpanStore | None,
+    conf: TargetConfig, attribute: str, lookup: Any, store: SpanStore
 ) -> dict[str, Any]:
-    """The traces' part of the check; ``reached`` says whether their source answered at all. With
-    evalution's own traces, its spans for the target and the app's own Phoenix are read."""
+    """The traces' part of the check; ``reached`` says whether their source answered at all. The
+    spans evalution keeps for the target are read, and the app's own Phoenix when it has one."""
     empty = {"sessions_seen": 0, "has_llm_spans": False, "reached": True}
     key = lookup(conf.phoenix.api_key_env) if conf.phoenix else None
-    source = reader(conf.name, conf.phoenix, managed_url, api_key=key, store=store)
-    if source is None:
-        return part(False, "No Phoenix project", **empty)
+    source = reader(conf.name, conf.phoenix, store, api_key=key)
     try:
-        own = conf.phoenix
-        if own and not managed_url and not store and not await source.project_exists():
-            return part(False, f"No project {own.project!r}", **empty)
         found = await recent_sessions(source, attribute, CHECK_SESSIONS, CHECK_PAGES)
     except httpx.HTTPStatusError as exc:
         return part(False, f"Phoenix answered {exc.response.status_code}", **empty)
@@ -333,23 +323,16 @@ def _code(code: CodeConfig | None) -> dict[str, Any]:
     return part(True, f"{matched} files", files_matched=matched)
 
 
-async def check(
-    conf: TargetConfig,
-    overlay: dict[str, str],
-    managed_url: str | None = None,
-    store: SpanStore | None = None,
-) -> dict[str, Any]:
-    """Each part of *conf*, tried: secrets from *overlay* (a form not saved yet) first.
-    *managed_url* is evalution's own Phoenix when it runs one; *store* the built-in source."""
+async def check(conf: TargetConfig, overlay: dict[str, str], store: SpanStore) -> dict[str, Any]:
+    """Each part of *conf*, tried: secrets from *overlay* (a form not saved yet) first; its
+    traces in *store*, the workspace's spans."""
 
     def lookup(ref: Any) -> str | None:
         return overlay.get(ref) or conf.keys.get(ref) if isinstance(ref, str) else None
 
     adapter, phoenix = await asyncio.gather(
         asyncio.wait_for(_adapter(conf, lookup), CHECK_SECONDS * 2),
-        asyncio.wait_for(
-            _phoenix(conf, conf.trace_attribute, lookup, managed_url, store), CHECK_SECONDS * 3
-        ),
+        asyncio.wait_for(_phoenix(conf, conf.trace_attribute, lookup, store), CHECK_SECONDS * 3),
         return_exceptions=True,
     )
     if isinstance(adapter, BaseException):

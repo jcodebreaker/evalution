@@ -428,7 +428,7 @@ def _no_detection(folder: Folder) -> Detection | None:
     return None
 
 
-def _no_trace_setup(url: str, builtin: bool) -> dict[str, Any] | None:
+def _no_trace_setup(url: str) -> dict[str, Any] | None:
     return None
 
 
@@ -444,7 +444,7 @@ class AdapterInfo:
     :param check: ``(client, target block, lookup)``: tries the app without playing anything, and
         says how as a :func:`part`. ``lookup`` turns a secret's name into its value.
     :param detect: Whether a project folder is this kind of app, and what that tells.
-    :param trace_setup: ``(url, builtin)``: how to point this app at evalution's own traces
+    :param trace_setup: ``(url)``: how to point this app at evalution's own traces
         (``traced``, ``text``, ``lines``, ``command``), when it isn't what its code shows.
     :param own_traffic: How its eval traffic shows in traces.
     :param rank: Detectors with a higher rank go first: a fingerprint before a mention in a package
@@ -470,7 +470,7 @@ class AdapterInfo:
         Awaitable[dict[str, Any]],
     ]
     detect: Callable[[Folder], Detection | None] = _no_detection
-    trace_setup: Callable[[str, bool], dict[str, Any] | None] = _no_trace_setup
+    trace_setup: Callable[[str], dict[str, Any] | None] = _no_trace_setup
     own_traffic: OwnTraffic = OwnTraffic()
     rank: int = 0
     refused: str = "The app refused the request."

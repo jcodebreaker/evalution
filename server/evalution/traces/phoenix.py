@@ -18,7 +18,7 @@ the session on the root, not always on children).
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -63,19 +63,15 @@ def span_of(row: Mapping[str, Any]) -> Span:
 
 
 class Phoenix(SpanReader):
-    """One target's Phoenix project, and the *also* sources read with it (evalution's own
-    Phoenix reads a target's project, the default project and the app's own Phoenix). A missing
-    project reads as empty."""
+    """One project of an app's own Phoenix. A missing project reads as empty."""
 
     def __init__(
         self,
         conf: PhoenixConfig,
         transport: httpx.AsyncBaseTransport | None = None,
         api_key: str | None = None,
-        also: Sequence[SpanReader] = (),
     ):
         self.conf = conf
-        self.also = list(also)
         key = api_key or conf.keys.get(conf.api_key_env)
         self._client = net.client(
             base_url=conf.url,

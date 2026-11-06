@@ -19,7 +19,7 @@ export type Form = {
   options: Record<string, string>;
   /** Its secrets, by name, or the http adapter's `authorization`: empty keeps what is saved. */
   secrets: Record<string, string>;
-  /** Read the app's own Phoenix too (always, when evalution runs no Phoenix of its own). */
+  /** Read the app's own Phoenix too. */
   ownPhoenix: boolean;
   phoenixUrl: string;
   project: string;
@@ -41,7 +41,7 @@ export const BLANK: Form = {
   until: "",
   options: {},
   secrets: {},
-  ownPhoenix: true,
+  ownPhoenix: false,
   phoenixUrl: "http://127.0.0.1:6006",
   project: "default",
   phoenixKey: "",
@@ -97,11 +97,7 @@ export function formOf(target: TargetDetail): Form {
 }
 
 /** The body the server takes, or the reason the form can't be sent yet. */
-export function bodyOf(
-  form: Form,
-  keep: Record<string, unknown>,
-  managed: boolean,
-): TargetBody | string {
+export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | string {
   let options: Record<string, unknown>;
   const secrets: Record<string, string> = {};
   for (const [key, value] of Object.entries(form.secrets)) {
@@ -128,7 +124,7 @@ export function bodyOf(
     options = { ...keep };
     for (const [key, value] of Object.entries(form.options)) options[key] = value.trim();
   }
-  const own = form.ownPhoenix || !managed;
+  const own = form.ownPhoenix;
   if (form.phoenixKey && own) secrets.phoenix_api_key = form.phoenixKey;
   const ignore = form.ignore
     .split(",")
