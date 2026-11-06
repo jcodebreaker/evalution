@@ -31,6 +31,8 @@ DIFF_CONTEXT = 10
 DIFFS_KEPT = 8
 #: Files one diff names, and how much of a new file it shows.
 DIFF_FILES = 500
+#: What :meth:`Code.diff` says when no watched file changed: not a diff to read.
+NOTHING_CHANGED = "(no watched file changed)"
 NEW_FILE_CAP = 4_000
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
 #: Folders that hold no source: output and copies of what others wrote.
@@ -401,7 +403,7 @@ class Code:
 
         tracked, untracked = watched(names), watched(new)
         if not tracked and not untracked:
-            return "(no watched file changed)"
+            return NOTHING_CHANGED
         head = self.commit()
         if head and self.clean():
             # Nothing uncommitted: this is the diff between two commits, made once for both.

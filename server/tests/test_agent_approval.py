@@ -8,6 +8,7 @@ import httpx
 import pytest
 import yaml
 
+from evalution import code as code_module
 from evalution import llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
@@ -626,3 +627,19 @@ async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:
     script += ["Nothing to save."]
     await _learn(agent, opened["id"])
     assert sent["writer"] and "cache_control" not in json.dumps(sent["writer"])
+
+
+def test_a_change_with_no_diff_is_given_by_its_text(tmp_path) -> None:
+    """A file moved by its fingerprint alone (no diff since the commit) is shown as it is now,
+    not as the diff's "nothing changed"."""
+    (tmp_path / "prompt.py").write_text("RULE = 'never notify'\n")
+
+    class NoDiff:
+        def diff(self, since, only):
+            return code_module.NOTHING_CHANGED
+
+        def read(self, path):
+            return (tmp_path / path).read_text()
+
+    given = learn._changes_text(NoDiff(), "abc1234", ["prompt.py"])  # type: ignore[arg-type]
+    assert "never notify" in given and code_module.NOTHING_CHANGED not in given

@@ -30,7 +30,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from evalution.code import Code, CodeError
+from evalution.code import NOTHING_CHANGED, Code, CodeError
 from evalution.llm import fenced
 from evalution.project import drift, filememory, knowledge, understanding
 from evalution.project.profile import FINGERPRINT_DOC, read_doc
@@ -138,6 +138,8 @@ def _changes_text(code: Code, since: str | None, paths: list[str]) -> str:
         try:
             text = code.diff(since, set(paths))
         except CodeError:
+            text = ""
+        if text == NOTHING_CHANGED:  # moved by fingerprint alone: its text is what's new
             text = ""
     if not text:
         for path in paths:
