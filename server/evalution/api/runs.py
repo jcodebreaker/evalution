@@ -105,7 +105,8 @@ def runs_router() -> APIRouter:
         targets, runs = ws.targets, ws.runs
         body = await read_body(request, UPLOAD_BYTES)
         try:
-            doc, kept = read_upload(body)
+            # Every view of every case is read once to check it: off the event loop.
+            doc, kept = await asyncio.to_thread(read_upload, body)
         except UploadError as exc:
             raise invalid(str(exc)) from exc
         try:
