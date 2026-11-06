@@ -3,11 +3,18 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
-import type { Environment, RunSummary } from "../../lib/schema";
-import { RunSummarySchema } from "../../lib/schema";
+import type { Environment, LineAgreement, PlanStep, RunSummary } from "../../lib/schema";
+import {
+  ExplainSchema,
+  LineAgreementSchema,
+  PlanStepSchema,
+  RunSummarySchema,
+} from "../../lib/schema";
 import { RunsView } from "../runs/RunsView";
 import { Root } from "../shell/Root";
 import { Sidebar } from "../shell/Sidebar";
+import { HowDecided } from "../test/HowDecided";
+import { Steps } from "../test/Steps";
 import type { Account } from "./account";
 import { WorkspaceSettings } from "./WorkspaceSettings";
 
@@ -224,5 +231,78 @@ describe("runs from more than one place", () => {
     view([run("r2", 2), run("r1", 1)]);
     expect(screen.queryAllByRole("heading", { level: 2 })).toEqual([]);
     expect(screen.getByText("r1")).toBeTruthy();
+  });
+});
+
+describe("agreeing with the grader on a rubric line", () => {
+  const LINE = "Greets back by name";
+  const reply: PlanStep = PlanStepSchema.parse({
+    kind: "reply",
+    items: [
+      {
+        id: "rubric-0",
+        text: LINE,
+        mode: "must",
+        judged: "graded",
+        actual: { passed: true, text: "It did" },
+      },
+    ],
+  });
+  const said = (fields: Partial<LineAgreement>) =>
+    LineAgreementSchema.parse({ agreed: 0, labelled: 0, unreliable: false, can: true, ...fields });
+
+  function lines(agreement: LineAgreement, onLabel = vi.fn()) {
+    render(
+      <Steps
+        steps={[reply]}
+        names={{}}
+        appName="the app"
+        result
+        agreement={{ "rubric-0": agreement }}
+        onLabel={onLabel}
+      />,
+    );
+    return onLabel;
+  }
+
+  it("takes one key on the focused line, or a button, and a second press clears it", () => {
+    const onLabel = lines(said({ agreed: 1, labelled: 2, mine: false }));
+    const line = screen.getByRole("group", { name: LINE });
+    fireEvent.keyDown(line, { key: "a" });
+    expect(onLabel).toHaveBeenLastCalledWith("rubric-0", true);
+    fireEvent.keyDown(line, { key: "d" });
+    expect(onLabel).toHaveBeenLastCalledWith("rubric-0", null);
+    fireEvent.click(screen.getByRole("button", { name: "Agree" }));
+    expect(onLabel).toHaveBeenLastCalledWith("rubric-0", true);
+    expect(screen.getByRole("button", { name: "Disagree" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(screen.getByText("1/2")).toBeTruthy();
+  });
+
+  it("marks a line the grader is unreliable on, and says so where the try was decided", () => {
+    lines(said({ agreed: 1, labelled: 4, unreliable: true }));
+    expect(screen.getByText("1/4 · grader unreliable here")).toBeTruthy();
+    const explain = ExplainSchema.parse({
+      code: { held: 0, total: 0, checks: [] },
+      model: { held: 0, total: 1, unjudged: 0, summary: null, reference: null, cut: 0 },
+      judge: null,
+      rules: 2,
+      rules_from: null,
+    });
+    render(<HowDecided explain={explain} doubts={[{ line: 1, disagreed: 3, labelled: 4 }]} />);
+    expect(screen.getByText("Line 1: you disagreed 3 of 4 times")).toBeTruthy();
+  });
+
+  it("sends the answer for the try's line, and clears it", async () => {
+    const answer = { body: { agreed: 0, labelled: 1, unreliable: false, mine: false, can: true } };
+    const path = "/v1/evals/runs/r1/cases/greets/tries/2/rubric/0/label";
+    serve({ [`PUT ${path}`]: answer, [`DELETE ${path}`]: answer });
+    expect((await api.label("r1", "greets", 2, 0, false)).labelled).toBe(1);
+    await api.label("r1", "greets", 2, 0, null);
+    expect(calls.map((call) => [call.method, call.path, call.body])).toEqual([
+      ["PUT", path, { agree: false }],
+      ["DELETE", path, undefined],
+    ]);
   });
 });

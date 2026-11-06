@@ -1,6 +1,6 @@
 import { Paperclip } from "lucide-react";
 import { count } from "../../lib/format";
-import type { PlanStep } from "../../lib/schema";
+import type { LineAgreement, PlanStep } from "../../lib/schema";
 import { Check } from "./Check";
 import { Outcome } from "./Outcome";
 
@@ -9,11 +9,16 @@ export function StepBody({
   names,
   result,
   onSpan,
+  agreement,
+  onLabel,
 }: {
   step: PlanStep;
   names: Record<string, string>;
   result: boolean;
   onSpan?: (span: string) => void;
+  /** By rubric item id. */
+  agreement?: Record<string, LineAgreement>;
+  onLabel?: (item: string, agree: boolean | null) => void;
 }) {
   const files = step.kind === "before" || !result ? step.files : [];
   // Once run, a titled turn speaks through its title and outcome.
@@ -61,7 +66,15 @@ export function StepBody({
       {step.items.length ? (
         <div className="group-card">
           {step.items.map((item) => (
-            <Check key={item.id} item={item} names={names} result={result} onSpan={onSpan} />
+            <Check
+              key={item.id}
+              item={item}
+              names={names}
+              result={result}
+              onSpan={onSpan}
+              agreement={agreement?.[item.id]}
+              onLabel={onLabel ? (agree) => onLabel(item.id, agree) : undefined}
+            />
           ))}
         </div>
       ) : null}

@@ -24,16 +24,19 @@ from evalution.core.rules import (
     change_of,
     comparable,
     could_be_chance,
+    distrusted,
     first_reason,
     judge_try,
     judgement,
     label_of,
+    line_key,
     line_outcome,
     route_of,
     rubric_outcome,
     tools_bind,
     verdict,
 )
+from evalution.judging.agreement import Agreement, agreement, unreliable_lines
 from evalution.runs.sampling import one_more
 
 P, F, U = Outcome.PASSED, Outcome.FAILED, Outcome.UNJUDGED
@@ -106,6 +109,7 @@ TIMED = _code(F, CheckKind.TIMEOUT, "timed out: the turn did not finish in time"
         ([_no(WhyUnjudged.LEFTOVER_STATE)], "Setup blocked"),
         ([_no(WhyUnjudged.JUDGE_FAILED)], "Grader unavailable"),
         ([_no(WhyUnjudged.JUDGE_UNSURE)], "Grader unavailable"),
+        ([_no(WhyUnjudged.GRADER_UNRELIABLE)], "Grader unreliable"),
         ([_no(WhyUnjudged.NO_TRACES)], "Missing evidence"),
         ([_no(WhyUnjudged.PARTIAL_TRACE)], "Missing evidence"),
         ([_no(WhyUnjudged.NO_TRACE_SOURCE)], "Missing evidence"),
@@ -251,6 +255,46 @@ def test_one_rubric_line(first, second, want) -> None:
 )
 def test_some_lines_of_a_rubric(lines, need, want) -> None:
     assert rubric_outcome(lines, need) is want
+
+
+def _line(i: int, outcome: Outcome, why: str, role: Role = Role.MUST) -> CheckResult:
+    return CheckResult(
+        id=f"rubric:{i}", kind=CheckKind.RUBRIC, decided_by=Decider.MODEL, role=role,
+        outcome=outcome, why=why,
+    )  # fmt: skip
+
+
+def test_a_pass_on_a_line_a_person_finds_the_grader_unreliable_on_is_not_earned() -> None:
+    def said(holds: bool, graded: bool) -> dict:
+        return {"case": "t", "line": line_key("Cites"), "holds": holds, "graded": graded}
+
+    # Agreement: of the labelled tries, how often the grader matched the person.
+    two_of_three = [said(True, True), said(True, True), said(False, True)]
+    assert agreement(two_of_three) == Agreement(2, 3) and not Agreement(2, 3).unreliable
+    assert Agreement(1, 2).unreliable is False, "too few labels to call it"
+    assert Agreement(1, 3).unreliable and Agreement(2, 4).unreliable
+    assert unreliable_lines([*two_of_three, said(False, True)]) == {"t": {line_key("Cites")}}
+
+    # A line is known by its words, spacing and case aside, wherever it sits.
+    assert line_key(" cites  ") == line_key("Cites") != line_key("Quotes")
+    bad = {line_key("Cites")}
+    found = judgement([_line(0, P, "Quotes"), _line(1, P, "Cites")], None, Route.UNKNOWN)
+    held = distrusted(found, bad, None)
+    assert held is not None and held.outcome is U and label_of([held]) == "Grader unreliable"
+    assert held.checks[1].unjudged is WhyUnjudged.GRADER_UNRELIABLE
+    assert distrusted(held, bad, None) is None, "read again, it reads the same"
+    back = distrusted(held, set(), None)
+    assert back is not None and back.outcome is P, "trusted again, the pass is given back"
+    # A fail stands: a real failure beats a doubtful grader.
+    assert distrusted(judgement([_line(0, F, "Cites")], None, Route.UNKNOWN), bad, None) is None
+    # One of two lines needed: the check over them is worked out again.
+    whole = CheckResult(
+        id="rubric", kind=CheckKind.RUBRIC, decided_by=Decider.MODEL, role=Role.MUST,
+        outcome=P, why="1 of 2 lines held, 1 needed",
+    )  # fmt: skip
+    some = [whole, _line(0, F, "Quotes", Role.GUIDE), _line(1, P, "Cites", Role.GUIDE)]
+    held = distrusted(judgement(some, None, Route.UNKNOWN), bad, 1)
+    assert held is not None and held.checks[0].unjudged is WhyUnjudged.GRADER_UNRELIABLE
 
 
 def test_the_first_reason_is_a_failure_before_a_gap() -> None:

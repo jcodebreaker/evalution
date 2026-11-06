@@ -56,6 +56,7 @@ You could argue with our answers on these, since the two tool cases give the jud
 - A **pass** held up on these cases, but they aren't your agent.
 - The same line can get different verdicts on different tries, as the Lisbon line did. That's why a test runs more than once.
 - Anything you can state exactly belongs in a code check, which doesn't vary.
+- To see how it does on *your* agent, agree or disagree with it on the test page. A line it gets wrong too often stops earning passes ([how](judging.md#when-a-person-disagrees)).
 
 ## What this doesn't show
 

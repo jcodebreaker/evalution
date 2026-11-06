@@ -688,6 +688,19 @@ export const ToolRowSchema = z.object({
 });
 export type ToolRow = z.infer<typeof ToolRowSchema>;
 
+/** How often the grader matched a person on a rubric line, and their answer on the try shown. */
+export const LineAgreementSchema = z.object({
+  agreed: z.number(),
+  labelled: z.number(),
+  /** Too few agreed: the grader's passes on this line don't count. */
+  unreliable: z.boolean(),
+  /** They agree with what the grader says on this try; `null`: no answer. */
+  mine: z.boolean().nullable().default(null),
+  /** The grader decided the line on this try, so it can be answered. */
+  can: z.boolean().default(false),
+});
+export type LineAgreement = z.infer<typeof LineAgreementSchema>;
+
 /** The plan with one try of a run laid over it. */
 const ComparedSideSchema = z
   .object({ verdict: z.string(), passed: z.number(), judged: z.number() })
@@ -747,6 +760,8 @@ export const CompareSchema = TestPlanSchema.extend({
   /** What's missing of the try's traces, when any is. */
   trace_note: z.string().nullable().default(null),
   explain: ExplainSchema.optional(),
+  /** By rubric item id (`rubric-0`). */
+  agreement: z.record(z.string(), LineAgreementSchema).default({}),
   tool_rows: z.array(ToolRowSchema).default([]),
   trajectory: z
     .object({

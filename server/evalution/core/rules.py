@@ -4,7 +4,8 @@ checked. Pure functions over the types of :mod:`evalution.core.judgement`: no mo
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+import hashlib
+from collections.abc import Iterable, Mapping, Sequence, Set
 from math import comb
 from typing import Any
 
@@ -61,6 +62,7 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
+    WhyUnjudged.GRADER_UNRELIABLE: Label.GRADER_UNRELIABLE,
     WhyUnjudged.NO_TRACE_SOURCE: Label.MISSING_EVIDENCE,
     WhyUnjudged.NO_TRACES: Label.MISSING_EVIDENCE,
     WhyUnjudged.PARTIAL_TRACE: Label.MISSING_EVIDENCE,
@@ -76,6 +78,7 @@ _LABEL_ORDER = (
     Label.SETUP_BLOCKED,
     Label.MISSING_EVIDENCE,
     Label.GRADER_UNAVAILABLE,
+    Label.GRADER_UNRELIABLE,
 )
 #: How a turn check stored before :attr:`CheckKind.TIMEOUT` said it ran out of time.
 _OLD_TIMEOUT_WORDS = ("not done after", "did not finish in time", "not done in time")
@@ -248,6 +251,59 @@ def rubric_outcome(lines: Sequence[Outcome], need: int) -> Outcome:
     if held >= need:
         return Outcome.PASSED
     return Outcome.UNJUDGED if held + lines.count(Outcome.UNJUDGED) >= need else Outcome.FAILED
+
+
+def line_key(text: str) -> str:
+    """A rubric line's identity across runs and regrades. A line has no id of its own (its check's
+    ``rubric:N`` is only where it sits, which an edit moves), so it is the hash of its words,
+    spacing and case aside: a line reworded is another line."""
+    return hashlib.sha256(" ".join(text.split()).casefold().encode()).hexdigest()[:16]
+
+
+def _is_line(check: CheckResult) -> bool:
+    return check.kind is CheckKind.RUBRIC and check.id != "rubric"
+
+
+def _trusted(check: CheckResult, unreliable: Set[str]) -> CheckResult:
+    """A rubric line's pass taken as earned or not: unjudged while its key is in *unreliable*, and
+    a pass again once it no longer is. Only a pass is held back: a fail stands, a real failure
+    beating a doubtful grader as it beats a missing one."""
+    if not _is_line(check):
+        return check
+    doubted = line_key(check.why) in unreliable
+    if doubted and check.outcome is Outcome.PASSED:
+        return check.model_copy(
+            update={"outcome": Outcome.UNJUDGED, "unjudged": WhyUnjudged.GRADER_UNRELIABLE}
+        )
+    if not doubted and check.unjudged is WhyUnjudged.GRADER_UNRELIABLE:
+        return check.model_copy(update={"outcome": Outcome.PASSED, "unjudged": None})
+    return check
+
+
+def distrusted(found: Judgement, unreliable: Set[str], need: int | None) -> Judgement | None:
+    """*found* read again with the rubric lines (by :func:`line_key`) whose grader a person
+    disagrees with too often: their passes are unjudged, ``grader_unreliable``. *need* is how many
+    lines the test needs, when not all: its one check over them is worked out again. ``None`` when
+    it reads the same."""
+    checks = [_trusted(c, unreliable) for c in found.checks]
+    if checks == list(found.checks):
+        return None
+    lines = [c.outcome for c in checks if _is_line(c)]
+    doubted = any(c.unjudged is WhyUnjudged.GRADER_UNRELIABLE for c in checks if _is_line(c))
+    for i, check in enumerate(checks):
+        if check.id == "rubric" and need is not None:
+            outcome = rubric_outcome(lines, need)
+            why = WhyUnjudged.GRADER_UNRELIABLE if doubted else WhyUnjudged.JUDGE_UNSURE
+            held = lines.count(Outcome.PASSED)
+            checks[i] = check.model_copy(
+                update={
+                    "outcome": outcome,
+                    "unjudged": why if outcome is Outcome.UNJUDGED else None,
+                    "why": f"{held} of {len(lines)} lines held, {need} needed",
+                }
+            )
+    was = found.rules_from if found.rules_from is not None else found.rules
+    return judgement(checks, found.judge, found.route, None if was == RULES_VERSION else was)
 
 
 def first_reason(found: Judgement) -> str | None:
