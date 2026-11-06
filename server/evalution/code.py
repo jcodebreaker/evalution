@@ -244,14 +244,15 @@ class Code:
     def state(self) -> dict[str, Any]:
         """The code as it stands: its last commit, its files' hashes, and what was watched
         (``watch``), since hash maps taken under other rules do not compare."""
+        return {"commit": self.commit(), "files": self.hashes(), "watch": self.watch()}
+
+    def watch(self) -> str:
+        """Short hash of the rules that say which files are watched: the same files under the same
+        rules, or not comparable."""
         rules = "\n".join([_WATCH_RULES, *sorted(self.ignore)])
         if self.include:
             rules += "\ninclude\n" + "\n".join(sorted(self.include))
-        return {
-            "commit": self.commit(),
-            "files": self.hashes(),
-            "watch": hashlib.sha256(rules.encode()).hexdigest()[:8],
-        }
+        return hashlib.sha256(rules.encode()).hexdigest()[:8]
 
     def _git(self, *args: str) -> str | None:
         try:

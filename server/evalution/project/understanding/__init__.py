@@ -31,6 +31,7 @@ from evalution.project.understanding.document import (
     SECTION_IDS,
     check,
     clean_text,
+    patched,
     read_evidence,
 )
 from evalution.project.understanding.rendering import card_md, render_profile
@@ -58,6 +59,7 @@ __all__ = [
     "load",
     "marks",
     "overlay",
+    "patched",
     "paths",
     "read_evidence",
     "render_profile",

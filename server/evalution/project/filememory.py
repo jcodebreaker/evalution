@@ -107,6 +107,11 @@ def changes(memory: Mapping[str, Any], files: Mapping[str, str]) -> Changes:
     )
 
 
+def summaries(memory: Mapping[str, Any]) -> dict[str, str]:
+    """``path -> summary`` of what *memory* holds."""
+    return {p: str(e.get("summary") or "") for p, e in (memory.get("summaries") or {}).items()}
+
+
 def unsummarized(memory: Mapping[str, Any], files: Mapping[str, str]) -> list[str]:
     """The files with no summary for their fingerprint now."""
     kept = memory.get("summaries") or {}
@@ -126,16 +131,20 @@ def learned(targets: Targets, name: str, code: Code) -> None:
                 "files": code.hashes(),
                 "commit": code.commit(),
                 "clean": code.clean(),
+                "watch": code.watch(),
                 "learned_at": time.time(),
             },
         )
 
 
 def unmoved(memory: Mapping[str, Any], code: Code) -> bool:
-    """Whether the code is surely what the last learn saw, from git alone: the same commit, and
-    no watched file changed outside it, then or now. ``False`` says only: hash to know."""
+    """Whether the code is surely what the last learn saw, from git alone: the same rules for what
+    is watched, the same commit, and no watched file changed outside it, then or now. A real edit
+    either dirties the tree or makes a commit, so it never passes. ``False`` says only: hash to
+    know."""
     commit = memory.get("commit")
-    return bool(commit and memory.get("clean") and code.commit() == commit and code.clean())
+    same = memory.get("watch") == code.watch() and memory.get("clean")
+    return bool(commit and same and code.commit() == commit and code.clean())
 
 
 # Summarizing
@@ -282,32 +291,53 @@ def brief(memory: Mapping[str, Any], files: Mapping[str, str], found: Changes) -
 
 # What the understanding leaves out
 
-#: The labelled parts of a summary that name things an understanding should mention.
+#: The labelled parts of a summary that name what an understanding should mention.
 _NAMED_PARTS = re.compile(
-    r"(Prompts/rules|Defines|State):(.*?)(?=\b(?:Is|Prompts/rules|Defines|State|Test):|$)", re.S
+    r"(Prompts/rules|Defines):(.*?)(?=\b(?:Is|Prompts/rules|Defines|State|Test):|$)", re.S
 )
 #: A name as code writes it: ``snake_case``, ``camelCase``, ``CONSTANT``, or called ``name()``.
 _CODE_NAME = re.compile(
     r"`([^`]{3,60})`|\b([A-Za-z]\w*(?:_\w+|[a-z][A-Z]\w*)|[A-Z][A-Z0-9_]{3,}|\w{3,}(?=\(\)))"
 )
+#: Names that say nothing of the app: HTTP verbs, date patterns, the usual files of a repository.
+_GENERIC = re.compile(
+    r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|Y{2,4}(-?MM(-?DD)?)?|README|LICENSE|CHANGELOG|"
+    r"CONTRIBUTING|TODO|NOTE)$|\.\w{1,5}$|^\d",
+    re.IGNORECASE,
+)
+#: Files whose summaries name nothing to check for: prose, not code.
+_PROSE = re.compile(r"(^|/)(docs?|adr)/|\.(md|mdx|rst|txt|adoc)$", re.IGNORECASE)
 #: How many names one reminder carries.
-NAMES_SENT = 60
+NAMES_SENT = 25
 
 
-def uncovered(memory: Mapping[str, Any], understood: Mapping[str, Any]) -> dict[str, list[str]]:
-    """``path -> names``: the prompts, definitions and state the summaries name that the
-    understanding never mentions, matched by name, ignoring case. Free, and rough: it only reminds
-    the writer once, which may say why a name does not belong."""
+def _named(summary: str) -> list[str]:
+    """The names a summary's Prompts/rules and Defines parts give, generic ones left out."""
+    out = []
+    for _label, part in _NAMED_PARTS.findall(summary):
+        for quoted, bare in _CODE_NAME.findall(part):
+            found = (quoted or bare).strip()
+            acronym = found.isupper() and len(found) <= 4
+            if found and not acronym and not _GENERIC.search(found) and found not in out:
+                out.append(found)
+    return out
+
+
+def uncovered(
+    memory: Mapping[str, Any], understood: Mapping[str, Any], only: Iterable[str] | None = None
+) -> dict[str, list[str]]:
+    """``path -> names``: the prompts and definitions the summaries of code files (of the files
+    *only*, when given) name that the understanding never mentions, matched by name, ignoring
+    case. Free, and rough: it only reminds the writer once, which may say why a name does not
+    belong."""
     said = json.dumps(understood, ensure_ascii=False).casefold()
+    wanted = None if only is None else set(only)
     out: dict[str, list[str]] = {}
     count = 0
     for path, entry in sorted((memory.get("summaries") or {}).items()):
-        names = []
-        for _label, part in _NAMED_PARTS.findall(str(entry.get("summary") or "")):
-            for quoted, bare in _CODE_NAME.findall(part):
-                found = (quoted or bare).strip()
-                if found and found.casefold() not in said and found not in names:
-                    names.append(found)
+        if _PROSE.search(path) or (wanted is not None and path not in wanted):
+            continue
+        names = [n for n in _named(str(entry.get("summary") or "")) if n.casefold() not in said]
         names = names[: max(0, NAMES_SENT - count)]
         if names:
             out[path] = names

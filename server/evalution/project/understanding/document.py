@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
@@ -177,3 +178,46 @@ def check(
         "step_labels": step_labels,
         "expected_paths": expected,
     }, problems
+
+
+def patched(doc: Mapping[str, Any], edit: Mapping[str, Any]) -> dict[str, Any]:
+    """*doc* with *edit* laid over it, the rest exactly as it was: ``nodes`` and ``claims``
+    (each with its ``section``) replace the one with their id where it stands, or are added;
+    ``remove`` (``claim:<id>``, ``node:<id>``) leaves those out; ``one_line`` replaces it. What
+    comes out goes through :func:`check` like any write.
+
+    :raises ValueError: A claim for a section the understanding does not have.
+    """
+    out = copy.deepcopy(dict(doc))
+    gone = {str(r) for r in edit.get("remove") or []}
+    if clean_text(edit.get("one_line")):
+        out["one_line"] = edit["one_line"]
+    nodes = [n for n in out.get("nodes") or [] if f"node:{n.get('id')}" not in gone]
+    for node in edit.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        at = next((i for i, n in enumerate(nodes) if n.get("id") == node.get("id")), None)
+        if at is None:
+            nodes.append(node)
+        else:
+            nodes[at] = node
+    out["nodes"] = nodes
+    sections = out.get("sections") or []
+    for section in sections:
+        section["claims"] = [c for c in section["claims"] if f"claim:{c.get('id')}" not in gone]
+    for n, claim in enumerate(edit.get("claims") or []):
+        if not isinstance(claim, dict):
+            continue
+        body = {k: v for k, v in claim.items() if k != "section"}
+        placed = False
+        for section in sections:
+            for i, old in enumerate(section["claims"]):
+                if old.get("id") == body.get("id"):
+                    section["claims"][i], placed = body, True
+        if placed:
+            continue
+        home = next((s for s in sections if s.get("id") == claim.get("section")), None)
+        if home is None:
+            raise ValueError(f"claims[{n}].section: one of {', '.join(s['id'] for s in sections)}")
+        home["claims"].append(body)
+    return out

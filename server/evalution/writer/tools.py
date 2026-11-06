@@ -60,6 +60,8 @@ class AgentTurn:
     #: It saved an understanding; a learn's reminder of what that left out was given.
     understood: bool = False
     reminded: bool = False
+    #: In a learn of a small change, the files that moved: the understanding is patched.
+    patch: list[str] | None = None
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -98,6 +100,7 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "read_profile": "Reading the profile",
         "read_understanding": "Reading what I understood",
         "write_understanding": "Saving what I understood",
+        "patch_understanding": "Saving what I understood",
         "read_trace_digest": "Reading recent traces",
         "list_code": "Looking at the code",
         "read_code": f"Reading {args.get('path')}",
@@ -431,6 +434,13 @@ class Tools:
             "Now say one line to the admin and end your turn."
         )
 
+    async def patch_understanding(self, turn: AgentTurn, args: dict) -> Any:
+        """A few parts changed, the rest as saved: one save like write_understanding's."""
+        before = await asyncio.to_thread(understanding.written, self.targets, self._target(turn))
+        if before is None:
+            return "Refused: nothing is saved yet. Write it whole with write_understanding."
+        return await self.write_understanding(turn, understanding.patched(before, args))
+
     async def read_trace_digest(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
         source = self.targets.source(target)
@@ -688,6 +698,7 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "read_profile": Tools.read_profile,
     "read_understanding": Tools.read_understanding,
     "write_understanding": Tools.write_understanding,
+    "patch_understanding": Tools.patch_understanding,
     "read_trace": Tools.read_trace,
     "read_trace_digest": Tools.read_trace_digest,
     "list_code": Tools.list_code,

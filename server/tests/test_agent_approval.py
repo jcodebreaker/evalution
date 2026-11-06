@@ -12,7 +12,7 @@ from evalution import llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
-from evalution.project import filememory
+from evalution.project import drift, filememory, understanding
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -377,7 +377,12 @@ UNDERSTOOD = {
                     "id": "greets",
                     "text": "It greets.",
                     "evidence": [{"kind": "code", "ref": "app.py"}],
-                }
+                },
+                {
+                    "id": "keeps",
+                    "text": "It keeps a store.",
+                    "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
+                },
             ],
         }
     ],
@@ -502,26 +507,35 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert usage["learn"] and usage["calls"] == 4 and usage["light_calls"] == 1
     assert usage["cache_read"] == 400 and usage["chars_in"] > len(said)
 
-    # Nothing moved: the commit and a clean tree say so, with no file hashed and no model.
-    def no_hashing(_self):
-        raise AssertionError("hashed")
+    # Nothing moved: the drift check, the commit and a clean tree say so, with no file hashed,
+    # no session read and no model.
+    def never(*_args, **_kwargs):
+        raise AssertionError("read")
 
-    monkeypatch.setattr(Code, "hashes", no_hashing)
+    monkeypatch.setattr(Code, "hashes", never)
+    monkeypatch.setattr(drift, "take", never)
     shown = await _learn(agent, sid)
     monkeypatch.undo()
     commit = targets.code("bot").commit()
     assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
     assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 3
 
-    # One file changed: it alone is summarized again and named; a second read of it is not resent.
+    # One file changed: it alone is summarized again, and given then and now with what cites it;
+    # the writer edits that part alone, and a second read of the file is not resent.
+    kept = understanding.load(targets, "bot")
     (repo / "lib/memory.py").write_text("STORE = {'kept': True}\n")
     _git(repo, "commit", "-qam", "keep")
+    keeps = {
+        "section": "can_do",
+        "id": "keeps",
+        "text": "It keeps what it was told.",
+        "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
+    }
     script += [
         ("read_code", {"path": "lib/memory.py"}),
         ("read_code", {"path": "lib/memory.py"}),
-        ("write_understanding", UNDERSTOOD),
+        ("patch_understanding", {"claims": [keeps]}),
         "Learned again.",
-        "Still covered.",
     ]
     shown = await _learn(agent, sid)
     assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
@@ -530,19 +544,58 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     started = sent["writer"][3]["messages"]
     assert len(started) == 1 and "Learned." not in json.dumps(started)
     said = started[0]["content"][-1]["text"]
-    assert '"changed": ["lib/memory.py"]' in said and "It greets." in said
+    assert learn.PATCH in said and "claim:keeps: lib/memory.py" in said
+    assert "lib/memory.py (changed)" in said and "every watched file" not in said
     results = [
         b["content"]
         for b in sent["writer"][5]["messages"][-1]["content"]
         if b["type"] == "tool_result"
     ]
     assert results[-1].startswith("lib/memory.py is unchanged since you read it at step")
+    assert len(sent["writer"]) == 7, "no reminder: the changed file names nothing left out"
     assert shown["usage"][-1]["light_calls"] == 1
+    patched = understanding.load(targets, "bot")
+    assert patched["version"] == kept["version"] + 1
+    claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
+    assert claims["keeps"]["text"] == "It keeps what it was told."
+    assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
+    assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
     assert filememory.load(targets, "bot")["files"] == targets.code("bot").hashes()
     # The thread keeps what was asked and said, and none of a brief.
     thread = (await agent._session(sid))["history"]
     assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
-    assert thread[-1]["content"] == "Learned again.\nStill covered."
+    assert thread[-1]["content"] == "Learned again."
+
+    # Past the threshold, the understanding is written again from every summary.
+    monkeypatch.setattr(learn, "PATCH_FILES", 0)
+    monkeypatch.setattr(learn, "PATCH_SHARE", 0.0)
+    (repo / "app.py").write_text("def greet(): return 'hi'\n")
+    _git(repo, "commit", "-qam", "hi")
+    script += [("write_understanding", UNDERSTOOD), "Learned.", "Covered."]
+    await _learn(agent, sid)
+    said = sent["writer"][7]["messages"][0]["content"][-1]["text"]
+    assert said.startswith("Learn bot again.\n\n" + learn.AGAIN) and "every watched file" in said
+
+
+def test_the_reminder_names_only_code_definitions() -> None:
+    memory = {
+        "summaries": {
+            "docs/adr/0001-store.md": {"summary": "Defines: `ENV_FLAG`, table_field."},
+            "app.py": {
+                "summary": "Is: the app. Defines: `greet_people`, POST, YYYY-MM-DD, README, "
+                "README.md, API, run_agent(), greets. State: `memory_store`."
+            },
+            "lib/tools.py": {"summary": "Prompts/rules: `SYSTEM_PROMPT` says be brief."},
+        }
+    }
+    understood = {"claims": ["It greets people."]}
+    assert filememory.uncovered(memory, understood) == {
+        "app.py": ["greet_people", "run_agent"],
+        "lib/tools.py": ["SYSTEM_PROMPT"],
+    }
+    assert filememory.uncovered(memory, understood, ["lib/tools.py"]) == {
+        "lib/tools.py": ["SYSTEM_PROMPT"]
+    }
 
 
 async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> None:

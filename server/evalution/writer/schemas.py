@@ -91,6 +91,23 @@ _EVIDENCE = {
         "required": ["kind", "ref"],
     },
 }
+_NODE = {
+    "type": "object",
+    "properties": {
+        "id": _STR,
+        "kind": {"type": "string", "enum": list(understanding.NODE_KINDS)},
+        "title": _STR,
+        "sub": {"type": "string", "description": "A few words under the title"},
+        "tools": {"type": "array", "items": _STR},
+        "evidence": _EVIDENCE,
+    },
+    "required": ["id", "kind", "title", "evidence"],
+}
+_CLAIM = {
+    "type": "object",
+    "properties": {"id": _STR, "text": _STR, "evidence": _EVIDENCE},
+    "required": ["id", "text", "evidence"],
+}
 TOOLS = [
     _tool("list_sets", "This target's sets, with their case count and latest run.", {}, []),
     _tool(
@@ -179,18 +196,7 @@ TOOLS = [
                 "type": "array",
                 "description": "The boxes of how it works: the person, the agent, its tools, "
                 "workers it hands work to, state it keeps.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": _STR,
-                        "kind": {"type": "string", "enum": list(understanding.NODE_KINDS)},
-                        "title": _STR,
-                        "sub": {"type": "string", "description": "A few words under the title"},
-                        "tools": {"type": "array", "items": _STR},
-                        "evidence": _EVIDENCE,
-                    },
-                    "required": ["id", "kind", "title", "evidence"],
-                },
+                "items": _NODE,
             },
             "sections": {
                 "type": "array",
@@ -202,11 +208,7 @@ TOOLS = [
                         "note": {"type": "string", "description": "e.g. few real conversations"},
                         "claims": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {"id": _STR, "text": _STR, "evidence": _EVIDENCE},
-                                "required": ["id", "text", "evidence"],
-                            },
+                            "items": _CLAIM,
                         },
                     },
                     "required": ["id", "title", "claims"],
@@ -248,6 +250,33 @@ TOOLS = [
             },
         },
         ["one_line", "nodes", "sections", "priorities", "starters"],
+    ),
+    _tool(
+        "patch_understanding",
+        "Change a few parts of the understanding saved, the rest left exactly as it is; saved "
+        "like write_understanding. A node or claim with an id that exists replaces it; a new id "
+        "adds it (a claim to its section).",
+        {
+            "one_line": {"type": "string", "description": "Only when it changes"},
+            "nodes": {"type": "array", "items": _NODE},
+            "claims": {
+                "type": "array",
+                "items": {
+                    **_CLAIM,
+                    "properties": {
+                        **_CLAIM["properties"],
+                        "section": {"type": "string", "enum": list(understanding.SECTION_IDS)},
+                    },
+                    "required": [*_CLAIM["required"], "section"],
+                },
+            },
+            "remove": {
+                "type": "array",
+                "description": "What is no longer true: 'claim:<id>' or 'node:<id>'",
+                "items": _STR,
+            },
+        },
+        [],
     ),
     _tool(
         "read_trace_digest",
