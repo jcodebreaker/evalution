@@ -121,7 +121,7 @@ targets:
 
 ## Storage (`storage/`)
 
-One database holds what evalution learns and writes: SQLite in `<data_dir>/evalution.db` by default, any SQLAlchemy URL in `$DATABASE_URL` (Postgres when hosted). Every row belongs to a **workspace**; this server's own is `local`, the only one until people sign in.
+One database holds what evalution learns and writes: SQLite in `<data_dir>/evalution.db` by default, Postgres when `$DATABASE_URL` names one ([deploy](deploy.md)). Every row belongs to a **workspace**; this server's own is `local`, the only one until people sign in.
 
 - **Documents**: a JSON value under `(workspace, kind, key)`, written whole. Keys are paths (`<target>/profile.md`, `<target>/<set>/<case>`), so a kind lists by prefix. Text stays text.
 - **Entries**: an ordered log under one key, only added to (a run's evidence).

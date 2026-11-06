@@ -18,6 +18,18 @@ jobs:
     defaults:
       run:
         working-directory: server
+    # The storage tests run on it as well as on SQLite (tests/test_storage.py).
+    services:
+      postgres:
+        image: postgres:17.10
+        env:
+          POSTGRES_USER: evalution
+          POSTGRES_PASSWORD: evalution
+          POSTGRES_DB: evalution_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U evalution -d evalution_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,6 +43,8 @@ jobs:
       - run: uv run --all-groups ruff check .
       - run: uv run --all-groups lint-imports
       - run: uv run --all-groups pytest -q --ignore=tests/acceptance
+        env:
+          TEST_DATABASE_URL: postgresql://evalution:evalution@localhost:5432/evalution_test
       - name: Acceptance tests, once there are any
         run: |
           if [ -d tests/acceptance ]; then

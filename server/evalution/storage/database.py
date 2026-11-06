@@ -6,7 +6,7 @@ import json
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,17 +27,16 @@ from sqlalchemy import (
     func,
     insert,
     select,
-    update,
+    text,
 )
-from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy.exc import ArgumentError
 
 #: This server's own workspace: the only one until people sign in.
 LOCAL = "local"
 URL_ENV = "DATABASE_URL"
 FILE = "evalution.db"
-#: Bumped with every change of the tables below; :meth:`Database.open` refuses a newer database.
-SCHEMA = 1
 
 _meta = MetaData()
 documents = Table(
@@ -45,7 +44,12 @@ documents = Table(
     _meta,
     Column("workspace", String(64), primary_key=True),
     Column("kind", String(64), primary_key=True),
-    Column("key", String(512), primary_key=True),
+    # Keys sort byte by byte on both, as SQLite does: Postgres would follow the server's locale.
+    Column(
+        "key",
+        String(512).with_variant(String(512, collation="C"), "postgresql"),
+        primary_key=True,
+    ),
     Column("body", Text, nullable=False),
     Column("updated_at", Float, nullable=False),
 )
@@ -60,6 +64,21 @@ entries = Table(
     Column("at", Float, nullable=False),
 )
 schema = Table("schema", _meta, Column("version", Integer, primary_key=True))
+
+
+def _documents_and_entries(db: Connection) -> None:
+    _meta.create_all(db, tables=[documents, entries])
+
+
+#: What takes the database from version ``n`` to ``n + 1`` is ``_STEPS[n]``, run in order, each in
+#: the one transaction :meth:`Database._migrate` holds. A change of the tables is a step added
+#: at the end, never an edit of one already released.
+_STEPS: list[Callable[[Connection], None]] = [_documents_and_entries]
+#: The version this evalution makes; :meth:`Database.open` refuses a newer database.
+SCHEMA = len(_STEPS)
+#: Any number of our own, the same in every process: two servers starting at once on one
+#: Postgres take turns to migrate.
+_MIGRATING = 0x6576616C  # "eval"
 
 
 class StorageError(RuntimeError):
@@ -96,7 +115,7 @@ class Database:
 
         :raises StorageError: Unreachable, or made by a newer evalution.
         """
-        url = url or os.environ.get(URL_ENV) or ""
+        url = _driver_url(url or os.environ.get(URL_ENV) or "")
         if not url:
             url = f"sqlite:///{data_dir.resolve() / FILE}"
         with _opening:
@@ -108,14 +127,20 @@ class Database:
 
     @classmethod
     def _connect(cls, url: str) -> Database:
-        sqlite = url.startswith("sqlite")
+        try:
+            dialect = make_url(url).get_backend_name()
+        except ArgumentError as exc:
+            raise StorageError(f"{URL_ENV} isn't a database URL: {exc}") from exc
+        if dialect not in _INSERTS:
+            raise StorageError(f"evalution keeps its data in SQLite or Postgres, not {dialect}")
+        lite = dialect == "sqlite"
         engine = create_engine(
             url,
-            future=True,
-            pool_pre_ping=not sqlite,
-            connect_args={"check_same_thread": False, "timeout": 30} if sqlite else {},
+            # A server's connection can drop while idle (a restart, a proxy): check before use.
+            pool_pre_ping=not lite,
+            connect_args={"check_same_thread": False, "timeout": 30} if lite else {},
         )
-        if sqlite:
+        if lite:
             event.listen(engine, "connect", _sqlite_pragmas)
         database = cls(engine, url)
         try:
@@ -126,17 +151,23 @@ class Database:
         return database
 
     def _migrate(self) -> None:
+        """Bring the tables to :data:`SCHEMA`, all of it or none: one transaction, which no other
+        process starting on the same database runs at the same time. Both databases undo table
+        changes with the transaction; what keeps two out is the database's own lock, its write lock
+        on SQLite and an advisory lock on Postgres."""
         try:
-            _meta.create_all(self.engine)
             with self.engine.begin() as db:
-                found = db.scalar(select(func.max(schema.c.version)))
-                if found is None:
-                    db.execute(insert(schema).values(version=SCHEMA))
-                elif found > SCHEMA:
+                _hold_for_migrating(db)
+                schema.create(db, checkfirst=True)
+                found = db.scalar(select(func.max(schema.c.version))) or 0
+                if found > SCHEMA:
                     raise StorageError(
                         f"the database is from a newer evalution (schema {found}, this knows "
                         f"{SCHEMA}): upgrade evalution"
                     )
+                for version in range(found, SCHEMA):
+                    _STEPS[version](db)
+                    db.execute(insert(schema).values(version=version + 1))
         except StorageError:
             raise
         except Exception as exc:  # the driver's own errors, whatever the database
@@ -151,6 +182,23 @@ class Database:
             if _opened.get(self.url) is self:
                 del _opened[self.url]
         self.engine.dispose()
+
+
+def _driver_url(url: str) -> str:
+    """*url* with the driver evalution installs for Postgres: hosts hand out ``postgres://``."""
+    for scheme in ("postgres://", "postgresql://"):
+        if url.startswith(scheme):
+            return "postgresql+psycopg://" + url.removeprefix(scheme)
+    return url
+
+
+def _hold_for_migrating(db: Connection) -> None:
+    """Wait for, then hold until the transaction ends, the right to change the tables."""
+    if db.dialect.name == "sqlite":
+        # The write lock now, not at the first write: pysqlite starts no transaction before DDL.
+        db.exec_driver_sql("BEGIN IMMEDIATE")
+    else:
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _MIGRATING})
 
 
 def _owner_only(file: Path) -> None:
@@ -177,7 +225,6 @@ class Docs:
     def __init__(self, database: Database, workspace: str) -> None:
         self.database = database
         self.workspace = workspace
-        self._lock = threading.Lock()
 
     @contextmanager
     def _tx(self) -> Iterator[Connection]:
@@ -202,33 +249,31 @@ class Docs:
 
     def put(self, kind: str, key: str, body: Any) -> None:
         """Write the document whole, made or replaced."""
-        text, now = _dump(body), time.time()
-        # One writer per view at a time, so an update can't lose to a racing insert of the same key.
-        with self._lock, self._tx() as db:
-            done = db.execute(
-                update(documents).where(self._where(kind, key)).values(body=text, updated_at=now)
-            )
-            if not done.rowcount:
-                db.execute(
-                    insert(documents).values(
-                        workspace=self.workspace, kind=kind, key=key, body=text, updated_at=now
-                    )
+        # One statement, so two processes writing the same key at once both land, the last winning.
+        new = self._insert(kind, key, body)
+        with self._tx() as db:
+            db.execute(
+                new.on_conflict_do_update(
+                    index_elements=list(documents.primary_key),
+                    set_={"body": new.excluded.body, "updated_at": new.excluded.updated_at},
                 )
+            )
 
     def create(self, kind: str, key: str, body: Any) -> bool:
         """Write the document only when there is none under *key*; whether it was made. Of two
         made at once, by any process, one is."""
-        text, now = _dump(body), time.time()
-        try:
-            with self._lock, self._tx() as db:
-                db.execute(
-                    insert(documents).values(
-                        workspace=self.workspace, kind=kind, key=key, body=text, updated_at=now
-                    )
-                )
-        except IntegrityError:
-            return False
-        return True
+        new = self._insert(kind, key, body).on_conflict_do_nothing()
+        with self._tx() as db:
+            # Kept for an INSERT only when asked: how many rows went in, 0 on a conflict.
+            done = db.execute(new, execution_options={"preserve_rowcount": True})
+            return bool(done.rowcount)
+
+    def _insert(self, kind: str, key: str, body: Any) -> Any:
+        """The dialect's own ``INSERT``, which knows ``ON CONFLICT``."""
+        made = _INSERTS[self.database.engine.dialect.name](documents)
+        return made.values(
+            workspace=self.workspace, kind=kind, key=key, body=_dump(body), updated_at=time.time()
+        )
 
     def delete(self, kind: str, key: str) -> bool:
         with self._tx() as db:
@@ -297,6 +342,13 @@ class Docs:
                 delete(entries).where(c.workspace == self.workspace, c.kind == kind, c.key == key)
             )
             return int(gone.rowcount or 0)
+
+
+#: The databases evalution keeps its data in, each with its ``INSERT ... ON CONFLICT``.
+_INSERTS: dict[str, Callable[[Table], Any]] = {
+    "sqlite": sqlite.insert,
+    "postgresql": postgresql.insert,
+}
 
 
 def _starts(column: Any, prefix: str) -> Any:
