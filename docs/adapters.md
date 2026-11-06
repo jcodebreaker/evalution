@@ -9,6 +9,12 @@ evalution adapter test my_app --target my-app  # its contract over the real app
 
 The starter works as it stands against an app with the routes it names, and each place to change is marked `CHANGE`. It's one module: `create(target) -> Target`, a class that declares its `Capabilities`, and `INFO`, an `AdapterInfo` ([`adapters/base.py`](../server/evalution/adapters/base.py) lists every field). evalution finds it in `data/adapters/` or wherever `adapters_dir` says, with no edit to evalution. That code runs, so only your config can point at it, and connecting a project never does.
 
+## Secrets, and when your own adapter breaks
+
+An adapter reads a secret its target names (an option ending in `_env`) with `target.keys.get(name)`: the environment variable of that name, else the secret stored when the target was connected from the page. Never read `os.environ` yourself; hosted, the server's environment is not the workspace's.
+
+An adapter of your own that stops importing after an update (it used something evalution no longer has) is not skipped quietly: `serve` says so when it starts, `evalution doctor` names the error and the file, and the app's page shows "Its adapter doesn't load" with the error. None of its runs can start until it loads.
+
 ## The turn contract
 
 `send(session, message, *, files, stop_after, deadline) -> Turn` is one person's message.

@@ -18,7 +18,7 @@ import pytest
 from evalution import adapters, service
 from evalution.adapters.base import Capabilities, Isolation, Session, Target, Turn
 from evalution.adapters.http import HttpTarget, json_path
-from evalution.config import MODEL_SECRET, ModelConfig, TargetConfig, load
+from evalution.config import MODEL_SECRET, ConfigError, ModelConfig, TargetConfig, load
 from evalution.core import net
 from evalution.runs.fit import why_not
 from evalution.runs.preflight import check_isolation
@@ -94,11 +94,17 @@ def test_your_own_adapter_can_live_outside_the_repo(tmp_path, monkeypatch) -> No
         found = adapters.infos()
         assert "made_elsewhere" in found and "http" in found, "a bug in one breaks only that one"
         assert "has_a_bug" not in found
+        # Left out, but never silently: the error says why, and an app on it can't start.
+        assert adapters.broken() == {"has_a_bug": "TypeError: a bug"}
+        said = r"adapter 'has_a_bug' doesn't load \(TypeError: a bug\)"
+        with pytest.raises(ConfigError, match=said):
+            adapters.make(TargetConfig("t", "has_a_bug", None, None, {}))
     finally:
         monkeypatch.undo()
         sys.modules.pop("evalution.adapters.made_elsewhere", None)
         sys.modules.pop("evalution.adapters.has_a_bug", None)
         adapters.infos.cache_clear()
+        adapters.broken()
         adapters.own_traffic.cache_clear()
 
 

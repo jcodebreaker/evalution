@@ -41,6 +41,8 @@ export const TargetDetailSchema = z.object({
   name: z.string(),
   adapter: z.string(),
   adapter_label: z.string().default(""),
+  /** Why its adapter doesn't load, when it doesn't: none of its runs can start. */
+  adapter_error: z.string().nullable().default(null),
   /** The last change of its adapter, since which results test something else. */
   adapter_change: z
     .object({ from: z.string(), to: z.string(), at: z.number() })

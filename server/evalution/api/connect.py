@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
-from evalution.adapters import adapter_info, infos
+from evalution.adapters import adapter_info, broken, infos
 from evalution.api.deps import (
     Current,
     busy,
@@ -55,6 +55,8 @@ def _view(targets: Targets, name: str) -> dict[str, Any]:
     return {
         **connect.view(conf, name in targets.config.managed),
         "adapter_label": info.label if info else conf.adapter,
+        #: Why its adapter doesn't load, when it doesn't: none of its runs can start.
+        "adapter_error": broken().get(conf.adapter),
         "adapter_change": connection(targets, name).get("adapter_change"),
     }
 
@@ -138,8 +140,12 @@ def connect_router() -> APIRouter:
 
     @router.get("/adapters")
     async def get_adapters() -> dict[str, Any]:
-        """The kinds of app evalution can connect, with what each one takes."""
-        return {"data": [_adapter_row(name) for name in infos()]}
+        """The kinds of app evalution can connect, with what each one takes; and those there that
+        don't load, with why."""
+        return {
+            "data": [_adapter_row(name) for name in infos()],
+            "broken": [{"name": name, "error": why} for name, why in broken().items()],
+        }
 
     @router.get("/targets/{target}")
     async def get_target(ws: Current, target: str) -> dict[str, Any]:

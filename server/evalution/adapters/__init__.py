@@ -23,6 +23,9 @@ _logger = logging.getLogger(__name__)
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 _built: dict[str, Target] = {}
+#: Adapters found but not loaded, with why: an adapter of your own that an evalution update broke
+#: must say so, not vanish (:func:`broken`).
+_broken: dict[str, str] = {}
 
 
 @cache
@@ -30,16 +33,28 @@ def infos() -> dict[str, AdapterInfo]:
     """Every adapter here, by name. One that can't be imported (a package it needs isn't installed,
     or a bug in one of your own) is left out, and breaks only its own targets."""
     found: dict[str, AdapterInfo] = {}
+    _broken.clear()
     for module in pkgutil.iter_modules(__path__):
         try:
             # Deferred on purpose: adapters are optional modules, found in this folder.
             loaded = importlib.import_module(f"{__name__}.{module.name}")
-        except Exception:  # someone's own module can fail in any way at all
+        except Exception as exc:  # someone's own module can fail in any way at all
+            _broken[module.name] = _why(exc)
             _logger.warning("adapters: %s not loaded", module.name, exc_info=True)
             continue
         if isinstance(info := getattr(loaded, "INFO", None), AdapterInfo):
             found[module.name] = info
     return dict(sorted(found.items()))
+
+
+def broken() -> dict[str, str]:
+    """The adapters that are there but don't load, by name, with the error in one line."""
+    infos()
+    return dict(_broken)
+
+
+def _why(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}".splitlines()[0][:300]
 
 
 def add_folder(folder: Path) -> None:
@@ -98,11 +113,17 @@ def make(target: TargetConfig) -> Target:
         module = importlib.import_module(path)
     except ModuleNotFoundError as exc:
         if exc.name != path:
-            raise
+            raise ConfigError(_doesnt_load(target, exc)) from exc
         raise ConfigError(f"targets.{target.name}: no adapter {target.adapter!r}") from exc
+    except Exception as exc:  # someone's own module can fail in any way at all
+        raise ConfigError(_doesnt_load(target, exc)) from exc
     if not hasattr(module, "create"):
         raise ConfigError(f"targets.{target.name}: no adapter {target.adapter!r}")
     return module.create(target)
+
+
+def _doesnt_load(target: TargetConfig, exc: BaseException) -> str:
+    return f"targets.{target.name}: adapter {target.adapter!r} doesn't load ({_why(exc)})"
 
 
 def forget(name: str, workspace: str = LOCAL) -> None:

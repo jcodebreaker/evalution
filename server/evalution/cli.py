@@ -760,6 +760,12 @@ def main(argv: list[str] | None = None) -> int:
                 url=f"http://{reached}:{args.port}",
                 bind=args.host,
             )
+            for name, why in adapters.broken().items():
+                print(
+                    f"evalution: adapter {name} doesn't load ({why}); its apps can't run. "
+                    "See: evalution doctor",
+                    file=sys.stderr,
+                )
             uvicorn.run(app, host=args.host, port=args.port)
             return 0
         if args.command == "run":

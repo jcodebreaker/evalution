@@ -96,6 +96,11 @@ export function Connection({
             : ""}
         </p>
       ) : null}
+      {saved?.adapter_error ? (
+        <p className="m-0 text-[13px] text-destructive">
+          Its adapter doesn't load: {saved.adapter_error}
+        </p>
+      ) : null}
       <Probe target={target} checked={!!row?.checked} onChange={reloadTargets} />
       {row ? <Isolation target={row} onChange={reloadTargets} /> : null}
       {body}
