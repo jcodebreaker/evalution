@@ -8,8 +8,12 @@ ever read and written whole, at the start and the end of a learn. It holds:
   (:func:`index`), with the fingerprint it summarized. One is written only for a file that has none
   for its fingerprint now: all of them on a first learn, the changed and added ones after, none
   when nothing moved.
-* **files** and **commit**: the fingerprints of the watched files, and the commit, when the
-  understanding was last saved (:func:`learned`). What differs from them is what changed.
+* **failed**: the files no summary could be written for, with why, so a learn names them rather
+  than leaving them out unseen.
+* **files**, **commit** and **clean**: the fingerprints of the watched files, the commit, and
+  whether no watched file had uncommitted changes, when the understanding was last saved
+  (:func:`learned`). What differs from them is what changed; the same commit on a tree clean then
+  and now is nothing changed, known without hashing a file (:func:`unmoved`).
 
 A fingerprint is the file's hash as :meth:`evalution.code.Code.hashes` gives it, the one the
 knowledge links and the drift fingerprint use too: cached by size and time, so a learn that finds
@@ -117,8 +121,21 @@ def learned(targets: Targets, name: str, code: Code) -> None:
         _write(
             targets,
             name,
-            {**memory, "files": code.hashes(), "commit": code.commit(), "learned_at": time.time()},
+            {
+                **memory,
+                "files": code.hashes(),
+                "commit": code.commit(),
+                "clean": code.clean(),
+                "learned_at": time.time(),
+            },
         )
+
+
+def unmoved(memory: Mapping[str, Any], code: Code) -> bool:
+    """Whether the code is surely what the last learn saw, from git alone: the same commit, and
+    no watched file changed outside it, then or now. ``False`` says only: hash to know."""
+    commit = memory.get("commit")
+    return bool(commit and memory.get("clean") and code.commit() == commit and code.clean())
 
 
 # Summarizing
@@ -170,35 +187,62 @@ def _read_answer(text: str, asked: Iterable[str]) -> dict[str, str]:
 
 async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
     """Summarize every watched file with no summary for what it is now, in batches, a few calls at
-    a time. A call that fails or does not read leaves its files for the next learn. How many files
-    were summarized."""
+    a time. A batch that fails, or leaves files out, is tried once more in two halves; a file still
+    without a summary is kept in ``failed`` with why, and logged, for the brief to name and the
+    next learn to try again. How many files were summarized."""
     files = await asyncio.to_thread(code.hashes)
     memory = load(targets, name)
     missing = unsummarized(memory, files)
     if not missing:
         return 0
-    texts = {}
+    texts, why = {}, {}
     for path in missing:
         if (text := await asyncio.to_thread(_shown, code, path)) is not None:
             texts[path] = text
+        else:
+            why[path] = "does not read"
     gate = asyncio.Semaphore(PARALLEL)
 
     async def one(paths: list[str]) -> dict[str, str]:
         body = "\n\n".join(fenced(p, texts[p]) for p in paths)
         async with gate:
             try:
-                return _read_answer(await ask(INSTRUCTIONS, body), paths)
-            except Exception:
-                _logger.warning("filememory: %d files of %s not summarized", len(paths), name)
-                return {}
+                found = _read_answer(await ask(INSTRUCTIONS, body), paths)
+            except Exception as exc:
+                found, error = {}, f"the call failed: {str(exc)[:200] or type(exc).__name__}"
+            else:
+                error = "left out of the answer"
+        why.update({p: error for p in paths if p not in found})
+        return found
 
-    done = await asyncio.gather(*(one(b) for b in batches(texts)))
-    written = {p: s for found in done for p, s in found.items()}
+    async def round_of(groups: list[list[str]]) -> dict[str, str]:
+        done = await asyncio.gather(*(one(g) for g in groups if g))
+        return {p: s for found in done for p, s in found.items()}
+
+    first = batches(texts)
+    written = await round_of(first)
+    again = []
+    for group in first:
+        left = [p for p in group if p not in written]
+        half = (len(left) + 1) // 2
+        again += [left[:half], left[half:]]
+    written |= await round_of(again)
+    failed = {p: why[p] for p in missing if p not in written}
+    if failed:
+        _logger.warning("filememory: %s: %d files not summarized: %s", name, len(failed), failed)
     with targets.guards.knowledge:
         memory = load(targets, name)
         kept = {p: e for p, e in (memory.get("summaries") or {}).items() if p in files}
         kept |= {p: {"fingerprint": files[p], "summary": s} for p, s in written.items()}
-        _write(targets, name, {**memory, "summaries": dict(sorted(kept.items()))})
+        _write(
+            targets,
+            name,
+            {
+                **memory,
+                "summaries": dict(sorted(kept.items())),
+                "failed": {p: {"fingerprint": files[p], "why": w} for p, w in failed.items()},
+            },
+        )
     return len(written)
 
 
@@ -215,7 +259,8 @@ def brief(memory: Mapping[str, Any], files: Mapping[str, str], found: Changes) -
         entry = kept.get(path) or {}
         summary = entry.get("summary") if entry.get("fingerprint") == files[path] else None
         name = PurePosixPath(path).name
-        line = f"- {name}: {summary}" if summary else f"- {name} (not summarized)"
+        why = ((memory.get("failed") or {}).get(path) or {}).get("why") or "not tried yet"
+        line = f"- {name}: {summary}" if summary else f"- {name} (not summarized: {why})"
         budget -= len(line)
         folders.setdefault(str(PurePosixPath(path).parent), []).append(
             line if budget >= 0 else f"- {name}"
@@ -233,3 +278,38 @@ def brief(memory: Mapping[str, Any], files: Mapping[str, str], found: Changes) -
         )
     parts.append(fenced("every watched file, summarized", summaries or "(no files)"))
     return "\n\n".join(parts)
+
+
+# What the understanding leaves out
+
+#: The labelled parts of a summary that name things an understanding should mention.
+_NAMED_PARTS = re.compile(
+    r"(Prompts/rules|Defines|State):(.*?)(?=\b(?:Is|Prompts/rules|Defines|State|Test):|$)", re.S
+)
+#: A name as code writes it: ``snake_case``, ``camelCase``, ``CONSTANT``, or called ``name()``.
+_CODE_NAME = re.compile(
+    r"`([^`]{3,60})`|\b([A-Za-z]\w*(?:_\w+|[a-z][A-Z]\w*)|[A-Z][A-Z0-9_]{3,}|\w{3,}(?=\(\)))"
+)
+#: How many names one reminder carries.
+NAMES_SENT = 60
+
+
+def uncovered(memory: Mapping[str, Any], understood: Mapping[str, Any]) -> dict[str, list[str]]:
+    """``path -> names``: the prompts, definitions and state the summaries name that the
+    understanding never mentions, matched by name, ignoring case. Free, and rough: it only reminds
+    the writer once, which may say why a name does not belong."""
+    said = json.dumps(understood, ensure_ascii=False).casefold()
+    out: dict[str, list[str]] = {}
+    count = 0
+    for path, entry in sorted((memory.get("summaries") or {}).items()):
+        names = []
+        for _label, part in _NAMED_PARTS.findall(str(entry.get("summary") or "")):
+            for quoted, bare in _CODE_NAME.findall(part):
+                found = (quoted or bare).strip()
+                if found and found.casefold() not in said and found not in names:
+                    names.append(found)
+        names = names[: max(0, NAMES_SENT - count)]
+        if names:
+            out[path] = names
+            count += len(names)
+    return out

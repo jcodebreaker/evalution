@@ -57,6 +57,9 @@ class AgentTurn:
     #: The traces and code as this turn took them (:func:`drift.take`): read once, however many
     #: times write_understanding is tried.
     taken: tuple[dict[str, Any], dict[str, Any]] | None = None
+    #: It saved an understanding; a learn's reminder of what that left out was given.
+    understood: bool = False
+    reminded: bool = False
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -418,6 +421,7 @@ class Tools:
         if problems:
             return "Refused, nothing saved. Fix these and save again:\n" + "\n".join(problems[:20])
         drift.keep_baseline(self.targets, target, taken)
+        turn.understood = True
         understanding.save(self.targets, target, understanding.build(written, found))
         if code is not None:
             await asyncio.to_thread(knowledge.written, self.targets, target, code, turn.code_read)

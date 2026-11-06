@@ -10,8 +10,9 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
   :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
   :data:`SAME_CALL_TIMES` times in a row. A person can always say go on.
-* **Learning again** (the page's "Learn again") starts from what changed since the last learn
-  (:mod:`evalution.writer.learn`), and calls no model when nothing did.
+* **Learning** (the page's "Learn" and "Learn again", :mod:`evalution.writer.learn`) runs on a
+  transcript of its own: its brief and its steps, never the thread's earlier turns. The thread
+  keeps only what was asked and what the writer said. It calls no model when nothing changed.
 * **Each step resends** the instructions and the transcript, so the call asks the provider to
   cache that prefix, a file read again unchanged is not sent again, and each turn's calls,
   characters, tokens and time are kept on the session (:mod:`evalution.writer.usage`).
@@ -77,7 +78,7 @@ EARLIER_SAID = "(Earlier conversation, summarized to save room.)"
 EARLIER_CUT = "(Earlier conversation was cut to save room.)"
 #: The set's cases go into the instructions in full up to this; past it, by name.
 CASES_CHARS = 30_000
-PROFILE_CHARS = 20_000
+PROFILE_CHARS = 60_000
 
 
 class AgentBusyError(Exception):
@@ -402,11 +403,18 @@ class Agent:
         return reply
 
     async def _work(self, session: dict[str, Any], text: str, learn_asked: bool = False) -> None:
-        history: list[dict[str, Any]] = session["history"]
-        _repair(history)
+        thread: list[dict[str, Any]] = session["history"]
+        _repair(thread)
         # What reached the inbox while it was idle (a plan changed on the page) comes first.
-        noted = [*session.pop("inbox", []), text]
-        history.append({"role": "user", "content": "\n\n".join(noted)})
+        asked = "\n\n".join([*session.pop("inbox", []), text])
+        # A learn starts from its brief alone, never from the thread's earlier turns (an earlier
+        # learn's brief among them): the thread only gets what was asked and said, at the end.
+        history = [{"role": "user", "content": asked}] if learn_asked else thread
+        if learn_asked:
+            session.pop("code_seen", None)
+        else:
+            thread.append({"role": "user", "content": asked})
+        said_from = len(session["messages"])
         turn = AgentTurn(session)
         usage = TurnUsage(learn=learn_asked)
         steps = 0
@@ -450,6 +458,11 @@ class Agent:
                     if not reply.tool_calls:
                         if reply.text and not turn.replied:
                             say(session, "agent", reply.text)
+                        if learn_asked and (
+                            left := await asyncio.to_thread(learn.left_out, self.targets, turn)
+                        ):
+                            history.append({"role": "user", "content": left})
+                            continue
                         break
                     stopped = None
                     for call in reply.tool_calls:
@@ -491,6 +504,15 @@ class Agent:
             session["status"] = "idle"
         finally:
             usage.record(session)
+            if learn_asked:
+                # What it read is in the learn's transcript, not the thread's.
+                session.pop("code_seen", None)
+                new = session["messages"][said_from:]
+                replied = "\n".join(m["text"] for m in new if m["role"] == "agent")
+                thread += [
+                    {"role": "user", "content": asked},
+                    {"role": "assistant", "content": replied or "(learned)", "tool_calls": []},
+                ]
             # Saved before it leaves the live ones: a reader then goes to the file, so that must
             # already hold this turn.
             await asyncio.shield(self._save(session))

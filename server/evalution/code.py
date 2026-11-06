@@ -280,6 +280,15 @@ class Code:
         found = self._git("rev-parse", "HEAD")
         return found.strip() if found else None
 
+    def clean(self) -> bool:
+        """Whether no watched file differs from the last commit, untracked ones included; ``False``
+        when this is not a checkout."""
+        changed = self._git("diff", "--relative", "HEAD", "--name-only", "-z", "--")
+        new = self._git("ls-files", "-z", "--others", "--exclude-standard")
+        if changed is None or new is None:
+            return False
+        return not any(self.allowed(n) for n in (changed + new).split("\0") if n)
+
     def rewriting(self) -> bool:
         """Whether a rebase is under way: HEAD is passing through states nobody asked to keep."""
         for name in ("rebase-merge", "rebase-apply"):
@@ -393,13 +402,7 @@ class Code:
         if not tracked and not untracked:
             return "(no watched file changed)"
         head = self.commit()
-        if (
-            head
-            and not untracked
-            and not watched(
-                self._git("diff", "--relative", "HEAD", "--name-only", "-z", "--") or ""
-            )
-        ):
+        if head and self.clean():
             # Nothing uncommitted: this is the diff between two commits, made once for both.
             return self.diff_between(since, head, tracked)
         # Named one by one: without paths, git would show every file, secrets too.

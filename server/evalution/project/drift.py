@@ -45,15 +45,18 @@ KINDS = (
 )
 
 
-async def take(targets: Targets, name: str, sessions: int) -> tuple[dict[str, Any], dict]:
-    """``(digest, fingerprint)`` of *name* now. Without traces those parts are empty."""
+async def take(
+    targets: Targets, name: str, sessions: int, *, with_code: bool = True
+) -> tuple[dict[str, Any], dict]:
+    """``(digest, fingerprint)`` of *name* now. Without traces those parts are empty; without
+    *with_code*, the code part is left out, which saves hashing every file."""
     source = targets.source(name)
     groups = []
     if source is not None:
         groups = await recent_sessions(source, targets.trace_attribute(name), sessions)
     found = digest(groups)
     taken = fingerprint(found)
-    code = targets.code(name)
+    code = targets.code(name) if with_code else None
     if code is not None:
         taken["code"] = await asyncio.to_thread(code.state)
     return found, taken

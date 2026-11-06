@@ -26,7 +26,8 @@ SETTINGS_DOC = "settings.json"
 CONNECTION_DOC = "connection.json"
 #: What the profile stands for (:mod:`evalution.project.drift` takes it).
 FINGERPRINT_DOC = "fingerprint.json"
-PROFILE_CAP = 60_000
+#: Far past what a whole app's understanding renders to: a guard, never what limits coverage.
+PROFILE_CAP = 200_000
 PROFILE_VERSIONS = 10
 #: How what it knows is kept current: ``manual`` until the owner chooses, as ``auto`` spends.
 UPDATES = ("auto", "manual")

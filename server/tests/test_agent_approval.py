@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from evalution import llm
+from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
 from evalution.project import filememory
@@ -18,6 +19,7 @@ from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import case_text, load_case, save_set, write_case_text
 from evalution.targets import Targets
+from evalution.writer import learn
 from evalution.writer.agent import Agent
 from evalution.writer.prompts import INSTRUCTIONS as WRITER_INSTRUCTIONS
 from evalution.writer.prompts import LINE_DRAFT_INSTRUCTIONS
@@ -393,9 +395,10 @@ def _git(folder, *args) -> None:
     )
 
 
-def _learning(tmp_path, kind: str = "anthropic"):
+def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
     """An app with code, and a model: the light one summarizes what it is sent, the strong one
-    plays *writer*, a list of turns, each a list of ``(tool, arguments)`` or a closing text."""
+    plays the script, ``(tool, arguments)`` or a closing text per call. The light model never
+    summarizes a path in *skip*, and says app.py defines ``greet_people``."""
     repo = tmp_path / "app"
     for rel, text in {
         "app.py": "def greet(): ...\n",
@@ -422,8 +425,15 @@ def _learning(tmp_path, kind: str = "anthropic"):
             sent["light"].append(body)
             text = json.dumps(body["messages"])
             paths = re.findall(r"\[Data: (.+?)\. Material", text)
+            defines = {"app.py": " Defines: `greet_people`."}
             said = json.dumps(
-                {"files": [{"path": p, "summary": f"Is: {p} summarized."} for p in paths]}
+                {
+                    "files": [
+                        {"path": p, "summary": f"Is: {p} summarized.{defines.get(p, '')}"}
+                        for p in paths
+                        if p not in skip
+                    ]
+                }
             )
         else:
             sent["writer"].append(body)
@@ -462,15 +472,16 @@ async def _learn(agent: Agent, session_id: str) -> dict:
     return await agent.get(session_id)
 
 
-async def test_learning_again_reads_only_what_changed(tmp_path) -> None:
+async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> None:
     agent, repo, sent, script = _learning(tmp_path)
     targets = agent.targets
     opened = await agent.create("bot", "main")
     sid = opened["id"]
 
     # The first learn: every included file summarized by the light model, in one call, and all of
-    # them handed to the writer, which saves.
-    script += [("write_understanding", UNDERSTOOD), "Learned."]
+    # them handed to the writer, which saves. What the summaries name and the understanding does
+    # not is said back once, and only once.
+    script += [("write_understanding", UNDERSTOOD), "Learned.", "Greeting covers it."]
     shown = await _learn(agent, sid)
     assert len(sent["light"]) == 1
     memory = filememory.load(targets, "bot")
@@ -480,19 +491,27 @@ async def test_learning_again_reads_only_what_changed(tmp_path) -> None:
     first = sent["writer"][0]
     said = first["messages"][0]["content"][-1]["text"]
     assert "- memory.py: Is: lib/memory.py summarized." in said and "notes.txt" not in said
+    reminded = sent["writer"][2]["messages"][-1]["content"][-1]["text"]
+    assert reminded.startswith(learn.LEFT_OUT) and "app.py: greet_people" in reminded
+    assert len(sent["writer"]) == 3 and shown["messages"][-1]["text"] == "Greeting covers it."
     # The writer's prefix is marked cacheable; the light call is not.
     assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert first["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in json.dumps(sent["light"])
     usage = shown["usage"][-1]
-    assert usage["learn"] and usage["calls"] == 3 and usage["light_calls"] == 1
-    assert usage["cache_read"] == 300 and usage["chars_in"] > len(said)
+    assert usage["learn"] and usage["calls"] == 4 and usage["light_calls"] == 1
+    assert usage["cache_read"] == 400 and usage["chars_in"] > len(said)
 
-    # Nothing moved: no model at all.
+    # Nothing moved: the commit and a clean tree say so, with no file hashed and no model.
+    def no_hashing(_self):
+        raise AssertionError("hashed")
+
+    monkeypatch.setattr(Code, "hashes", no_hashing)
     shown = await _learn(agent, sid)
+    monkeypatch.undo()
     commit = targets.code("bot").commit()
     assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
-    assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 2
+    assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 3
 
     # One file changed: it alone is summarized again and named; a second read of it is not resent.
     (repo / "lib/memory.py").write_text("STORE = {'kept': True}\n")
@@ -502,20 +521,41 @@ async def test_learning_again_reads_only_what_changed(tmp_path) -> None:
         ("read_code", {"path": "lib/memory.py"}),
         ("write_understanding", UNDERSTOOD),
         "Learned again.",
+        "Still covered.",
     ]
     shown = await _learn(agent, sid)
     assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
     assert "app.py" not in json.dumps(sent["light"][1])
-    said = sent["writer"][2]["messages"][-1]["content"][-1]["text"]
+    # A learn starts from its brief alone: nothing of the thread's earlier turns is sent.
+    started = sent["writer"][3]["messages"]
+    assert len(started) == 1 and "Learned." not in json.dumps(started)
+    said = started[0]["content"][-1]["text"]
     assert '"changed": ["lib/memory.py"]' in said and "It greets." in said
     results = [
         b["content"]
-        for b in sent["writer"][4]["messages"][-1]["content"]
+        for b in sent["writer"][5]["messages"][-1]["content"]
         if b["type"] == "tool_result"
     ]
     assert results[-1].startswith("lib/memory.py is unchanged since you read it at step")
     assert shown["usage"][-1]["light_calls"] == 1
     assert filememory.load(targets, "bot")["files"] == targets.code("bot").hashes()
+    # The thread keeps what was asked and said, and none of a brief.
+    thread = (await agent._session(sid))["history"]
+    assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
+    assert thread[-1]["content"] == "Learned again.\nStill covered."
+
+
+async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> None:
+    agent, _repo, sent, script = _learning(tmp_path, skip=frozenset({"lib/memory.py"}))
+    opened = await agent.create("bot", "main")
+    script += ["Nothing to save."]
+    await _learn(agent, opened["id"])
+    # The batch, then what it left out on its own: two calls, and the file kept as failed.
+    assert len(sent["light"]) == 2 and "app.py" not in json.dumps(sent["light"][1]["messages"])
+    failed = filememory.load(agent.targets, "bot")["failed"]
+    assert failed["lib/memory.py"]["why"] == "left out of the answer"
+    said = sent["writer"][0]["messages"][0]["content"][-1]["text"]
+    assert "- memory.py (not summarized: left out of the answer)" in said
 
 
 async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:
