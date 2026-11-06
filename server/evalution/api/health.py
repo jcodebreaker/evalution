@@ -44,7 +44,9 @@ def health_router() -> APIRouter:
         watcher.changed(target_name(targets, target))
         return {"checking": True}
 
-    @router.post("/targets/{target}/change/read", status_code=204)
+    @router.post(
+        "/targets/{target}/change/read", status_code=204, dependencies=[Depends(local_only)]
+    )
     async def read_change(ws: Current, target: str) -> None:
         """The owner asks what the change on the card means: one light call, once."""
         targets, runs, llm = ws.targets, ws.runs, ws.llm

@@ -403,7 +403,8 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
     """The config at *path*, ``$EVALUTION_CONFIG`` or ``./evalution.yaml``, with what the page set
     from *docs*, by default the workspace of this server in its data folder's database. A missing
     file gives an empty config (no model, no targets) rooted at the working folder. *keys*: where
-    its secrets are read, by default *docs*' own stored secrets and the environment.
+    its secrets are read, by default *docs*' own stored secrets and the environment; hosted
+    (:attr:`KeyRing.hosted`), only the targets stored in *docs* are read, none from the file.
 
     :raises ConfigError: A field that does not follow the shape, or a secret key that isn't one.
     """
@@ -428,7 +429,8 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
     if not model_block:
         model_block, model_source = page_model(docs), "page"
 
-    own = _dict(data.get("targets"), "targets")
+    # Hosted, the file's targets are the operator's: no workspace sees them.
+    own = {} if keys.hosted else _dict(data.get("targets"), "targets")
     targets = {**managed, **own}
     for name in targets:
         if not isinstance(name, str) or not name.replace("-", "").replace("_", "").isalnum():

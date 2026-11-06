@@ -641,7 +641,13 @@ def hosted(tmp_path, monkeypatch):
     }
     model["models"] = {"strong": "big", "light": "small"}
     (tmp_path / "evalution.yaml").write_text(
-        yaml.safe_dump({"model": model, "traces": {"managed": False}})
+        yaml.safe_dump(
+            {
+                "model": model,
+                "traces": {"managed": False},
+                "targets": {"operator": {"adapter": "http", "http": {"send": {"url": "x"}}}},
+            }
+        )
     )
     app = create_app(load(tmp_path / "evalution.yaml"))
 
@@ -657,7 +663,9 @@ def hosted(tmp_path, monkeypatch):
 
 def test_each_workspace_sees_only_its_own(hosted, monkeypatch) -> None:
     assert hosted.post("/v1/targets", json=_http_body(), headers=_TEAM_A).status_code == 201
+    # The file's own targets are the operator's: no workspace sees them.
     assert hosted.get("/v1/targets", headers=_TEAM_B).json() == {"data": []}
+    assert hosted.get("/v1/targets/operator", headers=_TEAM_A).status_code == 404
     assert hosted.get("/v1/targets/shop", headers=_TEAM_B).status_code == 404
     other = _http_body(send={"url": "http://other.example.test/c", "body": {"m": "{message}"}})
     assert hosted.post("/v1/targets", json=other, headers=_TEAM_B).status_code == 201
@@ -709,6 +717,7 @@ def test_hosted_turns_this_computers_folders_off(hosted, tmp_path) -> None:
         ("get", "/v1/targets/shop/hooks", None),
         ("post", "/v1/targets/shop/hooks", None),
         ("post", "/v1/targets/shop/changed", None),
+        ("post", "/v1/targets/shop/change/read", None),
         ("post", "/v1/targets", {**_http_body(), "code": {"path": "app"}}),
     ]
     for method, path, body in off:
