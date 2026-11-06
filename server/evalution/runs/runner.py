@@ -12,12 +12,12 @@ Nothing starts unconfirmed: :meth:`Runs.estimate` hands out a short-lived, singl
 ``stopped`` (by the admin, by its spend cap, or the server shut down or restarted under it:
 interrupted; none says anything of the app) or ``failed`` (it could not go on: the target session
 went away, or a try ran out of time with work the adapter can't stop); ``stop_reason`` says which.
-The spend cap is a multiple of the estimate's high end (``spend_cap`` in the config), checked
-against what the app spent after every try. A run that ends on its
-own (``done`` or ``failed``) with failed tries is then analysed (:mod:`evalution.review.findings`)
-while ``analyzing`` is true; ``analysis_error`` says when that could not finish, for a retry. The
-run document (:mod:`evalution.results.store`) is rewritten after every try; the shapes the routes
-return are read from it in :mod:`evalution.results.views`.
+After every try, what the app spent is held to a multiple (``spend_cap`` in the config) of what
+the tries played so far were estimated at, never under that multiple of the low estimate.
+A run that ends on its own (``done`` or ``failed``) with failed tries is then analysed
+(:mod:`evalution.review.findings`) while ``analyzing`` is true; ``analysis_error`` says when that
+could not finish, for a retry. The run document (:mod:`evalution.results.store`) is rewritten after
+every try; the shapes the routes return are read from it in :mod:`evalution.results.views`.
 
 Before a run, the target is checked for drift (:mod:`evalution.project.drift`), and each case's
 ``stale`` reason is recorded with it. The code as the run starts is kept
@@ -80,8 +80,8 @@ from evalution.runs.estimate import (
     capped,
     messages,
     own_costs,
+    per_try_usd,
     run_usd,
-    spend_cap,
 )
 from evalution.runs.fit import why_not
 from evalution.runs.play import (
@@ -180,8 +180,9 @@ class _Plan:
     cases: tuple[str, ...]
     tries: int | None
     scope: str
-    #: What the app may spend before the run stops; ``None``: no cap.
-    spend_cap: float | None
+    #: One try of each case, and the run at the low end, as estimated: what the spend cap goes by.
+    per_try: dict[str, float]
+    low: float
     expires: float
 
 
@@ -325,7 +326,7 @@ class Runs:
         A range: *tries*, when given, plays exactly that many, so both ends are one figure. Without
         it, each case plays from its own ``tries`` (``tries``, ``chats`` and ``usd``: the low end,
         what they read before tries could grow) up to :data:`MOST_TRIES` (``tries_high`` and
-        ``usd_high``). The run's spend cap is a multiple of the high end.
+        ``usd_high``).
 
         :raises CaseError: An unknown set or case, or a bad case file.
         :raises LookupError: An unknown target.
@@ -340,14 +341,14 @@ class Runs:
         least = {c.case: tries or int(c.limits["tries"]) for c in chosen}
         most = {c.case: tries or MOST_TRIES for c in chosen}
         c0 = self.targets.config.filler_usd
-        low, high = run_usd(chosen, least, runs, c0), run_usd(chosen, most, runs, c0)
+        per_try = {c.case: per_try_usd(c, runs, c0) for c in chosen}
+        low, high = run_usd(per_try, least), run_usd(per_try, most)
         now = time.time()
         self._plans = {k: p for k, p in self._plans.items() if p.expires > now}
         token = secrets.token_urlsafe(18)
         scope = "all" if {c.case for c in every} <= set(least) else "some"
-        cap = spend_cap(high, self.targets.config.spend_cap)
         self._plans[token] = _Plan(
-            target, set_name, tuple(least), tries, scope, cap, now + TOKEN_SECONDS
+            target, set_name, tuple(least), tries, scope, per_try, low, now + TOKEN_SECONDS
         )
         return {
             "token": token,
@@ -425,7 +426,9 @@ class Runs:
             "commit": None,
             "code": None,
             "pass_marks": dict(eval_set.pass_marks),
-            "spend_cap": plan.spend_cap,
+            # What the app may spend before the run stops (:func:`capped`), with each case's
+            # ``try_usd``.
+            "spend_cap": {"multiple": self.targets.config.spend_cap, "floor": plan.low},
             "set_version": eval_set.version,
             "case_versions": {c.case: c.version for c in cases},
             "error": None,
@@ -444,6 +447,7 @@ class Runs:
                     "source": c.source,
                     "stale": None,
                     "planned": plan.tries or int(c.limits["tries"]),
+                    "try_usd": plan.per_try[c.case],
                     "must_hold": c.must_hold,
                     # The test as it was played: a later change to its file doesn't change this.
                     "case": c.raw,
@@ -781,7 +785,7 @@ class Runs:
                         )
                         if left_going and target.capabilities.background and not played.cancelled:
                             raise StillWorking(STILL_WORKING)
-                        if capped(doc["totals"]["usd"], doc["spend_cap"]):
+                        if _capped(doc):
                             raise SpendCapped(SPEND_CAPPED)
                         if not reset:
                             await close_quietly(target, sessions.pop(index))
@@ -1058,6 +1062,18 @@ def _keepable(played: Played) -> TryEvidence:
                 for t in evidence.turns
             ),
         }
+    )
+
+
+def _capped(doc: Mapping[str, Any]) -> bool:
+    """Whether the app has spent the run's cap, over the tries played so far."""
+    cap, cases = doc["spend_cap"], doc["cases"]
+    return capped(
+        doc["totals"]["usd"],
+        cap["multiple"],
+        cap["floor"],
+        {stem: entry["try_usd"] for stem, entry in cases.items()},
+        {stem: len(entry["tries"]) for stem, entry in cases.items()},
     )
 
 

@@ -227,7 +227,8 @@ class Config:
     model_source: str | None = None
     #: Cost of one generated (filler) message on a warm conversation, for estimates.
     filler_usd: float = 0.04
-    #: A run stops once the app has spent this many times the high end of its estimate; 0: never.
+    #: A run stops once the app has spent this many times what its tries played were estimated at
+    #: (at least its low estimate); 0: never.
     spend_cap: float = 3.0
     #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()

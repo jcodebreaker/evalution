@@ -349,7 +349,7 @@ Both the OpenInference and OpenTelemetry GenAI conventions are understood, and p
 
 ## Cost and privacy
 
-**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Since tries can grow, the estimate is a range. A run stops partway once the app has spent `spend_cap` times its high end (3 by default, 0 turns it off); the tests it didn't reach read *not run: spend cap*. Try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
+**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Since tries can grow, the estimate is a range. A run stops partway once the app has spent `spend_cap` times what the tries it played were estimated at, and at least that many times the low end (3 by default, 0 turns it off); the tests it didn't reach read *not run: spend cap*. Try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
 
 **What stays local.** Results, tests and settings all live on your machine. There's no hosted service and no login. Each run also keeps what it saw in the database, `data/evalution.db`: prompts your app sent, tool arguments and outputs, in full up to 64 KB an item.
 

@@ -44,7 +44,7 @@ A run given a count (`--tries`, or `tries` on the estimate) plays exactly that m
 - A test that moved since the run it's compared with (`--against`, else the run a comparison picks) plays on until Fisher's test, as below, calls the move real, or until even the tries left all going the same way couldn't: then it's chance.
 - Never more than 20.
 
-The estimate is a range from each test's own `tries` to 20. A run stops once the app has spent `spend_cap` times the high end (3 by default; 0 turns it off). It reads stopped, and the tests it didn't reach read *not run: spend cap*: nothing is judged from them.
+The estimate is a range from each test's own `tries` to 20. After every try, a run stops once the app has spent `spend_cap` times what the tries played so far were estimated at, never less than that many times the low end (3 by default; 0 turns it off). A run that plays on raises its own allowance; a try far dearer than its estimate trips it. It reads stopped, and the tests it didn't reach read *not run: spend cap*: nothing is judged from them.
 
 ## What a pass rests on
 

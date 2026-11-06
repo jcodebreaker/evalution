@@ -52,28 +52,26 @@ def per_try_usd(case: Case, runs: Sequence[Mapping[str, Any]], c0: float) -> flo
     return DEFAULT_TRY_USD + filler_usd(case, c0)
 
 
-def run_usd(
-    cases: Sequence[Case],
-    counts: Mapping[str, int],
-    runs: Sequence[Mapping[str, Any]],
-    c0: float,
-) -> float:
-    """What *cases* cost at *counts* tries each, with the analysis of the share that fails."""
+def run_usd(per_try: Mapping[str, float], counts: Mapping[str, int]) -> float:
+    """What cases cost at *counts* tries each, at *per_try* (case -> one try's estimate), with the
+    analysis of the share that fails."""
     tries = sum(counts.values())
-    usd = sum(counts[c.case] * per_try_usd(c, runs, c0) for c in cases)
+    usd = sum(n * per_try[case] for case, n in counts.items())
     return usd + ANALYSIS_TRY_USD * FAIL_SHARE * tries + ANALYSIS_RUN_USD
 
 
-def spend_cap(estimate: float, multiple: float) -> float | None:
-    """What a run estimated at *estimate*, at most, may spend: *multiple* times that. Its high end,
-    so playing more tries never trips it; only tries far dearer than they used to be do. A
-    *multiple* of 0: no cap."""
-    return estimate * multiple if multiple > 0 else None
-
-
-def capped(spent: float, cap: float | None) -> bool:
-    """Whether a run that has *spent* this much has reached its *cap*."""
-    return cap is not None and spent >= cap
+def capped(
+    spent: float,
+    multiple: float,
+    floor: float,
+    per_try: Mapping[str, float],
+    played: Mapping[str, int],
+) -> bool:
+    """Whether a run that has *spent* this much reached its cap: *multiple* times what the tries
+    it *played* were estimated at, so a run that plays on raises its own allowance try by try and
+    a try far dearer than its estimate trips it. Never under *multiple* times *floor*, the run's
+    low estimate, so one noisy first try doesn't stop it. A *multiple* of 0: no cap."""
+    return multiple > 0 and spent >= multiple * max(floor, run_usd(per_try, played))
 
 
 def _message_seconds(runs: Sequence[Mapping[str, Any]]) -> list[float]:

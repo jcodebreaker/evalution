@@ -224,8 +224,10 @@ _ALL = tuple(f"msg{n}" for n in range(6))
         (1, ("msg2", "msg5"), 0.0, 6, "done"),
         # None asked for: each test's own three, which agree, so no more.
         (None, _ALL, 0.0, 18, "done"),
-        # Six tests at about $0.42 each, capped at three times that: $2 a try stops it at four.
-        (1, _ALL, 2.0, 4, "stopped"),
+        # The first test's tries cost $8 against an estimate of $0.40: the cap, three times the
+        # low estimate of about $7.41 while that is more than the tries played, stops it on its
+        # third, far under three times the high end.
+        (None, _ALL, 8.0, 3, "stopped"),
     ],
 )
 async def test_a_run_plays_its_tries_and_stops_when_it_must(
@@ -248,9 +250,9 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     play = Runs._try
 
     async def spending(self, *args):
-        # What the traces would say the app spent on the try.
+        # What the traces would say the app spent on a try of the first test.
         attempt, played = await play(self, *args)
-        return {**attempt, "usd": usd}, played
+        return {**attempt, "usd": usd if args[7].case == "t0" else 0.0}, played
 
     monkeypatch.setattr(Runs, "_try", spending)
     runs = Runs(Targets(config), None)
@@ -269,7 +271,8 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     if status == "stopped":
         # Nothing judged from the tests it didn't reach, and none of its tries failed for it.
         reasons = [t["reason"] for t in summary(run)["tests"]]
-        assert reasons == [None] * 4 + ["spend cap"] * 2
+        assert reasons == [None] + ["spend cap"] * 5
+        assert run["totals"]["usd"] < 3 * estimate["usd_high"]
         assert not any(t["error"] for c in played for t in c["tries"])
 
 
