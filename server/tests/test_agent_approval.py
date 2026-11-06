@@ -403,7 +403,8 @@ def _git(folder, *args) -> None:
 def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
     """An app with code, and a model: the light one summarizes what it is sent, the strong one
     plays the script, ``(tool, arguments)`` or a closing text per call. The light model never
-    summarizes a path in *skip*, and says app.py defines ``greet_people``."""
+    summarizes a path in *skip*, and says app.py defines the tool ``greet_people`` and two
+    helpers."""
     repo = tmp_path / "app"
     for rel, text in {
         "app.py": "def greet(): ...\n",
@@ -430,7 +431,7 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
             sent["light"].append(body)
             text = json.dumps(body["messages"])
             paths = re.findall(r"\[Data: (.+?)\. Material", text)
-            defines = {"app.py": " Defines: `greet_people`."}
+            defines = {"app.py": " Defines: tool: greet_people; function: _wrap, build_wake."}
             said = json.dumps(
                 {
                     "files": [
@@ -520,8 +521,8 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
     assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 3
 
-    # One file changed: it alone is summarized again, and given then and now with what cites it;
-    # the writer edits that part alone, and a second read of the file is not resent.
+    # One file changed: the writer gets the part citing it in full, an outline of the rest, the
+    # file's summary then and now and its diff, and patches in one step, which ends the learn.
     kept = understanding.load(targets, "bot")
     (repo / "lib/memory.py").write_text("STORE = {'kept': True}\n")
     _git(repo, "commit", "-qam", "keep")
@@ -531,29 +532,23 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
         "text": "It keeps what it was told.",
         "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
     }
-    script += [
-        ("read_code", {"path": "lib/memory.py"}),
-        ("read_code", {"path": "lib/memory.py"}),
-        ("patch_understanding", {"claims": [keeps]}),
-        "Learned again.",
-    ]
+    note = "It now keeps what it was told."
+    script += [("patch_understanding", {"claims": [keeps], "note": note})]
     shown = await _learn(agent, sid)
     assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
     assert "app.py" not in json.dumps(sent["light"][1])
-    # A learn starts from its brief alone: nothing of the thread's earlier turns is sent.
-    started = sent["writer"][3]["messages"]
-    assert len(started) == 1 and "Learned." not in json.dumps(started)
-    said = started[0]["content"][-1]["text"]
-    assert learn.PATCH in said and "claim:keeps: lib/memory.py" in said
-    assert "lib/memory.py (changed)" in said and "every watched file" not in said
-    results = [
-        b["content"]
-        for b in sent["writer"][5]["messages"][-1]["content"]
-        if b["type"] == "tool_result"
-    ]
-    assert results[-1].startswith("lib/memory.py is unchanged since you read it at step")
-    assert len(sent["writer"]) == 7, "no reminder: the changed file names nothing left out"
-    assert shown["usage"][-1]["light_calls"] == 1
+    assert len(sent["writer"]) == 4, "one strong call"
+    assert shown["messages"][-1]["text"] == note and shown["usage"][-1]["calls"] == 2
+    # A learn starts from its brief alone: nothing of the thread's earlier turns is sent, and the
+    # instructions carry no profile.
+    started = sent["writer"][3]
+    assert len(started["messages"]) == 1 and "Learned." not in json.dumps(started["messages"])
+    assert "[Data: the target's profile" not in started["system"][0]["text"]
+    said = started["messages"][0]["content"][-1]["text"]
+    assert learn.PATCH in said and '"claim:keeps"' in said and "It keeps a store." in said
+    assert "claim:greets: It greets." in said and '"claim:greets"' not in said, "in outline"
+    assert "lib/memory.py (changed)" in said and "+STORE = {'kept': True}" in said
+    assert "every watched file" not in said
     patched = understanding.load(targets, "bot")
     assert patched["version"] == kept["version"] + 1
     claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
@@ -564,17 +559,30 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     # The thread keeps what was asked and said, and none of a brief.
     thread = (await agent._session(sid))["history"]
     assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
-    assert thread[-1]["content"] == "Learned again."
+    assert thread[-1]["content"] == note
 
-    # Past the threshold, the understanding is written again from every summary.
+    # Past the threshold, the understanding is written again from every summary; a file read
+    # twice is not sent twice.
     monkeypatch.setattr(learn, "PATCH_FILES", 0)
     monkeypatch.setattr(learn, "PATCH_SHARE", 0.0)
     (repo / "app.py").write_text("def greet(): return 'hi'\n")
     _git(repo, "commit", "-qam", "hi")
-    script += [("write_understanding", UNDERSTOOD), "Learned.", "Covered."]
+    script += [
+        ("read_code", {"path": "app.py"}),
+        ("read_code", {"path": "app.py"}),
+        ("write_understanding", UNDERSTOOD),
+        "Learned.",
+        "Covered.",
+    ]
     await _learn(agent, sid)
-    said = sent["writer"][7]["messages"][0]["content"][-1]["text"]
+    said = sent["writer"][4]["messages"][0]["content"][-1]["text"]
     assert said.startswith("Learn bot again.\n\n" + learn.AGAIN) and "every watched file" in said
+    results = [
+        b["content"]
+        for b in sent["writer"][6]["messages"][-1]["content"]
+        if b["type"] == "tool_result"
+    ]
+    assert results[-1].startswith("app.py is unchanged since you read it at step")
 
 
 def test_the_reminder_names_only_code_definitions() -> None:
@@ -582,15 +590,16 @@ def test_the_reminder_names_only_code_definitions() -> None:
         "summaries": {
             "docs/adr/0001-store.md": {"summary": "Defines: `ENV_FLAG`, table_field."},
             "app.py": {
-                "summary": "Is: the app. Defines: `greet_people`, POST, YYYY-MM-DD, README, "
-                "README.md, API, run_agent(), greets. State: `memory_store`."
+                "summary": "Is: the app. Defines: tools: `greet_people`, POST, YYYY-MM-DD, "
+                "README.md, API, _private, run_agent(); function: parse_result; agent: Greeter. "
+                "State: `memory_store`."
             },
             "lib/tools.py": {"summary": "Prompts/rules: `SYSTEM_PROMPT` says be brief."},
         }
     }
     understood = {"claims": ["It greets people."]}
     assert filememory.uncovered(memory, understood) == {
-        "app.py": ["greet_people", "run_agent"],
+        "app.py": ["greet_people", "run_agent", "Greeter"],
         "lib/tools.py": ["SYSTEM_PROMPT"],
     }
     assert filememory.uncovered(memory, understood, ["lib/tools.py"]) == {

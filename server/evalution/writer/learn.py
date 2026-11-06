@@ -30,6 +30,7 @@ import logging
 import time
 from dataclasses import dataclass
 
+from evalution.code import Code, CodeError
 from evalution.llm import fenced
 from evalution.project import drift, filememory, knowledge, understanding
 from evalution.project.profile import FINGERPRINT_DOC, read_doc
@@ -52,10 +53,16 @@ traces showed, the admin's marks). Read a whole file (read_code) only for detail
 not give, the changed and added ones first. Save with write_understanding."""
 
 PATCH = """\
-You learned this app before, and only a few files moved since. Edit only what they change, with \
-patch_understanding: replace or add the claims and nodes the files below move, and remove what \
-they make untrue. Leave everything else as it is. Read a whole file only for detail its summary \
-does not give."""
+You learned this app before, and only a few files moved since. Below: the parts of what you \
+understood that cite them, in full; an outline of the rest; each file's summary then and now; and \
+what changed in them. Edit only what the change moves, in one patch_understanding call with its \
+note: replace or add the claims and nodes it changes, remove what it makes untrue. Leave the rest \
+as it is. read_understanding and read_code are there only if what is below is not enough."""
+
+#: How much of the moved files' diff (or text, without git) a patch's brief carries.
+CHANGES_CHARS = 16_000
+#: How much of each claim the outline of the rest shows.
+OUTLINE_CHARS = 80
 
 #: A change of at most this many files, or this share of the watched ones, is patched.
 PATCH_FILES = 5
@@ -97,15 +104,62 @@ def _small(moved: filememory.Changes, files: int) -> bool:
     return not moved.first and 0 < count <= max(PATCH_FILES, PATCH_SHARE * files)
 
 
+def _parts(doc: dict) -> dict[str, dict]:
+    """Each claim and node by ``claim:<id>`` or ``node:<id>``."""
+    found = {f"claim:{c['id']}": c for sec in doc.get("sections") or [] for c in sec["claims"]}
+    return found | {f"node:{n['id']}": n for n in doc.get("nodes") or []}
+
+
+def _outline(doc: dict, shown: set[str]) -> str:
+    """The understanding by ids and titles, what is shown in full left out: enough to keep ids
+    and to see where a new claim goes, at a fraction of the whole."""
+    lines = [f"one_line: {doc.get('one_line') or ''}"]
+    lines += [
+        f"node:{n['id']} ({n.get('kind')}): {n.get('title')}"
+        for n in doc.get("nodes") or []
+        if f"node:{n['id']}" not in shown
+    ]
+    for section in doc.get("sections") or []:
+        lines.append(f"section {section['id']}: {section.get('title')}")
+        lines += [
+            f"  claim:{c['id']}: {c['text'][:OUTLINE_CHARS]}"
+            for c in section["claims"]
+            if f"claim:{c['id']}" not in shown
+        ]
+    for key in ("priorities", "starters"):
+        lines += [f"{key[:-1]}:{i['id']}: {i.get('title')}" for i in doc.get(key) or []]
+    return "\n".join(lines)
+
+
+def _changes_text(code: Code, since: str | None, paths: list[str]) -> str:
+    """What changed in *paths*: the diff since the last learn's commit, else their text now."""
+    text = ""
+    if since:
+        try:
+            text = code.diff(since, set(paths))
+        except CodeError:
+            text = ""
+    if not text:
+        for path in paths:
+            try:
+                text += fenced(path, code.read(path)) + "\n"
+            except (CodeError, OSError):
+                continue
+    return text[:CHANGES_CHARS] + ("\n… (cut)" if len(text) > CHANGES_CHARS else "")
+
+
 def _patch_brief(
     targets: Targets,
     name: str,
+    code: Code,
     before: dict,
     moved: filememory.Changes,
-    was: dict[str, str],
+    memory: dict,
 ) -> str:
-    """What a small change's learn is given: the understanding, each moved file's summary then and
-    now, and the parts of the understanding that cite them."""
+    """What a small change's learn is given: the parts of the understanding that cite the moved
+    files in full and an outline of the rest, each file's summary then and now, and the change
+    itself, so it can patch in one step."""
+    was = filememory.summaries(memory)
     now = filememory.summaries(filememory.load(targets, name))
     lines = []
     for kind, paths in (
@@ -119,17 +173,20 @@ def _patch_brief(
             lines.append(f"{path} ({kind})\n  then: {then}\n  now: {after}")
     touched = set(moved.changed) | set(moved.removed)
     links = knowledge.load(targets, name).get("links") or {}
-    cites = [
-        f"{key}: {', '.join(sorted(set(files) & touched))}"
-        for key, files in sorted(links.items())
-        if set(files) & touched
-    ]
+    parts = _parts(before)
+    cited = {key for key, files in links.items() if set(files) & touched and key in parts}
+    full = {key: parts[key] for key in sorted(cited)}
     return "\n\n".join(
         [
             PATCH,
-            fenced("what you understood", json.dumps(before, ensure_ascii=False)),
+            fenced("the parts that cite them", json.dumps(full, ensure_ascii=False) or "(none)"),
+            fenced("the rest, in outline", _outline(before, cited)),
             fenced("the files that moved", "\n".join(lines)),
-            fenced("the parts that cite them", "\n".join(cites) or "(none)"),
+            fenced(
+                "what changed in them",
+                _changes_text(code, memory.get("commit"), [*moved.changed, *moved.added])
+                or "(nothing readable)",
+            ),
         ]
     )
 
@@ -186,12 +243,14 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
     if code is not None:
         files = taken["code"]["files"]
         moved = filememory.changes(memory, files)
-        was = filememory.summaries(memory)
         await filememory.index(targets, name, code, ask)
         clock("summaries")
         if before is not None and not traces and _small(moved, len(files)):
             turn.patch = sorted({*moved.changed, *moved.added})
-            return Begun(text=_patch_brief(targets, name, before, moved, was))
+            brief = await asyncio.to_thread(
+                _patch_brief, targets, name, code, before, moved, memory
+            )
+            return Begun(text=brief)
         parts.append(filememory.brief(filememory.load(targets, name), files, moved))
     if traces:
         lines = "\n".join(c["detail"] for c in traces)

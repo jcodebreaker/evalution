@@ -257,6 +257,10 @@ TOOLS = [
         "like write_understanding. A node or claim with an id that exists replaces it; a new id "
         "adds it (a claim to its section).",
         {
+            "note": {
+                "type": "string",
+                "description": "One line for the admin: what changed in what you understood",
+            },
             "one_line": {"type": "string", "description": "Only when it changes"},
             "nodes": {"type": "array", "items": _NODE},
             "claims": {
@@ -276,7 +280,7 @@ TOOLS = [
                 "items": _STR,
             },
         },
-        [],
+        ["note"],
     ),
     _tool(
         "read_trace_digest",

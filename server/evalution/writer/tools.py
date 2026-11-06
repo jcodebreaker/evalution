@@ -62,6 +62,8 @@ class AgentTurn:
     reminded: bool = False
     #: In a learn of a small change, the files that moved: the understanding is patched.
     patch: list[str] | None = None
+    #: The patch's line for the admin, which ends that learn.
+    note: str | None = None
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -439,7 +441,10 @@ class Tools:
         before = await asyncio.to_thread(understanding.written, self.targets, self._target(turn))
         if before is None:
             return "Refused: nothing is saved yet. Write it whole with write_understanding."
-        return await self.write_understanding(turn, understanding.patched(before, args))
+        said = await self.write_understanding(turn, understanding.patched(before, args))
+        if turn.understood and isinstance(args.get("note"), str) and args["note"].strip():
+            turn.note = args["note"].strip()
+        return said
 
     async def read_trace_digest(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)

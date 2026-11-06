@@ -343,8 +343,10 @@ class Agent:
             self._work(session, text, learn)
         )
 
-    def _instructions(self, session: Mapping[str, Any]) -> str:
-        """The instructions, with this session's target, set, profile and cases."""
+    def _instructions(self, session: Mapping[str, Any], learning: bool = False) -> str:
+        """The instructions, with this session's target, set, profile and cases. *learning*: a
+        learn's brief carries what it understood, so the profile is left out and the cases go by
+        name; resent at every step, they would cost more than the work."""
         docs, target, set_name = self.targets.docs, session["target"], session["set"]
         cases, broken = [], []
         for stem in case_stems(docs, target, set_name):
@@ -354,7 +356,7 @@ class Agent:
                 broken.append(f"{stem}: does not load ({cut(str(exc), 200)})")
         full = "\n\n".join(f"{c.case}:\n{json.dumps(c.raw, ensure_ascii=False)}" for c in cases)
         full = "\n".join([full, *broken]).strip()
-        if len(full) > CASES_CHARS:
+        if learning or len(full) > CASES_CHARS:
             full = "\n".join(f"{c.case}: {c.name}" for c in cases) + "\n(read_case for one)"
         profile = read_profile(self.targets, session["target"])
         changes = len(drift.read(self.targets, session["target"]).get("changes") or [])
@@ -378,8 +380,12 @@ class Agent:
                 else ""
             )
             + f"Drift: {changes} change(s) since the profile.\n\n"
-            + fenced("the target's profile", cut(profile, PROFILE_CHARS) or "(none yet)")
-            + "\n\n"
+            + (
+                ""
+                if learning
+                else fenced("the target's profile", cut(profile, PROFILE_CHARS) or "(none yet)")
+                + "\n\n"
+            )
             + fenced("the set's cases", full or "(none yet)")
         )
 
@@ -441,7 +447,7 @@ class Agent:
                         return
                     if begun.text:
                         history[-1]["content"] += "\n\n" + begun.text
-                instructions = await asyncio.to_thread(self._instructions, session)
+                instructions = await asyncio.to_thread(self._instructions, session, learn_asked)
                 while True:
                     if _size(history) > HISTORY_CHARS:
                         await self._fold(session, history, usage)
@@ -486,6 +492,15 @@ class Agent:
                         history.append(
                             {"role": "user", "content": f"The admin says, while you work: {said}"}
                         )
+                    if learn_asked and turn.patch is not None and turn.understood and not stopped:
+                        # A patch saved ends the learn, its note the reply, unless the code still
+                        # names what it left out: then once more.
+                        left = await asyncio.to_thread(learn.left_out, self.targets, turn)
+                        if not left:
+                            say(session, "agent", turn.note or "I've updated what I understood.")
+                            break
+                        turn.understood = False
+                        history.append({"role": "user", "content": left})
                     await self._save(session)
                     if stopped:
                         say(session, "agent", stopped)
