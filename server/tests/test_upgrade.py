@@ -17,6 +17,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from evalution import upgrade
 from evalution.api.app import create_app
 from evalution.cli import main
 from evalution.config import load
@@ -58,7 +59,7 @@ def home(tmp_path) -> Path:
     (root / "data" / "secrets.json").write_text(json.dumps({"my-app.key": SECRET}))
     (root / "data" / "secrets.json").chmod(0o600)
     (root / "evalution.yaml").write_text(yaml.safe_dump({"traces": {"managed": False}}))
-    (root / "targets.yaml").write_text("targets: {}\n")
+    load(root / "evalution.yaml")  # its database, as the first start makes it
     return root
 
 
@@ -136,7 +137,7 @@ def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> N
     for path in backup.rglob("*"):
         assert stat.S_IMODE(path.stat().st_mode) == (0o700 if path.is_dir() else 0o600), path
     assert SECRET in (backup / "data" / "secrets.json").read_text()
-    assert (backup / "settings" / "targets.yaml").is_file()
+    assert (backup / "settings" / "evalution.yaml").is_file()
     assert not (backup / "data" / "run.lock").exists()
     assert _run_in(backup / "data" / "evalution.db", "v0-edge") == old["v0-edge"]
     manifest = (backup / "manifest.json").read_text()
@@ -246,9 +247,10 @@ def test_the_database_is_copied_whole_or_said_to_be_elsewhere(home, capsys, monk
     assert stat.S_IMODE(copy.stat().st_mode) == 0o600
     assert _run_in(copy, "late") == {"run": "late"}
 
+    # The config is read before: opening that database is the server's business, not the backup's.
+    loaded = load(home / "evalution.yaml")
     monkeypatch.setenv(URL_ENV, "postgresql://user:placeholder@db.invalid/evalution")
-    assert main(["--config", config, "backup"]) == 0
-    out = said(capsys)[0]
+    out = "\n".join(upgrade.backup(loaded).lines)
     assert f"${URL_ENV} names is not in it" in out and "placeholder" not in out
 
 
@@ -259,26 +261,20 @@ def test_a_backup_cant_go_inside_what_it_backs_up(home, capsys) -> None:
     assert not (home / "data" / "copies").exists()
 
 
-def test_settings_can_live_apart_from_a_config_that_cant_be_written(
-    tmp_path, monkeypatch, capsys
-) -> None:
-    """A container's: ``targets.yaml`` and ``model.yaml`` go in the data folder, which persists."""
+def test_what_the_page_sets_lives_in_the_data_folder(tmp_path, capsys) -> None:
+    """So a container's read-only config is never written, and the backup's data holds it."""
     (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"traces": {"managed": False}}))
-    monkeypatch.setenv("EVALUTION_SETTINGS_DIR", str(tmp_path / "data" / "settings"))
-    config = load(tmp_path / "evalution.yaml")
-    assert config.targets_file == tmp_path / "data" / "settings" / "targets.yaml"
+    (tmp_path / "evalution.yaml").chmod(0o400)
     options = {"send": {"url": "http://x"}, "reply": "$.reply", "done": "response"}
     body = {"name": "app", "adapter": "http", "options": options}
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as client:
         assert client.post("/v1/targets", json=body).status_code == 201
-    assert not (tmp_path / "targets.yaml").exists()
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == ["evalution.yaml"]
     assert "app" in load(tmp_path / "evalution.yaml").targets
-    # Once, in the backup's data, not again as a setting.
     assert main(["--config", str(tmp_path / "evalution.yaml"), "backup"]) == 0
     (backup,) = (tmp_path / "backups").iterdir()
-    assert (backup / "data" / "settings" / "targets.yaml").is_file()
-    assert not (backup / "settings" / "targets.yaml").exists()
-    assert (backup / "settings" / "evalution.yaml").is_file()
+    assert (backup / "data" / "evalution.db").is_file()
+    assert sorted(p.name for p in (backup / "settings").iterdir()) == ["evalution.yaml"]
     said(capsys)
 
 

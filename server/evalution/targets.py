@@ -105,7 +105,7 @@ class Targets:
 
     async def reload(self, name: str) -> None:
         """The config's targets read again after *name* changed (the rest stays as it was)."""
-        fresh = load(self.config.file)
+        fresh = load(self.config.file, self.docs)
         self.config = replace(self.config, targets=fresh.targets, managed=fresh.managed)
         forget(name)
         if source := self._sources.pop(name, None):

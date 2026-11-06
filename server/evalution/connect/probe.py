@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 from evalution.adapters import adapter_info, make
 from evalution.adapters.base import Target
-from evalution.config import ConfigError, TargetConfig, read_secrets, secret
+from evalution.config import ConfigError, TargetConfig
 from evalution.connect import connect, discover
 from evalution.connect.scrub import REMOVED, scrub, scrub_text
 from evalution.core import net
@@ -74,9 +74,10 @@ def _named(options: Any) -> Iterator[str]:
 
 def known_secrets(targets: Targets) -> set[str]:
     """Every secret value evalution holds or would send: an env var is read before what's stored."""
-    found = {v for v in read_secrets().values() if v}
+    keys = targets.config.keys
+    found = {v for name in keys.store.names() if (v := keys.stored(name))}
     for conf in targets.config.targets.values():
-        found |= {v for ref in _named(conf.options) if (v := secret(ref))}
+        found |= {v for ref in _named(conf.options) if (v := conf.keys.get(ref))}
     model = targets.config.model
     if model and (key := model.api_key()):
         found.add(key)
@@ -280,9 +281,11 @@ async def redraft(
         if refused is None:
             try:
                 block, _ = connect.parse(
-                    name, {**view, "options": options, "secrets": {}}, connect.stored_keys(name)
+                    name,
+                    {**view, "options": options, "secrets": {}},
+                    connect.stored_keys(targets.config.keys, name),
                 )
-                target = build(connect.draft(name, block, targets.config.root))
+                target = build(connect.draft(name, block, targets.config.root, targets.config.keys))
             except (connect.TargetError, ConfigError) as exc:
                 refused = str(exc)
         shown = _settings(options or {}, secrets) if options else scrub(plan, secrets)

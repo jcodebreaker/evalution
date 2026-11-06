@@ -40,7 +40,7 @@ def _cipher(data_dir: Path) -> Fernet:
 
 
 class Secrets:
-    """One workspace's secrets, by name (``model.api_key``, ``targets.<name>.api_key``...)."""
+    """One workspace's secrets, by name (``model/api_key``, ``targets/<name>/api_key``...)."""
 
     def __init__(self, docs: Docs, data_dir: Path) -> None:
         self.docs = docs

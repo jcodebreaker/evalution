@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-from evalution.config import PhoenixConfig, secret
+from evalution.config import PhoenixConfig
 from evalution.core import net
 from evalution.traces.base import Span, SpanReader, kind_of, nest, with_events
 
@@ -76,7 +76,7 @@ class Phoenix(SpanReader):
     ):
         self.conf = conf
         self.also = list(also)
-        key = api_key or secret(conf.api_key_env)
+        key = api_key or conf.keys.get(conf.api_key_env)
         self._client = net.client(
             base_url=conf.url,
             headers={"Authorization": f"Bearer {key}"} if key else {},

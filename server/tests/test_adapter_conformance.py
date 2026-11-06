@@ -34,7 +34,7 @@ from evalution.adapters.base import (
 )
 from evalution.api.app import create_app
 from evalution.cli import main
-from evalution.config import TargetConfig, load
+from evalution.config import TargetConfig, load, page_targets
 from evalution.core.case import CLEAN_KINDS
 from evalution.core.trace import Section
 from evalution.project.understanding.computed import stack
@@ -201,7 +201,8 @@ def test_a_fourth_adapter_is_one_module(fourth_adapter, tmp_path) -> None:
         assert checked["adapter"] == {"ok": True, "detail": "It echoes"}
         body = {"adapter": "echo", "options": {"url": "u"}, "secrets": {"api_key": "k"}}
         assert client.put("/v1/targets/app", json=body).status_code == 200
-        assert "api_key_env: app.api_key" in (tmp_path / "targets.yaml").read_text()
+        saved = page_targets(client.app.state.runs.targets.docs)["app"]
+        assert saved["api_key_env"] == "targets/app/api_key"
         bad = client.put("/v1/targets/app", json={"adapter": "echo", "options": {"x": "u"}})
         assert bad.json()["detail"] == "options.x: not an option of the echo adapter"
 

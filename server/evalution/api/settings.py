@@ -1,4 +1,4 @@
-"""evalution's own model. The key goes into data/secrets.json and is never returned or logged."""
+"""evalution's own model. The key is kept as a stored secret and never returned or logged."""
 
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
             raise busy(f"The model is set in {targets.config.file.name}; edit it there")
         async with lock:
             try:
-                dropped = await asyncio.to_thread(settings.save, targets.config, body)
-                fresh = load(targets.config.file)
+                dropped = await asyncio.to_thread(settings.save, targets.config, targets.docs, body)
+                fresh = load(targets.config.file, targets.docs)
             except (settings.SettingsError, ConfigError) as exc:
                 raise invalid(str(exc)) from exc
             targets.config = replace(
@@ -78,6 +78,6 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
             raise invalid(str(exc)) from exc
         if model is None:
             raise invalid("No model is set up yet")
-        return await settings.test(model, targets.config.spend_file)
+        return await settings.test(model, targets.docs)
 
     return router

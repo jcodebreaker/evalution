@@ -355,7 +355,7 @@ Both the OpenInference and OpenTelemetry GenAI conventions are understood, and p
 
 **What goes to your model.** The model you configure sees code Ask AI reads, diffs of changes, traces and replies. Secret files are never read, but they're recognised by file name: a key pasted into a normal source file could be sent in a diff.
 
-**Secrets.** They stay in `data/secrets.json` (owner-only), or in environment variables you name. They are never returned by the API, logged or sent to the model.
+**Secrets.** They stay in `data/evalution.db`, encrypted with `data/secret.key` (owner-only), or in environment variables you name. They are never returned by the API, logged or sent to the model.
 
 ## On pull requests
 
@@ -388,7 +388,7 @@ uv run --project server evalution upgrade     # with Docker, see "With Docker": 
 
 `evalution upgrade` first copies `data/`, `sets/`, `targets/` and your settings to `backups/<time>/`. Then it rewrites stored runs as today's shape, says which it changed, checks every run still reads and says what it said, and prints the exact command that undoes it all. It refuses while a run is going, and exits non-zero if anything didn't check out.
 
-- `evalution backup` makes the same copy on its own. It holds your secrets and is owner-only: treat it as you would `data/secrets.json`, and delete what you no longer need, since nothing does that for you.
+- `evalution backup` makes the same copy on its own. It holds your secrets and is owner-only: treat it as you would `data/secret.key`, and delete what you no longer need, since nothing does that for you.
 - `evalution restore <backup>` puts one back, whole, after checking it isn't damaged and backing up what's there now. It refuses while `serve` runs on this data folder, and a backup kept inside `data/`, `sets/` or `targets/`: move that out first.
 
 ## Reference
@@ -422,8 +422,8 @@ uv run --project server evalution adapter new my_app            # a starter for 
 | `targets/<app>/` | What it learned, fingerprints, change state | Your choice |
 | `data/evalution.db` | Run results and what each try saw | No |
 | `data/phoenix/`, `data/traces/` | Traces | No |
-| `data/secrets.json` | Secrets | No |
-| `evalution.yaml`, `targets.yaml`, `model.yaml` | Settings; with Docker the last two are in `data/settings/` | No |
+| `data/evalution.db`, `data/secret.key` | What the page sets (apps connected, the model), secrets encrypted with that key | No |
+| `evalution.yaml` | Settings by hand | No |
 | `backups/<time>/` | Copies from `backup` and `upgrade`, secrets included, owner-only | No |
 
 Most people never edit settings by hand. To do so, copy [`evalution.example.yaml`](evalution.example.yaml) to `evalution.yaml`. A `model:` there wins over the page, and `EVALUTION_MODEL_KEY` wins over a stored key.

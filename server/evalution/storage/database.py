@@ -101,7 +101,7 @@ class Database:
         with _opening:
             if url not in _opened:
                 if url.startswith("sqlite"):
-                    data_dir.mkdir(parents=True, exist_ok=True)
+                    _owner_only(data_dir / FILE)
                 _opened[url] = cls._connect(url)
             return _opened[url]
 
@@ -150,6 +150,15 @@ class Database:
             if _opened.get(self.url) is self:
                 del _opened[self.url]
         self.engine.dispose()
+
+
+def _owner_only(file: Path) -> None:
+    """Make the database file before SQLite does, readable by its owner only: it holds prompts,
+    replies and tool output. SQLite gives its journal files the same mode."""
+    file.parent.mkdir(parents=True, exist_ok=True)
+    if not file.exists():
+        os.close(os.open(file, os.O_WRONLY | os.O_CREAT, 0o600))
+    file.chmod(0o600)
 
 
 def _sqlite_pragmas(connection: Any, _record: Any) -> None:

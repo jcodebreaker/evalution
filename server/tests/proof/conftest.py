@@ -9,7 +9,6 @@ import pytest
 import scripted_agent
 
 from evalution import adapters
-from evalution import config as config_module
 from evalution.judging import rubric
 from evalution.runs import collect, play
 
@@ -35,7 +34,6 @@ def make_rig(tmp_path, clock, monkeypatch):
     monkeypatch.setattr(adapters, "__path__", [*adapters.__path__, str(seam)])
     monkeypatch.setattr(adapters, "_built", {})
     monkeypatch.setitem(sys.modules, "evalution.adapters.scripted_agent", scripted_agent)
-    monkeypatch.setattr(config_module, "_secrets_path", config_module._secrets_path)
     adapters.infos.cache_clear()
     adapters.own_traffic.cache_clear()
     made = 0
