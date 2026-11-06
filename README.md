@@ -94,6 +94,8 @@ docker compose up --build
 
 Set `traces: {managed: builtin}` in `evalution.yaml`, since Phoenix isn't in the image. Your apps stay outside the container, so address one on this computer as `host.docker.internal`, and to connect a project by its folder, mount that folder in `compose.yaml`. Secrets go in a `.env` beside it, never in the file. On Linux, set `EVALUTION_UID` and `EVALUTION_GID` if you aren't user 1000.
 
+To host it for a team, on Postgres with sign-in, see [deploying](docs/deploy.md).
+
 It has no login. The port is published on 127.0.0.1, so other computers can't reach it, though any program on this one can. It answers only under the names in `EVALUTION_ALLOWED_HOSTS` (`localhost,127.0.0.1` in `compose.yaml`), so a web page can't reach it by pointing its own name here; an app in another container, or a proxy, needs its name added. Behind a proxy that puts in a `Host` of its own, add that name and the public one.
 
 To upgrade or restore, stop the service first and run the command on its own, since a running `serve` holds the folders (`restore` refuses, even from `docker compose exec`):

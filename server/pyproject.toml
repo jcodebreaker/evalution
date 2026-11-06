@@ -20,6 +20,8 @@ dependencies = [
 # A local Phoenix that `evalution serve` runs itself (docs/architecture.md, "Traces").
 # Elastic License 2.0; see NOTICE.
 traces = ["arize-phoenix==21.0.0"]
+# Postgres instead of SQLite, for a hosted evalution (docs/deploy.md).
+postgres = ["psycopg[binary]==3.3.6"]
 
 [project.scripts]
 evalution = "evalution.cli:main"
@@ -32,6 +34,7 @@ dev = [
     "ruff>=0.6",
 ]
 traces = ["evalution[traces]"]
+postgres = ["evalution[postgres]"]
 
 [build-system]
 requires = ["hatchling"]
@@ -80,6 +83,7 @@ layers = [
     "adapters",
     "llm",
     "config",
+    "accounts",
     "storage",
     "core",
 ]

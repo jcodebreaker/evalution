@@ -1,5 +1,6 @@
 """Where evalution keeps what it learns and writes (docs/architecture.md, "Storage"): one database,
-SQLite in ``<data_dir>/evalution.db`` by default, any SQLAlchemy URL in ``$DATABASE_URL``.
+SQLite in ``<data_dir>/evalution.db`` by default, Postgres when ``$DATABASE_URL`` names one
+(``pip install evalution[postgres]``, docs/deploy.md).
 
 Everything is a JSON **document** under ``(workspace, kind, key)``: a run, an Ask AI session, a
 target's profile, a test. Keys are paths, ``"<target>/profile.md"`` or ``"<set>/<case>"``, so a

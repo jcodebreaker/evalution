@@ -7,12 +7,14 @@ COPY web/ ./
 RUN npm run build
 
 FROM python:3.12-slim
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+# The uv CI uses, so it reads the lock file as CI does.
+COPY --from=ghcr.io/astral-sh/uv:0.12.20 /uv /usr/local/bin/uv
 WORKDIR /app/server
 COPY server/pyproject.toml server/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# With the Postgres driver, so the same image runs on SQLite or, given DATABASE_URL, Postgres.
+RUN uv sync --frozen --no-dev --extra postgres --no-install-project
 COPY server/evalution ./evalution
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra postgres
 COPY library /app/library
 COPY --from=web /web/dist /app/web/dist
 WORKDIR /app

@@ -1,20 +1,66 @@
-"""The storage layer under every store: documents, entries, workspaces and encrypted secrets."""
+"""The storage layer under every store: documents, entries, workspaces and encrypted secrets.
 
+Each test runs on SQLite, and on Postgres too where ``$TEST_DATABASE_URL`` names one (CI does);
+that database is emptied first, so give it one of its own."""
+
+import os
 import threading
 
 import pytest
+from sqlalchemy import MetaData, create_engine, select
 
 from evalution.storage import LOCAL, Database
-from evalution.storage.database import SCHEMA, StorageError, schema
+from evalution.storage.database import (
+    FILE,
+    SCHEMA,
+    StorageError,
+    _driver_url,
+    _opened,
+    schema,
+)
 from evalution.storage.secrets import KEY_ENV, SecretKeyError, Secrets
 
 
-def test_documents_entries_and_workspaces_keep_apart(tmp_path) -> None:
-    database = Database.open(tmp_path)
+@pytest.fixture(params=["sqlite", "postgres"])
+def url(request, tmp_path):
+    """The URL of an empty database; whatever the test opened on it is let go after."""
+    if request.param == "sqlite":
+        found = f"sqlite:///{tmp_path / FILE}"
+    else:
+        found = _driver_url(os.environ.get("TEST_DATABASE_URL", ""))
+        if not found:
+            pytest.skip("no TEST_DATABASE_URL")
+        _empty(found)
+    yield found
+    if opened := _opened.pop(found, None):
+        opened.engine.dispose()
+
+
+def _empty(url: str) -> None:
+    engine = create_engine(url)
+    try:
+        tables = MetaData()
+        tables.reflect(engine)
+        tables.drop_all(engine)
+    finally:
+        engine.dispose()
+
+
+def test_a_url_names_sqlite_or_postgres() -> None:
+    assert _driver_url("postgres://u@db/e") == "postgresql+psycopg://u@db/e", "as hosts hand it out"
+    assert _driver_url("postgresql://u@db/e") == "postgresql+psycopg://u@db/e"
+    assert _driver_url("sqlite:///e.db") == "sqlite:///e.db"
+    with pytest.raises(StorageError, match="SQLite or Postgres"):
+        Database._connect("mysql://u@db/e")
+
+
+def test_documents_entries_and_workspaces_keep_apart(tmp_path, url) -> None:
+    database = Database.open(tmp_path, url)
     docs = database.docs()
-    assert docs.workspace == LOCAL and (tmp_path / "evalution.db").is_file()
-    assert Database.open(tmp_path) is database, "one pool per database in a process"
-    assert (tmp_path / "evalution.db").stat().st_mode & 0o777 == 0o600, "it holds prompts"
+    assert docs.workspace == LOCAL
+    assert Database.open(tmp_path, url) is database, "one pool per database in a process"
+    if database.engine.dialect.name == "sqlite":
+        assert (tmp_path / FILE).stat().st_mode & 0o777 == 0o600, "it holds prompts"
 
     docs.put("run", "r1", {"run": "r1", "score": 0.5})
     docs.put("run", "r1", {"run": "r1", "score": 1})
@@ -51,14 +97,14 @@ def test_documents_entries_and_workspaces_keep_apart(tmp_path) -> None:
     assert docs.keys("profile") == ["app_x/profile.md"]
     assert docs.delete("run", "r1") and not docs.delete("run", "r1")
 
-    # What a second process opening the same file sees.
+    # What a second process opening the same database sees.
     database.close()
-    again = Database.open(tmp_path).docs()
+    again = Database.open(tmp_path, url).docs()
     assert again.keys("profile") == ["app_x/profile.md"]
 
 
-def test_writes_from_many_threads_all_land(tmp_path) -> None:
-    docs = Database.open(tmp_path).docs()
+def test_writes_from_many_threads_all_land(tmp_path, url) -> None:
+    docs = Database.open(tmp_path, url).docs()
 
     made: dict[int, list[int]] = {i: [] for i in range(20)}
 
@@ -81,18 +127,47 @@ def test_writes_from_many_threads_all_land(tmp_path) -> None:
     assert not docs.create("doc", "k0", "late") and docs.get("doc", "k0") != "late"
 
 
-def test_a_newer_database_is_refused(tmp_path) -> None:
-    database = Database.open(tmp_path)
+def test_servers_starting_at_once_make_the_tables_once(tmp_path, url) -> None:
+    """As two containers do on one Postgres: each migrates in turn, the second finding it done."""
+    if url.startswith("sqlite"):
+        Database.open(tmp_path, url).close()  # the file, owner-only, as ``open`` makes it
+    started: list[Database] = []
+    failed: list[Exception] = []
+
+    def start() -> None:
+        try:
+            started.append(Database._connect(url))
+        except Exception as exc:
+            failed.append(exc)
+
+    threads = [threading.Thread(target=start) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    try:
+        assert not failed and len(started) == 6
+        with started[0].engine.begin() as db:
+            assert list(db.scalars(select(schema.c.version).order_by(schema.c.version))) == list(
+                range(1, SCHEMA + 1)
+            )
+    finally:
+        for database in started:
+            database.engine.dispose()
+
+
+def test_a_newer_database_is_refused(tmp_path, url) -> None:
+    database = Database.open(tmp_path, url)
     with database.engine.begin() as db:
         db.execute(schema.insert().values(version=SCHEMA + 1))
     database.close()
     with pytest.raises(StorageError, match="newer evalution"):
-        Database.open(tmp_path)
+        Database.open(tmp_path, url)
 
 
-def test_secrets_are_encrypted_and_tied_to_their_key(tmp_path, monkeypatch) -> None:
+def test_secrets_are_encrypted_and_tied_to_their_key(tmp_path, url, monkeypatch) -> None:
     monkeypatch.delenv(KEY_ENV, raising=False)
-    docs = Database.open(tmp_path).docs()
+    docs = Database.open(tmp_path, url).docs()
     secrets = Secrets(docs, tmp_path)
     key_file = tmp_path / "secret.key"
     assert key_file.stat().st_mode & 0o777 == 0o600
