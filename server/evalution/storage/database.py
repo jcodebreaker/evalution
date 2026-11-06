@@ -145,6 +145,13 @@ class Database:
     def docs(self, workspace: str = LOCAL) -> Docs:
         return Docs(self, workspace)
 
+    def workspaces(self) -> list[str]:
+        """Every workspace that has a document, sorted: what background work goes over."""
+        with self.engine.begin() as db:
+            return list(
+                db.scalars(select(documents.c.workspace).distinct().order_by(documents.c.workspace))
+            )
+
     def close(self) -> None:
         """Let go of its connections; the next :meth:`open` connects again."""
         with _opening:

@@ -38,11 +38,22 @@ class Guards:
         self.tested = threading.Lock()
 
 
+def _without_folders(config: Config) -> Config:
+    """*config* with no target reading a folder of this computer: its code is left out."""
+    return replace(config, targets={n: replace(t, code=None) for n, t in config.targets.items()})
+
+
 class Targets:
     def __init__(
-        self, config: Config, managed_url: str | None = None, docs: Docs | None = None
+        self,
+        config: Config,
+        managed_url: str | None = None,
+        docs: Docs | None = None,
+        folders: bool = True,
     ) -> None:
-        self.config = config
+        #: Whether a target may read a folder of this computer (its code); hosted, none may.
+        self.folders = folders
+        self.config = config if folders else _without_folders(config)
         #: This workspace's storage; by default this server's own, in its data folder.
         self.docs = docs or Database.open(config.data_dir).docs()
         add_folder(config.adapters_dir or config.data_dir / "adapters")
@@ -72,7 +83,7 @@ class Targets:
         return found
 
     def adapter(self, name: str) -> Target:
-        return build(self.conf(name))
+        return build(self.conf(name), self.docs.workspace)
 
     def source(self, name: str) -> TraceSource | None:
         """Where *name*'s traces are read: what evalution keeps itself (its project, the default
@@ -103,9 +114,11 @@ class Targets:
 
     async def reload(self, name: str) -> None:
         """The config's targets read again after *name* changed (the rest stays as it was)."""
-        fresh = load(self.config.file, self.docs)
+        fresh = load(self.config.file, self.docs, self.config.keys)
+        if not self.folders:
+            fresh = _without_folders(fresh)
         self.config = replace(self.config, targets=fresh.targets, managed=fresh.managed)
-        forget(name)
+        forget(name, self.docs.workspace)
         if source := self._sources.pop(name, None):
             await source.close()
         if sink := self._sinks.pop(name, None):

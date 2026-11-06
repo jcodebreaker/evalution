@@ -5,15 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
-from evalution.api.deps import busy, invalid, not_found, target_name
+from evalution.api.deps import Current, busy, invalid, local_only, not_found, target_name
 from evalution.code import CodeError
 from evalution.project import hooks, knowledge, profile, understanding
 from evalution.runs.runner import Runs
 from evalution.suite.store import list_sets
-from evalution.writer.agent import Agent
 
 
 async def _understood(runs: Runs, name: str) -> dict[str, Any]:
@@ -21,20 +20,23 @@ async def _understood(runs: Runs, name: str) -> dict[str, Any]:
     return {**found, "knowledge": await asyncio.to_thread(knowledge.summary, runs, name)}
 
 
-def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
+def understanding_router(url: str) -> APIRouter:
+    """*url* is where this server listens, which is what a hook calls."""
     router = APIRouter()
-    targets = runs.targets
+    hosted_off = [Depends(local_only)]
 
     @router.get("/targets/{target}/understanding")
-    async def get_understanding(target: str) -> dict[str, Any]:
+    async def get_understanding(ws: Current, target: str) -> dict[str, Any]:
         """What evalution understood of the target, with the admin's steers and the numbers as
         they are now; ``status: "learning"`` before the agent wrote it."""
+        targets, runs = ws.targets, ws.runs
         return await _understood(runs, target_name(targets, target))
 
     @router.post("/targets/{target}/understanding/steer")
-    async def steer_understanding(target: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def steer_understanding(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """A claim or node marked right or wrong or fixed, a priority picked or added, a
         starter selected."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(understanding.steer, targets, name, body)
@@ -45,8 +47,9 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
         return await _understood(runs, name)
 
     @router.post("/targets/{target}/understanding/update")
-    async def update_understanding(target: str) -> dict[str, Any]:
+    async def update_understanding(ws: Current, target: str) -> dict[str, Any]:
         """Bring what it knows up to date now: the one thing that spends in ``manual``."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, target)
         outcome = await knowledge.refresh(runs, name, asked=True)
         if outcome == "no_model":
@@ -56,8 +59,9 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
         return await _understood(runs, name)
 
     @router.post("/targets/{target}/understanding/undo")
-    async def undo_understanding(target: str) -> dict[str, Any]:
+    async def undo_understanding(ws: Current, target: str) -> dict[str, Any]:
         """Put back what it knew before the last update from a commit."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(knowledge.undo, targets, name)
@@ -66,17 +70,20 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
         return await _understood(runs, name)
 
     @router.post("/targets/{target}/understanding/seen", status_code=204)
-    async def saw_understanding(target: str) -> None:
+    async def saw_understanding(ws: Current, target: str) -> None:
         """The owner opened what it learned: Home stops saying what changed."""
+        targets = ws.targets
         await asyncio.to_thread(knowledge.saw, targets, target_name(targets, target))
 
     @router.get("/targets/{target}/updates")
-    async def get_updates(target: str) -> dict[str, str]:
+    async def get_updates(ws: Current, target: str) -> dict[str, str]:
+        targets = ws.targets
         return {"mode": profile.updates(targets, target_name(targets, target))}
 
     @router.put("/targets/{target}/updates")
-    async def put_updates(target: str, body: dict[str, Any]) -> dict[str, str]:
+    async def put_updates(ws: Current, target: str, body: dict[str, Any]) -> dict[str, str]:
         """``auto``: a light model call per committed change. ``manual``: only on a click."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, target)
         try:
             await knowledge.choose(runs, name, body.get("mode"))
@@ -84,14 +91,16 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
             raise invalid(str(exc)) from exc
         return {"mode": profile.updates(targets, name)}
 
-    @router.get("/targets/{target}/hooks")
-    async def get_hooks(target: str) -> dict[str, Any]:
+    @router.get("/targets/{target}/hooks", dependencies=hosted_off)
+    async def get_hooks(ws: Current, target: str) -> dict[str, Any]:
+        targets = ws.targets
         name = target_name(targets, target)
         return await asyncio.to_thread(hooks.status, targets.code(name), name)
 
-    @router.post("/targets/{target}/hooks")
-    async def post_hooks(target: str) -> dict[str, Any]:
+    @router.post("/targets/{target}/hooks", dependencies=hosted_off)
+    async def post_hooks(ws: Current, target: str) -> dict[str, Any]:
         """Put the hooks into the target's repo. Only this and the command ever do."""
+        targets = ws.targets
         name = target_name(targets, target)
         try:
             return await asyncio.to_thread(hooks.install, targets.code(name), name, url)
@@ -100,15 +109,17 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
         except ValueError as exc:
             raise invalid(str(exc)) from exc
 
-    @router.delete("/targets/{target}/hooks")
-    async def delete_hooks(target: str) -> dict[str, Any]:
+    @router.delete("/targets/{target}/hooks", dependencies=hosted_off)
+    async def delete_hooks(ws: Current, target: str) -> dict[str, Any]:
+        targets = ws.targets
         name = target_name(targets, target)
         return await asyncio.to_thread(hooks.uninstall, targets.code(name), name)
 
     @router.post("/targets/{target}/understanding/plan")
-    async def plan_starters(target: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def plan_starters(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """Ask the agent to plan the chosen starters; returns its session. ``session``: the one
         to ask, else a new one on ``set`` (else the first set)."""
+        targets, agent = ws.targets, ws.agent
         name = target_name(targets, target)
         ids = body.get("starters")
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
@@ -138,8 +149,9 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
             raise not_found("Test writer session or test set") from exc
 
     @router.get("/targets/{target}/card.md")
-    async def get_card(target: str) -> PlainTextResponse:
+    async def get_card(ws: Current, target: str) -> PlainTextResponse:
         """The project card as Markdown."""
+        targets, runs = ws.targets, ws.runs
         found = await asyncio.to_thread(
             understanding.view, targets, runs, target_name(targets, target)
         )

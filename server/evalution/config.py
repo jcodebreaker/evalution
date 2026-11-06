@@ -18,6 +18,7 @@ block), which a ``model:`` in the file wins over whole. The file itself is never
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -62,10 +63,25 @@ class ConfigError(ValueError):
 
 class KeyRing:
     """What a ``*_env`` name stands for: the env var of that name, else the secret stored under
-    that name. ``KeyRing()``, with no store, reads the environment only."""
+    that name. ``KeyRing()``, with no store, reads the environment only.
 
-    def __init__(self, store: Secrets | None = None) -> None:
+    Hosted, a workspace's ring is given *account*: the model key of whoever the work is for
+    (:mod:`evalution.accounts.keys`). The environment is then the server's own, so a name never
+    reads it: a workspace could otherwise name any of the server's variables and send it away."""
+
+    def __init__(
+        self, store: Secrets | None = None, account: Callable[[], str | None] | None = None
+    ) -> None:
         self._store = store
+        self._account = account
+
+    @property
+    def hosted(self) -> bool:
+        return self._account is not None
+
+    def account_key(self) -> str | None:
+        """Hosted, the model key of whoever the work is for; ``None`` when nobody has one."""
+        return self._account() if self._account else None
 
     @property
     def store(self) -> Secrets:
@@ -77,9 +93,11 @@ class KeyRing:
             raise ConfigError("no data folder to keep secrets in")
         return self._store
 
-    @staticmethod
-    def env(name: str | None) -> str | None:
-        return (os.environ.get(name, "").strip() or None) if name else None
+    def env(self, name: str | None) -> str | None:
+        """The env var *name*; never hosted."""
+        if self.hosted or not name:
+            return None
+        return os.environ.get(name, "").strip() or None
 
     def stored(self, name: str) -> str | None:
         """:raises SecretKeyError: Stored under another key."""
@@ -118,9 +136,11 @@ class ModelConfig:
 
     def api_key(self) -> str | None:
         """The key: a typed one, then env var ``api_key_env``, then the stored ``model.api_key``,
-        unless it stays behind (``no_stored_key``)."""
+        unless it stays behind (``no_stored_key``). Hosted, a typed one, then the account's."""
         if self.key:
             return self.key
+        if self.keys.hosted:
+            return self.keys.account_key()
         if self.no_stored_key:
             return self.keys.env(self.api_key_env)
         return self.keys.get(self.api_key_env) or self.keys.stored(MODEL_SECRET)
@@ -379,10 +399,11 @@ def save_page_model(docs: Docs, block: dict[str, Any]) -> None:
     docs.put(SETTINGS, MODEL_DOC, block)
 
 
-def load(path: Path | None = None, docs: Docs | None = None) -> Config:
+def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | None = None) -> Config:
     """The config at *path*, ``$EVALUTION_CONFIG`` or ``./evalution.yaml``, with what the page set
     from *docs*, by default the workspace of this server in its data folder's database. A missing
-    file gives an empty config (no model, no targets) rooted at the working folder.
+    file gives an empty config (no model, no targets) rooted at the working folder. *keys*: where
+    its secrets are read, by default *docs*' own stored secrets and the environment.
 
     :raises ConfigError: A field that does not follow the shape, or a secret key that isn't one.
     """
@@ -397,10 +418,11 @@ def load(path: Path | None = None, docs: Docs | None = None) -> Config:
 
     data_dir = where("data_dir", "data")
     docs = docs or Database.open(data_dir).docs()
-    try:
-        keys = KeyRing(Secrets(docs, data_dir))
-    except SecretKeyError as exc:
-        raise ConfigError(str(exc)) from exc
+    if keys is None:
+        try:
+            keys = KeyRing(Secrets(docs, data_dir))
+        except SecretKeyError as exc:
+            raise ConfigError(str(exc)) from exc
     managed = page_targets(docs)
     model_block, model_source = _dict(data.get("model"), "model"), "config"
     if not model_block:

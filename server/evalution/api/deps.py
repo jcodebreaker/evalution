@@ -1,16 +1,18 @@
-"""What the area routers share: the errors they answer with, who may ask, and the lookups
-of a route's target and set."""
+"""What the area routers share: the errors they answer with, who may ask, the workspace a
+request runs in, and the lookups of a route's target and set."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
-from fastapi import HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
+from evalution.accounts.context import LOCAL
+from evalution.api.workspaces import Workspace
 from evalution.config import ALLOWED_HOSTS_ENV
 from evalution.suite.store import list_sets
 from evalution.targets import Targets
@@ -88,6 +90,25 @@ async def guard(request: Request, call_next: RequestResponseEndpoint) -> Respons
     if reason:
         return JSONResponse({"detail": reason}, status_code=403)
     return await call_next(request)
+
+
+async def workspace(request: Request) -> Workspace:
+    """The workspace the request runs in: the one its sign-in chose, else :data:`LOCAL`. Opened
+    here, on the event loop, so two first requests can't each build one."""
+    try:
+        return request.app.state.workspaces.get(getattr(request.state, "workspace", LOCAL))
+    except LookupError as exc:
+        raise not_found("Workspace") from exc
+
+
+#: A route's workspace, as a parameter: ``ws: Current``.
+Current = Annotated[Workspace, Depends(workspace)]
+
+
+def local_only(request: Request) -> None:
+    """:raises HTTPException: 400, hosted: the route needs this computer's folders."""
+    if request.app.state.hosted:
+        raise invalid("Not available hosted")
 
 
 def target_name(targets: Targets, name: Any) -> str:
