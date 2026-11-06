@@ -114,14 +114,15 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
 
     code = body.get("code")
     if isinstance(code, dict) and code.get("path"):
-        ignore = code.get("ignore") or []
-        if not isinstance(ignore, list) or not all(isinstance(g, str) and g for g in ignore):
-            raise TargetError("code.ignore: a list of globs")
         block["code"] = {"path": _text(code, "path", "code")}
-        if ignore:
-            block["code"]["ignore"] = ignore
+        for key in ("ignore", "include"):
+            globs = code.get(key) or []
+            if not isinstance(globs, list) or not all(isinstance(g, str) and g for g in globs):
+                raise TargetError(f"code.{key}: a list of globs")
+            if globs:
+                block["code"][key] = globs
     elif code not in (None, {}) and not isinstance(code, dict):
-        raise TargetError("code: {path, ignore}")
+        raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
 
 
@@ -217,7 +218,15 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
         if conf.phoenix.public_url:
             phoenix["public_url"] = conf.phoenix.public_url
     raw_code = block.get("code") if isinstance(block.get("code"), dict) and conf.code else None
-    code = {"path": str(raw_code["path"]), "ignore": list(conf.code.ignore)} if raw_code else None
+    code = (
+        {
+            "path": str(raw_code["path"]),
+            "ignore": list(conf.code.ignore),
+            "include": list(conf.code.include),
+        }
+        if raw_code
+        else None
+    )
     return {
         "name": conf.name,
         "adapter": conf.adapter,

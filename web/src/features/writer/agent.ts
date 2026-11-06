@@ -33,7 +33,7 @@ function store(scope: Scope, id: string | null) {
  */
 export function useAgent(scope: Scope | null) {
   const [session, setSession] = useState<AgentSession | null>(null);
-  const [queued, setQueued] = useState<{ text: string; run?: string }[]>([]);
+  const [queued, setQueued] = useState<{ text: string; run?: string; learn?: boolean }[]>([]);
   const key = scope?.target ?? null;
   const current = useRef(key);
   current.current = key;
@@ -80,23 +80,23 @@ export function useAgent(scope: Scope | null) {
   useVisiblePoll(refresh, WORKING_POLL_MS, working);
 
   const sendNow = useCallback(
-    async (text: string, run?: string) => {
+    async (text: string, run?: string, learn?: boolean) => {
       const asked = scopeRef.current;
       if (!asked) return;
       const open = session && session.status !== "stopped" ? session : await api.agent.open(asked);
       store(asked, open.id);
-      const next = await api.agent.send(open.id, text, run);
+      const next = await api.agent.send(open.id, text, run, learn);
       if (current.current === key) setSession(next);
     },
     [session, key],
   );
 
   /** Sends `text`, or queues it while the agent works. `run` says which run it is about, for the
-   * agent; it isn't part of what the person said. */
+   * agent; it isn't part of what the person said. `learn`: it asks to learn the app. */
   const ask = useCallback(
-    async (text: string, run?: string) => {
-      if (working) setQueued((now) => [...now, { text, run }]);
-      else await sendNow(text, run);
+    async (text: string, run?: string, learn?: boolean) => {
+      if (working) setQueued((now) => [...now, { text, run, learn }]);
+      else await sendNow(text, run, learn);
     },
     [working, sendNow],
   );
@@ -107,7 +107,7 @@ export function useAgent(scope: Scope | null) {
     const next = queued[0];
     if (working || next === undefined || sending.current) return;
     sending.current = true;
-    sendNow(next.text, next.run).finally(() => {
+    sendNow(next.text, next.run, next.learn).finally(() => {
       sending.current = false;
       setQueued((now) => now.slice(1));
     });

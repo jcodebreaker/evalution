@@ -2,7 +2,8 @@
 "Drift"): every source file under ``code.path``, whatever the project's layout, from git when
 the folder is a checkout (tracked, plus untracked and not ignored), else from a walk. Tests,
 lockfiles, build output, binaries, large files and whatever ``code.ignore`` names are left out,
-and so is a secrets file, always, and anything through a link out of the folder. Used by the
+and so is a secrets file, always, and anything through a link out of the folder. A
+``code.include`` keeps only the files it names. Used by the
 agent (``read_code``, ``list_code``, ``diff_code``), the drift fingerprint and the change card.
 """
 
@@ -23,6 +24,11 @@ LIST_CAP = 500
 HASH_CAP = 2_000
 HASH_SIZE = 1_000_000
 DIFF_CAP = 60_000
+#: Lines of context around each change: with no whole files sent beside it, a reader of the diff
+#: needs to see what the change sits in.
+DIFF_CONTEXT = 10
+#: Commit ranges whose diffs are kept (:data:`Diffs`).
+DIFFS_KEPT = 8
 #: Files one diff names, and how much of a new file it shows.
 DIFF_FILES = 500
 NEW_FILE_CAP = 4_000
@@ -87,6 +93,9 @@ _REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,79}$")
 #: Digests already taken: ``folder -> {file: (size, mtime, digest)}``, so a check that finds
 #: nothing changed reads no file. ``None``: not text.
 Digests = dict[Path, dict[str, tuple[int, int, str | None]]]
+#: Diffs already made: ``(folder, since, until) -> {file: its diff}``. Commits never change, so a
+#: range's diff is the same whoever asks: the knowledge refresh and the change card share it.
+Diffs = dict[tuple[Path, str, str], dict[str, str]]
 
 
 class CodeError(ValueError):
@@ -141,13 +150,21 @@ def _digest(path: Path) -> str | None:
 
 
 class Code:
-    def __init__(self, conf: CodeConfig, digests: Digests | None = None) -> None:
+    def __init__(
+        self, conf: CodeConfig, digests: Digests | None = None, diffs: Diffs | None = None
+    ) -> None:
         self.root = conf.path
         self.ignore = conf.ignore
+        self.include = conf.include
         self._digests: Digests = {} if digests is None else digests
+        self._diffs: Diffs = {} if diffs is None else diffs
 
     def allowed(self, rel: str) -> bool:
-        return _source(rel) and not any(glob_re(g).match(rel) for g in self.ignore)
+        return (
+            _source(rel)
+            and (not self.include or any(glob_re(g).match(rel) for g in self.include))
+            and not any(glob_re(g).match(rel) for g in self.ignore)
+        )
 
     def resolve(self, path: str) -> Path:
         """The file *path* names, relative to the code folder.
@@ -202,9 +219,11 @@ class Code:
                     return found
         return found
 
-    def list(self, pattern: str = "**") -> list[str]:
-        """Readable files matching glob *pattern*."""
-        return [f for f in self.files(HASH_CAP) if glob_re(pattern or "**").match(f)][:LIST_CAP]
+    def list(self, pattern: str = "**") -> tuple[list[str], int]:
+        """Readable files matching glob *pattern*, at most :data:`LIST_CAP`, and how many more
+        matched, so a reader knows to narrow the glob."""
+        found = [f for f in self.files(HASH_CAP) if glob_re(pattern or "**").match(f)]
+        return found[:LIST_CAP], max(0, len(found) - LIST_CAP)
 
     def hashes(self) -> dict[str, str]:
         """``file -> short hash``; a file whose size and time did not move is not read again."""
@@ -226,6 +245,8 @@ class Code:
         """The code as it stands: its last commit, its files' hashes, and what was watched
         (``watch``), since hash maps taken under other rules do not compare."""
         rules = "\n".join([_WATCH_RULES, *sorted(self.ignore)])
+        if self.include:
+            rules += "\ninclude\n" + "\n".join(sorted(self.include))
         return {
             "commit": self.commit(),
             "files": self.hashes(),
@@ -279,33 +300,52 @@ class Code:
 
     def diff_between(self, since: str, until: str, files: list[str]) -> str:
         """The diff of *files* between two commits, each named so nothing else is shown, capped;
-        nothing when it cannot be read."""
+        nothing when it cannot be read. Each file's part is made once per range
+        (:data:`Diffs`)."""
         named = [n for n in files if self.allowed(n)][:DIFF_FILES]
         if not named or not _REF.match(since) or not _REF.match(until):
             return ""
+        key = (self.root, since, until)
+        made = self._diffs.setdefault(key, {})
+        if missing := [n for n in named if n not in made]:
+            split = self._split(since, until, missing)
+            if split is None:
+                return ""
+            made |= {n: "" for n in missing} | split
+        # The newest ranges stay: one now asked for again moves to the end.
+        self._diffs[key] = self._diffs.pop(key)
+        for old in list(self._diffs)[:-DIFFS_KEPT]:
+            del self._diffs[old]
+        text = "".join(made[n] for n in named)
+        return text[:DIFF_CAP] + ("\n… (cut)" if len(text) > DIFF_CAP else "")
+
+    def _split(self, since: str, until: str, files: list[str]) -> dict[str, str] | None:
+        """One ``git diff`` of *files*, cut into each file's part by its header; ``None`` when it
+        does not read, so nothing is kept of it."""
         text = self._git(
             "diff",
             "--no-ext-diff",
             "--no-textconv",
             "--no-renames",
             "--relative",
+            f"-U{DIFF_CONTEXT}",
             since,
             until,
             "--",
-            *(f":(literal){n}" for n in named),
+            *(f":(literal){n}" for n in files),
         )
-        text = text or ""
-        return text[:DIFF_CAP] + ("\n… (cut)" if len(text) > DIFF_CAP else "")
-
-    def at_commit(self, rel: str, commit: str) -> str | None:
-        """A watched file's text in *commit*, capped; ``None`` when not there or not text. As a
-        plain blob: a repo's filters and converters do not run."""
-        if ".." in Path(rel).parts or not self.allowed(rel) or not _REF.match(commit):
+        if text is None:
             return None
-        text = self._git("cat-file", "blob", f"{commit}:./{rel}")
-        if text is None or "\0" in text[:8_192]:
-            return None
-        return text[:READ_CAP] + ("\n… (cut)" if len(text) > READ_CAP else "")
+        headers = {f"diff --git a/{n} b/{n}": n for n in files}
+        out: dict[str, str] = {}
+        current = None
+        for line in text.splitlines(keepends=True):
+            if line.startswith("diff --git "):
+                # A name git had to quote matches no header, and is left out.
+                current = headers.get(line.rstrip("\n"))
+            if current is not None:
+                out[current] = out.get(current, "") + line
+        return out
 
     def hooks_folder(self) -> Path:
         """The repo's real hooks folder, ``core.hooksPath`` and worktrees honoured.
@@ -352,6 +392,16 @@ class Code:
         tracked, untracked = watched(names), watched(new)
         if not tracked and not untracked:
             return "(no watched file changed)"
+        head = self.commit()
+        if (
+            head
+            and not untracked
+            and not watched(
+                self._git("diff", "--relative", "HEAD", "--name-only", "-z", "--") or ""
+            )
+        ):
+            # Nothing uncommitted: this is the diff between two commits, made once for both.
+            return self.diff_between(since, head, tracked)
         # Named one by one: without paths, git would show every file, secrets too.
         text = ""
         if tracked:

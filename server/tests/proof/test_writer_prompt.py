@@ -20,7 +20,7 @@ class WriterModel:
         self.calls: list[str] = []
         self.heard: list[str] = []
 
-    async def chat(self, key, system, messages, tools=(), max_tokens=0) -> Reply:
+    async def chat(self, key, system, messages, tools=(), max_tokens=0, cache=False) -> Reply:
         self.calls.append(system)
         self.heard += [str(m["content"]) for m in messages if m["role"] == "user"]
         return Reply(text="Nothing to do.")
@@ -84,7 +84,7 @@ async def test_a_turn_always_stops_and_a_plain_question_is_heard(make_rig, monke
         def __init__(self, answer) -> None:
             self.answer = answer
 
-        async def chat(self, key, system, messages, tools=(), max_tokens=0) -> Reply:
+        async def chat(self, key, system, messages, tools=(), max_tokens=0, cache=False) -> Reply:
             return await self.answer()
 
     async def played(answer) -> dict:
@@ -166,7 +166,7 @@ async def test_a_long_chat_is_summarized_or_else_loses_its_oldest_exchanges(
         def model_id(self, key: str) -> str | None:
             return self.light
 
-        async def chat(self, key, system, messages, tools=(), max_tokens=0) -> Reply:
+        async def chat(self, key, system, messages, tools=(), max_tokens=0, cache=False) -> Reply:
             if tools:
                 self.heard = messages
                 return Reply(text="Done.")

@@ -1,6 +1,6 @@
 # 0003: Watch everything, interpret with the model, run nothing by itself
 
-> **Status:** Accepted 2026-11-01 by the owner. Amended by [ADR 0005](0005-keep-what-it-knows-current.md): the interpretation follows the app's updates setting, and in manual, the default, only runs when asked.
+> **Status:** Accepted 2026-11-01 by the owner. Amended by [ADR 0005](0005-keep-what-it-knows-current.md): the interpretation follows the app's updates setting, and in manual, the default, only runs when asked. Amended 2026-11-06: an optional `code.include` is read again and narrows what is watched; with none, everything is, as below. A large repository otherwise sent the model thousands of files that are not the agent.
 
 Change detection watched a list of globs per project: README, docs and one route file for most. Most logic changes went unseen, and every new layout needed another list. A change that did not make a test stale was not shown at all.
 

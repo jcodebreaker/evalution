@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 
 import httpx
 import pytest
@@ -10,6 +11,7 @@ import yaml
 from evalution import llm
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
+from evalution.project import filememory
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -352,3 +354,173 @@ async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) ->
     }
     for task in list(agent._tasks.values()):
         task.cancel()
+
+
+UNDERSTOOD = {
+    "one_line": "A bot that greets.",
+    "nodes": [
+        {
+            "id": "agent",
+            "kind": "agent",
+            "title": "The agent",
+            "evidence": [{"kind": "code", "ref": "app.py"}],
+        }
+    ],
+    "sections": [
+        {
+            "id": "can_do",
+            "title": "Can do",
+            "claims": [
+                {
+                    "id": "greets",
+                    "text": "It greets.",
+                    "evidence": [{"kind": "code", "ref": "app.py"}],
+                }
+            ],
+        }
+    ],
+    "priorities": [],
+    "starters": [],
+}
+
+
+def _git(folder, *args) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
+        cwd=folder,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _learning(tmp_path, kind: str = "anthropic"):
+    """An app with code, and a model: the light one summarizes what it is sent, the strong one
+    plays *writer*, a list of turns, each a list of ``(tool, arguments)`` or a closing text."""
+    repo = tmp_path / "app"
+    for rel, text in {
+        "app.py": "def greet(): ...\n",
+        "lib/memory.py": "STORE = {}\n",
+        "notes.txt": "x\n",
+    }.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "first")
+    block = {
+        "adapter": "http",
+        "http": {"send": {"url": "x"}},
+        "code": {"path": "app", "include": ["**/*.py"]},
+    }
+    sent: dict[str, list] = {"light": [], "writer": []}
+    script: list = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        system = body["system"] if kind == "anthropic" else body["messages"][0]["content"]
+        if system == filememory.INSTRUCTIONS:
+            sent["light"].append(body)
+            text = json.dumps(body["messages"])
+            paths = re.findall(r"\[Data: (.+?)\. Material", text)
+            said = json.dumps(
+                {"files": [{"path": p, "summary": f"Is: {p} summarized."} for p in paths]}
+            )
+        else:
+            sent["writer"].append(body)
+            said = script.pop(0)
+        if kind != "anthropic":
+            return httpx.Response(200, json={"choices": [{"message": {"content": said}}]})
+        blocks = (
+            [{"type": "text", "text": said}]
+            if isinstance(said, str)
+            else [
+                {
+                    "type": "tool_use",
+                    "id": f"t{len(sent['writer'])}",
+                    "name": said[0],
+                    "input": said[1],
+                }
+            ]
+        )
+        usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100}
+        return httpx.Response(200, json={"content": blocks, "usage": usage, "model": "m"})
+
+    config = ModelConfig(
+        kind=kind, base_url="http://model", api_key_env=None, models={"strong": "m", "light": "l"}
+    )
+    model = llm.LLM(config, transport=httpx.MockTransport(answer))
+    agent = _agent(tmp_path, model)
+    # _agent wrote a target with no code: this one has the repo.
+    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"targets": {"bot": block}}))
+    agent.targets.config = load(tmp_path / "evalution.yaml")
+    return agent, repo, sent, script
+
+
+async def _learn(agent: Agent, session_id: str) -> dict:
+    await agent.message(session_id, "Learn bot again.", learn=True)
+    await agent._tasks[session_id]
+    return await agent.get(session_id)
+
+
+async def test_learning_again_reads_only_what_changed(tmp_path) -> None:
+    agent, repo, sent, script = _learning(tmp_path)
+    targets = agent.targets
+    opened = await agent.create("bot", "main")
+    sid = opened["id"]
+
+    # The first learn: every included file summarized by the light model, in one call, and all of
+    # them handed to the writer, which saves.
+    script += [("write_understanding", UNDERSTOOD), "Learned."]
+    shown = await _learn(agent, sid)
+    assert len(sent["light"]) == 1
+    memory = filememory.load(targets, "bot")
+    files = targets.code("bot").hashes()
+    assert set(files) == {"app.py", "lib/memory.py"}, "include is honoured"
+    assert {p: e["fingerprint"] for p, e in memory["summaries"].items()} == files
+    first = sent["writer"][0]
+    said = first["messages"][0]["content"][-1]["text"]
+    assert "- memory.py: Is: lib/memory.py summarized." in said and "notes.txt" not in said
+    # The writer's prefix is marked cacheable; the light call is not.
+    assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert first["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in json.dumps(sent["light"])
+    usage = shown["usage"][-1]
+    assert usage["learn"] and usage["calls"] == 3 and usage["light_calls"] == 1
+    assert usage["cache_read"] == 300 and usage["chars_in"] > len(said)
+
+    # Nothing moved: no model at all.
+    shown = await _learn(agent, sid)
+    commit = targets.code("bot").commit()
+    assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
+    assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 2
+
+    # One file changed: it alone is summarized again and named; a second read of it is not resent.
+    (repo / "lib/memory.py").write_text("STORE = {'kept': True}\n")
+    _git(repo, "commit", "-qam", "keep")
+    script += [
+        ("read_code", {"path": "lib/memory.py"}),
+        ("read_code", {"path": "lib/memory.py"}),
+        ("write_understanding", UNDERSTOOD),
+        "Learned again.",
+    ]
+    shown = await _learn(agent, sid)
+    assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
+    assert "app.py" not in json.dumps(sent["light"][1])
+    said = sent["writer"][2]["messages"][-1]["content"][-1]["text"]
+    assert '"changed": ["lib/memory.py"]' in said and "It greets." in said
+    results = [
+        b["content"]
+        for b in sent["writer"][4]["messages"][-1]["content"]
+        if b["type"] == "tool_result"
+    ]
+    assert results[-1].startswith("lib/memory.py is unchanged since you read it at step")
+    assert shown["usage"][-1]["light_calls"] == 1
+    assert filememory.load(targets, "bot")["files"] == targets.code("bot").hashes()
+
+
+async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:
+    agent, _repo, sent, script = _learning(tmp_path, "openai")
+    opened = await agent.create("bot", "main")
+    script += ["Nothing to save."]
+    await _learn(agent, opened["id"])
+    assert sent["writer"] and "cache_control" not in json.dumps(sent["writer"])

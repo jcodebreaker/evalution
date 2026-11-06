@@ -26,6 +26,8 @@ export type Form = {
   phoenixKey: string;
   codePath: string;
   ignore: string;
+  /** Set in the config file only; kept as it is so a save from the page doesn't drop it. */
+  include: string[];
 };
 
 export type TextKey = { [K in keyof Form]: Form[K] extends string ? K : never }[keyof Form];
@@ -47,6 +49,7 @@ export const BLANK: Form = {
   phoenixKey: "",
   codePath: "",
   ignore: "",
+  include: [],
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -93,6 +96,7 @@ export function formOf(target: TargetDetail): Form {
     project: target.phoenix?.project ?? BLANK.project,
     codePath: target.code?.path ?? "",
     ignore: target.code?.ignore.join(", ") ?? "",
+    include: target.code?.include ?? [],
   };
 }
 
@@ -135,7 +139,13 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
     adapter: form.adapter,
     options,
     phoenix: own ? { url: form.phoenixUrl.trim(), project: form.project.trim() } : null,
-    code: form.codePath.trim() ? { path: form.codePath.trim(), ignore } : null,
+    code: form.codePath.trim()
+      ? {
+          path: form.codePath.trim(),
+          ignore,
+          ...(form.include.length ? { include: form.include } : {}),
+        }
+      : null,
     secrets,
   };
 }

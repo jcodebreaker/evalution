@@ -11,6 +11,10 @@ and the agent (with tool calls). A transcript is provider-neutral:
 and a tool is ``{"name", "description", "parameters": <JSON schema>}``. A call is tried
 :data:`ATTEMPTS` times on a transport error, a 429 or a 5xx.
 
+A long tool loop asks for ``cache=True``: on the Anthropic API its stable prefix is marked
+cacheable (:func:`anthropic_body`), since every step sends it again. OpenAI-compatible APIs cache
+a repeated prefix by themselves, so nothing is added there.
+
 The connection is swapped in place (:meth:`LLM.use`) when the model is set from the page, so
 every part holding this client picks the new model up without a restart. An ``LLM`` with no
 model is falsy.
@@ -37,6 +41,9 @@ ATTEMPTS = 3
 TIMEOUT = 300.0
 MAX_TOKENS = 8_192
 ANTHROPIC_VERSION = "2023-06-01"
+#: How an Anthropic cache breakpoint is marked: the default five-minute cache, which a tool loop's
+#: next step comes back to well within.
+_CACHED = {"type": "ephemeral"}
 
 #: ``(instructions=, input_text=) -> text``: one plain model call.
 Caller = Callable[..., Awaitable[str]]
@@ -64,6 +71,10 @@ class Reply:
     tokens_in: int = 0
     tokens_out: int = 0
     model: str = ""
+    #: Of ``tokens_in``, those read from the provider's prompt cache and those written to it, when
+    #: the provider says.
+    cache_read: int = 0
+    cache_write: int = 0
 
 
 class LLM:
@@ -114,8 +125,11 @@ class LLM:
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]] = (),
         max_tokens: int = MAX_TOKENS,
+        *,
+        cache: bool = False,
     ) -> Reply:
-        """One model call on model *key*.
+        """One model call on model *key*. *cache*: the call is one step of many that resend the
+        same prefix, so mark it cacheable where the provider needs that said.
 
         :raises LLMError: The provider answered with an error, or failed every attempt.
         """
@@ -124,7 +138,7 @@ class LLM:
         assert config is not None  # model() raised otherwise
         url, headers = endpoint(config, "/v1/messages" if config.kind == "anthropic" else "")
         if config.kind == "anthropic":
-            body = anthropic_body(model, system, messages, tools, max_tokens)
+            body = anthropic_body(model, system, messages, tools, max_tokens, cache=cache)
         else:
             url += "/chat/completions"
             body = openai_body(model, system, messages, tools, max_tokens)
@@ -175,9 +189,16 @@ def anthropic_body(
     messages: Sequence[dict[str, Any]],
     tools: Sequence[dict[str, Any]],
     max_tokens: int,
+    *,
+    cache: bool = False,
 ) -> dict[str, Any]:
     """The messages API body: tool results go back as ``tool_result`` blocks of one user
-    message, consecutive ones merged."""
+    message, consecutive ones merged.
+
+    With *cache*, two cache breakpoints (of the four allowed): the system prompt, which covers the
+    tools before it, and the last block of the last message. The next step sends all of this again
+    and more, so it reads everything up to there from the cache (the API looks back from its own
+    last breakpoint to the one written here) and pays full price only for what is new."""
     out: list[dict[str, Any]] = []
     for message in messages:
         role = message["role"]
@@ -208,6 +229,13 @@ def anthropic_body(
         "system": system,
         "messages": out,
     }
+    if cache:
+        body["system"] = [{"type": "text", "text": system, "cache_control": _CACHED}]
+        if out:
+            last = out[-1]
+            if isinstance(last["content"], str):
+                last["content"] = [{"type": "text", "text": last["content"]}]
+            last["content"][-1] = {**last["content"][-1], "cache_control": _CACHED}
     if tools:
         body["tools"] = [
             {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
@@ -264,6 +292,8 @@ def _arguments(raw: Any) -> dict[str, Any]:
 def read_anthropic(data: dict[str, Any]) -> Reply:
     blocks = data.get("content") or []
     usage = data.get("usage") or {}
+    read = int(usage.get("cache_read_input_tokens") or 0)
+    wrote = int(usage.get("cache_creation_input_tokens") or 0)
     return Reply(
         text="".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip(),
         tool_calls=[
@@ -271,11 +301,11 @@ def read_anthropic(data: dict[str, Any]) -> Reply:
             for b in blocks
             if b.get("type") == "tool_use"
         ],
-        tokens_in=int(usage.get("input_tokens") or 0)
-        + int(usage.get("cache_read_input_tokens") or 0)
-        + int(usage.get("cache_creation_input_tokens") or 0),
+        tokens_in=int(usage.get("input_tokens") or 0) + read + wrote,
         tokens_out=int(usage.get("output_tokens") or 0),
         model=str(data.get("model") or ""),
+        cache_read=read,
+        cache_write=wrote,
     )
 
 
@@ -296,6 +326,7 @@ def read_openai(data: dict[str, Any]) -> Reply:
         tokens_in=int(usage.get("prompt_tokens") or 0),
         tokens_out=int(usage.get("completion_tokens") or 0),
         model=str(data.get("model") or ""),
+        cache_read=int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
     )
 
 

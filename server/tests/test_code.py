@@ -4,8 +4,9 @@ import subprocess
 
 import pytest
 
+from evalution import code as module
 from evalution.code import Code, CodeError
-from evalution.config import CodeConfig
+from evalution.config import CodeConfig, target_config
 
 WATCHED = {
     "README.md": "# app",
@@ -85,3 +86,18 @@ def test_a_checkout_watches_agent_instructions_in_hidden_folders(tmp_path) -> No
     assert ".agents/reviewer.md" not in code.files(100)
     _git(tmp_path, "init", "-q")
     assert ".agents/reviewer.md" in code.files(100)
+
+
+def test_include_narrows_what_is_watched_and_listed(tmp_path, monkeypatch) -> None:
+    _project(tmp_path)
+    block = {"adapter": "http", "code": {"path": ".", "include": ["services/core/**", "README.md"]}}
+    conf = target_config("bot", block, tmp_path).code
+    assert conf is not None and conf.include == ("services/core/**", "README.md")
+    narrow = Code(conf)
+    assert set(narrow.hashes()) == {"README.md", "services/core/compaction.py"}
+    with pytest.raises(CodeError):
+        narrow.read("web/src/App.tsx")
+    assert narrow.state()["watch"] != _project(tmp_path).state()["watch"], "a new rule set"
+    # Past the cap, the list says how many more matched.
+    monkeypatch.setattr(module, "LIST_CAP", 1)
+    assert narrow.list() == (["README.md"], len(narrow.files(100)) - 1)

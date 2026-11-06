@@ -8,7 +8,7 @@ import subprocess
 import pytest
 import yaml
 
-from evalution.code import CodeError
+from evalution.code import DIFF_CONTEXT, Code, CodeError
 from evalution.config import load
 from evalution.project import hooks, impact, imports, knowledge, understanding
 from evalution.project.profile import read_profile, set_updates, updates
@@ -221,6 +221,8 @@ def test_manual_marks_for_free_and_update_makes_exactly_one_call(app) -> None:
     assert _check(app, asked=True) == "updated"
     assert len(app.calls) == 1
     assert "hush" not in app.calls[0] and "It refunds." in app.calls[0]
+    # The diff with its context, and no whole file beside it: the claim's own file is not sent.
+    assert "return 2" in app.calls[0] and "from lib.b import run" not in app.calls[0]
     claim = _claim(app, "direct")
     assert claim["text"] == "It refunds twice." and claim["updated_from"] == head
     assert _state(app)["checked"] == head and not _state(app)["stale"]
@@ -251,9 +253,19 @@ def test_working_tree_churn_marks_nothing(app) -> None:
     assert not app.calls and not _state(app)["stale"]
 
 
-def test_auto_reads_a_commit_once_and_a_direct_change_is_direct(app) -> None:
+def test_auto_reads_a_commit_once_and_a_direct_change_is_direct(app, monkeypatch) -> None:
     set_updates(app.targets, "bot", "auto")
     _check(app)
+    impact.record_run(app.targets, "bot")
+    diffs = []
+    git = Code._git
+
+    def counted(self, *args):
+        if args[0] == "diff" and f"-U{DIFF_CONTEXT}" in args:
+            diffs.append(args)
+        return git(self, *args)
+
+    monkeypatch.setattr(Code, "_git", counted)
     _edit_a(app)
     app.answer = _says(
         {"id": "claim:direct", "verdict": "still_true"},
@@ -263,6 +275,10 @@ def test_auto_reads_a_commit_once_and_a_direct_change_is_direct(app) -> None:
     assert _check(app) == "idle"
     assert len(app.calls) == 1
     assert '"rests": "direct"' in app.calls[0]
+    # The change card reads the same commits: their diff is made once, for both.
+    asyncio.run(impact.refresh(app, "bot"))
+    assert len(app.calls) == 2 and "print('new')" in app.calls[1]
+    assert len(diffs) == 1
     assert understanding.load(app.targets, "bot")["version"] == 1
     # The new hash is on the link: the claim now rests on this text.
     assert (

@@ -46,8 +46,12 @@ def writer_router() -> APIRouter:
         run = body.get("run")
         if run is not None and not isinstance(run, str):
             raise invalid("run: must be a run id")
+        # "Learn" and "Learn again": the server starts the learn from what changed.
+        learn = body.get("learn", False)
+        if not isinstance(learn, bool):
+            raise invalid("learn: true or false")
         try:
-            return await agent.message(session_id, text.strip(), run)
+            return await agent.message(session_id, text.strip(), run, learn=learn)
         except LookupError as exc:
             raise not_found("Test writer session") from exc
 

@@ -150,10 +150,13 @@ class PhoenixConfig:
 @dataclass(frozen=True)
 class CodeConfig:
     """A target's source, read-only for the agent: every source file under ``path``, except
-    those matching one of ``ignore`` (and never a secrets file)."""
+    those matching one of ``ignore`` (and never a secrets file). ``include``, when given, narrows
+    that to the files matching one of its globs: in a big repository the owner names the part
+    that is the agent, so the rest is neither watched nor read."""
 
     path: Path
     ignore: tuple[str, ...] = ()
+    include: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -334,13 +337,13 @@ def target_config(
     code = None
     if block.get("code") is not None:
         c = _dict(block["code"], f"{where}.code")
-        # An ``include`` from before everything was watched is left where it is, and not read.
-        ignore = c.get("ignore") or []
-        if not isinstance(ignore, list) or not all(isinstance(g, str) for g in ignore):
-            raise ConfigError(f"{where}.code.ignore: must be a list of globs")
-        code = CodeConfig(
-            path=(root / _str(c, "path", f"{where}.code")).resolve(), ignore=tuple(ignore)
-        )
+        globs = {}
+        for key in ("ignore", "include"):
+            found = c.get(key) or []
+            if not isinstance(found, list) or not all(isinstance(g, str) for g in found):
+                raise ConfigError(f"{where}.code.{key}: must be a list of globs")
+            globs[key] = tuple(found)
+        code = CodeConfig(path=(root / _str(c, "path", f"{where}.code")).resolve(), **globs)
     parallel = block.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or not 1 <= parallel <= 16:
         raise ConfigError(f"{where}.max_parallel: must be a whole number from 1 to 16")

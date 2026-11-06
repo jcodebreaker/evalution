@@ -10,6 +10,11 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
   :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
   :data:`SAME_CALL_TIMES` times in a row. A person can always say go on.
+* **Learning again** (the page's "Learn again") starts from what changed since the last learn
+  (:mod:`evalution.writer.learn`), and calls no model when nothing did.
+* **Each step resends** the instructions and the transcript, so the call asks the provider to
+  cache that prefix, a file read again unchanged is not sent again, and each turn's calls,
+  characters, tokens and time are kept on the session (:mod:`evalution.writer.usage`).
 * **A long chat** is summarized past :data:`HISTORY_CHARS`: the older exchanges become one summary
   written by the light model, the newest stay word for word. If that fails, they are cut instead.
   The page's chat is kept apart and loses nothing.
@@ -37,17 +42,19 @@ from typing import Any
 
 from evalution.code import CodeError
 from evalution.config import ConfigError
-from evalution.llm import LLM, LLMError, cut, fenced
+from evalution.llm import LLM, LLMError, Reply, cut, fenced
 from evalution.project import drift
 from evalution.project.profile import read_profile, required_clean
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, meaning_changes, parse_case
 from evalution.suite.store import case_stems, list_sets, load_case
+from evalution.writer import learn
 from evalution.writer.linecheck import swapped
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import HANDLERS, OUTPUT_CHARS, AgentTurn, Tools, activity_line, say
+from evalution.writer.usage import TurnUsage
 
 _logger = logging.getLogger(__name__)
 
@@ -86,6 +93,7 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "status": session["status"],
         "messages": session["messages"],
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
+        "usage": session.get("usage", []),
     }
 
 
@@ -220,15 +228,19 @@ class Agent:
     async def get(self, session_id: str) -> dict[str, Any]:
         return public(await self._session(session_id))
 
-    async def message(self, session_id: str, text: str, run: str | None = None) -> dict[str, Any]:
+    async def message(
+        self, session_id: str, text: str, run: str | None = None, *, learn: bool = False
+    ) -> dict[str, Any]:
         """Add the admin's message and start the agent on it; while it works, the message is
         read at its next step. *run* is the run it is about: the agent is told, and it stays out
-        of what the admin is shown to have said.
+        of what the admin is shown to have said. *learn*: the message asks it to learn the target
+        again, which starts from what changed.
 
         :raises LookupError: No such session.
         """
         session = await self._session(session_id)
-        await self._ask(session, text, f"{text}\n\n(This is about run {run}.)" if run else text)
+        said = f"{text}\n\n(This is about run {run}.)" if run else text
+        await self._ask(session, text, said, learn=learn)
         return public(session)
 
     async def approve(self, session_id: str, plan_id: str) -> dict[str, Any]:
@@ -297,15 +309,17 @@ class Agent:
         await self._save(session)
         return public(session)
 
-    async def _ask(self, session: dict[str, Any], shown: str, text: str, **extra: Any) -> None:
+    async def _ask(
+        self, session: dict[str, Any], shown: str, text: str, *, learn: bool = False, **extra: Any
+    ) -> None:
         """The admin says *shown* (in the thread); the agent reads *text*, now or at its next
-        step while it works."""
+        step while it works (a learn asked meanwhile is then an ordinary message)."""
         session["asks"] = int(session.get("asks", 0)) + 1
         say(session, "admin", shown, **extra)
         if session["status"] == "working":
             session.setdefault("inbox", []).append(text)
         else:
-            self._start(session, text)
+            self._start(session, text, learn)
         await self._save(session)
 
     async def stop(self, session_id: str) -> dict[str, Any]:
@@ -321,11 +335,11 @@ class Agent:
 
     # The loop
 
-    def _start(self, session: dict[str, Any], text: str) -> None:
+    def _start(self, session: dict[str, Any], text: str, learn: bool = False) -> None:
         session["status"] = "working"
         self._live[session["id"]] = session
         self._tasks[session["id"]] = asyncio.get_running_loop().create_task(
-            self._work(session, text)
+            self._work(session, text, learn)
         )
 
     def _instructions(self, session: Mapping[str, Any]) -> str:
@@ -368,13 +382,33 @@ class Agent:
             + fenced("the set's cases", full or "(none yet)")
         )
 
-    async def _work(self, session: dict[str, Any], text: str) -> None:
+    async def _chat(
+        self,
+        usage: TurnUsage,
+        key: str,
+        system: str,
+        messages: list[dict[str, Any]],
+        *,
+        light: bool = False,
+        **kw: Any,
+    ) -> Reply:
+        """One model call of this turn, counted; *light*: one of the learn's file summaries."""
+        assert self.llm is not None
+        reply = await self.llm.chat(key, system, messages, **kw)
+        tools = kw.get("tools") or ()
+        usage.add(
+            len(system) + _size(messages) + (_size(list(tools)) if tools else 0), reply, light
+        )
+        return reply
+
+    async def _work(self, session: dict[str, Any], text: str, learn_asked: bool = False) -> None:
         history: list[dict[str, Any]] = session["history"]
         _repair(history)
         # What reached the inbox while it was idle (a plan changed on the page) comes first.
         noted = [*session.pop("inbox", []), text]
         history.append({"role": "user", "content": "\n\n".join(noted)})
         turn = AgentTurn(session)
+        usage = TurnUsage(learn=learn_asked)
         steps = 0
         last_call, same = None, 0
         limit = asyncio.timeout(MAX_SECONDS)
@@ -383,13 +417,32 @@ class Agent:
                 say(session, "agent", "No model is set up yet: choose one in Settings, Model.")
                 session["status"] = "idle"
                 return
-            instructions = await asyncio.to_thread(self._instructions, session)
             async with limit:
+                if learn_asked:
+                    light = "light" if self.llm.model_id("light") else "strong"
+
+                    async def ask(system: str, text: str) -> str:
+                        said = [{"role": "user", "content": text}]
+                        return (await self._chat(usage, light, system, said, light=True)).text
+
+                    _doing(session, "Reading the code")
+                    begun = await learn.begin(self.targets, turn, ask)
+                    if begun.nothing:
+                        say(session, "agent", begun.nothing)
+                        session["status"] = "idle"
+                        return
+                    if begun.text:
+                        history[-1]["content"] += "\n\n" + begun.text
+                instructions = await asyncio.to_thread(self._instructions, session)
                 while True:
-                    await self._fold(session, history)
-                    _trim(history)
-                    reply = await self.llm.chat(
-                        "strong", instructions, copy.deepcopy(history), TOOLS
+                    if _size(history) > HISTORY_CHARS:
+                        await self._fold(session, history, usage)
+                        _trim(history)
+                        # What was read before may be gone from the transcript now.
+                        session.pop("code_seen", None)
+                    sent = copy.deepcopy(history)
+                    reply = await self._chat(
+                        usage, "strong", instructions, sent, tools=TOOLS, cache=True
                     )
                     history.append(
                         {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
@@ -437,6 +490,7 @@ class Agent:
                 say(session, "agent", f"Something went wrong: {cut(str(exc), 300)}")
             session["status"] = "idle"
         finally:
+            usage.record(session)
             # Saved before it leaves the live ones: a reader then goes to the file, so that must
             # already hold this turn.
             await asyncio.shield(self._save(session))
@@ -444,7 +498,9 @@ class Agent:
                 self._tasks.pop(session["id"], None)
                 self._live.pop(session["id"], None)
 
-    async def _fold(self, session: dict[str, Any], history: list[dict[str, Any]]) -> None:
+    async def _fold(
+        self, session: dict[str, Any], history: list[dict[str, Any]], usage: TurnUsage
+    ) -> None:
         """Past :data:`HISTORY_CHARS`, put the older exchanges into one summary, which the next one
         folds in. A failed call leaves the history as it was, for :func:`_trim`."""
         if _size(history) <= HISTORY_CHARS or (at := _fold_point(history)) is None:
@@ -452,7 +508,8 @@ class Agent:
         assert self.llm is not None  # _work doesn't get this far without one
         _doing(session, "Summarizing the earlier chat")
         try:
-            reply = await self.llm.chat(
+            reply = await self._chat(
+                usage,
                 "light" if self.llm.model_id("light") else "strong",
                 SUMMARY_INSTRUCTIONS,
                 [{"role": "user", "content": fenced("the conversation", _digest(history[:at]))}],
@@ -471,6 +528,8 @@ class Agent:
             handler = HANDLERS.get(name)
             if handler is None:
                 return f"Error: no tool {name}"
+            # Steps count across the session, so a result can point back to an earlier one.
+            turn.session["steps"] = int(turn.session.get("steps") or 0) + 1
             if doing := activity_line(name, args):
                 _doing(turn.session, doing)
                 await self._save(turn.session)

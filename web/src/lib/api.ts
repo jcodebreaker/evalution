@@ -410,8 +410,13 @@ export const api = {
     session: (id: string) => get(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}`),
     chats: (target: string) =>
       get(many(AgentChatSchema), `/v1/evals/agent/sessions${query({ target })}`),
-    send: (id: string, text: string, run?: string) =>
-      post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/messages`, { text, run }),
+    /** `learn`: the message asks it to learn the app (again), which the server starts from what changed. */
+    send: (id: string, text: string, run?: string, learn?: boolean) =>
+      post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/messages`, {
+        text,
+        run,
+        ...(learn ? { learn: true } : {}),
+      }),
     approve: (id: string, plan_id: string) =>
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/approve`, { plan_id }),
     /** Puts the suggestion flagged on rubric `line` in its place, in a plan not approved yet. */

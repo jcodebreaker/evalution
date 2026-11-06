@@ -21,7 +21,8 @@ traces:                          # apps send OTLP to this server's /v1/traces
 #   my-bot:
 #     adapter: http
 #     phoenix: {url: http://127.0.0.1:6006, project: my-bot}   # api_key_env, public_url, mirror
-#     code: {path: ../my-bot}      # every source file is watched; ignore: ["generated/**"] leaves some out
+#     code: {path: ../my-bot}      # every source file is watched; ignore: ["generated/**"] leaves some out,
+#                                  # include: ["agent/**"] keeps only those
 #     http:
 #       send: {method: POST, url: "http://localhost:3000/chat", body: {"message": "{message}", "session": "{session}"}}
 #       reply: "$.reply"           # JSON path into the response

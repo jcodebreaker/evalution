@@ -128,7 +128,7 @@ def target(tmp_path) -> Path:
     bot = {
         "adapter": "http",
         "http": {"send": {"url": "x"}},
-        # An include from before everything was watched still loads, and is not read.
+        # Only what include names is watched; the stack is read from the folder all the same.
         "code": {"path": "app", "include": ["**/*prompt*", "tools/**"]},
     }
     (tmp_path / "evalution.yaml").write_text(

@@ -11,7 +11,7 @@ from dataclasses import replace
 
 from evalution.adapters import add_folder, build, forget
 from evalution.adapters.base import Target
-from evalution.code import Code, Digests
+from evalution.code import Code, Diffs, Digests
 from evalution.config import Config, TargetConfig, load
 from evalution.core.case import SLUG
 from evalution.results.store import RunSink
@@ -59,6 +59,7 @@ class Targets:
         self._sources: dict[str, TraceSource] = {}
         self._sinks: dict[str, RunSink] = {}
         self._digests: Digests = {}
+        self._diffs: Diffs = {}
         self.guards = Guards()
 
     def names(self) -> list[str]:
@@ -93,7 +94,7 @@ class Targets:
 
     def code(self, name: str) -> Code | None:
         conf = self.conf(name).code
-        return Code(conf, self._digests) if conf else None
+        return Code(conf, self._digests, self._diffs) if conf else None
 
     def trace_attribute(self, name: str) -> str:
         return self.conf(name).trace_attribute

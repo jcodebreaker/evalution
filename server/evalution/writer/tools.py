@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import re
 import secrets
@@ -18,7 +19,7 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.core.case import Case
 from evalution.llm import cut, fenced
-from evalution.project import drift, knowledge, library_fit, profile, understanding
+from evalution.project import drift, filememory, knowledge, library_fit, profile, understanding
 from evalution.results.evidence import look_into
 from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
@@ -26,6 +27,7 @@ from evalution.runs.estimate import suggest_seconds
 from evalution.runs.fit import why_not
 from evalution.runs.runner import Runs
 from evalution.suite import cases, library, store
+from evalution.targets import Targets
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
 from evalution.writer import linecheck
@@ -36,6 +38,8 @@ from evalution.writer.schemas import STEP_KINDS
 FIXTURE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.(csv|tsv|json|txt|md|xml)$")
 FIXTURE_BYTES = 200_000
 OUTPUT_CHARS = 12_000
+#: The most of one file a read_code result carries: the transcript is sent again at every step.
+READ_CHARS = 32_000
 #: How many of a try's model calls read_try shows; read_trace goes through the rest.
 _CONTEXT_SHOWN = 3
 
@@ -50,6 +54,15 @@ class AgentTurn:
     code_read: set[str] = field(default_factory=set)
     saved: str | None = None
     replied: bool = False
+    #: The traces and code as this turn took them (:func:`drift.take`): read once, however many
+    #: times write_understanding is tried.
+    taken: tuple[dict[str, Any], dict[str, Any]] | None = None
+
+    async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.taken is None:
+            name = str(self.session["target"])
+            self.taken = await drift.take(targets, name, drift.PROFILE_SESSIONS)
+        return self.taken
 
 
 def say(session: dict[str, Any], role: str, text: str, **extra: Any) -> dict[str, Any]:
@@ -379,7 +392,7 @@ class Tools:
 
     async def write_understanding(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
-        found, taken = await drift.take(self.targets, target, drift.PROFILE_SESSIONS)
+        found, taken = await turn.take(self.targets)
         known = found["tools_offered_known"]
         traced = {n for n, t in found["tools"].items() if t["offered"] or not known}
         code = self.targets.code(target)
@@ -408,6 +421,7 @@ class Tools:
         understanding.save(self.targets, target, understanding.build(written, found))
         if code is not None:
             await asyncio.to_thread(knowledge.written, self.targets, target, code, turn.code_read)
+            await asyncio.to_thread(filememory.learned, self.targets, target, code)
         return (
             "Saved as a new version; the fingerprint is new and the drift list is clear. "
             "Now say one line to the admin and end your turn."
@@ -430,13 +444,27 @@ class Tools:
         return code
 
     async def list_code(self, turn: AgentTurn, args: dict) -> Any:
-        return await asyncio.to_thread(self._code(turn).list, str(args.get("glob") or "**"))
+        found, more = await asyncio.to_thread(self._code(turn).list, str(args.get("glob") or "**"))
+        if more:
+            found.append(f"({more} more files match: narrow the glob to see them)")
+        return fenced("the files", "\n".join(found) or "(none)")
 
     async def read_code(self, turn: AgentTurn, args: dict) -> Any:
+        """A file, or a pointer back to it when this session read it as it is already: the text is
+        still in the transcript, and sending it again costs as much as the first time."""
         path = str(args.get("path") or "")
         text = await asyncio.to_thread(self._code(turn).read, path)
+        rel = path.strip().lstrip("/")
         turn.read.append(f"Read {path}")
-        turn.code_read.add(path.strip().lstrip("/"))
+        turn.code_read.add(rel)
+        digest = hashlib.sha256(text.encode()).hexdigest()[:12]
+        seen = turn.session.setdefault("code_seen", {})
+        step = int(turn.session.get("steps") or 0)
+        if (seen.get(rel) or {}).get("digest") == digest:
+            return f"{rel} is unchanged since you read it at step {seen[rel]['step']}: see above."
+        seen[rel] = {"digest": digest, "step": step}
+        if len(text) > READ_CHARS:
+            text = text[:READ_CHARS] + "\n… (cut here: the rest of the file is not shown)"
         return fenced(path, text)
 
     async def read_drift(self, turn: AgentTurn, _args: dict) -> Any:

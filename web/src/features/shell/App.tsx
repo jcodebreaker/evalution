@@ -83,6 +83,8 @@ export function App() {
     const changed = cards?.get(target)?.status === "out_of_date";
     void ask(
       `Learn ${target} again from its recent traces and its code.${changed ? " Then update the tests that may be stale." : ""}`,
+      undefined,
+      true,
     );
   };
 
