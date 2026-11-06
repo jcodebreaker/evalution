@@ -280,6 +280,13 @@ class Agent:
         file = swapped(plan["file"], line, flag["use"])
         parse_case(file, "plan.file")
         plan["file"], plan["edited"] = file, True
+        use = flag["use"]
+        put = use["line"] if "line" in use else json.dumps({"reply": use}, ensure_ascii=False)
+        # The writer reads it at its next step, or at the start of its next turn: it plans on.
+        session.setdefault("inbox", []).append(
+            f"The admin changed plan {plan_id} on the page: rubric line {line!r} is now "
+            + fenced("what replaced it", put)
+        )
         plan["weak_lines"] = [f for f in weak if f is not flag]
         said = (m.get("plan") or {} for m in session["messages"])
         shown = next((p for p in said if p.get("id") == plan_id), {})
@@ -367,7 +374,9 @@ class Agent:
     async def _work(self, session: dict[str, Any], text: str) -> None:
         history: list[dict[str, Any]] = session["history"]
         _repair(history)
-        history.append({"role": "user", "content": text})
+        # What reached the inbox while it was idle (a plan changed on the page) comes first.
+        noted = [*session.pop("inbox", []), text]
+        history.append({"role": "user", "content": "\n\n".join(noted)})
         turn = AgentTurn(session)
         steps = 0
         last_call, same = None, 0

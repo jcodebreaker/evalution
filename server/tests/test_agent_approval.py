@@ -17,6 +17,7 @@ from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import case_text, load_case, save_set, write_case_text
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
+from evalution.writer.prompts import INSTRUCTIONS as WRITER_INSTRUCTIONS
 from evalution.writer.prompts import LINE_DRAFT_INSTRUCTIONS
 from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
@@ -262,14 +263,18 @@ def _bad(n: int) -> str:
     return f"We moved. Your code is coming ({n})."
 
 
-def _model(calls: list[str]) -> llm.LLM:
+def _model(calls: list[str], writer: list[str]) -> llm.LLM:
     """A model that drafts the replies above and grades them by the table, a cent a call."""
 
     def answer(request: httpx.Request) -> httpx.Response:
         sent = json.loads(request.content)["messages"]
         system, text = sent[0]["content"], sent[1]["content"]
-        calls.append(system)
-        if system == LINE_DRAFT_INSTRUCTIONS:
+        if not system.startswith(WRITER_INSTRUCTIONS):
+            calls.append(system)
+        if system.startswith(WRITER_INSTRUCTIONS):
+            writer.append(sent[-1]["content"])
+            said = None
+        elif system == LINE_DRAFT_INSTRUCTIONS:
             lines = [
                 {"id": n, "bad": _bad(n), **LINES[line][2]} for n, line in enumerate(RUBRIC, 1)
             ]
@@ -284,8 +289,9 @@ def _model(calls: list[str]) -> llm.LLM:
                 assert not LINES[line][2].get("acts"), "a line about what was done isn't tried"
                 ok, sure = LINES[line][0 if reply == GOOD else 1]
                 said["lines"].append({"id": int(n), "pass": ok, "sure": sure, "reason": "r"})
+        content = "ok" if said is None else json.dumps(said)
         body = {
-            "choices": [{"message": {"content": json.dumps(said)}}],
+            "choices": [{"message": {"content": content}}],
             "usage": {"prompt_tokens": 10_000, "completion_tokens": 0},
         }
         return httpx.Response(200, json=body)
@@ -302,7 +308,8 @@ def _model(calls: list[str]) -> llm.LLM:
 
 async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) -> None:
     calls: list[str] = []
-    agent = _agent(tmp_path, _model(calls))
+    writer: list[str] = []
+    agent = _agent(tmp_path, _model(calls, writer))
     opened = await agent.create("bot", "main")
     session = await agent._session(opened["id"])
     file = {**CASE, "reply": {"rubric": RUBRIC, "pass": 6}}
@@ -327,6 +334,13 @@ async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) ->
     shown = await agent.use_line(session["id"], plan["id"], RUBRIC[3])
     left = shown["messages"][-1]["plan"]["weak_lines"]
     assert [f["line"] for f in left] == RUBRIC[1:3]
+    # The writer's next turn starts from the plan as it is now.
+    await agent.message(session["id"], "Looks right?")
+    await agent._tasks[session["id"]]
+    assert "'Says the office moved to Lisbon' is now" in writer[-1] and "Says Lisbon" in writer[-1]
+    assert '{"reply": {"contains": ["ZX-42"]}}' in writer[-1] and writer[-1].endswith(
+        "Looks right?"
+    )
 
     await agent.approve(session["id"], plan["id"])
     with pytest.raises(ValueError, match="approved already"):
