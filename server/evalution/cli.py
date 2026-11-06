@@ -47,6 +47,8 @@ from evalution.adapters.base import Session
 from evalution.api.app import create_app
 from evalution.api.deps import ALLOWED_HOSTS_ENV, answers_to
 from evalution.api.traces import traces_router
+from evalution.benchmarks import longmemeval as benchmarks
+from evalution.benchmarks import planning
 from evalution.code import CodeError
 from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
@@ -59,7 +61,6 @@ from evalution.results.store import FileStore
 from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
 from evalution.runs.runner import RunBusyError, Runs
-from evalution.suite import benchmarks, planning
 from evalution.suite.cases import CaseError
 from evalution.targets import Targets
 from evalution.traces.base import is_ai

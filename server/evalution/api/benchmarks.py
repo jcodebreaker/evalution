@@ -9,8 +9,9 @@ import httpx
 from fastapi import APIRouter
 
 from evalution.api.deps import busy, invalid, target_name
+from evalution.benchmarks import longmemeval as benchmarks
+from evalution.benchmarks import planning
 from evalution.runs.runner import Runs
-from evalution.suite import benchmarks, planning
 from evalution.traces.base import TraceSource
 
 

@@ -62,7 +62,7 @@ ABOUT = {
 _CANNOT_PLAY = "single-session-assistant"
 _SOURCE = re.compile(rf"^{NAME}:([a-z-]+)(:unanswerable)?$")
 _SAMPLE_SEED = 0
-_BUNDLED = Path(__file__).parent / NAME
+_BUNDLED = Path(__file__).parent / "longmemeval_data"
 #: How many unrelated messages a "middle" history plays after the sessions holding the answer, and
 #: the tokens it asks the app to fold from. Enough that those sessions leave the prompt.
 _MIDDLE_UNRELATED = 40

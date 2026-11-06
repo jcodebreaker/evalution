@@ -9,7 +9,7 @@ A benchmark is a public golden dataset: questions with known answers. evalution 
 | Short histories | 5 | About 11 | Whether saved memory alone can answer: the conversation is cleared between chats |
 | Middle histories | 10 | About 50 | Whether it can still answer once older chat is folded away, in one conversation |
 
-Press Run on a card; a confirm step shows the estimate first. These questions are in the repository (`server/evalution/suite/longmemeval/`, with the dataset's MIT license), so they need no download, and they stay the same so runs compare. Middle is our own variation, so its scores don't compare with published ones. A question that broke off (the app hung, the computer slept) reads as not judged rather than wrong.
+Press Run on a card; a confirm step shows the estimate first. These questions are in the repository (`server/evalution/benchmarks/longmemeval_data/`, with the dataset's MIT license), so they need no download, and they stay the same so runs compare. Middle is our own variation, so its scores don't compare with published ones. A question that broke off (the app hung, the computer slept) reads as not judged rather than wrong.
 
 A laptop that sleeps stops a run, and closing the lid sleeps it even with sleep blocked.
 

@@ -68,6 +68,7 @@ layers = [
     "cli",
     "api | doctor | service | upgrade",
     "writer | connect",
+    "benchmarks",
     "runs",
     "review",
     "project",

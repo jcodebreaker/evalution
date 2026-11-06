@@ -45,6 +45,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     judging/       steps.py the tool-call grade, checks.py what code decides of a try, render.py what the Grader reads, rubric.py the Grader, claims.py a model's claims against the evidence
     results/       store.py run files and the run lock, evidence.py the evidence sidecars, record.py what readers ask of a run, migrate.py older runs as today's, views.py what the routes return of them
     suite/         cases.py sets and cases as files, library.py the stateful test library
+    benchmarks/    public benchmarks: longmemeval.py the dataset, its sizes and report, planning.py how a run of one fits an app; longmemeval_data/ the bundled questions
     traces/base.py      the neutral Span, the TraceSource interface, what kind a span is
     traces/view.py      what spans say, in either convention: the TraceView a try records
     traces/phoenix.py   a TraceSource over Phoenix REST v1

@@ -10,13 +10,8 @@ import yaml
 
 from evalution import adapters
 from evalution.adapters.base import Capabilities, Isolation, MemoryRead, Session, Target, Turn
-from evalution.config import load
-from evalution.llm import LLM
-from evalution.results.store import FileStore
-from evalution.runs.play import play_try
-from evalution.runs.runner import Runs
-from evalution.suite import planning
-from evalution.suite.benchmarks import (
+from evalution.benchmarks import planning
+from evalution.benchmarks.longmemeval import (
     happened,
     install,
     known_answer,
@@ -28,6 +23,12 @@ from evalution.suite.benchmarks import (
     trimmed,
     untested,
 )
+from evalution.benchmarks.planning import probe, read_plan
+from evalution.config import load
+from evalution.llm import LLM
+from evalution.results.store import FileStore
+from evalution.runs.play import play_try
+from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.library import (
     KINDS,
@@ -39,7 +40,6 @@ from evalution.suite.library import (
     load_templates,
     parse_template,
 )
-from evalution.suite.planning import probe, read_plan
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionFiles

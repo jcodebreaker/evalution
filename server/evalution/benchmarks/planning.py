@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from evalution.adapters.base import Target
+from evalution.benchmarks import longmemeval as benchmarks
 from evalution.llm import Caller, ask_json, fenced, json_answer
 from evalution.project import understanding
-from evalution.suite import benchmarks
 from evalution.targets import Targets
 
 PLAN_FILE = "benchmark_plan.json"
