@@ -112,7 +112,7 @@ def create_app(
     targets = Targets(config)
     if targets.store is not None:
         targets.managed_url = url
-    llm = LLM(config.model, spend_file=config.spend_file)
+    llm = LLM(config.model, docs=targets.docs)
     files = FileStore(config.data_dir)
     runs = Runs(targets, files, llm)
     agent = Agent(runs, SessionFiles(config.data_dir), llm)

@@ -1,8 +1,8 @@
 """Targets connected from the page (docs/architecture.md, "Connecting a target").
 
-A connected target is a block in ``targets.yaml`` next to the config, written only here, and
-its secrets are values in ``<data_dir>/secrets.json`` under ``<target>.<key>``; the block names
-them the way a hand-edited one names env vars (``api_key_env: my-app.api_key``).
+A connected target is a block in the database (:func:`evalution.config.save_page_target`),
+written only here, and its secrets are stored secrets named ``targets/<target>/<key>``; the block
+names them the way a hand-edited one names env vars (``api_key_env: targets/my-app/api_key``).
 Hand-edited targets in ``evalution.yaml`` are read, never written.
 
 :func:`check` tries each part of a target without playing anything: the app's reachability, its
@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 
 from evalution.adapters import adapter_info, infos
 from evalution.adapters.base import AdapterInfo, flat_options, part
@@ -26,14 +25,14 @@ from evalution.code import HASH_CAP, Code
 from evalution.config import (
     CodeConfig,
     ConfigError,
+    KeyRing,
     TargetConfig,
-    read_secrets,
-    secret,
+    save_page_target,
     target_config,
-    write_secrets,
 )
 from evalution.core import net
 from evalution.core.case import SLUG
+from evalution.storage import Docs
 from evalution.traces.builtin import SpanStore
 from evalution.traces.managed import reader
 from evalution.traces.profile import recent_sessions
@@ -44,6 +43,7 @@ CHECK_PAGES = 5
 #: The starter set a new target gets, so the agent has somewhere to add tests.
 STARTER_SET = "main"
 PHOENIX_SECRET = "phoenix_api_key"  # noqa: S105 - its name, not its value
+_SECRETS = "targets/"
 
 
 class TargetError(ValueError):
@@ -62,11 +62,12 @@ def _text(block: dict[str, Any], key: str, where: str, required: bool = True) ->
 
 
 def _ref(name: str, key: str) -> str:
-    return f"{name}.{key}"
+    """The stored secret *key* of target *name*."""
+    return f"{_SECRETS}{name}/{key}"
 
 
 def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict]:
-    """``(block, secrets)`` from a page's target *body*: the ``targets.yaml`` block, which names
+    """``(block, secrets)`` from a page's target *body*: the target's block, which names
     the secrets the target will have (the new ones in *body*, else the *stored* keys), and the
     secret changes (``key -> value``, ``None`` to remove).
 
@@ -143,10 +144,10 @@ def _secrets(info: AdapterInfo, given: Any) -> dict[str, str | None]:
     return out
 
 
-def stored_keys(name: str) -> set[str]:
+def stored_keys(keys: KeyRing, name: str) -> set[str]:
     """The secret keys *name* has stored (never their values)."""
-    prefix = f"{name}."
-    return {k[len(prefix) :] for k in read_secrets() if k.startswith(prefix)}
+    prefix = _ref(name, "")
+    return {k.removeprefix(prefix) for k in keys.store.names(prefix)}
 
 
 def _host(url: str) -> str:
@@ -205,7 +206,8 @@ def forgotten(name: str, keys: set[str]) -> dict[str, None]:
 
 
 def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
-    """A target as the page edits it: no secret values, and no secret names either."""
+    """A target as the page edits it: no secret values, and no secret names either (which of its
+    secrets are stored, when *managed*)."""
     block = conf.options
     info = adapter_info(conf.adapter)
     options = info.page_options(block) if info else flat_options(block)
@@ -223,44 +225,28 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
         "options": options,
         "phoenix": phoenix,
         "code": code,
-        "secrets": sorted(stored_keys(conf.name)) if managed else [],
+        "secrets": sorted(stored_keys(conf.keys, conf.name)) if managed else [],
         "managed": managed,
     }
 
 
-# targets.yaml
+# Saving
 
 
-def _read(file: Path) -> dict[str, Any]:
-    if not file.is_file():
-        return {}
-    data = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
-    targets = data.get("targets") if isinstance(data, dict) else None
-    return dict(targets) if isinstance(targets, dict) else {}
+def save(
+    docs: Docs, keys: KeyRing, name: str, block: dict[str, Any], changes: dict[str, str | None]
+) -> None:
+    """Write *name*'s block and its secret changes."""
+    for ref, value in changes.items():
+        keys.store.set(ref, value)
+    save_page_target(docs, name, block)
 
 
-def _write(file: Path, targets: dict[str, Any]) -> None:
-    tmp = file.with_name(f".{file.name}.tmp")
-    head = "# Targets connected from evalution's page. No secrets here.\n"
-    text = yaml.safe_dump({"targets": targets}, sort_keys=False, allow_unicode=True)
-    tmp.write_text(head + text, encoding="utf-8")
-    tmp.replace(file)
-
-
-def save(file: Path, name: str, block: dict[str, Any], changes: dict[str, str | None]) -> None:
-    """Write *name*'s block into *file* (``targets.yaml``) and its secret changes."""
-    found = _read(file)
-    found[name] = block
-    write_secrets(changes)
-    _write(file, found)
-
-
-def remove(file: Path, name: str) -> None:
-    """Drop *name*'s block from *file* and its secrets. Its sets, runs and profile stay."""
-    found = _read(file)
-    found.pop(name, None)
-    _write(file, found)
-    write_secrets({_ref(name, k): None for k in stored_keys(name)})
+def remove(docs: Docs, keys: KeyRing, name: str) -> None:
+    """Drop *name*'s block and its secrets. Its sets, runs and profile stay."""
+    save_page_target(docs, name, None)
+    for key in stored_keys(keys, name):
+        keys.store.set(_ref(name, key), None)
 
 
 def starter_set(sets: Path) -> None:
@@ -275,13 +261,16 @@ def starter_set(sets: Path) -> None:
 # The check
 
 
-def draft(name: str, block: dict[str, Any], root: Path) -> TargetConfig:
-    """A :class:`TargetConfig` of a block not yet saved.
+def draft(
+    name: str, block: dict[str, Any], root: Path, keys: KeyRing | None = None
+) -> TargetConfig:
+    """A :class:`TargetConfig` of a block not yet saved, its secrets read from *keys* (default:
+    the environment only).
 
     :raises TargetError: The block does not load.
     """
     try:
-        return target_config(name, block, root)
+        return target_config(name, block, root, keys)
     except ConfigError as exc:
         raise TargetError(str(exc)) from exc
 
@@ -357,7 +346,7 @@ async def check(
     *managed_url* is evalution's own Phoenix when it runs one; *store* the built-in source."""
 
     def lookup(ref: Any) -> str | None:
-        return overlay.get(ref) or secret(ref) if isinstance(ref, str) else None
+        return overlay.get(ref) or conf.keys.get(ref) if isinstance(ref, str) else None
 
     adapter, phoenix = await asyncio.gather(
         asyncio.wait_for(_adapter(conf, lookup), CHECK_SECONDS * 2),

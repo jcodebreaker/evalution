@@ -54,17 +54,28 @@ def home(tmp_path) -> Path:
     (root / "data" / "secrets.json").write_text(json.dumps({"my-app.key": SECRET}))
     (root / "data" / "secrets.json").chmod(0o600)
     (root / "evalution.yaml").write_text(yaml.safe_dump({"traces": {"managed": False}}))
-    (root / "targets.yaml").write_text("targets: {}\n")
+    load(root / "evalution.yaml")  # its database, as the first start makes it
     return root
 
 
-def everything(root: Path) -> dict[str, bytes]:
-    """Every file under *root*, but the backups and the lock."""
-    return {
-        p.relative_to(root).as_posix(): p.read_bytes()
-        for p in root.rglob("*")
-        if p.is_file() and "backups" not in p.parts and p.name != "run.lock"
-    }
+def everything(root: Path) -> dict[str, bytes | str]:
+    """Every file under *root*, but the backups and the lock; a database as what it holds, which
+    is what its backup keeps, without what SQLite keeps beside it."""
+    found: dict[str, bytes | str] = {}
+    for p in root.rglob("*"):
+        if not p.is_file() or "backups" in p.parts or p.name == "run.lock":
+            continue
+        if p.name.endswith(("-wal", "-shm")):
+            continue
+        if p.suffix == ".db":
+            db = sqlite3.connect(p)
+            try:
+                found[p.relative_to(root).as_posix()] = "\n".join(db.iterdump())
+            finally:
+                db.close()
+        else:
+            found[p.relative_to(root).as_posix()] = p.read_bytes()
+    return found
 
 
 def said(capsys) -> tuple[str, str]:
@@ -104,7 +115,7 @@ def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> N
     for path in backup.rglob("*"):
         assert stat.S_IMODE(path.stat().st_mode) == (0o700 if path.is_dir() else 0o600), path
     assert SECRET in (backup / "data" / "secrets.json").read_text()
-    assert (backup / "settings" / "targets.yaml").is_file()
+    assert (backup / "settings" / "evalution.yaml").is_file()
     assert not (backup / "data" / "run.lock").exists()
     manifest = (backup / "manifest.json").read_text()
     assert SECRET not in manifest
@@ -231,26 +242,20 @@ def test_a_backup_cant_go_inside_what_it_backs_up(home, capsys) -> None:
     assert not (home / "data" / "copies").exists()
 
 
-def test_settings_can_live_apart_from_a_config_that_cant_be_written(
-    tmp_path, monkeypatch, capsys
-) -> None:
-    """A container's: ``targets.yaml`` and ``model.yaml`` go in the data folder, which persists."""
+def test_what_the_page_sets_lives_in_the_data_folder(tmp_path, capsys) -> None:
+    """So a container's read-only config is never written, and the backup's data holds it."""
     (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"traces": {"managed": False}}))
-    monkeypatch.setenv("EVALUTION_SETTINGS_DIR", str(tmp_path / "data" / "settings"))
-    config = load(tmp_path / "evalution.yaml")
-    assert config.targets_file == tmp_path / "data" / "settings" / "targets.yaml"
+    (tmp_path / "evalution.yaml").chmod(0o400)
     options = {"send": {"url": "http://x"}, "reply": "$.reply", "done": "response"}
     body = {"name": "app", "adapter": "http", "options": options}
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as client:
         assert client.post("/v1/targets", json=body).status_code == 201
-    assert not (tmp_path / "targets.yaml").exists()
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == ["evalution.yaml"]
     assert "app" in load(tmp_path / "evalution.yaml").targets
-    # Once, in the backup's data, not again as a setting.
     assert main(["--config", str(tmp_path / "evalution.yaml"), "backup"]) == 0
     (backup,) = (tmp_path / "backups").iterdir()
-    assert (backup / "data" / "settings" / "targets.yaml").is_file()
-    assert not (backup / "settings" / "targets.yaml").exists()
-    assert (backup / "settings" / "evalution.yaml").is_file()
+    assert (backup / "data" / "evalution.db").is_file()
+    assert sorted(p.name for p in (backup / "settings").iterdir()) == ["evalution.yaml"]
     said(capsys)
 
 

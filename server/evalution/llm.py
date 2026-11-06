@@ -11,7 +11,7 @@ and the agent (with tool calls). A transcript is provider-neutral:
 and a tool is ``{"name", "description", "parameters": <JSON schema>}``. A call is tried
 :data:`ATTEMPTS` times on a transport error, a 429 or a 5xx. Usage is priced from the config's
 price table, else the built-in one (0 for a model in neither), and added to ``spent_usd``,
-which is kept in ``<data_dir>/spend.json`` so it counts every call evalution ever made.
+which is kept in the database (kind :data:`SPEND`) so it counts every call evalution ever made.
 
 The connection is swapped in place (:meth:`LLM.use`) when the model is set from the page, so
 every part holding this client picks the new model up without a restart. An ``LLM`` with no
@@ -23,17 +23,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 from evalution.config import ModelConfig
 from evalution.core import net
+from evalution.storage import Docs
 
 _logger = logging.getLogger(__name__)
 
@@ -41,6 +40,10 @@ ATTEMPTS = 3
 TIMEOUT = 300.0
 MAX_TOKENS = 8_192
 ANTHROPIC_VERSION = "2023-06-01"
+#: What evalution's own model calls have cost (a document kind): ``{"usd": float}`` under
+#: :data:`SPENT`.
+SPEND = "spend"
+SPENT = "model"
 
 #: ``(instructions=, input_text=) -> text``: one plain model call.
 Caller = Callable[..., Awaitable[str]]
@@ -72,23 +75,26 @@ class Reply:
 
 
 class LLM:
-    """The configured model connection. ``spent_usd`` adds up every call made, in
-    *spend_file* when given."""
+    """The configured model connection. ``spent_usd`` adds up every call made, kept in *docs*
+    when given."""
 
     def __init__(
         self,
         config: ModelConfig | None,
         transport: httpx.AsyncBaseTransport | None = None,
-        spend_file: Path | None = None,
+        docs: Docs | None = None,
     ):
         self.config = config
-        self.spend_file = spend_file
+        self.docs = docs
         self._spent = 0.0
         self._client = net.client(timeout=TIMEOUT, transport=transport)
 
     @property
     def spent_usd(self) -> float:
-        return _read_spend(self.spend_file) if self.spend_file else self._spent
+        if self.docs is None:
+            return self._spent
+        found = self.docs.get(SPEND, SPENT)
+        return float(found["usd"]) if isinstance(found, dict) else 0.0
 
     def __bool__(self) -> bool:
         return self.config is not None
@@ -149,7 +155,8 @@ class LLM:
         reply.usd = config.price(model, reply.tokens_in, reply.tokens_out)
         if reply.usd:
             self._spent = round(self.spent_usd + reply.usd, 6)
-            _write_spend(self.spend_file, self._spent)
+            if self.docs is not None:
+                self.docs.put(SPEND, SPENT, {"usd": self._spent})
         return reply
 
     async def _post(self, url: str, headers: dict[str, str], body: dict[str, Any]) -> Any:
@@ -186,25 +193,6 @@ def endpoint(config: ModelConfig, path: str) -> tuple[str, dict[str, str]]:
     else:
         headers = {"Authorization": f"Bearer {key}"} if key else {}
     return f"{config.base_url}{path}", headers
-
-
-def _read_spend(file: Path | None) -> float:
-    try:
-        return float(json.loads(file.read_text(encoding="utf-8"))["usd"]) if file else 0.0
-    except (OSError, ValueError, KeyError, TypeError):
-        return 0.0
-
-
-def _write_spend(file: Path | None, usd: float) -> None:
-    if file is None:
-        return
-    try:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = file.with_name(f".{file.name}.tmp")
-        tmp.write_text(json.dumps({"usd": usd}), encoding="utf-8")
-        os.replace(tmp, file)
-    except OSError as exc:
-        _logger.warning("llm: could not keep the spend (%s)", exc)
 
 
 def anthropic_body(

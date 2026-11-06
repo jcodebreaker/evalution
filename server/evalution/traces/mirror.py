@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from evalution.config import PhoenixConfig, secret
+from evalution.config import PhoenixConfig
 from evalution.core import net
 from evalution.core.rules import current
 
@@ -155,7 +155,7 @@ def mirror_of(conf: PhoenixConfig | None) -> PhoenixStore | None:
     """Where a target's finished runs are mirrored, when its ``phoenix.mirror`` is true."""
     if conf is None or not conf.mirror:
         return None
-    return PhoenixStore(conf.url, secret(conf.api_key_env))
+    return PhoenixStore(conf.url, conf.keys.get(conf.api_key_env))
 
 
 def _reasons(lines: Sequence[Mapping[str, Any]]) -> str:

@@ -16,10 +16,9 @@ import httpx
 import pytest
 
 from evalution import adapters, service
-from evalution import config as config_module
 from evalution.adapters.base import Capabilities, Isolation, Session, Target, Turn
 from evalution.adapters.http import HttpTarget, json_path
-from evalution.config import MODEL_SECRET, ModelConfig, TargetConfig, load, write_secrets
+from evalution.config import MODEL_SECRET, ModelConfig, TargetConfig, load
 from evalution.core import net
 from evalution.runs.fit import why_not
 from evalution.runs.preflight import check_isolation
@@ -234,15 +233,15 @@ def test_a_fresh_install_leaves_the_page_its_forms(tmp_path) -> None:
 
 def test_a_saved_model_key_goes_only_to_the_host_it_was_saved_for(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EVALUTION_MODEL_KEY", raising=False)
-    monkeypatch.setattr(config_module, "_secrets_path", tmp_path / "secrets.json")
-    write_secrets({MODEL_SECRET: "fake-saved-key"})
+    keys = load(tmp_path / "evalution.yaml").keys
+    keys.store.set(MODEL_SECRET, "fake-saved-key")
     saved = ModelConfig(
         kind="openai",
         base_url="https://gateway.example.test/v1",
         api_key_env="EVALUTION_MODEL_KEY",
         models={"strong": "a", "light": "b"},
     )
-    config = SimpleNamespace(model=saved)
+    config = SimpleNamespace(model=saved, keys=keys)
     form = {"provider": "compatible", "strong": "a", "light": "b"}
     here = draft(config, {**form, "base_url": "https://gateway.example.test/v2"})
     assert here.api_key() == "fake-saved-key", "control: same host"

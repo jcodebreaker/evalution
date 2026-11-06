@@ -81,7 +81,7 @@ from evalution.adapters.base import (
     text_options,
 )
 from evalution.adapters.http import json_path
-from evalution.config import ConfigError, TargetConfig, secret
+from evalution.config import ConfigError, TargetConfig
 from evalution.core import net
 from evalution.core.evidence import Failure, TurnEnd
 
@@ -127,6 +127,7 @@ class LangGraphTarget(Target):
         if not self.url or not self.assistant:
             raise ConfigError(f"targets.{target.name}: url and assistant_id are required")
         self.key_env = options.get("api_key_env")
+        self.keys = target.keys
         self.user_field = str(options.get("user_field") or "configurable.user_id")
         namespace = options.get("store_namespace") or list(DEFAULT_NAMESPACE)
         # Reset and a cleanup delete everything under the namespace: it must be the eval user's own.
@@ -148,7 +149,7 @@ class LangGraphTarget(Target):
 
     def _client(self, seconds: float = _TIMEOUT) -> httpx.AsyncClient:
         headers = {}
-        if value := secret(self.key_env):
+        if value := self.keys.get(self.key_env):
             headers["x-api-key"] = value
         return net.client(
             base_url=self.url, headers=headers, timeout=seconds, transport=self._transport

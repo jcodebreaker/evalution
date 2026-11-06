@@ -11,12 +11,14 @@ from fastapi.testclient import TestClient
 
 from evalution import cli
 from evalution.api.app import create_app
-from evalution.config import ConfigError, PhoenixConfig, load
+from evalution.config import ConfigError, PhoenixConfig, load, page_model, page_targets
 from evalution.connect import connect, probe
 from evalution.core import net
+from evalution.llm import LLM
 from evalution.results.store import RunLock
 from evalution.runs.preflight import RUN_KEY, AdapterCheck
 from evalution.runs.runner import RunBusyError
+from evalution.storage import Database
 from evalution.traces.phoenix import Phoenix
 from evalution.traces.profile import recent_sessions
 
@@ -34,6 +36,18 @@ def client(tmp_path):
     (tmp_path / "app" / ".env").write_text("NOPE=1")
     with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as made:
         yield made
+
+
+def _stored(tmp_path) -> dict[str, str | None]:
+    """The secrets the page stored, read back as another process would."""
+    keys = load(tmp_path / "evalution.yaml").keys
+    return {name: keys.stored(name) for name in keys.store.names()}
+
+
+def _saved(tmp_path) -> str:
+    """Everything else the page stored (the targets' blocks and the model), as text."""
+    docs = Database.open(tmp_path / "data").docs()
+    return json.dumps({"targets": page_targets(docs), "model": page_model(docs)})
 
 
 def _body(**secrets):
@@ -54,14 +68,15 @@ def test_create_check_edit_delete(client, tmp_path) -> None:
     assert made.json()["secrets"] == ["api_key", "phoenix_api_key"]
     assert made.json()["code"]["ignore"] == []
 
-    stored = tmp_path / "data" / "secrets.json"
-    assert stat.S_IMODE(stored.stat().st_mode) == 0o600
-    assert json.loads(stored.read_text()) == {
-        "shop.api_key": PROXY,
-        "shop.phoenix_api_key": PHOENIX_KEY,
+    assert stat.S_IMODE((tmp_path / "data" / "secret.key").stat().st_mode) == 0o600
+    assert _stored(tmp_path) == {
+        "targets/shop/api_key": PROXY,
+        "targets/shop/phoenix_api_key": PHOENIX_KEY,
     }
-    written = (tmp_path / "targets.yaml").read_text()
-    assert PROXY not in written and "api_key_env: shop.api_key" in written
+    database = (tmp_path / "data" / "evalution.db").read_bytes()
+    assert PROXY.encode() not in database and PHOENIX_KEY.encode() not in database
+    written = _saved(tmp_path)
+    assert PROXY not in written and '"api_key_env": "targets/shop/api_key"' in written
     assert (tmp_path / "sets" / "shop" / "main" / "set.json").is_file()
 
     rows = {r["name"]: r for r in client.get("/v1/targets").json()["data"]}
@@ -79,13 +94,13 @@ def test_create_check_edit_delete(client, tmp_path) -> None:
     # A secret left out is kept, null removes it.
     edited = client.put("/v1/targets/shop", json=_body(phoenix_api_key=None))
     assert edited.json()["secrets"] == ["api_key"]
-    assert "shop.phoenix_api_key" not in (tmp_path / "targets.yaml").read_text()
+    assert "targets/shop/phoenix_api_key" not in _saved(tmp_path)
 
     assert client.delete("/v1/targets/hand").status_code == 409
     gone = client.delete("/v1/targets/shop").json()
     assert gone["removed"] and "stay on disk" in gone["kept"]
-    assert json.loads(stored.read_text()) == {}
-    assert "shop" not in (tmp_path / "targets.yaml").read_text()
+    assert _stored(tmp_path) == {}
+    assert "shop" not in _saved(tmp_path)
     assert (tmp_path / "sets" / "shop" / "main" / "set.json").is_file()
     assert client.get("/v1/targets/shop").status_code == 404
 
@@ -144,9 +159,8 @@ def test_model_settings_round_trip(client, tmp_path, monkeypatch) -> None:
     assert saved.json()["key_set"] and saved.json()["strong"] == "claude-opus-5-5"
     for text in (saved.text, client.get("/v1/settings/model").text):
         assert MODEL_KEY not in text
-    assert MODEL_KEY not in (tmp_path / "model.yaml").read_text()
-    stored = json.loads((tmp_path / "data" / "secrets.json").read_text())
-    assert stored == {"model.api_key": MODEL_KEY}
+    assert MODEL_KEY not in _saved(tmp_path) and "claude-opus-5-5" in _saved(tmp_path)
+    assert _stored(tmp_path) == {"model/api_key": MODEL_KEY}
     # The running server uses it at once, and a key left out is kept.
     assert client.app.state.runs.llm.config.models["light"] == "claude-haiku-5-5"
     moved = client.put(
@@ -233,11 +247,11 @@ async def test_model_list_and_test_offline(tmp_path) -> None:
     with pytest.raises(settings.SettingsError, match="The key was refused"):
         await settings.find_models(gateway, "https://gw.test/v1", httpx.MockTransport(refused))
 
-    spend = tmp_path / "spend.json"
-    tested = await settings.test(model, spend, transport=stub)
+    docs = Database.open(tmp_path).docs()
+    tested = await settings.test(model, docs, transport=stub)
     assert tested["strong"]["ok"] and tested["light"]["ok"]
     assert MODEL_KEY not in json.dumps(tested)
-    assert json.loads(spend.read_text()) == {"usd": 4.0}
+    assert LLM(None, docs=docs).spent_usd == 4.0, "kept for the next process"
 
 
 @pytest.mark.parametrize(
@@ -385,7 +399,6 @@ def test_a_stored_secret_doesnt_follow_a_new_host(client, tmp_path, monkeypatch,
     both = {"authorization": PROXY, "phoenix_api_key": PHOENIX_KEY}
     made = client.post("/v1/targets", json={**_http_body(), "secrets": both})
     assert made.status_code == 201, made.text
-    stored = tmp_path / "data" / "secrets.json"
 
     # Another route or port on the same host is the same app, and keeps it.
     same = _http_body(
@@ -393,7 +406,7 @@ def test_a_stored_secret_doesnt_follow_a_new_host(client, tmp_path, monkeypatch,
     )
     kept = client.put("/v1/targets/shop", json=same).json()
     assert kept["secrets"] == sorted(both) and kept["secrets_dropped"] == []
-    assert "headers_env" in (tmp_path / "targets.yaml").read_text()
+    assert "headers_env" in _saved(tmp_path)
 
     # A form tried, not saved, is held to the same: nothing stored would go out with it.
     seen = {}
@@ -413,17 +426,17 @@ def test_a_stored_secret_doesnt_follow_a_new_host(client, tmp_path, monkeypatch,
     typed = {**_http_body(**moved), "secrets": {"authorization": "fake-typed-again"}}
     again = client.put("/v1/targets/shop", json=typed).json()
     assert again["secrets"] == sorted(both) and again["secrets_dropped"] == []
-    assert json.loads(stored.read_text())["shop.authorization"] == "fake-typed-again"
+    assert _stored(tmp_path)["targets/shop/authorization"] == "fake-typed-again"
     back = client.put("/v1/targets/shop", json=same)
     assert back.status_code == 200
 
-    # Left out, it's gone from the target and from the file, and the other one stays.
+    # Left out, it's gone from the target and from the store, and the other one stays.
     gone = client.put("/v1/targets/shop", json=_http_body(**moved)).json()
     assert gone["secrets"] == ["phoenix_api_key"]
     # Each time one stayed behind, it said so: moving the send address back is a new host too.
     assert back.json()["secrets_dropped"] + gone["secrets_dropped"] == ["authorization"]
-    assert "headers_env" not in (tmp_path / "targets.yaml").read_text()
-    assert "shop.authorization" not in json.loads(stored.read_text())
+    assert "headers_env" not in _saved(tmp_path)
+    assert "targets/shop/authorization" not in _stored(tmp_path)
 
 
 def test_a_trace_key_doesnt_follow_a_new_trace_host(client, tmp_path) -> None:
@@ -434,7 +447,7 @@ def test_a_trace_key_doesnt_follow_a_new_trace_host(client, tmp_path) -> None:
     assert client.put("/v1/targets/shop", json=body).json()["secrets"] == sorted(both)
     body["phoenix"]["url"] = _ELSEWHERE
     assert client.put("/v1/targets/shop", json=body).json()["secrets"] == ["authorization"]
-    assert PHOENIX_KEY not in (tmp_path / "data" / "secrets.json").read_text()
+    assert PHOENIX_KEY not in _stored(tmp_path).values()
 
 
 def test_a_target_doesnt_change_under_its_run(client) -> None:

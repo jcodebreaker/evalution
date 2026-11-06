@@ -1,7 +1,7 @@
 """``evalution backup | upgrade | restore``: moving to new code without losing what is kept.
 
 A backup is one timestamped folder, under ``<config folder>/backups`` by default: ``data/``,
-``sets/``, ``targets/`` and ``settings/`` (the config, ``targets.yaml``, ``model.yaml``), with a
+``sets/``, ``targets/`` and ``settings/`` (the config; what the page sets is in ``data/``), with a
 ``manifest.json`` written last and holding every file's hash and first mode. It holds secrets, so
 every folder in it is 0700 and every file 0600. ``run.lock`` isn't kept: it means nothing later, and
 a restore must not swap the one it is holding.
@@ -41,7 +41,7 @@ from evalution.suite.cases import CaseError, list_sets, load_cases
 _logger = logging.getLogger(__name__)
 MANIFEST = "manifest.json"
 BACKUPS = "backups"
-#: In a backup, the files that live next to the config.
+#: In a backup, the config file.
 SETTINGS = "settings"
 _SKIPPED_NAMES = frozenset({"run.lock", "__pycache__"})
 _SQLITE = (".db", ".sqlite", ".sqlite3")
@@ -77,9 +77,9 @@ def _sections(config: Config) -> dict[str, Path]:
 
 
 def _settings(config: Config) -> dict[str, Path]:
-    """The files beside the config, unless ``data/`` already holds them."""
-    found = (config.file, config.targets_file, config.model_file)
-    return {p.name: p for p in found if not p.is_relative_to(config.data_dir)}
+    """The config file, unless ``data/`` already holds it."""
+    found = config.file
+    return {} if found.is_relative_to(config.data_dir) else {found.name: found}
 
 
 def _walk(folder: Path) -> Iterator[tuple[str, os.stat_result]]:

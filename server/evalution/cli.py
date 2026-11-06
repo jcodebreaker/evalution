@@ -147,7 +147,7 @@ def _targets(config: Config) -> Targets:
 
 async def run(config: Config, args: argparse.Namespace) -> int:
     targets = _targets(config)
-    llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
+    llm = LLM(config.model, docs=targets.docs) if config.model else None
     runs = Runs(targets, FileStore(config.data_dir), llm)
     intake = await _take_traces(targets, args.traces_port) if config.traces.builtin else None
     try:
@@ -233,7 +233,7 @@ async def regrade(config: Config, args: argparse.Namespace) -> int:
         print(f"evalution: {added} tries judged again under today's rules")
         return 0
     targets = _targets(config)
-    llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
+    llm = LLM(config.model, docs=targets.docs) if config.model else None
     runs = Runs(targets, store, llm)
     try:
         try:
@@ -366,7 +366,7 @@ _STEP_MARK = {"ok": "ok ", "failed": "NO ", "skipped": "-- "}
 
 async def benchmark_plan(config: Config, args: argparse.Namespace) -> int:
     targets = _targets(config)
-    llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
+    llm = LLM(config.model, docs=targets.docs) if config.model else None
     try:
         if llm is None:
             print("evalution: planning needs a model", file=sys.stderr)
