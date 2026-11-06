@@ -54,9 +54,7 @@ export function WorkspaceSettings({ account }: { account: Account }) {
       </Group>
       <Members account={account} act={act} />
       <Tokens act={act} />
-      {error ? (
-        <p className="m-0 px-1 text-[12.5px] text-destructive">{error}</p>
-      ) : null}
+      {error ? <p className="m-0 px-1 text-[12.5px] text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -84,8 +82,7 @@ function Members({ account, act }: { account: Account; act: Act }) {
               size="xs"
               onClick={() =>
                 void act(
-                  async () =>
-                    setLink((await api.workspaces.invite(workspace.id)).url),
+                  async () => setLink((await api.workspaces.invite(workspace.id)).url),
                   "Couldn't make an invite.",
                 )
               }
@@ -103,13 +100,9 @@ function Members({ account, act }: { account: Account; act: Act }) {
         ) : null}
         {members.map((member) => (
           <div key={member.id} className={LINE}>
-            <span className="min-w-0 truncate">
-              {member.name || member.email}
-            </span>
+            <span className="min-w-0 truncate">{member.name || member.email}</span>
             {member.name ? (
-              <span className="min-w-0 truncate text-ink-3">
-                {member.email}
-              </span>
+              <span className="min-w-0 truncate text-ink-3">{member.email}</span>
             ) : null}
             {member.id === user.id && workspace.personal ? null : (
               <Button
@@ -128,9 +121,7 @@ function Members({ account, act }: { account: Account; act: Act }) {
         <ConfirmDialog
           onClose={() => setRemoving(null)}
           title={
-            leaving
-              ? `Leave ${workspace.name}?`
-              : `Remove ${removing.name || removing.email}?`
+            leaving ? `Leave ${workspace.name}?` : `Remove ${removing.name || removing.email}?`
           }
           footer={
             <>
@@ -230,17 +221,10 @@ function Tokens({ act }: { act: Act }) {
             </div>
           ) : null}
           {tokens.map((token) => (
-            <div
-              key={token.id}
-              className={`${TOKEN_GRID} px-3.5 py-1.5 text-[13px] tabular-nums`}
-            >
+            <div key={token.id} className={`${TOKEN_GRID} px-3.5 py-1.5 text-[13px] tabular-nums`}>
               <span className="truncate">{token.name}</span>
-              <span className="truncate font-mono text-[12px] text-ink-2">
-                {token.prefix}…
-              </span>
-              <span className="truncate text-ink-2 max-sm:hidden">
-                {ago(token.created_at)}
-              </span>
+              <span className="truncate font-mono text-[12px] text-ink-2">{token.prefix}…</span>
+              <span className="truncate text-ink-2 max-sm:hidden">{ago(token.created_at)}</span>
               <span className="truncate text-ink-2 max-sm:hidden">
                 {token.last_used_at ? ago(token.last_used_at) : "Never"}
               </span>
