@@ -212,7 +212,7 @@ class Agent:
         )
         if session is None:
             raise LookupError(session_id)
-        # Its loop went with an earlier server process, or stopped on a spending limit, now gone.
+        # Its loop went with an earlier server process; "waiting_budget" is a status of older ones.
         if session["status"] in ("working", "waiting_budget") and session_id not in self._tasks:
             session["status"] = "idle"
         return session
