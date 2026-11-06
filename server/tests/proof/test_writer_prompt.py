@@ -6,9 +6,9 @@ import asyncio
 
 from scripted_agent import SET, TARGET
 
-from evalution.core.case import CASE_SUFFIX
 from evalution.llm import LLMError, Reply
 from evalution.project.profile import update_connection, write_json, write_profile
+from evalution.suite.cases import CASE
 from evalution.writer import agent as writer
 from evalution.writer.prompts import INSTRUCTIONS
 from evalution.writer.sessions import SessionFiles
@@ -28,7 +28,7 @@ class WriterModel:
 async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkeypatch) -> None:
     rig = make_rig()
     rig.add({"name": "Greets", "turns": [{"message": "hi"}]})
-    (rig.set_root / SET / f"broken{CASE_SUFFIX}").write_text("{not a case")
+    rig.docs.put(CASE, f"{TARGET}/{SET}/broken", "{not a case")
     write_profile(rig.targets, TARGET, "Plans trips for families [admin]")
     write_json(rig.targets, TARGET, "drift.json", {"changes": [{"id": "c1"}]})
 

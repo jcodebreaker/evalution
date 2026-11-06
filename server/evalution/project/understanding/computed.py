@@ -243,11 +243,10 @@ def state_kinds(state_checks: Sequence[str] | None, profile: str) -> list[str]:
 
 def _sets(targets: Targets, name: str) -> dict[str, list[Case]]:
     """The target's tests by set; a set that does not read is left out."""
-    root = targets.sets(name)
     found = {}
-    for set_name in own_sets(root):
+    for set_name in own_sets(targets.docs, name):
         try:
-            found[set_name] = load_cases(set_name, root)
+            found[set_name] = load_cases(targets.docs, name, set_name)
         except CaseError:
             continue
     return found

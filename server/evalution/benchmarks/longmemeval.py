@@ -2,7 +2,7 @@
 
 LongMemEval (Wu et al., ICLR 2025, https://github.com/xiaowu0162/LongMemEval, MIT) asks questions
 with known answers about a person's chat history. :func:`install` writes its questions as cases
-under ``sets/<target>/longmemeval-<size>/``, in the usual case format, so they play, are graded and
+of set ``longmemeval-<size>`` of a target, in the usual case format, so they play, are graded and
 are stored like any test. The questions of the sizes people run are in this repository, in
 ``longmemeval/``, so they work offline; the full files are fetched into
 ``<data_dir>/benchmarks/`` the first time they're needed. To change a bundled size, run
@@ -38,7 +38,8 @@ import httpx
 from evalution.core.judgement import VerdictKind
 from evalution.core.rules import line_reason
 from evalution.results.record import verdict_of
-from evalution.suite.cases import parse_case
+from evalution.storage import Docs
+from evalution.suite.cases import case_stems, delete_set, put_case, save_set, write_file
 
 NAME = "longmemeval"
 _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/"
@@ -279,35 +280,32 @@ def _slug(size: str, boundary: str = "break") -> str:
 def install(
     size: str,
     target: str,
-    sets_dir: Path,
+    docs: Docs,
     data_dir: Path,
     *,
     boundary: str = "break",
     each: int | None = None,
     plan: Mapping[str, Any] | None = None,
 ) -> tuple[str, int]:
-    """Write the benchmark's *size* as a set of *target*, *plan* beside it if a plan chose it. Its
-    name, which says how it plays, and how many questions it has."""
+    """Write the benchmark's *size* as a set of *target*, replacing any it had, with *plan* as its
+    file ``plan.json`` if a plan chose it. Its name, which says how it plays, and how many
+    questions it has."""
     boundary = "same" if size == "middle" else boundary
     slug = _slug(size, boundary)
-    folder = sets_dir / target / slug
-    folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob("*.case.json"):
-        old.unlink()
     chosen = _chosen(size, each, data_dir)
-    if plan is not None:
-        (folder / "plan.json").write_text(json.dumps(plan, indent=1))
-    for entry in chosen:
-        case = to_case(entry, boundary, _MIDDLE_FOLD if size == "middle" else None)
-        stem = re.sub(r"[^a-z0-9_-]", "-", str(entry["question_id"]).lower())
-        parse_case(case, f"{slug}/{stem}")
-        (folder / f"{stem}.case.json").write_text(json.dumps(case, indent=1))
     about = {
         "name": f"LongMemEval ({size})",
         "about": "Memory benchmark: questions with known answers about a person's chat history.",
         "grader": "light",
     }
-    (folder / "set.json").write_text(json.dumps(about, indent=1))
+    delete_set(docs, target, slug)
+    save_set(docs, target, slug, about)
+    if plan is not None:
+        write_file(docs, target, slug, "plan.json", json.dumps(plan, indent=1).encode())
+    for entry in chosen:
+        case = to_case(entry, boundary, _MIDDLE_FOLD if size == "middle" else None)
+        stem = re.sub(r"[^a-z0-9_-]", "-", str(entry["question_id"]).lower())
+        put_case(docs, target, slug, stem, case)
     return slug, len(chosen)
 
 
@@ -528,17 +526,17 @@ def _totals(run: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def overview(target: str, sets_dir: Path, runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+def overview(target: str, docs: Docs, runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     """The sizes that can be run on *target* and the runs it has had, newest first."""
     sizes = []
     for size in SIZES:
-        folder = sets_dir / target / _slug(size)
+        slug = _slug(size)
         sizes.append(
             {
                 "size": size,
-                "set": folder.name,
+                "set": slug,
                 "about": ABOUT[size],
-                "questions": len(list(folder.glob("*.case.json"))) or None,
+                "questions": len(case_stems(docs, target, slug)) or None,
             }
         )
     played = [run for run in runs if str(run.get("set")).startswith(NAME) and _got_going(run)]

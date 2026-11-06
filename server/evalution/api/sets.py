@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from evalution.api.deps import invalid, set_root, target_name
+from evalution.api.deps import invalid, known_set, target_name
 from evalution.project import library_fit
 from evalution.runs.runner import Runs
 from evalution.suite import library
@@ -42,9 +42,9 @@ def sets_router(runs: Runs) -> APIRouter:
         """The tool-call and reply scores a try of this test set needs to pass, ``{tools,
         reply}`` (0 to 1; one left out stays as it is). Every run after this uses them."""
         name = target_name(targets, target or body.pop("target", None))
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         try:
-            marks = await asyncio.to_thread(save_pass_marks, set_name, body, root)
+            marks = await asyncio.to_thread(save_pass_marks, targets.docs, name, set_name, body)
         except CaseError as exc:
             raise invalid(str(exc)) from exc
         return {"target": name, "set": set_name, "pass_marks": marks}

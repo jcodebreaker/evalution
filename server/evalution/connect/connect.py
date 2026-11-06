@@ -13,7 +13,6 @@ that sends a message.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +33,8 @@ from evalution.config import (
 )
 from evalution.core import net
 from evalution.core.case import SLUG
+from evalution.storage import Docs
+from evalution.suite.cases import list_sets, save_set
 from evalution.traces.builtin import SpanStore
 from evalution.traces.managed import reader
 from evalution.traces.profile import recent_sessions
@@ -263,13 +264,10 @@ def remove(file: Path, name: str) -> None:
     write_secrets({_ref(name, k): None for k in stored_keys(name)})
 
 
-def starter_set(sets: Path) -> None:
-    """A first, empty set for a target that has none."""
-    folder = sets / STARTER_SET
-    if sets.is_dir() and any(p.joinpath("set.json").is_file() for p in sets.iterdir()):
-        return
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "set.json").write_text(json.dumps({"name": "Main"}, indent=2) + "\n")
+def starter_set(docs: Docs, target: str) -> None:
+    """A first, empty set for *target* when it has none."""
+    if not list_sets(docs, target):
+        save_set(docs, target, STARTER_SET, {"name": "Main"})
 
 
 # The check

@@ -9,7 +9,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from evalution import adapters
+from evalution import adapters, cli
 from evalution.adapters.base import (
     AppError,
     Capabilities,
@@ -26,7 +26,18 @@ from evalution.results.migrate import upcast
 from evalution.results.store import FileStore
 from evalution.results.views import case_detail, summary
 from evalution.runs.runner import Runs
-from evalution.suite.cases import is_benchmark, meaning_changes, own_sets
+from evalution.storage import Database
+from evalution.suite.cases import (
+    case_text,
+    export_sets,
+    import_sets,
+    is_benchmark,
+    meaning_changes,
+    own_sets,
+    put_case,
+    save_set,
+    write_case_text,
+)
 from evalution.targets import Targets
 
 
@@ -44,8 +55,13 @@ def client(tmp_path):
     (main / "greets.case.json").write_text(
         json.dumps({"name": "Greets", "turns": [{"message": "hi"}]})
     )
+    import_sets(_docs(tmp_path), tmp_path / "sets")
     with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as made:
         yield made
+
+
+def _docs(tmp_path):
+    return Database.open(load(tmp_path / "evalution.yaml").data_dir).docs()
 
 
 def test_pass_marks_round_trip_and_read_the_old_key(client, tmp_path) -> None:
@@ -58,8 +74,13 @@ def test_pass_marks_round_trip_and_read_the_old_key(client, tmp_path) -> None:
         "set": "main",
         "pass_marks": {"tools": 0.5, "reply": 0.9},
     }
-    written = json.loads((tmp_path / "sets" / "bot" / "main" / "set.json").read_text())
+    # Exported, the set's file says so, and its tests come out as they went in.
+    out = tmp_path / "out"
+    assert export_sets(_docs(tmp_path), out) == ["bot/main"]
+    written = json.loads((out / "bot" / "main" / "set.json").read_text())
     assert "pass_scores" not in written and written["pass_marks"]["reply"] == 0.9
+    case = "greets.case.json"
+    assert (out / "bot/main" / case).read_text() == (tmp_path / "sets/bot/main" / case).read_text()
     assert client.put(url, json={"tools": 2}).status_code == 400
     assert client.put(url, json={"speed": 1}).status_code == 400
     assert client.get("/v1/evals/sets").json()["data"][0]["pass_marks"]["reply"] == 0.9
@@ -150,8 +171,8 @@ class _LosesTheApp(Target):
         ("open", KeyError("no such field"), "it stopped early"),
     ],
 )
-async def test_a_failed_run_records_what_kind_of_failure(
-    tmp_path, monkeypatch, where, error, reason
+def test_a_failed_run_records_what_kind_of_failure(
+    tmp_path, monkeypatch, capsys, where, error, reason
 ) -> None:
     (tmp_path / "evalution.yaml").write_text(
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
@@ -165,10 +186,11 @@ async def test_a_failed_run_records_what_kind_of_failure(
         )
     config = load(tmp_path / "evalution.yaml")
     monkeypatch.setitem(adapters._built, "bot", _LosesTheApp(where, error))
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
-    made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
-    await runs.wait()
-    run = runs.load(made["run"])
+    # As in CI: a database with no tests yet, and the repo's folder imported as the run starts.
+    play = ["run", "--target", "bot", "--set", "main", "--tries", "1", "--yes", "--sets"]
+    assert cli.main(["--config", str(tmp_path / "evalution.yaml"), *play]) == 1
+    assert "imported 1 set(s)" in capsys.readouterr().out
+    [run] = FileStore(config.data_dir).all()
     assert run["status"] == "failed"
     assert run["failure"] == ("app_not_ready" if "ready" in reason else "other")
     # The test the run never got to says why.
@@ -210,6 +232,7 @@ async def test_a_run_stops_when_try_after_try_hangs(
             json.dumps({"name": f"t{n}", "turns": [{"message": f"msg{n}"}]})
         )
     config = load(tmp_path / "evalution.yaml")
+    import_sets(_docs(tmp_path), tmp_path / "sets")
     target = _Hangs(answers)
     monkeypatch.setitem(adapters._built, "bot", target)
     runs = Runs(Targets(config), FileStore(config.data_dir), None)
@@ -230,6 +253,7 @@ async def test_stop_reaches_a_run_another_process_is_playing(tmp_path, monkeypat
     (folder / "set.json").write_text(json.dumps({"name": "Main"}))
     (folder / "t.case.json").write_text(json.dumps({"name": "t", "turns": [{"message": "msg"}]}))
     config = load(tmp_path / "evalution.yaml")
+    import_sets(_docs(tmp_path), tmp_path / "sets")
     playing = asyncio.Event()
 
     class Slow(_LosesTheApp):
@@ -273,8 +297,11 @@ def test_a_test_file_edited_by_hand_is_checked_before_it_is_saved(client, tmp_pa
         "case": "greets",
         "file": {"name": "Greets back", "turns": [{"message": "hello"}]},
     }
-    path = tmp_path / "sets" / "bot" / "main" / "greets.case.json"
-    assert path.read_text() == typed + "\n"
+
+    def stored() -> str:
+        return case_text(_docs(tmp_path), "bot", "main", "greets")
+
+    assert stored() == typed + "\n"
     # Control: only a name changes, so there's nothing to review.
     renamed = '{"name": "Says hello", "about": "x", "turns": [{"message": "hello"}]}'
     assert client.put(url, content=renamed).status_code == 200
@@ -284,7 +311,7 @@ def test_a_test_file_edited_by_hand_is_checked_before_it_is_saved(client, tmp_pa
     bad = client.put(url, content='{"name": "x", "turns": []}')
     assert bad.status_code == 400
     assert bad.json()["detail"] == "bot/main/greets.case.json: turns: must be a non-empty list"
-    assert path.read_text() == typed + "\n"
+    assert stored() == typed + "\n"
     assert client.get("/v1/evals/sets/main/cases/nope/file").status_code == 404
     assert client.put("/v1/evals/sets/main/cases/nope/file", content="{}").status_code == 404
 
@@ -311,27 +338,26 @@ def test_what_a_test_checks_includes_how_it_runs(change, what) -> None:
 
 def test_a_review_covers_the_file_it_was_made_against(client, tmp_path) -> None:
     url = "/v1/evals/sets/main/cases/greets/file"
-    path = tmp_path / "sets" / "bot" / "main" / "greets.case.json"
+    docs = _docs(tmp_path)
     typed = '{"name": "Greets", "turns": [{"message": "hello there"}]}'
     token = client.put(url, content=typed).json()["token"]
-    before = path.read_text()
+    before = case_text(docs, "bot", "main", "greets")
     # Someone else's edit comes in between: what was reviewed isn't what would be replaced.
-    path.write_text(before.replace('"Greets"', '"Greets too"'))
+    write_case_text(docs, "bot", "main", "greets", before.replace('"Greets"', '"Greets too"'))
     stale = client.put(url, content=typed, headers={"X-Reviewed": token})
     assert stale.status_code == 409 and stale.json()["token"] != token
-    assert "Greets too" in path.read_text()
+    assert "Greets too" in case_text(docs, "bot", "main", "greets")
     # Control: reviewed again over what's there now, it saves.
     fresh = client.put(url, content=typed, headers={"X-Reviewed": stale.json()["token"]})
     assert fresh.status_code == 200
 
 
 def test_a_benchmark_stays_out_of_the_apps_own_numbers(client, tmp_path) -> None:
-    other = tmp_path / "sets" / "bot" / "longmemeval-quick"
-    other.mkdir()
-    (other / "set.json").write_text(json.dumps({"name": "LongMemEval"}))
-    (other / "q.case.json").write_text(json.dumps({"name": "q", "turns": [{"message": "hi"}]}))
+    docs = _docs(tmp_path)
+    save_set(docs, "bot", "longmemeval-quick", {"name": "LongMemEval"})
+    put_case(docs, "bot", "longmemeval-quick", "q", {"name": "q", "turns": [{"message": "hi"}]})
     assert is_benchmark("longmemeval-quick") and not is_benchmark("main")
-    assert own_sets(tmp_path / "sets" / "bot") == ["main"]
+    assert own_sets(docs, "bot") == ["main"]
     seen = client.get("/v1/targets/bot/health", params={"period": "7d"})
     assert seen.status_code == 200 and "LongMemEval" not in seen.text
 

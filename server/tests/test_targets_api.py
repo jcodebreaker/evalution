@@ -17,6 +17,8 @@ from evalution.core import net
 from evalution.results.store import RunLock
 from evalution.runs.preflight import RUN_KEY, AdapterCheck
 from evalution.runs.runner import RunBusyError
+from evalution.storage import Database
+from evalution.suite.cases import list_sets
 from evalution.traces.phoenix import Phoenix
 from evalution.traces.profile import recent_sessions
 
@@ -62,7 +64,8 @@ def test_create_check_edit_delete(client, tmp_path) -> None:
     }
     written = (tmp_path / "targets.yaml").read_text()
     assert PROXY not in written and "api_key_env: shop.api_key" in written
-    assert (tmp_path / "sets" / "shop" / "main" / "set.json").is_file()
+    docs = Database.open(tmp_path / "data").docs()
+    assert list_sets(docs, "shop") == ["main"]
 
     rows = {r["name"]: r for r in client.get("/v1/targets").json()["data"]}
     assert rows["shop"]["managed"] and not rows["hand"]["managed"]
@@ -86,7 +89,7 @@ def test_create_check_edit_delete(client, tmp_path) -> None:
     assert gone["removed"] and "stay on disk" in gone["kept"]
     assert json.loads(stored.read_text()) == {}
     assert "shop" not in (tmp_path / "targets.yaml").read_text()
-    assert (tmp_path / "sets" / "shop" / "main" / "set.json").is_file()
+    assert list_sets(docs, "shop") == ["main"]
     assert client.get("/v1/targets/shop").status_code == 404
 
 

@@ -4,7 +4,6 @@ of a route's target and set."""
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -106,11 +105,10 @@ def target_name(targets: Targets, name: Any) -> str:
     return name
 
 
-def set_root(targets: Targets, target: str, set_name: str) -> Path:
-    root = targets.sets(target)
-    if set_name not in list_sets(root):
+def known_set(targets: Targets, target: str, set_name: str) -> None:
+    """:raises HTTPException: 404, *target* has no such set."""
+    if set_name not in list_sets(targets.docs, target):
         raise not_found("Test set")
-    return root
 
 
 async def read_body(request: Request) -> dict[str, Any]:

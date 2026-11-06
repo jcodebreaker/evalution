@@ -93,6 +93,7 @@ from evalution.runs.preflight import (
     remember_setup,
     setup_key,
 )
+from evalution.storage import Docs
 from evalution.suite.cases import (
     CaseError,
     is_benchmark,
@@ -101,6 +102,8 @@ from evalution.suite.cases import (
     load_cases,
     load_set,
     parse_case,
+    read_file,
+    unpack_files,
 )
 from evalution.targets import Targets
 from evalution.traces.base import TraceSource
@@ -186,9 +189,10 @@ def _last_turn(evidence: TryEvidence) -> tuple[float, float] | None:
     return last.started - evidence.t0, last.ended - evidence.t0
 
 
-def _plan_beside(folder: Path) -> dict[str, Any] | None:
-    path = folder / "plan.json"
-    return json.loads(path.read_text()) if path.is_file() else None
+def _plan_beside(docs: Docs, target: str, set_name: str) -> dict[str, Any] | None:
+    """The plan that chose a benchmark set, kept as its file ``plan.json``."""
+    found = read_file(docs, target, set_name, "plan.json")
+    return json.loads(found) if found is not None else None
 
 
 class KeepsHanging(Exception):
@@ -277,12 +281,12 @@ class Runs:
 
     def set_rows(self, target: str) -> list[dict[str, Any]]:
         """Every set of *target* as a ``SetSummary``; a set that does not read is left out."""
-        root = self.targets.sets(target)
+        docs = self.targets.docs
         rows = []
-        for slug in list_sets(root):
+        for slug in list_sets(docs, target):
             try:
-                eval_set = load_set(slug, root)
-                count = len(load_cases(slug, root))
+                eval_set = load_set(docs, target, slug)
+                count = len(load_cases(docs, target, slug))
             except CaseError:
                 continue
             latest = self.all(target, slug)
@@ -307,10 +311,10 @@ class Runs:
         :raises CaseError: An unknown set or case, or a bad case file.
         :raises LookupError: An unknown target.
         """
-        root = self.targets.sets(target)
-        load_set(set_name, root)
-        every = load_cases(set_name, root)
-        chosen = [load_case(set_name, c, root) for c in cases] if cases else every
+        docs = self.targets.docs
+        load_set(docs, target, set_name)
+        every = load_cases(docs, target, set_name)
+        chosen = [load_case(docs, target, set_name, c) for c in cases] if cases else every
         refused = self._refused(target, chosen)
         chosen = [c for c in chosen if c.case not in refused]
         runs = self.all(target, set_name)
@@ -369,10 +373,10 @@ class Runs:
         if plan is None or plan.expires < time.time():
             self.files.lock.release()
             raise KeyError(token)
-        root = self.targets.sets(plan.target)
+        docs = self.targets.docs
         try:
-            eval_set = load_set(plan.set, root)
-            cases = [load_case(plan.set, stem, root) for stem in plan.cases]
+            eval_set = load_set(docs, plan.target, plan.set)
+            cases = [load_case(docs, plan.target, plan.set, stem) for stem in plan.cases]
             if not cases:
                 raise CaseError("none of these tests can run on this app")
         except CaseError:
@@ -390,7 +394,7 @@ class Runs:
             "scope": plan.scope,
             "started_at": started,
             # How a benchmark was chosen to play, when a plan chose it.
-            "plan": _plan_beside(self.targets.sets(plan.target) / plan.set),
+            "plan": _plan_beside(docs, plan.target, plan.set),
             "ended_at": None,
             "status": "running",
             # Short hash of the system prompt the target's first model call was sent.
@@ -666,7 +670,14 @@ class Runs:
                 else None
             )
             reset = target.capabilities.reset
-            set_dir = self.targets.sets(name) / eval_set.set
+            # What the turns send, written out where the adapter can be handed paths.
+            set_dir = await asyncio.to_thread(
+                unpack_files,
+                self.targets.docs,
+                name,
+                eval_set.set,
+                self.targets.config.data_dir / "sent" / name / eval_set.set,
+            )
             parallel = target.capabilities.parallel
             slots = min(self.targets.conf(name).max_parallel, len(cases)) if parallel else 1
             queue = list(cases)

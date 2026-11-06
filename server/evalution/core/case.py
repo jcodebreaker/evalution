@@ -29,9 +29,9 @@ CLEAN_KINDS = ("conversation", "memory", "files")
 class EvalSet:
     """One ``set.json``.
 
-    :param set: The folder name.
+    :param set: The set's id.
     :param grader: The Grader's model key.
-    :param version: Short hash of the file.
+    :param version: Short hash of its text.
     :param about: One line on where the set's cases come from, when the file says.
     """
 
@@ -84,7 +84,7 @@ class CaseTurn:
 class Case:
     """One ``<case>.case.json``.
 
-    :param case: The file stem.
+    :param case: The case's id, its file's stem.
     :param tools: The ``tools`` block as written, with ``order`` and ``extras`` filled in.
     :param limits: ``tries`` always; ``seconds`` when the case sets it.
     :param raw: The file as written.

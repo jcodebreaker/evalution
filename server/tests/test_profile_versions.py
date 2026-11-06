@@ -15,6 +15,8 @@ from evalution.project import library_fit, understanding
 from evalution.project.profile import profile_versions, profile_view, write_json, write_profile
 from evalution.results.store import FileStore
 from evalution.runs.runner import Runs
+from evalution.storage import Database
+from evalution.suite.cases import import_sets
 from evalution.targets import Targets
 
 LIBRARY = Path(__file__).resolve().parents[2] / "library"
@@ -133,6 +135,7 @@ def target(tmp_path) -> Path:
         case = {"name": stem.title(), "turns": [{"message": "hi"}]}
         (main / f"{stem}.case.json").write_text(json.dumps({**case, "source": source}))
     config = load(tmp_path / "evalution.yaml")
+    import_sets(Database.open(config.data_dir).docs(), tmp_path / "sets")
     FileStore(config.data_dir).write(
         {
             "run": "r1",

@@ -35,7 +35,7 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         name = target_name(targets, target)
         await runs.recover()
         played = await asyncio.to_thread(runs.all, name)
-        found = benchmarks.overview(name, targets.config.sets_dir, played)
+        found = benchmarks.overview(name, targets.docs, played)
         _relink(found, targets.source(name))
         found["plan"] = await asyncio.to_thread(
             planning.current, targets, name, targets.adapter(name)
@@ -81,7 +81,7 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         config = targets.config
         try:
             slug, count = await asyncio.to_thread(
-                benchmarks.install, size, name, config.sets_dir, config.data_dir
+                benchmarks.install, size, name, targets.docs, config.data_dir
             )
         except httpx.HTTPError as exc:
             raise invalid("Couldn't download the benchmark's data. Try again.") from exc

@@ -36,7 +36,8 @@ from evalution.results.migrate import migrate_dir
 from evalution.results.record import SCHEMA
 from evalution.results.store import FileStore, FolderUse
 from evalution.results.views import detail, summary
-from evalution.suite.cases import CaseError, list_sets, load_cases
+from evalution.storage import Database
+from evalution.suite.cases import CaseError, list_sets, load_cases, stored_targets
 
 _logger = logging.getLogger(__name__)
 MANIFEST = "manifest.json"
@@ -277,15 +278,15 @@ def _reports(store: FileStore) -> dict[str, str | None]:
 
 
 def _tests(config: Config) -> tuple[int, list[str]]:
-    """How many tests read, and what doesn't."""
+    """How many stored tests read, and what doesn't."""
     count, problems = 0, []
-    folders = sorted(config.sets_dir.iterdir()) if config.sets_dir.is_dir() else []
-    for folder in (f for f in folders if f.is_dir()):
-        for name in list_sets(folder):
+    docs = Database.open(config.data_dir).docs()
+    for target in stored_targets(docs):
+        for name in list_sets(docs, target):
             try:
-                count += len(load_cases(name, folder))
+                count += len(load_cases(docs, target, name))
             except CaseError as exc:
-                problems.append(f"{folder.name}/{name}: {exc}")
+                problems.append(f"{target}/{name}: {exc}")
     return count, problems
 
 

@@ -17,7 +17,8 @@ from evalution.judging.rubric import parse_grade
 from evalution.results.migrate import upcast
 from evalution.results.views import case_row
 from evalution.review.testplan import case_plan, compare, explain, peek, trace_words
-from evalution.suite.cases import parse_case
+from evalution.storage import Database
+from evalution.suite.cases import import_sets, parse_case, read_file, sent_files
 
 CASE = {
     "name": "Keeps the total after a long chat",
@@ -49,17 +50,27 @@ def _case():
 
 
 def _set(tmp_path):
+    """The files the case sends, as a set folder imported brings them."""
     folder = tmp_path / "sets" / "bot" / "main"
     folder.mkdir(parents=True)
+    (folder / "set.json").write_text(json.dumps({"name": "Main"}))
     rows = "\n".join(f"North,item{i},{i}.25" for i in range(240))
     (folder / "orders.csv").write_text(f"region,product,amount\n{rows}\n")
     (tmp_path / "sets" / "bot" / "secret.csv").write_text("no,peeking\n")
-    return folder
+    (folder / "fixtures").mkdir()
+    (folder / "fixtures" / "logo.png").write_bytes(b"\x89PNG\xff")
+    # A file that leads outside the set folder never comes in.
+    (folder / "link.csv").symlink_to(tmp_path / "sets" / "bot" / "secret.csv")
+    docs = Database.open(tmp_path / "data").docs()
+    import_sets(docs, tmp_path / "sets")
+    assert read_file(docs, "bot", "main", "link.csv") is None
+    assert read_file(docs, "bot", "main", "fixtures/logo.png") == b"\x89PNG\xff"
+    return sent_files(docs, "bot", "main", _case())
 
 
 async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> None:
-    folder = _set(tmp_path)
-    plan = await case_plan(_case(), folder, LABELS, PASS, None, None)
+    files = _set(tmp_path)
+    plan = await case_plan(_case(), files, LABELS, PASS, None, None)
     kinds = [s["kind"] for s in plan["steps"]]
     assert kinds == ["before", "say", "filler", "state", "say", "agent", "reply", "passes"]
     before = plan["steps"][0]
@@ -78,9 +89,9 @@ async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> 
     assert plan["steps"][7]["note"].startswith("Any failed try makes it flaky")
     assert plan["limits"] == ["3 tries", "≤ 120 s each", "from scenario matrix"]
 
-    # A file that leads outside the set folder is named, never read.
-    (folder / "link.csv").symlink_to(tmp_path / "sets" / "bot" / "secret.csv")
-    assert peek(folder, "link.csv") == {"name": "link.csv"}
+    # A file the set doesn't have, or that isn't text, is named only.
+    assert peek("link.csv", None) == {"name": "link.csv"}
+    assert peek("photo.csv", b"\xff\xd8") == {"name": "photo.csv"}
 
     asked: list[str] = []
 
@@ -99,8 +110,8 @@ async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> 
         )
 
     cache = tmp_path / "data" / "plans" / "total.json"
-    worded = await case_plan(_case(), folder, LABELS, PASS, light, cache)
-    again = await case_plan(_case(), folder, LABELS, PASS, light, cache)
+    worded = await case_plan(_case(), files, LABELS, PASS, light, cache)
+    again = await case_plan(_case(), files, LABELS, PASS, light, cache)
     assert worded == again and len(asked) == 1  # one call per case version
     assert '"call-0"' not in asked[0]  # a labelled call is not asked about
     steps = worded["steps"]
@@ -114,7 +125,7 @@ async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> 
     async def broken(*, instructions: str, input_text: str) -> str:
         return "no json here"
 
-    fallback = await case_plan(_case(), folder, LABELS, PASS, broken, None)
+    fallback = await case_plan(_case(), files, LABELS, PASS, broken, None)
     assert fallback == plan
 
 

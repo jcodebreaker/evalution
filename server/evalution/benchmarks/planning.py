@@ -259,7 +259,7 @@ def approve(targets: Targets, name: str) -> dict[str, Any]:
     slug, count = benchmarks.install(
         plan["size"],
         name,
-        config.sets_dir,
+        targets.docs,
         config.data_dir,
         boundary=plan["boundary"],
         each=plan["sample"],

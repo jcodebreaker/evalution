@@ -1,6 +1,6 @@
 """The configured targets and what each one comes with: its adapter (built on first use), where
-its traces are read (:func:`evalution.traces.managed.reader`), its code folder, its sets folder
-``<sets>/<target>/`` and its profile folder ``<targets>/<target>/``, whose contents
+its traces are read (:func:`evalution.traces.managed.reader`), its code folder and its profile
+folder ``<targets>/<target>/``, whose contents
 :mod:`evalution.project.profile` reads and writes. :attr:`Targets.docs` is the workspace's
 storage (:mod:`evalution.storage`), which everything above reads and writes through.
 """
@@ -111,10 +111,6 @@ class Targets:
             await source.close()
         if sink := self._sinks.pop(name, None):
             await sink.close()
-
-    def sets(self, name: str) -> Path:
-        self.conf(name)
-        return self.config.sets_dir / name
 
     def folder(self, name: str) -> Path:
         self.conf(name)

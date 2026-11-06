@@ -128,7 +128,7 @@ def understanding_router(runs: Runs, agent: Agent, url: str) -> APIRouter:
         session_id = body.get("session")
         try:
             if not isinstance(session_id, str) or not session_id:
-                sets = list_sets(targets.sets(name))
+                sets = list_sets(targets.docs, name)
                 set_name = body.get("set") or (sets[0] if sets else None)
                 if not isinstance(set_name, str):
                     raise invalid("set: this app has no test set")

@@ -73,7 +73,7 @@ async def _create(targets: Targets, lock: asyncio.Lock, body: dict[str, Any]) ->
         block, changes = _parse(targets, name, body, set())
         await asyncio.to_thread(connect.save, targets.config.targets_file, name, block, changes)
         await targets.reload(name)
-        await asyncio.to_thread(connect.starter_set, targets.sets(name))
+        await asyncio.to_thread(connect.starter_set, targets.docs, name)
     return _view(targets, name)
 
 

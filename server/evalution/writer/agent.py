@@ -36,12 +36,11 @@ from typing import Any
 
 from evalution.code import CodeError
 from evalution.config import ConfigError
-from evalution.core.case import CASE_SUFFIX
 from evalution.llm import LLM, LLMError, cut, fenced
 from evalution.project import drift
 from evalution.project.profile import read_profile, required_clean
 from evalution.runs.runner import Runs
-from evalution.suite.cases import CaseError, list_sets, load_case
+from evalution.suite.cases import CaseError, case_stems, list_sets, load_case
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionFiles
@@ -189,7 +188,7 @@ class Agent:
 
         :raises LookupError: An unknown target or set.
         """
-        if set_name not in list_sets(self.targets.sets(target)):
+        if set_name not in list_sets(self.targets.docs, target):
             raise LookupError(f"no set {set_name}")
         session: dict[str, Any] = {
             "id": f"a{secrets.token_hex(8)}",
@@ -281,12 +280,11 @@ class Agent:
 
     def _instructions(self, session: Mapping[str, Any]) -> str:
         """The instructions, with this session's target, set, profile and cases."""
-        root = self.targets.sets(session["target"])
+        docs, target, set_name = self.targets.docs, session["target"], session["set"]
         cases, broken = [], []
-        for path in sorted((root / session["set"]).glob(f"*{CASE_SUFFIX}")):
-            stem = path.name[: -len(CASE_SUFFIX)]
+        for stem in case_stems(docs, target, set_name):
             try:
-                cases.append(load_case(session["set"], stem, root))
+                cases.append(load_case(docs, target, set_name, stem))
             except CaseError as exc:  # one bad file must not stop the agent on its whole set
                 broken.append(f"{stem}: does not load ({cut(str(exc), 200)})")
         full = "\n\n".join(f"{c.case}:\n{json.dumps(c.raw, ensure_ascii=False)}" for c in cases)

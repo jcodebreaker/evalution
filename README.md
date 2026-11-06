@@ -212,7 +212,7 @@ A pass that rests only on a model reading the reply says so: **Passed, judged by
 
 ## Writing tests
 
-Usually you just describe it to Ask AI. Tests are plain JSON in `sets/<app>/<set>/`, made for code review:
+Usually you just describe it to Ask AI. Tests are plain JSON. evalution keeps them in its database, and carries them as files in `sets/<app>/<set>/` for code review and CI: `evalution sets export` writes them there, `evalution sets import` reads them back, replacing each set of the same name. A test:
 
 ```json
 {
@@ -359,11 +359,14 @@ Both the OpenInference and OpenTelemetry GenAI conventions are understood, and p
 
 ## On pull requests
 
-Keep a run you're happy with, then fail a pull request only when something gets worse than it:
+Export your tests into the repo, keep a run you're happy with, then fail a pull request only when something gets worse than it:
 
 ```sh
+uv run --project server evalution sets export --target my-bot
 uv run --project server evalution run --target my-bot --set main --save .evalution/baseline.json
 ```
+
+The Action imports the repo's `sets/` (the config's `sets_dir`) before it runs, as `run --sets` does, so a fresh CI database plays the tests in the pull request.
 
 ```yaml
 - uses: jcodebreaker/evalution@main
@@ -397,7 +400,9 @@ uv run --project server evalution upgrade     # with Docker, see "With Docker": 
 
 ```sh
 uv run --project server evalution serve                         # the page and API on :8080
-uv run --project server evalution run --target my-bot --set main  # prints the estimate, asks first
+uv run --project server evalution run --target my-bot --set main  # prints the estimate, asks first; --sets imports sets/ first
+uv run --project server evalution sets export                   # the tests as files in sets/ (or a folder you name); --target for one app
+uv run --project server evalution sets import                   # sets/ into evalution, each set replacing the one of its name
 uv run --project server evalution profile --target my-bot       # digest of recent traces
 uv run --project server evalution hooks status --target my-bot  # git hooks: install, uninstall, status
 uv run --project server evalution migrate                       # rewrite stored runs as today's shape, keeping a .bak
@@ -417,7 +422,8 @@ uv run --project server evalution adapter new my_app            # a starter for 
 
 | Path | Holds | In git? |
 |---|---|---|
-| `sets/<app>/<set>/` | Your tests and fixtures | Not in this repo: set `sets_dir` to a folder in your own |
+| `sets/<app>/<set>/` | Your tests and fixtures as files, from `sets export`, for `sets import` and CI | Not in this repo: set `sets_dir` to a folder in your own |
+| `data/evalution.db` | Tests, and what else evalution keeps | No |
 | `library/` | Ready-made tests | Yes |
 | `targets/<app>/` | What it learned, fingerprints, change state | Your choice |
 | `data/runs/<run>.json` | Run results, one file each | No |

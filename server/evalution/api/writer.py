@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from evalution.api.deps import invalid, not_found, set_root, target_name
+from evalution.api.deps import invalid, known_set, not_found, target_name
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 
@@ -21,7 +21,7 @@ def writer_router(targets: Targets, agent: Agent) -> APIRouter:
         set_name = body.get("set")
         if not isinstance(set_name, str) or not set_name:
             raise invalid("set: required")
-        set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         return await agent.create(name, set_name)
 
     @router.get("/evals/agent/sessions")

@@ -2,6 +2,7 @@
 private, and a restore puts back exactly what was there. Over the old run files of
 ``fixtures/runs``."""
 
+import contextlib
 import json
 import os
 import shlex
@@ -58,13 +59,22 @@ def home(tmp_path) -> Path:
     return root
 
 
-def everything(root: Path) -> dict[str, bytes]:
-    """Every file under *root*, but the backups and the lock."""
-    return {
-        p.relative_to(root).as_posix(): p.read_bytes()
-        for p in root.rglob("*")
-        if p.is_file() and "backups" not in p.parts and p.name != "run.lock"
-    }
+def everything(root: Path) -> dict[str, object]:
+    """Every file under *root*, but the backups and the lock; a database by what it holds, which
+    its copy holds alike in other bytes."""
+    found: dict[str, object] = {}
+    for p in root.rglob("*"):
+        if not p.is_file() or "backups" in p.parts or p.name == "run.lock":
+            continue
+        if p.name.endswith(("-wal", "-shm")):
+            continue
+        rel = p.relative_to(root).as_posix()
+        if p.suffix == ".db":
+            with contextlib.closing(sqlite3.connect(p)) as db:
+                found[rel] = db.execute("SELECT * FROM documents ORDER BY kind, key").fetchall()
+        else:
+            found[rel] = p.read_bytes()
+    return found
 
 
 def said(capsys) -> tuple[str, str]:
@@ -74,6 +84,8 @@ def said(capsys) -> tuple[str, str]:
 
 def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> None:
     config = str(home / "evalution.yaml")
+    assert main(["--config", config, "sets", "import"]) == 0
+    assert "imported 1 set(s)" in said(capsys)[0]
     before = everything(home)
     old = {n: json.loads((RUNS / f"{n}.json").read_text()) for n in OLD_RUNS}
 

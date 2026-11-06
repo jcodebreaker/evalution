@@ -22,7 +22,7 @@ import io
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
@@ -97,22 +97,18 @@ def _item(
     return found
 
 
-def peek(set_dir: Path, name: str) -> dict[str, Any]:
-    """``{name, rows?, columns?, peek?}`` of a file of the set: CSV, JSON or text. Never reads
-    outside *set_dir*; a file that is missing, outside or not text has its name only."""
+def peek(name: str, data: bytes | None) -> dict[str, Any]:
+    """``{name, rows?, columns?, peek?}`` of the set's file *name*, *data* its bytes: CSV, JSON or
+    text. A file that is missing (``None``) or not text has its name only."""
     found: dict[str, Any] = {"name": name}
-    root = set_dir.resolve()
-    path = (root / name).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
+    if data is None:
         return found
     try:
-        with path.open("rb") as handle:
-            raw = handle.read(PEEK_BYTES)
-        text = raw.decode("utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = data[:PEEK_BYTES].decode("utf-8")
+    except UnicodeDecodeError:
         return found
     lines = text.splitlines()
-    suffix = path.suffix.lower()
+    suffix = PurePosixPath(name).suffix.lower()
     if suffix in (".csv", ".tsv"):
         rows = list(csv.reader(io.StringIO("\n".join(lines[:1]))))
         found["columns"] = rows[0] if rows else []
@@ -244,24 +240,25 @@ def _passes(case: Case, pass_marks: Mapping[str, float]) -> dict[str, Any]:
 
 def mechanical(
     case: Case,
-    set_dir: Path,
+    files: Mapping[str, bytes],
     labels: Mapping[str, str],
     pass_marks: Mapping[str, float],
 ) -> dict[str, Any]:
-    """The plan of *case* with plain mechanical texts and no model."""
-    files = list(dict.fromkeys(name for turn in case.turns for name in turn.files))
+    """The plan of *case* with plain mechanical texts and no model; *files* holds the set's files
+    its turns send, by name, those the set has."""
+    sent = list(dict.fromkeys(name for turn in case.turns for name in turn.files))
     before_items = []
     if any(turn.fresh for turn in case.turns):
         before_items.append(_item("fresh", "Nothing from an earlier try carries over"))
     attached = ""
-    if files:
-        attached = ", with the file attached" if len(files) == 1 else f", with {len(files)} files"
+    if sent:
+        attached = ", with the file attached" if len(sent) == 1 else f", with {len(sent)} files"
     steps: list[dict[str, Any]] = [
         {
             "kind": "before",
             "title": f"A fresh person{attached}",
             "items": before_items,
-            "files": [peek(set_dir, name) for name in files],
+            "files": [peek(name, files.get(name)) for name in sent],
         }
     ]
     last_say = 0
@@ -466,7 +463,7 @@ def _keep(cache: Path, key: str, overlay: Mapping[str, Any]) -> None:
 
 async def case_plan(
     case: Case,
-    set_dir: Path,
+    files: Mapping[str, bytes],
     labels: Mapping[str, str],
     pass_marks: Mapping[str, float],
     caller: Caller | None,
@@ -474,7 +471,7 @@ async def case_plan(
 ) -> dict[str, Any]:
     """The plan of *case*: worded by one light-model call per case version, kept in *cache*
     (a JSON file); without a model, or when the call fails, the mechanical words."""
-    plan = await asyncio.to_thread(mechanical, case, set_dir, labels, pass_marks)
+    plan = await asyncio.to_thread(mechanical, case, files, labels, pass_marks)
     key = plan_key(case, labels)
     stored = await asyncio.to_thread(_cached, cache, key)
     if stored is not None:

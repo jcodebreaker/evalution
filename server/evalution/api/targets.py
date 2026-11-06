@@ -52,7 +52,7 @@ def targets_router(runs: Runs) -> APIRouter:
                     "error": error,
                     "phoenix": conf.phoenix is not None,
                     "code": conf.code is not None,
-                    "sets": len(list_sets(targets.sets(name))),
+                    "sets": len(list_sets(targets.docs, name)),
                     "profile": bool(profile.read_profile(targets, name)),
                     "drift": len(drift.read(targets, name).get("changes") or []),
                     "managed": name in targets.config.managed,

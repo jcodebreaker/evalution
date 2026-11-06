@@ -121,6 +121,7 @@ class World:
         (cases / "set.json").write_text(json.dumps({"name": "Main"}))
         for stem, case in CASES.items():
             (cases / f"{stem}.case.json").write_text(json.dumps(case))
+        self.import_sets()
         env = {
             **os.environ,
             "TRACES": f"http://127.0.0.1:{self.port}/v1/traces",
@@ -147,6 +148,11 @@ class World:
                 pass
             time.sleep(0.25)
         raise AssertionError(f"{url} never came up")
+
+    def import_sets(self) -> None:
+        """The tests in ``sets/`` into evalution, as a repo's are."""
+        command = [sys.executable, "-m", "evalution.cli", "--config", str(self.config)]
+        subprocess.run([*command, "sets", "import"], cwd=self.root, check=True)
 
     def start(self) -> None:
         # Through a proxy that doesn't exist: anything local that used it would fail.
@@ -283,6 +289,7 @@ def test_a_restart_mid_run_is_said_as_that_and_leaves_things_working(world) -> N
             }
         )
     )
+    world.import_sets()
     # Past the check, into the test.
     assert world.wait(world.begin(["exact-answer"]))["status"] == "done"
     run = world.begin(["slow"])

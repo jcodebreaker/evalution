@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from evalution.api.deps import busy, invalid, not_found, set_root, target_name
+from evalution.api.deps import busy, invalid, known_set, not_found, target_name
 from evalution.api.plans import CasePlans
 from evalution.core.case import Case
 from evalution.core.judgement import Outcome
@@ -19,7 +19,7 @@ from evalution.results.record import pass_marks, verdict_kind
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs.runner import RunBusyError, Runs
-from evalution.suite.cases import CaseError, load_case, parse_case
+from evalution.suite.cases import CaseError, load_case, parse_case, sent_files
 
 
 def _replies(folder: Path, run: str, case: str, n: int) -> list[str]:
@@ -60,7 +60,7 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
             isinstance(tries, bool) or not isinstance(tries, int) or not 1 <= tries <= 20
         ):
             raise invalid("tries: must be a whole number from 1 to 20")
-        set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         try:
             return await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
         except CaseError as exc:
@@ -129,9 +129,8 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
         if doc is None or entry is None:
             raise not_found("Test")
         name, set_name = doc["target"], doc["set"]
-        root = targets.sets(name)
         try:
-            found: Case | None = load_case(set_name, case, root)
+            found: Case | None = load_case(targets.docs, name, set_name, case)
         except CaseError:
             found = None
         played = (doc.get("case_versions") or {}).get(case)
@@ -153,7 +152,8 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
                 )
             except CaseError as exc:
                 raise invalid(str(exc)) from exc
-            plan = testplan.mechanical(found, root / set_name, {}, pass_marks(doc))
+            files = sent_files(targets.docs, name, set_name, found)
+            plan = testplan.mechanical(found, files, {}, pass_marks(doc))
         tries = entry.get("tries") or []
         reasons = {t["n"]: try_reason(t) for t in tries}
         if not tries:

@@ -1,8 +1,10 @@
 # The case format
 
-What a test file may say. `server/evalution/cases.py` checks every file against this when it loads and saves, and an error names the file and the field.
+What a test file may say. `server/evalution/suite/cases.py` checks every test against this when it loads and saves, and an error names the file and the field.
 
 ## Where it lives
+
+evalution keeps tests in its database, each file's text as written. `evalution sets export [DIR]` writes them as files and `evalution sets import [DIR]` reads them back (DIR defaults to the config's `sets_dir`, `sets/`), each set replacing the one of its name; `evalution run --sets` imports before it runs, for CI:
 
 ```
 sets/<target>/<set>/set.json

@@ -170,13 +170,13 @@ class Tools:
     async def list_cases(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
         set_name = str(args.get("set") or turn.session["set"])
-        root = self.targets.sets(target)
-        if set_name not in cases.list_sets(root):
+        docs = self.targets.docs
+        if set_name not in cases.list_sets(docs, target):
             raise LookupError(f"no set {set_name}")
         found = drift.read(self.targets, target)
         return await asyncio.to_thread(
             lambda: latest_rows(
-                cases.load_cases(set_name, root),
+                cases.load_cases(docs, target, set_name),
                 self.runs.all(target, set_name),
                 lambda case: drift.stale(case, found),
             )
@@ -184,21 +184,22 @@ class Tools:
 
     async def read_case(self, turn: AgentTurn, args: dict) -> Any:
         set_name = str(args.get("set") or turn.session["set"])
-        root = self.targets.sets(self._target(turn))
-        case = await asyncio.to_thread(cases.load_case, set_name, str(args.get("case") or ""), root)
+        stem = str(args.get("case") or "")
+        case = await asyncio.to_thread(
+            cases.load_case, self.targets.docs, self._target(turn), set_name, stem
+        )
         turn.read.append(f"Read case {case.case}")
         return {"case": case.case, "file": case.raw}
 
     def _docs_path(self, path: str) -> Path:
-        """The file or folder *path* names under ``docs/`` or ``sets/``.
+        """The file or folder *path* names under ``docs/``.
 
         :raises ValueError: Anything else, or a path that leaves its folder.
         """
         parts = Path(path.strip().lstrip("/")).parts
-        if not parts or parts[0] not in ("docs", "sets") or ".." in parts:
-            raise ValueError("only paths under docs/ or sets/")
-        config = self.targets.config
-        root = (config.root / "docs" if parts[0] == "docs" else config.sets_dir).resolve()
+        if not parts or parts[0] != "docs" or ".." in parts:
+            raise ValueError("only paths under docs/")
+        root = (self.targets.config.root / "docs").resolve()
         target = root.joinpath(*parts[1:]).resolve()
         if not target.is_relative_to(root) or not target.exists():
             raise ValueError(f"{path}: not found")
@@ -251,20 +252,20 @@ class Tools:
                 f"Refused: {replace} was not saved in this session. Save a new case instead, "
                 "and tell the admin."
             )
-        root = self.targets.sets(self._target(turn))
+        docs, target = self.targets.docs, self._target(turn)
         if replace != plan.get("replaces"):
             return (
                 f"Refused: plan {plan_id} wasn't shown as replacing {replace}. Show a plan with "
                 "replaces set, so the admin sees what changes."
             )
         if replace is not None:
-            now = await asyncio.to_thread(cases.load_case, session["set"], replace, root)
+            now = await asyncio.to_thread(cases.load_case, docs, target, session["set"], replace)
             if now.version != plan.get("base"):
                 return (
                     f"Refused: {replace} changed since the plan was shown. Show a new plan, so "
                     "the admin sees the difference from what it is now."
                 )
-        stem = await asyncio.to_thread(cases.save_case, session["set"], test, root, replace)
+        stem = await asyncio.to_thread(cases.save_case, docs, target, session["set"], test, replace)
         if stem not in session["cases"]:
             session["cases"].append(stem)
         plan["saved"] = stem
@@ -284,11 +285,15 @@ class Tools:
         content = str(args.get("content") or "")
         if len(content.encode()) > FIXTURE_BYTES:
             raise ValueError(f"content: at most {FIXTURE_BYTES // 1000} KB")
-        folder = self.targets.sets(self._target(turn)) / session["set"] / "fixtures"
-        await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread((folder / name).write_text, content)
-        lines = content.count("\n")
-        return {"file": f"fixtures/{name}", "lines": lines}
+        path = await asyncio.to_thread(
+            cases.write_file,
+            self.targets.docs,
+            self._target(turn),
+            session["set"],
+            f"fixtures/{name}",
+            content.encode(),
+        )
+        return {"file": path, "lines": content.count("\n")}
 
     async def estimate(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
@@ -529,7 +534,7 @@ class Tools:
             )
         except LookupError as exc:
             raise LookupError(f"no conversation {exc} in the last week") from exc
-        eval_set = await asyncio.to_thread(cases.load_set, set_name, self.targets.sets(target))
+        eval_set = await asyncio.to_thread(cases.load_set, self.targets.docs, target, set_name)
         found = await draft(self.runs.caller(eval_set.grader), *material)
         turn.read.append(f"Drafted a test from {'trace' if trace_id else 'conversation'}")
         return {"case": found, "next": "Show it as a plan; save it with save_case once approved."}
@@ -618,9 +623,10 @@ class Tools:
         replaces = given.get("replaces")
         if not isinstance(replaces, str) or not replaces:
             return file, None
-        root = self.targets.sets(target)
         try:
-            old = await asyncio.to_thread(cases.load_case, set_name, replaces, root)
+            old = await asyncio.to_thread(
+                cases.load_case, self.targets.docs, target, set_name, replaces
+            )
         except cases.CaseError as exc:
             raise LookupError(f"plan.replaces: no test {replaces}") from exc
         plan["replaces"] = replaces

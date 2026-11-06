@@ -22,11 +22,11 @@ import re
 import time
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from evalution.core.trace import Call
 from evalution.llm import Caller, ask_json, cut, fenced, json_answer
+from evalution.storage import Docs
 from evalution.suite.cases import CaseError, load_case, parse_case
 from evalution.traces.base import Span, TraceSource, by_trace, root_of, session_of
 from evalution.traces.view import ask_text, build, output_text, tool_of
@@ -133,9 +133,9 @@ async def from_traces(
     return turns, calls, end - t0, _reply(groups[-1]), source
 
 
-def from_try(run: Mapping[str, Any], sets: Path, stem: str, n: int, number: int) -> Material:
-    """The material of try *n* of case *stem* in *run*, the *number*-th run of its set;
-    *sets* is the target's sets folder.
+def from_try(run: Mapping[str, Any], docs: Docs, stem: str, n: int, number: int) -> Material:
+    """The material of try *n* of case *stem* in *run*, the *number*-th run of its set; the case
+    as it is now is read from *docs*.
 
     :raises LookupError: No such case or try.
     """
@@ -145,7 +145,7 @@ def from_try(run: Mapping[str, Any], sets: Path, stem: str, n: int, number: int)
         raise LookupError(f"{stem} try {n}")
     fresh = [False] * len(entry["turns"])
     try:
-        case = load_case(run["set"], stem, sets)
+        case = load_case(docs, run["target"], run["set"], stem)
         said = [t for t in case.turns if t.is_message]
         if [t.message for t in said] == [t["message"] for t in entry["turns"]]:
             fresh = [t.fresh for t in said]

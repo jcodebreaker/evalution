@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 import pytest
-from scripted_agent import LIBRARY, SET, StubJudge
+from scripted_agent import LIBRARY, SET, TARGET, StubJudge
 from test_matrix import CODE_DECIDED, MODEL_JUDGED
 
 from evalution.config import ModelConfig
@@ -25,6 +25,7 @@ from evalution.judging.rubric import INSTRUCTIONS as GRADER_INSTRUCTIONS
 from evalution.judging.rubric import SCEPTIC_INSTRUCTIONS, grade_reply
 from evalution.llm import LLM
 from evalution.runs.runner import Runs
+from evalution.suite.cases import case_text, put_case
 from evalution.suite.library import load_templates
 
 MODEL = os.environ.get("BENCH_MODEL", "claude-sonnet-5-5")
@@ -57,12 +58,11 @@ class GraderOnly:
 
 def _graded_alone(rig, stem: str) -> None:
     """Leave only what the grader decides: the rubric."""
-    path = rig.set_root / SET / f"{stem}.case.json"
-    case = json.loads(path.read_text())
+    case = json.loads(case_text(rig.docs, TARGET, SET, stem))
     case["turns"] = [t for t in case["turns"] if "expect_state" not in t]
     case.pop("tools", None)
     case["reply"] = {"rubric": case["reply"]["rubric"]}
-    path.write_text(json.dumps(case))
+    put_case(rig.docs, TARGET, SET, stem, case)
 
 
 async def _play(make_rig, llm, template: str, fault: str | None) -> dict:

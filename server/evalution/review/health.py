@@ -543,14 +543,13 @@ def attention(
 
 
 def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[str, Any]:
-    """:func:`health` of target *name* from what is on disk now."""
-    root = targets.sets(name)
+    """:func:`health` of target *name* from what is stored now."""
     cases: dict[str, list[Case]] = {}
     titles: dict[str, str] = {}
-    for slug in own_sets(root):
+    for slug in own_sets(targets.docs, name):
         try:
-            titles[slug] = load_set(slug, root).name
-            cases[slug] = load_cases(slug, root)
+            titles[slug] = load_set(targets.docs, name, slug).name
+            cases[slug] = load_cases(targets.docs, name, slug)
         except CaseError:
             continue
     stored = understanding.load(targets, name)

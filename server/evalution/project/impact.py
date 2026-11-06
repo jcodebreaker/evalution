@@ -198,11 +198,10 @@ def _forward(doc: Mapping[str, Any], tested: dict, history: Sequence[Mapping[str
 
 
 def _all_cases(targets: Targets, name: str) -> dict[str, list[Case]]:
-    root = targets.sets(name)
     cases: dict[str, list[Case]] = {}
-    for slug in own_sets(root):
+    for slug in own_sets(targets.docs, name):
         try:
-            cases[slug] = load_cases(slug, root)
+            cases[slug] = load_cases(targets.docs, name, slug)
         except CaseError:
             continue
     return cases

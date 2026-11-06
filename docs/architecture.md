@@ -10,7 +10,7 @@ One word per concept, on the page and in every message a person reads (errors, t
 |---|---|---|
 | **App** | the agent app being tested | target (`/v1/targets/{target}`, `?target=`) |
 | **Test** | one scripted conversation and what it expects: its messages, tool calls, reply rubric, limits | case (`*.case.json`, `/cases/{case}`, `CaseRow`, `CaseDetail`) |
-| **Test set** | a folder of tests with its pass marks and Grader | set (`set.json`, `/evals/sets/{set}`) |
+| **Test set** | a named group of tests with its pass marks and Grader | set (`set.json`, `/evals/sets/{set}`) |
 | **Run** | playing some or all tests of a set, each a number of times | run (`/evals/runs/{run}`) |
 | **Try** | one play of one test in a run | try (`Try`, `?try=`) |
 | **Test writer** | shown as "Ask AI"; the agent that answers from runs and traces and writes tests: the only way to make one, from words, a past conversation or a suggested test, always through plan → approve → save | the evals agent (`agent.py`, `/evals/agent/sessions`) |
@@ -41,10 +41,10 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
       knowledge.py imports.py hooks.py   keeping that current: links, the import graph, git hooks
       history.py library_fit.py   what they need of the runs; the library as it applies to a target
       profile.py           the profile folder: its JSON files, the updates setting, the profile and its versions
-    targets.py     the configured targets: adapter, trace source, code, sets and profile folders
+    targets.py     the configured targets: adapter, trace source, code, profile folder, storage
     judging/       steps.py the tool-call grade, checks.py what code decides of a try, render.py what the Grader reads, rubric.py the Grader, claims.py a model's claims against the evidence
     results/       store.py run files and the run lock, evidence.py the evidence sidecars, record.py what readers ask of a run, migrate.py older runs as today's, views.py what the routes return of them
-    suite/         cases.py sets and cases as files, library.py the stateful test library
+    suite/         cases.py sets, cases and their files as documents (kinds set, case, set-file), and import and export as folders; library.py the stateful test library
     benchmarks/    public benchmarks: longmemeval.py the dataset, its sizes and report, planning.py how a run of one fits an app; longmemeval_data/ the bundled questions
     traces/base.py      the neutral Span, the TraceSource interface, what kind a span is
     traces/view.py      what spans say, in either convention: the TraceView a try records
@@ -67,7 +67,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     storage/       the database: documents, entries and encrypted secrets, by workspace (see "Storage")
     core/          case.py trace.py evidence.py judgement.py rules.py: what the rest shares, and the one place the rules live (docs/judging.md); imports nothing else of evalution
 web/               React + Vite + Tailwind; the admin page. src/features/ has a folder per screen (home, learned, tests, test, runs, connect, settings), writer for the test writer, shell for the page around them, shared for what several use
-sets/<target>/<set>/set.json, *.case.json, fixtures/
+sets/<target>/<set>/set.json, *.case.json, fixtures/   tests as files: `evalution sets export | import`, and `run --sets` in CI
 library/stateful/<id>.json   ready-made stateful tests (see "Stateful test library")
 examples/langgraph-memory-agent/   a tiny LangGraph app to try the langgraph adapter on
 docs/
@@ -123,11 +123,11 @@ targets:
 
 One database holds what evalution learns and writes: SQLite in `<data_dir>/evalution.db` by default, any SQLAlchemy URL in `$DATABASE_URL` (Postgres when hosted). Every row belongs to a **workspace**; this server's own is `local`, the only one until people sign in.
 
-- **Documents**: a JSON value under `(workspace, kind, key)`, written whole. Keys are paths (`<target>/profile.md`, `<set>/<case>`), so a kind lists by prefix. Text stays text.
+- **Documents**: a JSON value under `(workspace, kind, key)`, written whole. Keys are paths (`<target>/profile.md`, `<target>/<set>/<case>`), so a kind lists by prefix. Text stays text.
 - **Entries**: an ordered log under one key, only added to (a run's evidence).
 - **Secrets**: kind `secret`, encrypted with `$EVALUTION_SECRET_KEY` (a Fernet key) or `<data_dir>/secret.key`, made on first use and readable by its owner only. The page only ever sees the last four characters.
 
-`Database.open` gives one pool per database per process; `Targets.docs` is the workspace's view, which every store above reads and writes through. Calls block, so async code runs slow ones in a thread. A database made by a newer evalution is refused. Files in the data folder from before the database are left as they are and not read.
+`Database.open` gives one pool per database per process; `Targets.docs` is the workspace's view, which every store above reads and writes through. Calls block, so async code runs slow ones in a thread. A database made by a newer evalution is refused. Files in the data folder from before the database are left as they are and not read. Tests come in and go out as files only through `evalution sets import | export` ([case-format.md](case-format.md)); a sets folder is never read otherwise.
 
 ## Traces
 

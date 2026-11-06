@@ -9,6 +9,7 @@ from evalution.core.case import Case
 from evalution.project import understanding
 from evalution.review import testplan
 from evalution.runs.runner import Runs
+from evalution.suite.cases import sent_files
 
 #: Seconds the test page's plan waits for its words before answering without them.
 WORDING_WAIT = 2.0
@@ -30,18 +31,18 @@ class CasePlans:
         )
         cache = targets.config.data_dir / "plans" / target / set_name / f"{found.case}.json"
         caller = runs.caller("light")
-        set_dir = targets.sets(target) / set_name
+        files = await asyncio.to_thread(sent_files, targets.docs, target, set_name, found)
         # Worded in the background, once; the page gets plain mechanical words until then
         # (``wording: true``) and asks again.
         task = wording.get(str(cache))
         if task is None or task.done():
             task = asyncio.create_task(
-                testplan.case_plan(found, set_dir, labels, marks, caller, cache)
+                testplan.case_plan(found, files, labels, marks, caller, cache)
             )
             wording[str(cache)] = task
             task.add_done_callback(lambda done: wording.pop(str(cache), None))
         try:
             return await asyncio.wait_for(asyncio.shield(task), WORDING_WAIT)
         except TimeoutError:
-            plan = await asyncio.to_thread(testplan.mechanical, found, set_dir, labels, marks)
+            plan = await asyncio.to_thread(testplan.mechanical, found, files, labels, marks)
             return {**plan, "wording": True}

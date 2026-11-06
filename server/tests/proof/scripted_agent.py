@@ -49,7 +49,7 @@ from evalution.results.store import FileStore
 from evalution.review.findings import REPORT_INSTRUCTIONS, RUN_INSTRUCTIONS, TRY_INSTRUCTIONS
 from evalution.runs.runner import Runs
 from evalution.suite import library
-from evalution.suite.cases import save_case
+from evalution.suite.cases import save_case, save_set
 from evalution.targets import Targets
 from evalution.traces import otlp
 
@@ -903,9 +903,8 @@ class Rig:
         self.judge = judge or StubJudge(self.faults)
         self.files = FileStore(self.config.data_dir)
         self.runs = Runs(self.targets, self.files, StubLLM(self.judge))  # type: ignore[arg-type]
-        self.set_root = self.targets.sets(TARGET)
-        (self.set_root / SET).mkdir(parents=True)
-        (self.set_root / SET / "set.json").write_text(json.dumps({"name": "Proof"}))
+        self.docs = self.targets.docs
+        save_set(self.docs, TARGET, SET, {"name": "Proof"})
         self.agent: ScriptedAgent = self.targets.adapter(TARGET)  # type: ignore[assignment]
         self.agent.wire(clock, self.targets.store)
 
@@ -919,10 +918,10 @@ class Rig:
         if fit["verdict"] != "fits":
             raise RuntimeError(f"{template_id} doesn't fit the scripted agent: {fit}")
         filled = library.adapt(template, VALUES, PROFILE)
-        return save_case(SET, filled["case"], self.set_root)
+        return save_case(self.docs, TARGET, SET, filled["case"])
 
     def add(self, case: dict[str, Any]) -> str:
-        return save_case(SET, case, self.set_root)
+        return save_case(self.docs, TARGET, SET, case)
 
     async def run(self, tries: int | None = None) -> dict[str, Any]:
         """Every case of the set, played by the real runner; the stored run document."""

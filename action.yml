@@ -29,7 +29,8 @@ runs:
         EVALUTION_TRIES: ${{ inputs.tries }}
         EVALUTION_SOURCE: ${{ github.action_path }}/server
       run: |
-        args=(--config "$EVALUTION_CONFIG" run --target "$EVALUTION_TARGET" --set "$EVALUTION_SET" --yes)
+        # --sets: the repo's tests (the config's sets_dir) into the job's fresh database first.
+        args=(--config "$EVALUTION_CONFIG" run --target "$EVALUTION_TARGET" --set "$EVALUTION_SET" --sets --yes)
         [ -n "$EVALUTION_BASELINE" ] && args+=(--against "$EVALUTION_BASELINE")
         [ -n "$EVALUTION_TRIES" ] && args+=(--tries "$EVALUTION_TRIES")
         uvx --from "$EVALUTION_SOURCE" evalution "${args[@]}"

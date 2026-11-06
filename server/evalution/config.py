@@ -4,8 +4,9 @@ when used, from the env var of that name, else from ``<data_dir>/secrets.json`` 
 of targets connected from the page, written only by :func:`write_secrets`).
 
 The file is ``$EVALUTION_CONFIG``, else ``./evalution.yaml``. Relative paths are resolved
-against the file's folder (the repo root): ``sets/``, ``targets/`` (profiles), ``library/`` and
-``web/dist`` live there unless the file says otherwise. ``traces:`` says where evalution keeps
+against the file's folder (the repo root): ``sets/`` (the tests as files, which ``evalution sets
+import`` and ``export`` use), ``targets/`` (profiles), ``library/`` and ``web/dist`` live there
+unless the file says otherwise. ``traces:`` says where evalution keeps
 traces itself, if it does (:class:`TracesConfig`). Targets connected from the page live in
 ``targets.yaml`` next to it (``targets:`` only), merged in; a name in both is the hand-edited
 one. ``model.yaml`` next to it holds the model set from the page (``model:`` only); a ``model:``

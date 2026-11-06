@@ -13,7 +13,7 @@ from evalution.project.profile import read_json, set_updates
 from evalution.results.store import FileStore
 from evalution.review.health import for_target
 from evalution.runs.runner import Runs
-from evalution.suite.cases import load_cases
+from evalution.suite.cases import import_sets, load_cases
 from evalution.targets import Targets
 
 PASSED = {
@@ -62,6 +62,7 @@ def app(tmp_path):
         )
     config = load(tmp_path / "evalution.yaml")
     runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    import_sets(runs.targets.docs, tmp_path / "sets")
     runs.tmp = tmp_path
     set_updates(runs.targets, "bot", "auto")
     return runs
@@ -91,7 +92,7 @@ def _stamp(runs):
 
 
 def _card(runs):
-    cases = {"main": load_cases("main", runs.targets.sets("bot"))}
+    cases = {"main": load_cases(runs.targets.docs, "bot", "main")}
     return impact.card(runs.targets, "bot", runs.all("bot"), cases)
 
 

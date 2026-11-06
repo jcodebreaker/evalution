@@ -104,7 +104,7 @@ TOOLS = [
     _tool("read_case", "One case file as written.", {"case": _STR, "set": _STR}, ["case"]),
     _tool(
         "read_docs",
-        "A file or folder under docs/ or sets/, e.g. docs/case-format.md.",
+        "A file or folder under docs/, e.g. docs/case-format.md.",
         {"path": _STR},
         ["path"],
     ),

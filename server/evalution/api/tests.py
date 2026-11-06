@@ -1,23 +1,22 @@
-"""The tests of a set: their files, their plans and drafts of new ones."""
+"""The tests of a set: their text, their plans and drafts of new ones."""
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from evalution.api.deps import busy, invalid, not_found, set_root, target_name
+from evalution.api.deps import invalid, known_set, not_found, target_name
 from evalution.api.plans import CasePlans
-from evalution.core.case import CASE_SUFFIX, SLUG
 from evalution.project import drift
 from evalution.results.views import case_history, finding, latest_rows
 from evalution.runs.runner import Runs
 from evalution.suite.cases import (
     CaseError,
+    case_text,
     changes_in_text,
     load_case,
     load_cases,
@@ -29,11 +28,12 @@ from evalution.targets import Targets
 from evalution.writer.draft import draft, from_traces, from_try, sources
 
 
-def _case_file(targets: Targets, target: str, set_name: str, case: str) -> Path:
-    path = set_root(targets, target, set_name) / set_name / f"{case}{CASE_SUFFIX}"
-    if not SLUG.match(case) or not path.is_file():
-        raise not_found("Test")
-    return path
+def _case_text(targets: Targets, target: str, set_name: str, case: str) -> str:
+    known_set(targets, target, set_name)
+    try:
+        return case_text(targets.docs, target, set_name, case)
+    except CaseError as exc:
+        raise not_found("Test") from exc
 
 
 def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
@@ -44,12 +44,12 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
     async def get_cases(set_name: str, target: str | None = None) -> dict[str, Any]:
         """Cases with the latest verdict, scores, newest run and stale mark."""
         name = target_name(targets, target)
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         found = drift.read(targets, name)
         try:
             rows = await asyncio.to_thread(
                 lambda: latest_rows(
-                    load_cases(set_name, root),
+                    load_cases(targets.docs, name, set_name),
                     runs.all(name, set_name),
                     lambda case: drift.stale(case, found),
                 )
@@ -62,9 +62,9 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
     async def get_case(set_name: str, case: str, target: str | None = None) -> dict[str, Any]:
         """A case file, its stale mark and every run that holds it, newest first."""
         name = target_name(targets, target)
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         try:
-            found = load_case(set_name, case, root)
+            found = load_case(targets.docs, name, set_name, case)
         except CaseError as exc:
             raise not_found("Test") from exc
         every = await asyncio.to_thread(runs.all, name, set_name)
@@ -82,8 +82,8 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
         set_name: str, case: str, target: str | None = None
     ) -> PlainTextResponse:
         """The test's file as written, to edit by hand."""
-        path = _case_file(targets, target_name(targets, target), set_name, case)
-        text = await asyncio.to_thread(path.read_text, encoding="utf-8")
+        name = target_name(targets, target)
+        text = await asyncio.to_thread(_case_text, targets, name, set_name, case)
         return PlainTextResponse(text, media_type="application/json")
 
     @router.put("/evals/sets/{set_name}/cases/{case}/file", response_model=None)
@@ -93,13 +93,14 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
         """Save the test's file as typed, once it reads as a valid test; the test as saved. A file
         that changes what the test checks is sent back with the difference and a token: sending
         that token in ``X-Reviewed`` saves exactly that text over exactly the file reviewed."""
-        path = _case_file(targets, target_name(targets, target), set_name, case)
-        root = path.parents[1]
+        name = target_name(targets, target)
+        base = await asyncio.to_thread(_case_text, targets, name, set_name, case)
         try:
             text = (await request.body()).decode("utf-8")
-            changes = await asyncio.to_thread(changes_in_text, set_name, case, text, root)
-            base = await asyncio.to_thread(path.read_bytes)
-            token = hashlib.sha256(base + b"\0" + text.encode()).hexdigest()
+            changes = await asyncio.to_thread(
+                changes_in_text, targets.docs, name, set_name, case, text
+            )
+            token = hashlib.sha256(base.encode() + b"\0" + text.encode()).hexdigest()
             if changes and request.headers.get("x-reviewed") != token:
                 return JSONResponse(
                     {
@@ -109,7 +110,9 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
                     },
                     status_code=409,
                 )
-            found = await asyncio.to_thread(write_case_text, set_name, case, text, root)
+            found = await asyncio.to_thread(
+                write_case_text, targets.docs, name, set_name, case, text
+            )
         except UnicodeDecodeError as exc:
             raise invalid("The file must be UTF-8 text") from exc
         except CaseError as exc:
@@ -120,10 +123,10 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
     async def get_case_plan(set_name: str, case: str, target: str | None = None) -> dict[str, Any]:
         """What the case checks, step by step, in plain words; no run needed."""
         name = target_name(targets, target)
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         try:
-            found = load_case(set_name, case, root)
-            eval_set = load_set(set_name, root)
+            found = load_case(targets.docs, name, set_name, case)
+            eval_set = load_set(targets.docs, name, set_name)
         except CaseError as exc:
             raise not_found("Test") from exc
         return await plans.plan(name, set_name, found, dict(eval_set.pass_marks))
@@ -132,23 +135,20 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
     async def save_case(
         set_name: str, body: dict[str, Any], target: str | None = None
     ) -> dict[str, Any]:
-        """Save a case file into the set's folder; with ``run: true`` also the estimate that
-        starts it."""
+        """Save a case into the set; with ``run: true`` also the estimate that starts it."""
         name = target_name(targets, target or body.pop("target", None))
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         body = dict(body)
         run = body.pop("run", False)
         if not isinstance(run, bool):
             raise invalid("run: must be true or false")
         try:
-            stem = await asyncio.to_thread(write_case, set_name, body, root)
+            stem = await asyncio.to_thread(write_case, targets.docs, name, set_name, body)
             if run:
                 estimate = await asyncio.to_thread(runs.estimate, name, set_name, [stem], None)
                 return {"case": stem, "estimate": estimate}
         except CaseError as exc:
             raise invalid(str(exc)) from exc
-        except OSError as exc:
-            raise busy(f"The test could not be written ({exc.strerror or exc})") from exc
         return {"case": stem}
 
     @router.get("/evals/sources")
@@ -169,7 +169,7 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
         """A case drafted from a trace or session in Phoenix (``trace_id`` or ``session_id``)
         or from an eval try (``run``, ``case``, ``try``); returned, not saved."""
         name = target_name(targets, target or body.get("target"))
-        root = set_root(targets, name, set_name)
+        known_set(targets, name, set_name)
         if isinstance(body.get("trace_id"), str) or isinstance(body.get("session_id"), str):
             phoenix = targets.source(name)
             if phoenix is None:
@@ -195,15 +195,13 @@ def tests_router(runs: Runs, plans: CasePlans) -> APIRouter:
             started = sorted(float(r["started_at"]) for r in others)
             number = started.index(float(doc["started_at"])) + 1
             try:
-                found = from_try(
-                    doc, targets.sets(doc["target"]), body["case"], body["try"], number
-                )
+                found = from_try(doc, targets.docs, body["case"], body["try"], number)
             except LookupError as exc:
                 raise not_found("Try") from exc
         else:
             raise invalid("give trace_id or session_id, or run, case and try")
         try:
-            eval_set = await asyncio.to_thread(load_set, set_name, root)
+            eval_set = await asyncio.to_thread(load_set, targets.docs, name, set_name)
         except CaseError as exc:
             raise invalid(str(exc)) from exc
         return await draft(runs.caller(eval_set.grader), *found)

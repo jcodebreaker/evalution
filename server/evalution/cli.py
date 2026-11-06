@@ -1,14 +1,18 @@
-"""``evalution serve | run | profile | hooks | migrate | regrade | backup | upgrade | restore |
-adapter`` (docs/architecture.md, "Layout").
+"""``evalution serve | run | sets | profile | hooks | migrate | regrade | backup | upgrade |
+restore | adapter`` (docs/architecture.md, "Layout").
 
 * ``serve``: the API and the page, on 127.0.0.1:8080, and evalution's own Phoenix when
   ``traces.managed`` (:mod:`evalution.traces.managed`). There is no login: it answers only this
   computer, unless ``--host`` names another address on purpose (it then warns: anyone who can
   reach that address can use it).
-* ``run --target T --set S [--case C] [--tries N] [--yes]``: a run in this process. Prints the
-  estimate and asks before anything spends, unless ``--yes``; then one row per case, the
-  totals and each failed try's analysis. Ctrl-C stops the run. Exits 1 when a case did not pass,
-  which a test no one could judge didn't.
+* ``run --target T --set S [--case C] [--tries N] [--yes] [--sets [DIR]]``: a run in this
+  process. ``--sets`` first imports T's tests from DIR (default the config's ``sets_dir``), so a
+  fresh database in CI plays the repo's tests. Prints the estimate and asks before anything
+  spends, unless ``--yes``; then one row per case, the totals and each failed try's analysis.
+  Ctrl-C stops the run. Exits 1 when a case did not pass, which a test no one could judge didn't.
+* ``sets export|import [DIR] [--target T]``: the tests as files, in DIR (default the config's
+  ``sets_dir``): ``<target>/<set>/set.json``, ``*.case.json`` and the set's files. Import
+  replaces each set of the same name whole (:mod:`evalution.suite.cases`).
 * ``migrate``: rewrite the stored runs as today's schema, keeping each original as ``.bak``.
 * ``backup``, ``upgrade``, ``restore BACKUP``: a private copy of what is kept; that copy, then the
   stored runs rewritten and shown to still read; and putting a copy back (:mod:`evalution.upgrade`).
@@ -61,7 +65,8 @@ from evalution.results.store import FileStore
 from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
 from evalution.runs.runner import RunBusyError, Runs
-from evalution.suite.cases import CaseError
+from evalution.storage import Database
+from evalution.suite.cases import CaseError, export_sets, import_sets
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
 from evalution.traces.managed import INSTALL, Supervisor, installed, running_url
@@ -147,6 +152,10 @@ def _targets(config: Config) -> Targets:
 
 async def run(config: Config, args: argparse.Namespace) -> int:
     targets = _targets(config)
+    if args.sets is not None:
+        folder = Path(args.sets) if args.sets else config.sets_dir
+        found = import_sets(targets.docs, folder, [args.target])
+        print(f"evalution: imported {len(found)} set(s) from {folder}")
     llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
     runs = Runs(targets, FileStore(config.data_dir), llm)
     intake = await _take_traces(targets, args.traces_port) if config.traces.builtin else None
@@ -394,7 +403,8 @@ def benchmark(config: Config, args: argparse.Namespace) -> int:
         print(f"evalution: {found['set']} has {found['questions']} questions")
         return 0
     if args.action == "install":
-        slug, count = benchmarks.install(args.size, args.target, config.sets_dir, config.data_dir)
+        docs = Database.open(config.data_dir).docs()
+        slug, count = benchmarks.install(args.size, args.target, docs, config.data_dir)
         print(f"evalution: {slug} has {count} questions, for target {args.target}")
         print(f"evalution: run it with: evalution run --target {args.target} --set {slug}")
         return 0
@@ -559,6 +569,21 @@ def _supervisor(config: Config) -> Supervisor | None:
     return Supervisor(config.data_dir / "phoenix", traces.port, traces.grpc)
 
 
+def carry_sets(config: Config, args: argparse.Namespace) -> int:
+    docs = Database.open(config.data_dir).docs()
+    folder = args.dir or config.sets_dir
+    chosen = [args.target] if args.target else None
+    if args.action == "export":
+        done = export_sets(docs, folder, chosen)
+        print(f"evalution: exported {len(done)} set(s) to {folder}")
+    else:
+        done = import_sets(docs, folder, chosen)
+        print(f"evalution: imported {len(done)} set(s) from {folder}")
+    for name in done:
+        print(f"  {name}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evalution", description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, help="the config file (default evalution.yaml)")
@@ -581,11 +606,24 @@ def main(argv: list[str] | None = None) -> int:
         "--save", type=Path, help="keep this run as a file, to compare later ones with"
     )
     play.add_argument(
+        "--sets",
+        nargs="?",
+        const="",
+        metavar="DIR",
+        help="import the target's tests from this folder first (default: the config's sets_dir)",
+    )
+    play.add_argument(
         "--traces-port",
         type=int,
         default=8080,
         help="with built-in traces, where the app sends them while this runs (default 8080)",
     )
+    carry = sub.add_parser("sets", help="the tests as files: export them, or import a folder")
+    carry.add_argument("action", choices=("export", "import"))
+    carry.add_argument(
+        "dir", nargs="?", type=Path, help="the folder (default: the config's sets_dir)"
+    )
+    carry.add_argument("--target", help="only this target's sets")
     check = sub.add_parser("check", help="one real turn, to show the adapter works: spends one")
     check.add_argument("--target", required=True)
     check.add_argument(
@@ -671,6 +709,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "run":
             return asyncio.run(run(config, args))
+        if args.command == "sets":
+            return carry_sets(config, args)
         if args.command == "benchmark":
             return benchmark(config, args)
         if args.command == "hooks":

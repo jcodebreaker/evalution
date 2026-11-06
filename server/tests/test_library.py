@@ -29,7 +29,8 @@ from evalution.llm import LLM
 from evalution.results.store import FileStore
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
-from evalution.suite.cases import CaseError, parse_case
+from evalution.storage import Database
+from evalution.suite.cases import CaseError, load_cases, parse_case, save_set
 from evalution.suite.library import (
     KINDS,
     PLACEHOLDERS,
@@ -167,12 +168,11 @@ async def test_the_agent_adapts_only_what_fits(tmp_path) -> None:
             }
         )
     )
-    (tmp_path / "sets" / "bot" / "main").mkdir(parents=True)
-    (tmp_path / "sets" / "bot" / "main" / "set.json").write_text(json.dumps({"name": "Main"}))
     config = load(tmp_path / "evalution.yaml")
     agent = Agent(
         Runs(Targets(config), FileStore(config.data_dir), None), SessionFiles(tmp_path), None
     )
+    save_set(agent.targets.docs, "bot", "main", {"name": "Main"})
     opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
     rows = {r["id"]: r["fit"]["label"] for r in await agent.tools.list_library(turn, {})}
@@ -513,13 +513,11 @@ def test_a_benchmark_sample_is_stable_and_leaves_out_what_cannot_play() -> None:
 
 
 def test_the_sizes_people_run_need_no_download(tmp_path: Path) -> None:
-    sets, data = tmp_path / "sets", tmp_path / "data"
-    assert install("quick", "bot", sets, data) == ("longmemeval-quick", 5)
-    assert install("middle", "bot", sets, data) == ("longmemeval-middle-same", 10)
+    docs, data = Database.open(tmp_path / "db").docs(), tmp_path / "data"
+    assert install("quick", "bot", docs, data) == ("longmemeval-quick", 5)
+    assert install("middle", "bot", docs, data) == ("longmemeval-middle-same", 10)
     assert not data.exists(), "nothing was fetched"
-    played = json.loads(
-        next((sets / "bot/longmemeval-middle-same").glob("*.case.json")).read_text()
-    )
+    played = load_cases(docs, "bot", "longmemeval-middle-same")[0].raw
     assert played["fold_at_tokens"] and len(played["turns"]) > 40
 
     chat = [{"role": "user", "content": "unrelated"}] * 30
@@ -583,7 +581,8 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     }
     assert found["write_recall"] == 1 / 3
 
-    shown = overview("bot", tmp_path, [run])["runs"][0]
+    docs = Database.open(tmp_path).docs()
+    shown = overview("bot", docs, [run])["runs"][0]
     assert shown["totals"] == {
         "tokens": 50,
         "usd": 2.5,
@@ -592,17 +591,17 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     }, "only the benchmark's own questions count"
     assert (
         shown["current"]["turn"] == 2
-        and overview("bot", tmp_path, [{**run, "status": "done"}])["runs"][0]["current"] is None
+        and overview("bot", docs, [{**run, "status": "done"}])["runs"][0]["current"] is None
     )
     played, waiting = shown["questions"][0], shown["questions"][-1]
     assert shown["questions"][-2]["verdict"] == "unjudged", "it broke off, so it wasn't wrong"
     assert (played["tokens"], played["messages"], played["models"]) == (10, 2, ["m"])
     assert played["trace_url"] is None and (waiting["tokens"], waiting["models"]) == (None, [])
-    bare = overview("bot", tmp_path, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
+    bare = overview("bot", docs, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
     assert bare["happened"] == "", "nothing played, nothing to say"
     assert bare["totals"] == {"tokens": None, "usd": None, "median_seconds": None, "models": []}
     empty = {**run, "status": "stopped", "cases": {"f": run["cases"]["f"]}}
-    assert overview("bot", tmp_path, [empty])["runs"] == [], "stopped with nothing played"
+    assert overview("bot", docs, [empty])["runs"] == [], "stopped with nothing played"
 
 
 def test_what_happened_is_said_from_the_numbers() -> None:

@@ -10,7 +10,14 @@ from evalution.project.profile import update_connection
 from evalution.results.store import FileStore
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
-from evalution.suite.cases import CaseError, parse_case
+from evalution.suite.cases import (
+    CaseError,
+    case_text,
+    load_case,
+    parse_case,
+    save_set,
+    write_case_text,
+)
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionFiles
@@ -31,10 +38,9 @@ async def agent(tmp_path):
     (tmp_path / "evalution.yaml").write_text(
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
     )
-    (tmp_path / "sets" / "bot" / "main").mkdir(parents=True)
-    (tmp_path / "sets" / "bot" / "main" / "set.json").write_text(json.dumps({"name": "Main"}))
     config = load(tmp_path / "evalution.yaml")
     runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    save_set(runs.targets.docs, "bot", "main", {"name": "Main"})
     made = Agent(runs, SessionFiles(config.data_dir), None)
     yield made
     for task in list(made._tasks.values()):
@@ -141,8 +147,7 @@ async def test_the_plan_shows_its_time_limit_and_where_it_came_from(agent) -> No
     saved = await agent.tools.save_case(
         AgentTurn(await agent._session(session["id"])), {"plan_id": plan_id}
     )
-    root = agent.targets.sets("bot") / "main"
-    written = json.loads((root / f"{saved['case']}.case.json").read_text())
+    written = load_case(agent.targets.docs, "bot", "main", saved["case"]).raw
     assert written == {**two, "limits": {"seconds": 120}}
 
     # A limit the test names stays, and the plan says what it would have suggested.
@@ -218,14 +223,14 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     turn = AgentTurn(session)
     no = await agent.tools.save_case(turn, {"plan_id": plan["id"]})
     assert no.startswith("Refused: plan") and "wasn't shown as replacing" in no
-    root = agent.targets.sets("bot") / "main"
-    file = root / "greets.case.json"
-    kept = file.read_text()
-    file.write_text(json.dumps({**CASE, "turns": [{"message": "edited by hand"}]}))
+    docs = agent.targets.docs
+    kept = case_text(docs, "bot", "main", "greets")
+    edited = json.dumps({**CASE, "turns": [{"message": "edited by hand"}]})
+    write_case_text(docs, "bot", "main", "greets", edited)
     late = await agent.tools.save_case(turn, {"plan_id": plan["id"], "replace": "greets"})
     assert late.startswith("Refused: greets changed since")
-    file.write_text(kept)
+    write_case_text(docs, "bot", "main", "greets", kept)
     done = await agent.tools.save_case(turn, {"plan_id": plan["id"], "replace": "greets"})
     assert done["case"] == "greets"
-    written = json.loads(file.read_text())
+    written = load_case(docs, "bot", "main", "greets").raw
     assert written["reply"] == new["reply"] and written["needs_clean"] == ["conversation"]
