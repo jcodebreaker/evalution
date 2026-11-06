@@ -39,12 +39,25 @@ function read(): Place {
   };
 }
 
+/**
+ * Hosted, the workspace the page works in: kept in the URL with the rest of where the page is, so a
+ * link to a run opens in its workspace. Read at each request; changed only by loading the page.
+ */
+export const currentWorkspace = () => new URLSearchParams(window.location.search).get("workspace");
+
+/** The page in `workspace`, loaded afresh so nothing read in another one stays on screen. */
+export function openWorkspace(workspace: string) {
+  window.location.assign(`/?${new URLSearchParams({ workspace })}`);
+}
+
 function write(place: Place, replace: boolean) {
   const params = new URLSearchParams();
   for (const key of KEYS) {
     const value = place[key];
     if (value && !(key === "view" && value === HOME)) params.set(key, value);
   }
+  const workspace = currentWorkspace();
+  if (workspace) params.set("workspace", workspace);
   const search = params.toString();
   const url = `${window.location.pathname}${search ? `?${search}` : ""}`;
   if (replace) window.history.replaceState(null, "", url);

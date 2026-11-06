@@ -1,4 +1,5 @@
 import type * as z from "zod";
+import { currentWorkspace } from "./router";
 import type {
   AgentSession,
   Knowledge,
@@ -10,9 +11,11 @@ import type {
   Understanding,
 } from "./schema";
 import {
+  AcceptedSchema,
   AdapterSchema,
   AgentChatSchema,
   AgentSessionSchema,
+  ApiTokenSchema,
   BenchmarksSchema,
   CaseFileViewSchema,
   CaseRowSchema,
@@ -22,10 +25,15 @@ import {
   EstimateSchema,
   HealthSchema,
   HooksSchema,
+  InviteSchema,
   LibraryRowSchema,
+  MemberSchema,
+  MeSchema,
+  ModelKeySchema,
   ModelListSchema,
   ModelSettingsSchema,
   ModelTestSchema,
+  NewTokenSchema,
   ProbeSchema,
   RedraftSchema,
   RunCaseSchema,
@@ -40,10 +48,12 @@ import {
   TracesSchema,
   UnderstandingSchema,
   UpdatesSchema,
+  WorkspaceSchema,
 } from "./schema";
 
-// The server's routes (docs/architecture.md "API and page"). The server answers only this computer,
-// so there is no login.
+// The server's routes (docs/architecture.md "API and page"). Locally the server answers only this
+// computer, with no login. Hosted, each request names its workspace, and an answer that no one is
+// signed in turns the page to the sign-in screen.
 
 export class ApiError extends Error {
   constructor(
@@ -65,19 +75,50 @@ export function errorText(error: unknown, fallback: string): string {
   return fallback;
 }
 
+let signedOut: (() => void) | null = null;
+
+/** `listener` hears a 401: hosted, no one is signed in (any more). */
+export function onSignedOut(listener: (() => void) | null) {
+  signedOut = listener;
+}
+
+/**
+ * Every request: the workspace it is for, and the header that marks it as the page's own (the
+ * server refuses a signed-in change without it, so another site can't make one).
+ */
+async function send(
+  method: string,
+  path: string,
+  body: string | undefined,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const workspace = currentWorkspace();
+  const response = await fetch(path, {
+    method,
+    headers: {
+      "X-Requested-With": "evalution",
+      ...(workspace ? { "X-Workspace": workspace } : {}),
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
+    body,
+  });
+  if (response.status === 401) signedOut?.();
+  return response;
+}
+
 async function call(
   method: string,
   path: string,
   body?: unknown,
   extra: Record<string, string> = {},
 ): Promise<unknown> {
-  const headers: Record<string, string> = { ...extra };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {
+  const response = await send(
     method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    path,
+    body === undefined ? undefined : JSON.stringify(body),
+    extra,
+  );
   const text = await response.text();
   const type = response.headers.get("content-type") ?? "";
   const data: unknown = type.includes("json") && text ? JSON.parse(text) : text;
@@ -110,11 +151,7 @@ async function raw(
   text?: string,
   extra: Record<string, string> = {},
 ): Promise<string> {
-  const response = await fetch(path, {
-    method,
-    headers: { ...(text === undefined ? {} : { "Content-Type": "application/json" }), ...extra },
-    body: text,
-  });
+  const response = await send(method, path, text, extra);
   const answer = await response.text();
   if (!response.ok) {
     let data: unknown = null;
@@ -169,6 +206,31 @@ const query = (params: Record<string, string | number | undefined | null>) => {
 export type Scope = { target: string; set: string };
 
 export const api = {
+  /** Who is asking, in which workspace; locally, no one, in the one workspace. */
+  me: () => get(one(MeSchema), "/v1/me"),
+  signOut: () => call("POST", "/auth/logout"),
+  workspaces: {
+    create: (name: string) => post(one(WorkspaceSchema), "/v1/workspaces", { name }),
+    rename: (id: string, name: string) =>
+      call("PATCH", `/v1/workspaces/${enc(id)}`, { name }).then(one(WorkspaceSchema)),
+    members: (id: string) => get(many(MemberSchema), `/v1/workspaces/${enc(id)}/members`),
+    /** Anyone may remove anyone; removing yourself is leaving. */
+    remove: (id: string, user: string) =>
+      call("DELETE", `/v1/workspaces/${enc(id)}/members/${enc(user)}`),
+    invite: (id: string) => post(one(InviteSchema), `/v1/workspaces/${enc(id)}/invites`),
+    accept: (code: string) => post(one(AcceptedSchema), `/v1/invites/${enc(code)}/accept`),
+  },
+  /** The current workspace's tokens, for the CLI and CI. */
+  tokens: {
+    list: () => get(many(ApiTokenSchema), "/v1/tokens"),
+    create: (name: string) => post(one(NewTokenSchema), "/v1/tokens", { name }),
+    remove: (id: string) => call("DELETE", `/v1/tokens/${enc(id)}`),
+  },
+  /** Hosted: the signed-in person's own model key. */
+  modelKey: {
+    set: (key: string) => call("PUT", "/v1/me/model-key", { key }).then(one(ModelKeySchema)),
+    remove: () => call("DELETE", "/v1/me/model-key"),
+  },
   targets: () => get(many(TargetSchema), "/v1/targets"),
   target: (name: string) => get(one(TargetDetailSchema), `/v1/targets/${enc(name)}`),
   connect: (body: TargetBody) => post(one(TargetDetailSchema), "/v1/targets", body),

@@ -1,0 +1,160 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "../../lib/api";
+import { Root } from "../shell/Root";
+import { Sidebar } from "../shell/Sidebar";
+import type { Account } from "./account";
+import { WorkspaceSettings } from "./WorkspaceSettings";
+
+// The page behind the account gate, reduced to one request, so the gate is what is tested.
+vi.mock("../shell/App", () => ({
+  App: () => {
+    useEffect(() => {
+      void api.targets().catch(() => null);
+    }, []);
+    return <p>page</p>;
+  },
+}));
+
+type Answer = { status?: number; body?: unknown };
+type Call = { method: string; path: string; headers: Record<string, string>; body: unknown };
+
+const LOCAL = {
+  hosted: false,
+  user: null,
+  workspace: { id: "local", name: "Local", personal: true },
+  workspaces: [{ id: "local", name: "Local", personal: true }],
+  model_key: { set: false, last4: null },
+};
+const ANA = { id: "u1", email: "ana@example.test", name: "Ana" };
+const TEAM = { id: "w1", name: "Team", personal: false };
+const HOSTED = { ...LOCAL, hosted: true, user: ANA, workspace: TEAM, workspaces: [TEAM] };
+
+let calls: Call[] = [];
+
+/** Answers each `METHOD /path` from `routes`; anything else is an empty list. */
+function serve(routes: Record<string, Answer | (() => Answer)>) {
+  calls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init: RequestInit = {}) => {
+      const method = init.method ?? "GET";
+      calls.push({
+        method,
+        path,
+        headers: (init.headers ?? {}) as Record<string, string>,
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      const route = routes[`${method} ${path.split("?")[0]}`];
+      const { status = 200, body = [] } = (typeof route === "function" ? route() : route) ?? {};
+      return new Response(status === 204 ? null : JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
+}
+
+beforeEach(() => window.history.replaceState(null, "", "/"));
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("the page, local", () => {
+  it("shows the page as it was: no sign-in, no workspace, no workspace header", async () => {
+    serve({ "GET /v1/me": { body: LOCAL } });
+    render(<Root />);
+    await screen.findByText("page");
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/me")).toBe(true));
+    expect(screen.queryByText("Sign in")).toBeNull();
+    expect(window.location.search).toBe("");
+    expect(calls.every((call) => !("X-Workspace" in call.headers))).toBe(true);
+  });
+
+  it("keeps the product name in the sidebar, with no workspace switcher", () => {
+    render(
+      <Sidebar
+        place={{ target: null, set: null, view: "home", run: null, case: null, base: null }}
+        targets={[]}
+        target={null}
+        sets={[]}
+        set={null}
+        going={null}
+        goingLabel=""
+        asking={false}
+        onAskAi={null}
+        cards={null}
+        onTarget={() => {}}
+        onSet={() => {}}
+        onView={() => {}}
+        onGoing={() => {}}
+      />,
+    );
+    expect(screen.getByText("evalution")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+  });
+});
+
+describe("the page, hosted", () => {
+  it("signed out, shows only sign-in, coming back to where the person was", async () => {
+    window.history.replaceState(null, "", "/?view=runs");
+    serve({ "GET /v1/me": { body: { ...HOSTED, user: null, workspace: null, workspaces: [] } } });
+    render(<Root />);
+    const link = await screen.findByRole("link", { name: "Sign in" });
+    expect(link.getAttribute("href")).toBe(`/auth/login?next=${encodeURIComponent("/?view=runs")}`);
+    expect(screen.queryByText("page")).toBeNull();
+  });
+
+  it("names the workspace on every request, and a 401 turns to sign-in", async () => {
+    serve({ "GET /v1/me": { body: HOSTED }, "GET /v1/targets": { status: 401 } });
+    render(<Root />);
+    await screen.findByRole("link", { name: "Sign in" });
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("workspace")).toBe("w1"),
+    );
+
+    await act(() => api.tokens.list());
+    const last = calls.at(-1);
+    expect(last?.headers["X-Workspace"]).toBe("w1");
+    expect(last?.headers["X-Requested-With"]).toBe("evalution");
+  });
+
+  it("shows a new token once, then only its prefix", async () => {
+    window.history.replaceState(null, "", "/?workspace=w1&view=model");
+    let made = false;
+    serve({
+      "POST /v1/tokens": () => {
+        made = true;
+        return { body: { id: "t1", name: "ci", prefix: "evt_ab12", token: "evt_ab12secret" } };
+      },
+      "GET /v1/tokens": () => ({
+        body: made
+          ? [{ id: "t1", name: "ci", prefix: "evt_ab12", created_at: 1, last_used_at: null }]
+          : [],
+      }),
+    });
+    const account: Account = {
+      me: { ...HOSTED, user: ANA, workspace: TEAM },
+      reload: async () => {},
+    };
+    const { unmount } = render(<WorkspaceSettings account={account} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New token" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Token name" }), {
+      target: { value: "ci" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    const shown = await screen.findByRole<HTMLInputElement>("textbox", { name: "New token" });
+    expect(shown.value).toBe("evt_ab12secret");
+    expect(calls.find((call) => call.method === "POST")?.body).toEqual({ name: "ci" });
+    await screen.findByText("evt_ab12…");
+
+    unmount();
+    render(<WorkspaceSettings account={account} />);
+    await screen.findByText("evt_ab12…");
+    expect(screen.queryByDisplayValue("evt_ab12secret")).toBeNull();
+  });
+});

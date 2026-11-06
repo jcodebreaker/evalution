@@ -3,6 +3,7 @@ import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import type { Hooks, Knowledge } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
+import { useAccount } from "../account/account";
 import { Group } from "../shared/group";
 import { Row } from "../shared/Row";
 
@@ -13,8 +14,12 @@ const UPDATE_MODES: { value: Knowledge["mode"]; label: string }[] = [
 
 /** Settings for the open app: when what it knows is updated, and the hooks in its repo. */
 export function AppSettings({ target }: { target: string }) {
+  // Hosted, the server has no repo to put hooks in.
+  const hosted = useAccount() !== null;
   const [updates, reloadUpdates] = useLoad(`updates:${target}`, () => api.updates.get(target));
-  const [hooks, reloadHooks] = useLoad(`hooks:${target}`, () => api.hooks.get(target));
+  const [hooks, reloadHooks] = useLoad(hosted ? null : `hooks:${target}`, () =>
+    api.hooks.get(target),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mode = updates.status === "ready" ? updates.data.mode : null;
@@ -58,30 +63,32 @@ export function AppSettings({ target }: { target: string }) {
             ))}
           </span>
         </Row>
-        <Row label="Git hooks">
-          {found && !found.available ? (
-            <span className="pt-1.5 text-[13px] text-ink-2">Not available: {found.reason}</span>
-          ) : (
-            <input
-              type="checkbox"
-              className="mt-2 size-4 self-start accent-primary"
-              disabled={busy || !found}
-              checked={found?.installed ?? false}
-              onChange={(event) =>
-                void act(
-                  () =>
-                    event.target.checked ? api.hooks.install(target) : api.hooks.remove(target),
-                  reloadHooks,
-                )
-              }
-            />
-          )}
-          {left.map(([hook, why]) => (
-            <span key={hook} className="text-[12px] text-ink-3">
-              {hook} {why}
-            </span>
-          ))}
-        </Row>
+        {hosted ? null : (
+          <Row label="Git hooks">
+            {found && !found.available ? (
+              <span className="pt-1.5 text-[13px] text-ink-2">Not available: {found.reason}</span>
+            ) : (
+              <input
+                type="checkbox"
+                className="mt-2 size-4 self-start accent-primary"
+                disabled={busy || !found}
+                checked={found?.installed ?? false}
+                onChange={(event) =>
+                  void act(
+                    () =>
+                      event.target.checked ? api.hooks.install(target) : api.hooks.remove(target),
+                    reloadHooks,
+                  )
+                }
+              />
+            )}
+            {left.map(([hook, why]) => (
+              <span key={hook} className="text-[12px] text-ink-3">
+                {hook} {why}
+              </span>
+            ))}
+          </Row>
+        )}
       </Group>
       {error ? <p className="m-0 px-1 text-[12.5px] text-destructive">{error}</p> : null}
     </div>
