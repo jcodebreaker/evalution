@@ -34,6 +34,7 @@ from evalution.core.rules import (
     tools_bind,
     verdict,
 )
+from evalution.runs.sampling import one_more
 
 P, F, U = Outcome.PASSED, Outcome.FAILED, Outcome.UNJUDGED
 
@@ -301,7 +302,7 @@ def _said(passed: int, judged: int) -> Verdict:
     return Verdict(kind=kind, passed=passed, judged=judged)
 
 
-def test_a_move_between_runs_says_which_way_and_if_it_could_be_chance() -> None:
+def test_a_move_between_runs_says_which_way_and_if_it_could_be_chance_till_tries_tell() -> None:
     assert change_of(_said(3, 3), _said(0, 3)) is Change.WORSE
     assert change_of(_said(0, 3), _said(3, 3)) is Change.BETTER
     assert change_of(_said(2, 2), _said(4, 4)) is Change.SAME, "by share, whatever the tries"
@@ -311,3 +312,15 @@ def test_a_move_between_runs_says_which_way_and_if_it_could_be_chance() -> None:
     assert not could_be_chance(_said(4, 4), _said(0, 4))
     assert could_be_chance(_said(4, 4), _said(3, 4))
     assert not could_be_chance(_said(20, 20), _said(10, 20))
+    # How many tries a test gets with no count asked for: its own three, then on while they
+    # disagree, until each outcome showed three times, never past twenty.
+    assert one_more(_said(2, 2), 3)
+    assert not one_more(_said(3, 3), 3) and not one_more(_said(0, 3), 3), "they agree"
+    assert not one_more(Verdict(kind=VerdictKind.UNJUDGED, unjudged=3), 3), "nothing to read"
+    assert one_more(_said(2, 3), 3) and one_more(_said(17, 19), 3)
+    assert not one_more(_said(3, 6), 3) and not one_more(_said(18, 20), 3)
+    # Against the run it is compared with, a move plays on until it is real, or can't become so.
+    assert one_more(_said(0, 3), 3, base=_said(3, 3)), "three can never tell"
+    assert not one_more(_said(0, 4), 3, base=_said(4, 4)), "real"
+    assert not one_more(_said(3, 3), 3, base=_said(3, 3)), "it didn't move"
+    assert not one_more(_said(3, 3), 3, base=_said(3, 4)), "chance: even twenty passes can't tell"

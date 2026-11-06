@@ -15,6 +15,7 @@ from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
     SERVER_RESTARTED,
+    SPEND_CAPPED,
     TARGET_GONE,
     called_of,
     comparable,
@@ -162,6 +163,8 @@ _SUMMARY_KEYS = (
 
 def _why_not_played(run: Mapping[str, Any]) -> str | None:
     """Why a test has no result, in plain words; ``None`` when it was just stopped."""
+    if run.get("stop_reason") == SPEND_CAPPED:
+        return "spend cap"
     if run.get("status") != "failed":
         return None
     if _interrupted(run):

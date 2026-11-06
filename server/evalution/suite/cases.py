@@ -21,6 +21,7 @@ from evalution.core.case import (
     DEFAULT_TRIES,
     GRADERS,
     MATCHERS,
+    MOST_TRIES,
     ORDERS,
     SLUG,
     Case,
@@ -370,8 +371,8 @@ def _limits(value: Any, where: str) -> dict[str, Any]:
     if unknown:
         raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
     tries = value.get("tries", DEFAULT_TRIES)
-    if isinstance(tries, bool) or not isinstance(tries, int) or not 1 <= tries <= 20:
-        raise CaseError(f"{where}.tries: must be a whole number from 1 to 20")
+    if isinstance(tries, bool) or not isinstance(tries, int) or not 1 <= tries <= MOST_TRIES:
+        raise CaseError(f"{where}.tries: must be a whole number from 1 to {MOST_TRIES}")
     limits: dict[str, Any] = {"tries": tries}
     # An old file's "usd" is left unread: a test has no cost limit.
     if "seconds" in value:

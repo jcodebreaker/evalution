@@ -193,7 +193,7 @@ flowchart LR
 
 ### How a test is judged
 
-An agent doesn't do the same thing twice, so evalution is careful about calling something broken. Each test runs several times from a clean start (three by default), and it judges the result first.
+An agent doesn't do the same thing twice, so evalution is careful about calling something broken. Each test runs several times from a clean start, and it judges the result first. It plays its own `tries` (three by default), stops there when they agree, and plays on when they don't, or when it moved since the run it's compared with, until that can be told from chance (at most 20). A run's `--tries` plays exactly that many.
 
 | Tries | Result | Meaning |
 |---|---|---|
@@ -349,7 +349,7 @@ Both the OpenInference and OpenTelemetry GenAI conventions are understood, and p
 
 ## Cost and privacy
 
-**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Nothing stops a run partway because of cost, so try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
+**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Since tries can grow, the estimate is a range. A run stops partway once the app has spent `spend_cap` times its high end (3 by default, 0 turns it off); the tests it didn't reach read *not run: spend cap*. Try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
 
 **What stays local.** Results, tests and settings all live on your machine. There's no hosted service and no login. Each run also keeps what it saw in the database, `data/evalution.db`: prompts your app sent, tool arguments and outputs, in full up to 64 KB an item.
 
@@ -443,7 +443,7 @@ These are the things to keep in mind when reading a result. Most are on the list
 - **Isolation depends on the adapter.** The HTTP adapter only starts a new session id, so what carries over depends on your app. LangGraph clears its store namespace, not memory kept elsewhere. `fresh` is passed to the adapter and isn't verified.
 - **The library tests are new.** The four with a check the code decides catch their seeded bug; the other six rest on a model's verdict, and how often that catches one isn't measured.
 - **The pipeline is exercised on a scripted agent, not yet proven on a real one.** See [what that shows](docs/proof.md).
-- Three tries spot flakiness; they don't measure a rare failure. Raise `tries` (up to 20) for what matters most.
+- Three tries spot flakiness; they don't measure a rare failure, since tries that agree stop there. Raise `tries` (up to 20) for what matters most.
 - Import tracing is best-effort by language, and one update sends at most 60 claims; the rest stay marked for the next press.
 - Watching stops at 2,000 files, in path order, so a very large monorepo is partly covered.
 - Results are local files, so a team can't share history yet, and pages slow down at thousands of runs.

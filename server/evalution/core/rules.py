@@ -41,6 +41,8 @@ NO_TRACES = "No traces arrived"
 TARGET_GONE = "The app's session went away mid-try"
 #: A run the server restarted under: interrupted, which says nothing of the app.
 SERVER_RESTARTED = "The server restarted during the run"
+#: A run its spend cap stopped (``spend_cap`` in the config): it says nothing of the app either.
+SPEND_CAPPED = "The app spent several times the estimate, so the run stopped at its spend cap"
 #: A failed run's ``failure``: the app was not there to play on, or something else stopped it.
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
 
