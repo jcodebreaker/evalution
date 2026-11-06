@@ -16,6 +16,8 @@ ORDERS = ("exact", "in_order", "any_order")
 MATCHERS = ("eq", "contains", "re", "len", "any")
 DEFAULT_PASS_MARKS = {"tools": 0.8, "reply": 0.7}
 DEFAULT_TRIES = 3
+#: The most tries a test plays in one run, asked for or not.
+MOST_TRIES = 20
 CASE_SUFFIX = ".case.json"
 #: A target, set or case id: one safe path segment.
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")

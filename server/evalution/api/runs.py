@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 
 from evalution.api.deps import busy, invalid, known_set, not_found, target_name
 from evalution.api.plans import CasePlans
-from evalution.core.case import Case
+from evalution.core.case import MOST_TRIES, Case
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
 from evalution.results.compare import comparison, default_base
@@ -45,8 +45,8 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
 
     @router.post("/evals/runs/estimate")
     async def estimate(body: dict[str, Any]) -> dict[str, Any]:
-        """Tries, chats and the estimated cost for a set, one case or some, and the token
-        that starts the run."""
+        """Tries, chats and the estimated cost (a range: :meth:`Runs.estimate`) for a set, one
+        case or some, and the token that starts the run."""
         name = target_name(targets, body.get("target"))
         set_name, tries = body.get("set"), body.get("tries")
         cases = body.get("cases") or ([body["case"]] if body.get("case") else None)
@@ -57,9 +57,9 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
         ):
             raise invalid("cases: must be a list of test ids")
         if tries is not None and (
-            isinstance(tries, bool) or not isinstance(tries, int) or not 1 <= tries <= 20
+            isinstance(tries, bool) or not isinstance(tries, int) or not 1 <= tries <= MOST_TRIES
         ):
-            raise invalid("tries: must be a whole number from 1 to 20")
+            raise invalid(f"tries: must be a whole number from 1 to {MOST_TRIES}")
         known_set(targets, name, set_name)
         try:
             return await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)

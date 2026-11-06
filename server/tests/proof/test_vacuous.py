@@ -503,7 +503,8 @@ async def test_7_a_runs_own_exception_keeps_no_login_or_query(make_rig) -> None:
 
     del rig.agent.open
     rig.agent.send = quotes
-    doc = await rig.run()
+    # One try: unasked, a test that got worse than the run before plays on.
+    doc = await rig.run(tries=1)
     attempt = _tries(doc)[0]
     assert "app.example.test/c" in attempt["error"]
     assert "fake-pw" not in json.dumps(doc)
@@ -609,7 +610,8 @@ async def _store_breaks_in_try_2(make_rig, faults: list[str]) -> dict:
     rig = make_rig(faults)
     rig.agent.store_fails_from_try = 2
     rig.fill("memory-recalls-fact")
-    return await rig.run()
+    # Two tries exactly: unasked, a pass and a fail would play on.
+    return await rig.run(tries=2)
 
 
 @known(

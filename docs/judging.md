@@ -34,6 +34,18 @@ Only judged tries count.
 | None judged | `unjudged` |
 | No tries | not run |
 
+## How many tries
+
+A run given a count (`--tries`, or `tries` on the estimate) plays exactly that many of each test. Otherwise each test plays until its tries say something (`runs/sampling.py`):
+
+- It plays its own `tries` first (three by default).
+- Then judged tries that all agree, all passed or all failed, stop it. So do tries none of which could be judged.
+- Tries that disagree play on until each outcome has shown up that many times, so a flaky test's rate rests on more than one odd try.
+- A test that moved since the run it's compared with (`--against`, else the run a comparison picks) plays on until Fisher's test, as below, calls the move real, or until even the tries left all going the same way couldn't: then it's chance.
+- Never more than 20.
+
+The estimate is a range from each test's own `tries` to 20. After every try, a run stops once the app has spent `spend_cap` times what the tries played so far were estimated at, never less than that many times the low end (3 by default; 0 turns it off). A run that plays on raises its own allowance; a try far dearer than its estimate trips it. It reads stopped, and the tests it didn't reach read *not run: spend cap*: nothing is judged from them.
+
 ## What a pass rests on
 
 `checked`: a must that passed came from a code check of the outcome: state, context, reply text or steps that bind. `model_only`: otherwise, a model's reading of the reply. These are shown and counted apart: "Passed, judged by a model only". A test rests on its weakest try. `none` is a pass nothing decided, a test with no checks at all whose try ran and was seen.

@@ -1,4 +1,5 @@
-"""What a run is likely to cost, before anyone says yes to it."""
+"""What a run is likely to cost, before anyone says yes to it, and how much it may spend before it
+is stopped."""
 
 from __future__ import annotations
 
@@ -49,6 +50,28 @@ def per_try_usd(case: Case, runs: Sequence[Mapping[str, Any]], c0: float) -> flo
     if costs:
         return statistics.fmean(costs)
     return DEFAULT_TRY_USD + filler_usd(case, c0)
+
+
+def run_usd(per_try: Mapping[str, float], counts: Mapping[str, int]) -> float:
+    """What cases cost at *counts* tries each, at *per_try* (case -> one try's estimate), with the
+    analysis of the share that fails."""
+    tries = sum(counts.values())
+    usd = sum(n * per_try[case] for case, n in counts.items())
+    return usd + ANALYSIS_TRY_USD * FAIL_SHARE * tries + ANALYSIS_RUN_USD
+
+
+def capped(
+    spent: float,
+    multiple: float,
+    floor: float,
+    per_try: Mapping[str, float],
+    played: Mapping[str, int],
+) -> bool:
+    """Whether a run that has *spent* this much reached its cap: *multiple* times what the tries
+    it *played* were estimated at, so a run that plays on raises its own allowance try by try and
+    a try far dearer than its estimate trips it. Never under *multiple* times *floor*, the run's
+    low estimate, so one noisy first try doesn't stop it. A *multiple* of 0: no cap."""
+    return multiple > 0 and spent >= multiple * max(floor, run_usd(per_try, played))
 
 
 def _message_seconds(runs: Sequence[Mapping[str, Any]]) -> list[float]:

@@ -9,7 +9,9 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   process. ``--sets`` first imports T's tests from DIR (default the config's ``sets_dir``), so a
   fresh database in CI plays the repo's tests. Prints the estimate and asks before anything
   spends, unless ``--yes``; then one row per case, the totals and each failed try's analysis.
-  Ctrl-C stops the run. Exits 1 when a case did not pass, which a test no one could judge didn't.
+  ``--tries`` plays exactly N of each case; without it each plays until its tries say something
+  (:mod:`evalution.runs.sampling`), against ``--against`` when given. Ctrl-C stops the run.
+  Exits 1 when a case did not pass, which a test no one could judge didn't.
 * ``run ... --against FILE [--summary MD] [--page URL]``: compare with a baseline (``run --save``)
   instead; ``--summary`` also writes that comparison as markdown, for a pull request, each test
   linked to the run on the page at URL when there is one (:mod:`evalution.results.markdown`).
@@ -95,6 +97,7 @@ def table(run: dict[str, Any]) -> str:
         f"{'case':<28} {'verdict':<8} {'tries':<6} {'steps':>5} {'reply':>5} "
         f"{'secs':>6} {'tokens':>8} {'usd':>6}"
     ]
+    unplayed = {t["case"]: t["reason"] for t in run["tests"] if t.get("reason")}
     for row in run["cases"]:
         tries = "".join(_TRY_MARK[t] for t in row["tries"]) or "-"
         lines.append(
@@ -105,6 +108,7 @@ def table(run: dict[str, Any]) -> str:
             + (f"  ({', '.join(row['unjudged'])})" if row.get("unjudged") else "")
             + (f"  {row['note']}" if row.get("note") else "")
             + (f"  was {row['originally']}; rules changed" if row.get("originally") else "")
+            + (f"  not run: {unplayed[row['case']]}" if row["case"] in unplayed else "")
         )
     t, scores = run["totals"], pass_marks(run)
     lines.append(
@@ -171,9 +175,13 @@ async def run(config: Config, args: argparse.Namespace) -> int:
         estimate = runs.estimate(
             args.target, args.set, [args.case] if args.case else None, args.tries
         )
+        tries, usd = f"{estimate['tries']}", f"${estimate['usd']:.2f}"
+        if estimate["tries_high"] > estimate["tries"]:
+            tries += f" to {estimate['tries_high']}"
+            usd += f" to ${estimate['usd_high']:.2f}"
         print(
-            f"evalution: {estimate['cases']} case(s), {estimate['tries']} tries, "
-            f"{estimate['chats']} messages, about ${estimate['usd']:.2f}"
+            f"evalution: {estimate['cases']} case(s), {tries} tries, "
+            f"{estimate['chats']} messages, about {usd}"
         )
         refused = estimate["refused"]
         for test in refused:
@@ -184,7 +192,8 @@ async def run(config: Config, args: argparse.Namespace) -> int:
         if not args.yes and not await _confirmed():
             print("evalution: not started")
             return 0
-        started = await runs.start(estimate["token"])
+        base = baseline.read(args.against) if args.against else None
+        started = await runs.start(estimate["token"], base)
         print(f"evalution: run {started['run']}")
         try:
             await runs.wait()
@@ -198,8 +207,8 @@ async def run(config: Config, args: argparse.Namespace) -> int:
             print(notes)
         if args.save:
             baseline.write(args.save, doc)
-        if args.against:
-            said = comparison(doc, baseline.read(args.against))
+        if base is not None:
+            said = comparison(doc, base)
             _print_comparison(said)
             if args.summary:
                 args.summary.write_text(comparison_markdown(said, doc, args.page))
@@ -615,7 +624,11 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--target", required=True)
     play.add_argument("--set", required=True)
     play.add_argument("--case", help="only this case (its file stem)")
-    play.add_argument("--tries", type=int, help="tries per case instead of each case's own")
+    play.add_argument(
+        "--tries",
+        type=int,
+        help="exactly this many tries per case; without it, each plays until its tries agree",
+    )
     play.add_argument("--yes", action="store_true", help="start without asking")
     play.add_argument(
         "--against",

@@ -227,6 +227,9 @@ class Config:
     model_source: str | None = None
     #: Cost of one generated (filler) message on a warm conversation, for estimates.
     filler_usd: float = 0.04
+    #: A run stops once the app has spent this many times what its tries played were estimated at
+    #: (at least its low estimate); 0: never.
+    spend_cap: float = 3.0
     #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
@@ -415,6 +418,9 @@ def load(path: Path | None = None, docs: Docs | None = None) -> Config:
     filler = data.get("filler_usd", 0.04)
     if isinstance(filler, bool) or not isinstance(filler, (int, float)) or filler < 0:
         raise ConfigError("filler_usd: must be a number of at least 0")
+    cap = data.get("spend_cap", 3.0)
+    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap < 0:
+        raise ConfigError("spend_cap: must be a number of at least 0")
     return Config(
         file=path.resolve(),
         root=root,
@@ -427,6 +433,7 @@ def load(path: Path | None = None, docs: Docs | None = None) -> Config:
             n: target_config(n, _dict(b, f"targets.{n}"), root, keys) for n, b in targets.items()
         },
         filler_usd=float(filler),
+        spend_cap=float(cap),
         managed=frozenset(n for n in managed if n not in own),
         traces=_traces(_dict(data.get("traces"), "traces")),
         library_dir=where("library_dir", "library"),

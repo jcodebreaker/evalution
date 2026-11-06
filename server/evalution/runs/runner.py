@@ -2,15 +2,22 @@
 background task, through the target's adapter; up to the target's ``max_parallel`` cases at once
 when its adapter can.
 
+How many tries: a run's own ``tries``, when the person gave one, is played exactly. Without one,
+each case plays until its tries say something (:mod:`evalution.runs.sampling`), from its own
+``tries`` up to :data:`~evalution.core.case.MOST_TRIES`, against the run it will be compared with;
+its ``planned`` grows as it goes, and ends at what it played.
+
 Nothing starts unconfirmed: :meth:`Runs.estimate` hands out a short-lived, single-use token and
 :meth:`Runs.start` refuses without one. One run at a time. A run is ``running``, then ``done``,
-``stopped`` (by the admin, or the server shut down or restarted under it: interrupted, which says
-nothing of the app) or ``failed`` (it could not go on: the target session went away, or a try ran
-out of time with work the adapter can't stop); ``stop_reason`` says which. A run that ends on its
-own (``done`` or ``failed``) with failed tries is then analysed (:mod:`evalution.review.findings`)
-while ``analyzing`` is true; ``analysis_error`` says when that could not finish, for a retry. The
-run document (:mod:`evalution.results.store`) is rewritten after every try; the shapes the routes
-return are read from it in :mod:`evalution.results.views`.
+``stopped`` (by the admin, by its spend cap, or the server shut down or restarted under it:
+interrupted; none says anything of the app) or ``failed`` (it could not go on: the target session
+went away, or a try ran out of time with work the adapter can't stop); ``stop_reason`` says which.
+After every try, what the app spent is held to a multiple (``spend_cap`` in the config) of what
+the tries played so far were estimated at, never under that multiple of the low estimate.
+A run that ends on its own (``done`` or ``failed``) with failed tries is then analysed
+(:mod:`evalution.review.findings`) while ``analyzing`` is true; ``analysis_error`` says when that
+could not finish, for a retry. The run document (:mod:`evalution.results.store`) is rewritten after
+every try; the shapes the routes return are read from it in :mod:`evalution.results.views`.
 
 Before a run, the target is checked for drift (:mod:`evalution.project.drift`), and each case's
 ``stale`` reason is recorded with it. The code as the run starts is kept
@@ -36,15 +43,16 @@ import httpx
 
 from evalution.adapters.base import AppError, AppRefused, Session, Target, TargetGone, failure_of
 from evalution.core import net
-from evalution.core.case import Case, EvalSet
+from evalution.core.case import MOST_TRIES, Case, EvalSet
 from evalution.core.evidence import Failure, TraceStatus, TryEvidence
-from evalution.core.judgement import CheckKind, Decider, JudgeStamp, Outcome, WhyUnjudged
+from evalution.core.judgement import CheckKind, Decider, JudgeStamp, Outcome, Verdict, WhyUnjudged
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
     OTHER_FAILURE,
     RULES_VERSION,
     SERVER_RESTARTED,
+    SPEND_CAPPED,
     TARGET_GONE,
     current,
     judgement,
@@ -62,18 +70,18 @@ from evalution.judging.rubric import (
 from evalution.judging.steps import Step, check_line, chosen_calls, grade_tools
 from evalution.llm import LLM, Caller, cut, fenced
 from evalution.project import drift, impact
-from evalution.results.record import SCHEMA, add_judgement, pass_marks
+from evalution.results.compare import default_base
+from evalution.results.record import SCHEMA, add_judgement, pass_marks, verdict_of
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review.findings import analyze_run, write_report
 from evalution.runs.estimate import (
-    ANALYSIS_RUN_USD,
-    ANALYSIS_TRY_USD,
-    FAIL_SHARE,
     GRADE_TRY_USD,
+    capped,
     messages,
     own_costs,
     per_try_usd,
+    run_usd,
 )
 from evalution.runs.fit import why_not
 from evalution.runs.play import (
@@ -92,6 +100,7 @@ from evalution.runs.preflight import (
     remember_setup,
     setup_key,
 )
+from evalution.runs.sampling import one_more
 from evalution.storage import Docs
 from evalution.suite.cases import CaseError, is_benchmark, parse_case
 from evalution.suite.store import (
@@ -171,6 +180,9 @@ class _Plan:
     cases: tuple[str, ...]
     tries: int | None
     scope: str
+    #: One try of each case, and the run at the low end, as estimated: what the spend cap goes by.
+    per_try: dict[str, float]
+    low: float
     expires: float
 
 
@@ -198,6 +210,10 @@ class KeepsHanging(Exception):
 
 class StillWorking(RuntimeError):
     """A try ran out of time with the app's work still going, and it can't be stopped."""
+
+
+class SpendCapped(Exception):
+    """The app has spent the run's cap."""
 
 
 class Runs:
@@ -307,6 +323,11 @@ class Runs:
     ) -> dict[str, Any]:
         """The ``Estimate`` for a set or some of its cases, with the token that starts it.
 
+        A range: *tries*, when given, plays exactly that many, so both ends are one figure. Without
+        it, each case plays from its own ``tries`` (``tries``, ``chats`` and ``usd``: the low end,
+        what they read before tries could grow) up to :data:`MOST_TRIES` (``tries_high`` and
+        ``usd_high``).
+
         :raises CaseError: An unknown set or case, or a bad case file.
         :raises LookupError: An unknown target.
         """
@@ -317,26 +338,28 @@ class Runs:
         refused = self._refused(target, chosen)
         chosen = [c for c in chosen if c.case not in refused]
         runs = self.all(target, set_name)
-        counts = {c.case: tries or int(c.limits["tries"]) for c in chosen}
+        least = {c.case: tries or int(c.limits["tries"]) for c in chosen}
+        most = {c.case: tries or MOST_TRIES for c in chosen}
+        c0 = self.targets.config.filler_usd
+        per_try = {c.case: per_try_usd(c, runs, c0) for c in chosen}
+        low, high = run_usd(per_try, least), run_usd(per_try, most)
         now = time.time()
         self._plans = {k: p for k, p in self._plans.items() if p.expires > now}
         token = secrets.token_urlsafe(18)
-        scope = "all" if {c.case for c in every} <= set(counts) else "some"
+        scope = "all" if {c.case for c in every} <= set(least) else "some"
         self._plans[token] = _Plan(
-            target, set_name, tuple(counts), tries, scope, now + TOKEN_SECONDS
+            target, set_name, tuple(least), tries, scope, per_try, low, now + TOKEN_SECONDS
         )
-        total = sum(counts.values())
-        c0 = self.targets.config.filler_usd
-        usd = sum(counts[c.case] * per_try_usd(c, runs, c0) for c in chosen)
-        usd += ANALYSIS_TRY_USD * FAIL_SHARE * total + ANALYSIS_RUN_USD
         return {
             "token": token,
             "target": target,
             "set": set_name,
             "cases": len(chosen),
-            "tries": total,
-            "chats": sum(counts[c.case] * messages(c) for c in chosen),
-            "usd": round(usd, 2),
+            "tries": sum(least.values()),
+            "tries_high": sum(most.values()),
+            "chats": sum(least[c.case] * messages(c) for c in chosen),
+            "usd": round(low, 2),
+            "usd_high": round(high, 2),
             # Some test has no cost of its own yet, so the figure is a rough guess.
             "first_run": any(not own_costs(c, runs) for c in chosen),
             # Tests this app can't serve, left out of the run and the figure.
@@ -358,9 +381,10 @@ class Runs:
         """Whether a run is playing on *target* now; its analysis, after, needs nothing of it."""
         return self.busy() and self._playing == target
 
-    async def start(self, token: str) -> dict[str, Any]:
+    async def start(self, token: str, base: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Start the run an estimate's *token* describes, graded with its set's pass marks; the
-        token is spent.
+        token is spent. *base* is the run it will be compared with, which a case that moved from
+        it plays on against; without one, the run a comparison would choose by default.
 
         :raises RunBusyError: A run or an analysis is going.
         :raises KeyError: An unknown or expired token.
@@ -402,6 +426,9 @@ class Runs:
             "commit": None,
             "code": None,
             "pass_marks": dict(eval_set.pass_marks),
+            # What the app may spend before the run stops (:func:`capped`), with each case's
+            # ``try_usd``.
+            "spend_cap": {"multiple": self.targets.config.spend_cap, "floor": plan.low},
             "set_version": eval_set.version,
             "case_versions": {c.case: c.version for c in cases},
             "error": None,
@@ -420,6 +447,7 @@ class Runs:
                     "source": c.source,
                     "stale": None,
                     "planned": plan.tries or int(c.limits["tries"]),
+                    "try_usd": plan.per_try[c.case],
                     "must_hold": c.must_hold,
                     # The test as it was played: a later change to its file doesn't change this.
                     "case": c.raw,
@@ -449,7 +477,7 @@ class Runs:
             self._running = self._playing = None
             self.lock.release()
             raise
-        self._go(self._play(doc, eval_set, cases, plan.tries))
+        self._go(self._play(doc, eval_set, cases, plan.tries, base))
         self._stop_watch = asyncio.get_running_loop().create_task(self._heed_stop(doc["run"]))
         return summary(doc)
 
@@ -648,11 +676,17 @@ class Runs:
             await sink.save(doc)
 
     async def _play(
-        self, doc: dict[str, Any], eval_set: EvalSet, cases: Sequence[Case], tries: int | None
+        self,
+        doc: dict[str, Any],
+        eval_set: EvalSet,
+        cases: Sequence[Case],
+        tries: int | None,
+        base: Mapping[str, Any] | None,
     ) -> None:
         """Play every try of *cases*: one case after another, or up to the target's
         ``max_parallel`` cases at once when its adapter declares ``parallel``, each slot in its own
-        session; a case's tries stay in order in one slot."""
+        session; a case's tries stay in order in one slot. *tries* of each, else until they say
+        something against *base*; the run stops once the app spent its cap."""
         name = doc["target"]
         target = self.targets.adapter(name)
         source = self.targets.source(name)
@@ -665,6 +699,7 @@ class Runs:
             found = drift.read(self.targets, name)
             for case in cases:
                 doc["cases"][case.case]["stale"] = drift.stale(case, found)
+            bases = await asyncio.to_thread(self._bases, doc, base)
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
                 await self.store.save(doc)
@@ -700,7 +735,10 @@ class Runs:
                 key = doc["run"] if slots == 1 else f"{doc['run']}-{index + 1}"
                 while queue:
                     case = queue.pop(0)
-                    for n in range(1, (tries or int(case.limits["tries"])) + 1):
+                    entry = doc["cases"][case.case]
+                    n, more = 0, True
+                    while more:
+                        n += 1
                         doc["current"] = {"case": case.case, "name": case.name, "try": n}
                         if index not in sessions:
                             sessions[index] = await _in_time("open a session", target.open(key))
@@ -720,8 +758,14 @@ class Runs:
                             n,
                             reused,
                         )
-                        doc["cases"][case.case]["tries"].append(attempt)
+                        entry["tries"].append(attempt)
                         doc["totals"] = totals(doc)
+                        if tries:
+                            more = n < tries
+                        else:
+                            least = int(case.limits["tries"])
+                            more = one_more(verdict_of(entry), least, bases.get(case.case))
+                        entry["planned"] = max(entry["planned"], n + 1) if more else n
                         if played.failure is Failure.REFUSED:
                             raise AppRefused(attempt["error"] or "")
                         if played.gone:
@@ -741,6 +785,8 @@ class Runs:
                         )
                         if left_going and target.capabilities.background and not played.cancelled:
                             raise StillWorking(STILL_WORKING)
+                        if _capped(doc):
+                            raise SpendCapped(SPEND_CAPPED)
                         if not reset:
                             await close_quietly(target, sessions.pop(index))
                             opened()
@@ -758,6 +804,9 @@ class Runs:
             doc.update(status="stopped", stop_reason=self._stop_reason or SERVER_SHUTDOWN)
             await self._finish(target, list(sessions.values()), doc)
             raise
+        except SpendCapped as exc:
+            # Stopped, not failed: the app answered, and the tries left are not run, not failed.
+            doc.update(status="stopped", stop_reason=str(exc))
         except AdapterBroken as exc:
             _logger.warning("evals: run %s: the adapter isn't reading the app", doc["run"])
             doc.update(
@@ -787,8 +836,8 @@ class Runs:
             doc.update(status="failed", failure=failure, error=message, stop_reason=message)
         failed = bool(_failed_tries(doc))
         # Every run that ends on its own explains itself: its failed tries, and a report when a
-        # model can write one. One the admin stopped is left as it is. Set before the run reads
-        # ended, so no reader sees it finished with analysis to come.
+        # model can write one. One stopped (by the admin or its cap) is left as it is. Set before
+        # the run reads ended, so no reader sees it finished with analysis to come.
         played = any(c["tries"] for c in doc["cases"].values())
         doc["analyzing"] = doc["status"] in ("done", "failed") and (
             failed or (played and self.caller(doc["judge"]["key"]) is not None)
@@ -796,6 +845,19 @@ class Runs:
         await self._finish(target, list(sessions.values()), doc)
         if doc["analyzing"]:
             await self._analyze(doc)
+
+    def _bases(self, doc: Mapping[str, Any], base: Mapping[str, Any] | None) -> dict[str, Verdict]:
+        """Each case's result in the run *doc* will be compared with: *base*, else the one a
+        comparison would choose (:func:`default_base`), as far as *doc* is known when it starts."""
+        if base is None:
+            others = self.store.all(doc["target"], doc["set"])
+            chosen = default_base(doc, others)
+            base = next((r for r in others if r["run"] == chosen), None)
+        if base is None:
+            return {}
+        return {
+            stem: verdict_of(base["cases"][stem]) for stem in doc["cases"] if stem in base["cases"]
+        }
 
     async def _check_first(self, name: str, target: Target, source: TraceSource | None) -> None:
         """One real turn before the first run on this adapter and setup, so a broken one fails in
@@ -1000,6 +1062,18 @@ def _keepable(played: Played) -> TryEvidence:
                 for t in evidence.turns
             ),
         }
+    )
+
+
+def _capped(doc: Mapping[str, Any]) -> bool:
+    """Whether the app has spent the run's cap, over the tries played so far."""
+    cap, cases = doc["spend_cap"], doc["cases"]
+    return capped(
+        doc["totals"]["usd"],
+        cap["multiple"],
+        cap["floor"],
+        {stem: entry["try_usd"] for stem, entry in cases.items()},
+        {stem: len(entry["tries"]) for stem, entry in cases.items()},
     )
 
 

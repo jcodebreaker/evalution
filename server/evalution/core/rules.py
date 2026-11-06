@@ -43,6 +43,8 @@ TARGET_GONE = "The app's session went away mid-try"
 SERVER_RESTARTED = "The server restarted during the run"
 #: A try that started already holding what it was to show: an earlier try's, left by a reset.
 LEFTOVER_STATE = "Started with leftover state"
+#: A run its spend cap stopped (``spend_cap`` in the config): it says nothing of the app either.
+SPEND_CAPPED = "The app spent several times the estimate, so the run stopped at its spend cap"
 #: A failed run's ``failure``: the app was not there to play on, or something else stopped it.
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
 
