@@ -21,10 +21,11 @@ from evalution.adapters.base import (
 )
 from evalution.api.app import create_app
 from evalution.config import load
-from evalution.core.evidence import Failure
+from evalution.core.evidence import Clipped, Failure, ToolRecord, TryEvidence
 from evalution.results.migrate import upcast
 from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary
+from evalution.review.findings import TRY_INSTRUCTIONS, report_input, try_input
 from evalution.runs import collect
 from evalution.runs.runner import Runs
 from evalution.storage import Database
@@ -132,6 +133,29 @@ def _run(analysis):
     }
 
 
+DIFFERS = {
+    "pass": {"run": "r1", "n": 1, "span": "t1-1"},
+    "fail": {"run": "r1", "n": 2, "span": "t2-1"},
+    "step": 1,
+    "kind": "tool",
+    "detail": "files_read instead of run_code",
+}
+
+
+def _played(n, tools):
+    """Try *n* of greets: a call to each of *tools*, a second apart."""
+    return TryEvidence(
+        case="greets",
+        n=n,
+        t0=0.0,
+        seconds=3.0,
+        tools=tuple(
+            ToolRecord(id=f"t{n}-{i}", name=name, args=Clipped(), result=Clipped(), start=i + 1.0)
+            for i, name in enumerate(tools)
+        ),
+    )
+
+
 def test_a_failed_test_shows_its_finding(client, tmp_path) -> None:
     run = _run({**FOUND, "kind": "assistant"})
     RunStore(Targets(load(tmp_path / "evalution.yaml")).docs).write(run)
@@ -144,6 +168,20 @@ def test_a_failed_test_shows_its_finding(client, tmp_path) -> None:
     assert client.get("/v1/evals/runs/r1/cases/greets").json()["finding"] == why
     assert client.get("/v1/evals/sets/main/cases/greets").json()["finding"] == why
     assert case_detail(upcast(_run(None)), "greets")["finding"] is None
+    assert client.get("/v1/evals/runs/r1/cases/greets").json()["divergence"] is None
+    # Where the failing try first went another way is a fact the finding is asked to start from.
+    differs = upcast(_run(None))
+    differs["cases"]["greets"]["divergence"] = DIFFERS
+    assert case_detail(differs, "greets")["divergence"] == DIFFERS
+    entry = differs["cases"]["greets"]
+    asked = try_input(entry, entry["tries"][1], entry["tries"])
+    assert (
+        "try 2 first differs from passing try 1 at step 2 of its tool calls and reply: "
+        "files_read instead of run_code (span t2-1)" in asked
+    )
+    assert "[Data: the first difference from a passing try." in asked
+    assert "start the cause from it" in TRY_INSTRUCTIONS
+    assert "files_read instead of run_code" in report_input(differs, None)
 
 
 async def test_an_analysis_that_cannot_finish_says_so(tmp_path) -> None:
@@ -153,9 +191,18 @@ async def test_an_analysis_that_cannot_finish_says_so(tmp_path) -> None:
     config = load(tmp_path / "evalution.yaml")
     runs = Runs(Targets(config), None)
     run = upcast(_run(None))
+    # With no model, the first difference is still found: it is code's.
+    runs.store.replace(run, [_played(1, ["search", "run_code"]), _played(2, ["search", "files"])])
     await runs._analyze(run)
     assert summary(run)["analysis_error"].startswith("No model is set up yet")
     assert not run["analyzing"]
+    assert run["cases"]["greets"]["divergence"] == {
+        "pass": {"run": "r1", "n": 1, "span": "t1-1"},
+        "fail": {"run": "r1", "n": 2, "span": "t2-1"},
+        "step": 1,
+        "kind": "tool",
+        "detail": "files instead of run_code",
+    }
 
 
 class _LosesTheApp(Target):

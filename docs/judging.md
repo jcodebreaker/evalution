@@ -183,6 +183,19 @@ A report has two parts. **Facts** come from the checks, with or without a model:
 
 What a model says comes as claims. Code checks that the refs exist and the quotes occur in the evidence, whitespace aside. A claim that doesn't check out is kept and marked "Not verified". A next step that cites nothing is shown as a suggestion. Its reading sees the grading that decided a line, never one it replaced. A grader's quotes get the same check. **A wrong reading with valid refs still gets through**: this shows the model looked at something real, not that it read it right.
 
+## First difference
+
+A test that is flaky, or that got worse against the run it is compared with, has tries that passed and tries that failed. Code lines one of each up and names the first step where they part (`review/divergence.py`), with no model. The passing try is from the same run, else from the comparison run when it played the same version of the test.
+
+A try's steps are its tool calls in start order, then its reply; calls the app makes by itself are left out. Each step carries what the model was sent when it decided it: the last model call of the same agent begun by then (for the reply, the assistant's last). Steps line up by index. At the first index where they differ:
+
+- **missing**: one try called a tool there and the other replied;
+- **tool**: different tools;
+- **args**: the same tool, and the first argument that differs, with both values;
+- **context**: the same step, and the passing try's model was sent words the failing one's never was at that step. Words are those of four letters or more, case aside, without a short list of common ones; a word sent anywhere in the failing try's request counts as sent. Only what the evidence captured is compared: a request held back on either side compares nothing.
+
+Ids and times differ on every try (uuids, ISO dates, clock times, epoch numbers, long words mixing letters and digits), so they are blanked out of arguments and requests first. Of several pairs, the one alike the longest is shown, the earliest on a tie. It is kept on the test in the run (`divergence` on the case detail), the trajectory marks it on the failing try, and a finding is given it as a fact to start its cause from.
+
 ## What can be compared
 
 Two runs side by side (`evalution compare`, and the card on a run's page) go by each test's share of judged tries that passed. A move is said to be possible chance by Fisher's exact test at 5%, so three tries each can never rule it out and four against four just can. A test edited or judged another way is still shown, and says so, rather than being left out. This is separate from the regressions on Home, which only count like for like.

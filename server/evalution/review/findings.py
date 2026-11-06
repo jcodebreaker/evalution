@@ -50,7 +50,10 @@ fault, never blame the assistant for it.
 - "unclear": what you were given doesn't tell.
 When the test is marked stale (the app changed: a tool, argument or prompt it expects was \
 changed or removed) and the failure is on that expectation, say "test" and cite the drift entry \
-in the evidence ("drift: tool_removed search")."""
+in the evidence ("drift: tool_removed search").
+"The first difference from a passing try" is a fact found by code: where a failing try first went \
+another way than a try of the same test that passed. When it is given, start the cause from it and \
+cite its span when it names one."""
 
 TRY_INSTRUCTIONS = f"""\
 You review one failed try of an eval case for an assistant app: the case (the person's \
@@ -213,6 +216,21 @@ def _spans(spans: Sequence[Mapping[str, Any]]) -> str:
     )
 
 
+def first_difference(entry: Mapping[str, Any]) -> str | None:
+    """The test's first difference between a passing and a failing try
+    (:mod:`evalution.review.divergence`) in a line; ``None`` when it has none."""
+    found = entry.get("divergence")
+    if not found:
+        return None
+    good, bad = found["pass"], found["fail"]
+    elsewhere = f" of run {good['run']}" if good["run"] != bad["run"] else ""
+    span = f" (span {bad['span']})" if bad.get("span") else ""
+    return (
+        f"try {bad['n']} first differs from passing try {good['n']}{elsewhere} at step "
+        f"{found['step'] + 1} of its tool calls and reply: {found['detail']}{span}"
+    )
+
+
 def _line_word(line: Mapping[str, Any]) -> str:
     if line.get("outcome") == Outcome.UNJUDGED:
         return "UNSURE"
@@ -247,9 +265,11 @@ def try_input(
         f"error: {attempt.get('error') or 'none'}"
     )
     stale = entry.get("stale")
+    differs = first_difference(entry)
     return "\n\n".join(
         [
             *([fenced("why the case may be stale (drift)", stale)] if stale else []),
+            *([fenced("the first difference from a passing try", differs)] if differs else []),
             fenced("the case's messages", turns or "(none)"),
             fenced("the expected tool calls", json.dumps(entry.get("expected") or {})),
             fenced("the rubric", "\n".join(entry.get("reply_rubric") or []) or "(no rubric)"),
@@ -334,6 +354,8 @@ def report_input(run: Mapping[str, Any], previous: Mapping[str, Any] | None) -> 
             lines.append(f"last run: {_went(before)}")
         if entry.get("stale"):
             lines.append(f"marked stale: {entry['stale']}")
+        if differs := first_difference(entry):
+            lines.append(f"the first difference from a passing try: {differs}")
         differed = [t for t in tries if _took_another_way(t)]
         if differed:
             missed = {

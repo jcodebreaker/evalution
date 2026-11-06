@@ -4,6 +4,7 @@
    "about": "Fake about 1.",
    "basis": "model_only",
    "case": "test-a",
+   "divergence": null,
    "expected": {
     "expected": [],
     "extras": true,
@@ -667,6 +668,7 @@
    "about": "Fake about 2.",
    "basis": "none",
    "case": "test-b",
+   "divergence": null,
    "expected": {
     "expected": [
      {

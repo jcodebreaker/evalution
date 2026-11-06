@@ -592,7 +592,8 @@ def _trajectory(
     expected: Sequence[Mapping[str, Any]],
     names: Mapping[str, str],
 ) -> dict[str, Any]:
-    """Expected step names against each try's, in the order the try made its calls."""
+    """Expected step names against each try's, in the order the try made its calls; a node of a
+    call made carries its ``span``, which a first difference (:mod:`.divergence`) names."""
 
     def label(name: str) -> str:
         return names.get(name) or humanize(name)
@@ -631,11 +632,13 @@ def _trajectory(
                     "label": label(_name(step["actual"] or step.get("expected"))),
                     "status": "wrong",
                 }
+            if step.get("span") and status != "missing":
+                node["span"] = step["span"]
             placed.append((at, order, node))
         automatic = set(attempt.get("automatic") or ())
         for order, call in enumerate(attempt.get("calls") or []):
             if call["id"] in automatic:
-                node = {"label": label(call["name"]), "status": "automatic"}
+                node = {"label": label(call["name"]), "status": "automatic", "span": call["id"]}
                 placed.append((starts[call["id"]], len(placed) + order, node))
         placed.sort(key=lambda p: (p[0], p[1]))
         reply = _reply_status(attempt)

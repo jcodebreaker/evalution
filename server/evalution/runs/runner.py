@@ -80,6 +80,7 @@ from evalution.results.record import (
 )
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
+from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
 from evalution.runs.estimate import (
     GRADE_TRY_USD,
@@ -648,11 +649,12 @@ class Runs:
         try:
             await self.store.save(doc)
             kept = await asyncio.to_thread(self.store.evidence, doc["run"])
+            earlier = await asyncio.to_thread(self.all, doc["target"], doc["set"])
+            await asyncio.to_thread(_mark_divergences, self.store, doc, kept, earlier)
             by_try = {(e.case, e.n): index_of([e]) for e in kept}
             by_case = {stem: index_of(e for e in kept if e.case == stem) for stem in doc["cases"]}
             await analyze_run(caller, doc, by_try, index_of(kept))
             await self.store.save(doc)
-            earlier = await asyncio.to_thread(self.all, doc["target"], doc["set"])
             ran = [r for r in earlier if r["started_at"] < doc["started_at"]]
             await write_report(caller, doc, ran[0] if ran else None, by_case)
         except Exception:
@@ -1099,6 +1101,21 @@ def _to_grade(doc: Mapping[str, Any], evidence: TryEvidence) -> bool:
     a rubric or a reference."""
     raw = ((doc["cases"].get(evidence.case) or {}).get("case") or {}).get("reply") or {}
     return evidence.failure is None and bool(raw.get("rubric") or raw.get("reference"))
+
+
+def _mark_divergences(
+    store: RunStore,
+    doc: dict[str, Any],
+    kept: Sequence[TryEvidence],
+    others: Sequence[Mapping[str, Any]],
+) -> None:
+    """Write each test's first difference between a passing and a failing try on *doc*, before
+    its analysis reads it; the passing try may be from the run a comparison would choose."""
+    chosen = default_base(doc, others)
+    base = next((r for r in others if r["run"] == chosen), None)
+    base_kept = store.evidence(base["run"]) if base else []
+    for stem, found in divergence.of_run(doc, kept, base, base_kept).items():
+        doc["cases"][stem]["divergence"] = found
 
 
 def _failed_tries(doc: Mapping[str, Any]) -> list[Mapping[str, Any]]:
