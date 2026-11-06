@@ -220,7 +220,6 @@ class Config:
     root: Path
     data_dir: Path
     sets_dir: Path
-    targets_dir: Path
     web_dir: Path
     model: ModelConfig | None
     targets: dict[str, TargetConfig]
@@ -421,7 +420,6 @@ def load(path: Path | None = None, docs: Docs | None = None) -> Config:
         root=root,
         data_dir=data_dir,
         sets_dir=where("sets_dir", "sets"),
-        targets_dir=where("targets_dir", "targets"),
         web_dir=where("web_dir", "web/dist"),
         model=_model(model_block, keys),
         model_source=model_source if model_block else None,

@@ -1,8 +1,7 @@
 # evalution's config. Copy to evalution.yaml. No secrets here: every *_env key names the env var
 # that holds the secret.
-data_dir: ./data                 # runs, agent sessions
-# sets_dir: ./sets               # cases: sets/<target>/<set>/
-# targets_dir: ./targets         # profiles, fingerprints, drift: targets/<target>/
+data_dir: ./data                 # the database (everything evalution keeps) and its secret key
+# sets_dir: ./sets               # where `sets export` / `sets import` and `run --sets` read and write tests
 filler_usd: 0.04                 # cost of one generated message, for estimates
 # allowed_hosts: [evals.example.test]  # more names it answers under, say behind a proxy; $EVALUTION_ALLOWED_HOSTS wins
 

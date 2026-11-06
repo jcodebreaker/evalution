@@ -329,12 +329,11 @@ def test_an_upgrade_that_loses_or_changes_a_run_says_so(home, capsys, monkeypatc
     assert "to undo all of it" in out
 
 
-@pytest.mark.parametrize("section", ["data", "sets"])
-def test_a_backup_inside_what_it_replaces_isnt_restored(home, capsys, section) -> None:
+def test_a_backup_inside_what_it_replaces_isnt_restored(home, capsys) -> None:
     config = str(home / "evalution.yaml")
     assert main(["--config", config, "backup"]) == 0
     (backup,) = (home / "backups").iterdir()
-    inside = home / section / "kept-here"
+    inside = home / "data" / "kept-here"
     shutil.move(backup, inside)
     before = everything(home)
     said(capsys)

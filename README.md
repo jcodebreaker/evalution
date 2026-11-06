@@ -423,12 +423,10 @@ uv run --project server evalution adapter new my_app            # a starter for 
 | Path | Holds | In git? |
 |---|---|---|
 | `sets/<app>/<set>/` | Your tests and fixtures as files, from `sets export`, for `sets import` and CI | Not in this repo: set `sets_dir` to a folder in your own |
-| `data/evalution.db` | Tests, and what else evalution keeps | No |
+| `data/evalution.db` | Everything evalution keeps: tests, runs and what each try saw, what it learned of each app, Ask AI chats, what the page sets. Owner-only | No |
+| `data/secret.key` | The key secrets are encrypted with, unless `EVALUTION_SECRET_KEY` is set | No |
 | `library/` | Ready-made tests | Yes |
-| `targets/<app>/` | What it learned, fingerprints, change state | Your choice |
-| `data/evalution.db` | Run results and what each try saw | No |
 | `data/phoenix/`, `data/traces/` | Traces | No |
-| `data/evalution.db`, `data/secret.key` | What the page sets (apps connected, the model), secrets encrypted with that key | No |
 | `evalution.yaml` | Settings by hand | No |
 | `backups/<time>/` | Copies from `backup` and `upgrade`, secrets included, owner-only | No |
 

@@ -1,11 +1,11 @@
 """``evalution backup | upgrade | restore``: moving to new code without losing what is kept.
 
-A backup is one timestamped folder, under ``<config folder>/backups`` by default: ``data/``,
-``sets/``, ``targets/`` and ``settings/`` (the config; what the page sets is in the database),
-with a ``manifest.json`` written last and holding every file's hash and first mode. ``data/`` holds
-the database, ``evalution.db``, copied through SQLite's own backup so a server writing to it can't
-tear the copy. A database ``$DATABASE_URL`` names that isn't SQLite is not in it: that one is backed
-up with its own tools. A backup holds secrets, so every folder in it is 0700 and every file 0600.
+A backup is one timestamped folder, under ``<config folder>/backups`` by default: ``data/`` and
+``settings/`` (the config; what the page sets is in the database), with a ``manifest.json``
+written last and holding every file's hash and first mode. ``data/`` holds the database,
+``evalution.db``, copied through SQLite's own backup so a server writing to it can't tear the copy.
+A database ``$DATABASE_URL`` names that isn't SQLite is not in it: that one is backed up with its
+own tools. A backup holds secrets, so every folder in it is 0700 and every file 0600.
 ``run.lock`` isn't kept: it means nothing later, and a restore must not swap the one it is holding.
 
 All three hold the run lock throughout, so they refuse while a run is going. ``restore``, which
@@ -80,7 +80,7 @@ class Outcome:
 
 
 def _sections(config: Config) -> dict[str, Path]:
-    return {"data": config.data_dir, "sets": config.sets_dir, "targets": config.targets_dir}
+    return {"data": config.data_dir}
 
 
 def _settings(config: Config) -> dict[str, Path]:
