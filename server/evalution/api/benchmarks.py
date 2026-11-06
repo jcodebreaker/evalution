@@ -14,10 +14,8 @@ from evalution.benchmarks import planning
 from evalution.traces.base import TraceSource
 
 
-def _relink(found: dict[str, Any], source: TraceSource | None) -> None:
+def _relink(found: dict[str, Any], source: TraceSource) -> None:
     """Each question's trace link as it should read now: older runs may name the wrong Phoenix."""
-    if source is None:
-        return
     for run in found["runs"]:
         for question in run["questions"]:
             if url := question.get("trace_url"):

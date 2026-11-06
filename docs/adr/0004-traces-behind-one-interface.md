@@ -1,6 +1,6 @@
 # 0004: Traces behind one interface, with a built-in OTLP source
 
-> **Status:** Accepted 2026-11-01 by the owner.
+> **Status:** Accepted 2026-11-01 by the owner. Its default is superseded by [0008](0008-built-in-traces-only.md): managed Phoenix is gone.
 
 evalution could only read traces from Phoenix, and only in OpenInference's attribute names. Its callers typed against the `Phoenix` class, and `traces/phoenix.py` mixed Phoenix's REST with what spans mean. So an app without Phoenix got no steps, and an app instrumented with the OpenTelemetry GenAI conventions got an empty trajectory. Managed Phoenix is also Elastic License 2.0: fine to self-host, not fine to offer as a service to others, which limits how evalution itself can ever be offered while it depends on it.
 

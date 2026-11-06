@@ -25,6 +25,7 @@ from evalution.runs.estimate import suggest_seconds
 from evalution.runs.fit import why_not
 from evalution.runs.runner import Runs
 from evalution.suite import cases, library, store
+from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
@@ -417,8 +418,6 @@ class Tools:
     async def read_trace_digest(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
         source = self.targets.source(target)
-        if source is None:
-            return "This target has no Phoenix project."
         sessions = args.get("sessions") or 50
         if not isinstance(sessions, int) or not 1 <= sessions <= 200:
             raise ValueError("sessions: a whole number from 1 to 200")
@@ -498,11 +497,8 @@ class Tools:
             found["case"]["limits"]["seconds"] = suggest_seconds(case, docs)[0]
         return {**found, "next": "Show it as a plan; save it with save_case once approved."}
 
-    def _source(self, turn: AgentTurn) -> Any:
-        source = self.targets.source(self._target(turn))
-        if source is None:
-            raise LookupError("this app has no traces to read conversations from")
-        return source
+    def _source(self, turn: AgentTurn) -> TraceSource:
+        return self.targets.source(self._target(turn))
 
     async def list_conversations(self, turn: AgentTurn, args: dict) -> Any:
         limit = args.get("limit") or 20
