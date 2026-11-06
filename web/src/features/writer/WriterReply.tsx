@@ -1,5 +1,5 @@
 import { ArrowRight, Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
-import { count, usd } from "../../lib/format";
+import { count } from "../../lib/format";
 import type { AgentMessage, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Markdown } from "../../ui/markdown";
@@ -150,7 +150,7 @@ export function WriterReply({
           ) : null}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
             <span className="text-[13px] text-ink-2 tabular-nums">
-              {count(plan.tries, "try", "tries")} · about {usd(plan.usd)}
+              {count(plan.tries, "try", "tries")}
             </span>
             {latest && plan.id ? (
               <Button size="sm" className="ms-auto" onClick={() => onApprove(plan.id ?? "")}>

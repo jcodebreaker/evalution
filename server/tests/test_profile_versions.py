@@ -59,7 +59,6 @@ WRITTEN = {
             "title": "Recalls the size",
             "what": "Say a size, ask later",
             "why": "It's the point",
-            "usd_per_try": 0.3,
             "priority": "p1",
             "library": "memory-recalls-fact",
         }
@@ -73,7 +72,7 @@ DIGEST = {
         "search": {"calls": 3, "offered": True},
         "teleport": {"calls": 0, "offered": True},
     },
-    "typical": {"seconds": {"median": 31.0}, "usd": {"median": 0.04}},
+    "typical": {"seconds": {"median": 31.0}},
     "per_ask": [
         {"tools": ["search", "search"], "all": ["search"], "delegated": False},
         {"tools": ["search"], "all": ["search"], "delegated": True},
@@ -83,7 +82,7 @@ DIGEST = {
 }
 
 
-TRY = {"tools": 1.0, "reply": 1.0, "seconds": 1.0, "tokens": 10, "usd": 0.1}
+TRY = {"tools": 1.0, "reply": 1.0, "seconds": 1.0, "tokens": 10}
 
 
 def _in_code(path: str, name: str) -> bool:
@@ -167,7 +166,6 @@ def test_numbers_come_from_the_digest_runs_and_library(target) -> None:
         "tools_seen": 1,
         "state_kinds": ["memory"],
         "ask_seconds": 31.0,
-        "ask_usd": 0.04,
         "tests": 2,
         "tests_passing": 1,
         "library_covered": 1,
@@ -243,7 +241,7 @@ def test_each_write_is_a_version_with_its_changes(tmp_path) -> None:
 def test_suggested_tests_mark_what_already_exists(target) -> None:
     targets = Targets(load(target / "evalution.yaml"))
     body = json.loads(json.dumps(WRITTEN))
-    more = {"what": "w", "why": "y", "usd_per_try": 0.1, "selected": True}
+    more = {"what": "w", "why": "y", "selected": True}
     body["starters"] += [
         {"id": "s2", "title": "greets", **more},  # the same name as a test
         {"id": "s3", "title": "Refunds once", **more},

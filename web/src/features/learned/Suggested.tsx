@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { count, usd } from "../../lib/format";
+import { count } from "../../lib/format";
 import type { Steer, Understanding } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Group } from "../shared/group";
@@ -61,9 +61,9 @@ export function Suggested({
                 <div className="mt-[3px] text-[11.5px] text-ink-3">{why}</div>
               ) : null}
             </div>
-            <span className="text-[12.5px] whitespace-nowrap text-ink-3 tabular-nums">
-              {entry.exists ? "Added" : `about ${usd(entry.usd_per_try)} a try`}
-            </span>
+            {entry.exists ? (
+              <span className="text-[12.5px] whitespace-nowrap text-ink-3">Added</span>
+            ) : null}
           </label>
         );
       })}

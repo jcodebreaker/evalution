@@ -9,9 +9,7 @@ and the agent (with tool calls). A transcript is provider-neutral:
 * ``{"role": "tool", "tool_call_id": str, "content": str}``
 
 and a tool is ``{"name", "description", "parameters": <JSON schema>}``. A call is tried
-:data:`ATTEMPTS` times on a transport error, a 429 or a 5xx. Usage is priced from the config's
-price table, else the built-in one (0 for a model in neither), and added to ``spent_usd``,
-which is kept in the database (kind :data:`SPEND`) so it counts every call evalution ever made.
+:data:`ATTEMPTS` times on a transport error, a 429 or a 5xx.
 
 The connection is swapped in place (:meth:`LLM.use`) when the model is set from the page, so
 every part holding this client picks the new model up without a restart. An ``LLM`` with no
@@ -32,7 +30,6 @@ import httpx
 
 from evalution.config import ModelConfig
 from evalution.core import net
-from evalution.storage import Docs
 
 _logger = logging.getLogger(__name__)
 
@@ -40,11 +37,6 @@ ATTEMPTS = 3
 TIMEOUT = 300.0
 MAX_TOKENS = 8_192
 ANTHROPIC_VERSION = "2023-06-01"
-#: What evalution's own model calls have cost: one entry per priced call, ``{"usd": float}``,
-#: under :data:`SPENT`. Added to, never rewritten, so calls made side by side (or by ``serve`` and
-#: ``evalution run`` at once) all count.
-SPEND = "spend"
-SPENT = "model"
 
 #: ``(instructions=, input_text=) -> text``: one plain model call.
 Caller = Callable[..., Awaitable[str]]
@@ -71,30 +63,17 @@ class Reply:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tokens_in: int = 0
     tokens_out: int = 0
-    usd: float = 0.0
     model: str = ""
 
 
 class LLM:
-    """The configured model connection. ``spent_usd`` adds up every call made, kept in *docs*
-    when given."""
+    """The configured model connection."""
 
     def __init__(
-        self,
-        config: ModelConfig | None,
-        transport: httpx.AsyncBaseTransport | None = None,
-        docs: Docs | None = None,
+        self, config: ModelConfig | None, transport: httpx.AsyncBaseTransport | None = None
     ):
         self.config = config
-        self.docs = docs
-        self._spent = 0.0
         self._client = net.client(timeout=TIMEOUT, transport=transport)
-
-    @property
-    def spent_usd(self) -> float:
-        if self.docs is None:
-            return self._spent
-        return round(sum(float(e.body["usd"]) for e in self.docs.entries(SPEND, SPENT)), 6)
 
     def __bool__(self) -> bool:
         return self.config is not None
@@ -119,14 +98,11 @@ class LLM:
             raise LLMError(f"no model for {key!r} in the config")
         return found
 
-    def caller(self, key: str, spent: Callable[[float], None] | None = None) -> Caller:
-        """A plain-text call on model *key*, the shape the Grader and analysis take. *spent* is
-        told what each call cost, for a tally of its own (a writer session's)."""
+    def caller(self, key: str) -> Caller:
+        """A plain-text call on model *key*, the shape the Grader and analysis take."""
 
         async def call(*, instructions: str, input_text: str) -> str:
             reply = await self.chat(key, instructions, [{"role": "user", "content": input_text}])
-            if spent is not None:
-                spent(reply.usd)
             return reply.text
 
         return call
@@ -155,14 +131,6 @@ class LLM:
         data = await self._post(url, headers, body)
         reply = read_anthropic(data) if config.kind == "anthropic" else read_openai(data)
         reply.model = reply.model or model
-        reply.usd = config.price(model, reply.tokens_in, reply.tokens_out)
-        if reply.usd:
-            self._spent = round(self._spent + reply.usd, 6)
-            if self.docs is not None:
-                try:
-                    await asyncio.to_thread(self.docs.append, SPEND, SPENT, {"usd": reply.usd})
-                except Exception:  # a paid reply is worth more than its tally
-                    _logger.warning("llm: could not keep the spend", exc_info=True)
         return reply
 
     async def _post(self, url: str, headers: dict[str, str], body: dict[str, Any]) -> Any:

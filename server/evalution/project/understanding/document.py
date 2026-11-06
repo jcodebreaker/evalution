@@ -143,19 +143,15 @@ def check(
     ):
         item = item if isinstance(item, dict) else {}
         where = f"starters[{n}]"
-        usd = item.get("usd_per_try")
         read = {
             "id": _id(item.get("id"), where, seen_starters, problems),
             "title": clean_text(item.get("title")),
             "what": clean_text(item.get("what")),
             "why": clean_text(item.get("why")),
-            "usd_per_try": float(usd) if isinstance(usd, (int, float)) else 0.0,
             "selected": item.get("selected") is True,
         }
         if not read["title"] or not read["what"]:
             problems.append(f"{where}: needs a title and what it does")
-        if isinstance(usd, bool) or not isinstance(usd, (int, float)) or usd < 0:
-            problems.append(f"{where}: usd_per_try is a number")
         if priority := item.get("priority"):
             if priority not in seen_priorities | set(priority_ids):
                 problems.append(f"{where}: no priority {priority}")

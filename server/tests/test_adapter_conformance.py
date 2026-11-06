@@ -215,7 +215,7 @@ def test_a_fourth_adapter_is_one_module(fourth_adapter, tmp_path) -> None:
         assert rows[0]["capabilities"] == ["isolation", "parallel"] and not rows[0]["error"]
         runs = client.app.state.runs
         writer = Agent(runs, SessionStore(runs.targets.docs), None)
-        session = {"target": "app", "set": "main", "model_usd": 0.0}
+        session = {"target": "app", "set": "main"}
         said = writer._instructions(session)
         assert "adapter 'echo', capabilities: isolation, parallel" in said
 

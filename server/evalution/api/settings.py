@@ -11,12 +11,6 @@ from fastapi import APIRouter, Header, Request
 from evalution import settings
 from evalution.api.deps import Current, busy, invalid, read_body
 from evalution.config import ConfigError, load
-from evalution.llm import LLM
-from evalution.targets import Targets
-
-
-def _view(targets: Targets, llm: LLM) -> dict[str, Any]:
-    return settings.view(targets.config, llm.spent_usd)
 
 
 def settings_router() -> APIRouter:
@@ -24,8 +18,7 @@ def settings_router() -> APIRouter:
 
     @router.get("/settings/model")
     async def get_model(ws: Current) -> dict[str, Any]:
-        targets, llm = ws.targets, ws.llm
-        return _view(targets, llm)
+        return settings.view(ws.targets.config)
 
     @router.put("/settings/model")
     async def put_model(ws: Current, request: Request) -> dict[str, Any]:
@@ -47,7 +40,7 @@ def settings_router() -> APIRouter:
                 targets.config, model=fresh.model, model_source=fresh.model_source
             )
             llm.use(fresh.model)
-        return {**_view(targets, llm), "key_dropped": dropped}
+        return {**settings.view(targets.config), "key_dropped": dropped}
 
     @router.get("/settings/model/models")
     async def get_models(
@@ -56,7 +49,7 @@ def settings_router() -> APIRouter:
         base_url: str | None = None,
         x_model_key: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        """The provider's models with their prices; a key typed but not saved comes as the
+        """The provider's models; a key typed but not saved comes as the
         ``X-Model-Key`` header."""
         targets = ws.targets
         try:
@@ -86,6 +79,6 @@ def settings_router() -> APIRouter:
             raise invalid(str(exc)) from exc
         if model is None:
             raise invalid("No model is set up yet")
-        return await settings.test(model, targets.docs)
+        return await settings.test(model)
 
     return router

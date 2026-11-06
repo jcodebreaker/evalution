@@ -231,8 +231,7 @@
        "t": 4.57,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.367844
+     ]
     },
     {
      "analysis": null,
@@ -440,8 +439,7 @@
        "t": 4.94,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.078803
+     ]
     },
     {
      "analysis": null,
@@ -649,8 +647,7 @@
        "t": 4.51,
        "text": "Fake step 10."
       }
-     ],
-     "usd": 0.071356
+     ]
     }
    ],
    "turns": [
@@ -1051,8 +1048,7 @@
        "t": 4.31,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.274885
+     ]
     },
     {
      "analysis": {
@@ -1386,8 +1382,7 @@
        "t": 4.24,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.276923
+     ]
     },
     {
      "analysis": {
@@ -1721,8 +1716,7 @@
        "t": 3.85,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.276568
+     ]
     }
    ],
    "turns": [
@@ -1815,7 +1809,6 @@
      "reason": null,
      "tries": 3,
      "unjudged": [],
-     "usd": 0.215,
      "verdict": "pass"
     }
    ],
@@ -1828,8 +1821,7 @@
     "reply": 0.95,
     "tokens": 158004,
     "tools": 1.0,
-    "unjudged": 0,
-    "usd": 0.215
+    "unjudged": 0
    }
   },
   "case_ids": [
@@ -1874,7 +1866,6 @@
      "passed"
     ],
     "unjudged": [],
-    "usd": 0.173,
     "verdict": "pass"
    },
    {
@@ -1916,7 +1907,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.276,
     "verdict": "unjudged"
    }
   ],
@@ -1927,7 +1917,6 @@
    "median_seconds_pct": 300.0,
    "reply": -0.042,
    "tools": -0.334,
-   "usd_pct": 526.2,
    "worse": 0
   },
   "ended_at": 1793583239.476345,
@@ -1992,7 +1981,6 @@
     "reason": null,
     "tries": 3,
     "unjudged": [],
-    "usd": 0.518,
     "verdict": "pass"
    },
    {
@@ -2008,7 +1996,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.8284,
     "verdict": "unjudged"
    }
   ],
@@ -2021,8 +2008,7 @@
    "reply": 0.908,
    "tokens": 588468,
    "tools": 0.666,
-   "unjudged": 1,
-   "usd": 1.3464
+   "unjudged": 1
   }
  },
  "latest_rows": [
@@ -2063,7 +2049,6 @@
     "passed"
    ],
    "unjudged": [],
-   "usd": 0.173,
    "verdict": "pass"
   },
   {
@@ -2105,7 +2090,6 @@
    "unjudged": [
     "judge_unsure"
    ],
-   "usd": 0.276,
    "verdict": "unjudged"
   }
  ],
@@ -2161,7 +2145,6 @@
     "reason": null,
     "tries": 3,
     "unjudged": [],
-    "usd": 0.518,
     "verdict": "pass"
    },
    {
@@ -2177,7 +2160,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.8284,
     "verdict": "unjudged"
    }
   ],
@@ -2190,8 +2172,7 @@
    "reply": 0.908,
    "tokens": 588468,
    "tools": 0.666,
-   "unjudged": 1,
-   "usd": 1.3464
+   "unjudged": 1
   }
  }
 }

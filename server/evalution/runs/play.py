@@ -70,7 +70,7 @@ from evalution.judging.steps import EXTRA_OK, Step
 from evalution.runs.collect import Wanted, collect, read_spans
 from evalution.runs.leftover import leftover
 from evalution.traces.base import Span, TraceSource
-from evalution.traces.view import Pricer, TraceView, answered_at, build
+from evalution.traces.view import TraceView, answered_at, build
 
 _logger = logging.getLogger(__name__)
 
@@ -187,7 +187,6 @@ async def play_try(
     *,
     filler: FillerWriter | None,
     source: TraceSource | None,
-    price: Pricer | None = None,
     n: int = 1,
     reused: set[str] | None = None,
     settle: float = DEFAULT_SETTLE,
@@ -278,7 +277,6 @@ async def play_try(
             session,
             played,
             source,
-            price,
             reused if reused is not None else set(),
             settle,
             stuck,
@@ -588,7 +586,6 @@ async def _read_traces(
     session: Session,
     played: Played,
     source: TraceSource,
-    price: Pricer | None,
     reused: set[str],
     settle: float,
     stuck: float,
@@ -617,7 +614,7 @@ async def _read_traces(
     if found.status in (TraceStatus.EMPTY, TraceStatus.UNREAD):
         played.error = played.error or found.note or NO_TRACES
     sectioner = target.sections if target.capabilities.sections else None
-    played.view = build(found.spans, played.t0, sectioner=sectioner, price=price)
+    played.view = build(found.spans, played.t0, sectioner=sectioner)
     first = (played.trace_ids or played.view.trace_ids or [None])[0]
     played.trace_url = source.trace_url(first)
     return found.status, found.note

@@ -53,8 +53,6 @@ def render_profile(name: str, doc: Mapping[str, Any], log: Sequence[Mapping[str,
         lines += ["", "## Typical ask", ""]
         if traced.get("ask_seconds") is not None:
             lines.append(f"- about {traced['ask_seconds']:.0f} s per ask [trace]")
-        if traced.get("ask_usd") is not None:
-            lines.append(f"- about ${traced['ask_usd']:.4f} per ask [trace]")
     if doc.get("paths"):
         lines += ["", "## Typical paths", ""]
         for path in doc["paths"]:
@@ -89,8 +87,7 @@ def card_md(found: Mapping[str, Any]) -> str:
     if n["state_kinds"]:
         lines.append(f"- State: {', '.join(n['state_kinds'])}")
     if n["ask_seconds"] is not None:
-        cost = f", ${n['ask_usd']:.2f} per ask" if n["ask_usd"] is not None else ""
-        lines.append(f"- Typical ask: {n['ask_seconds']:.0f} s{cost}")
+        lines.append(f"- Typical ask: {n['ask_seconds']:.0f} s")
     passing = f", {n['tests_passing']} pass" if n["tests_passing"] is not None else ""
     lines.append(f"- {n['tests']} tests{passing}")
     lines.append(

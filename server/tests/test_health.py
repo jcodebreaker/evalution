@@ -41,13 +41,12 @@ def _on_record(run):
     return done
 
 
-def _try(n, passed, seconds=10.0, usd=0.1, analysis=None):
+def _try(n, passed, seconds=10.0, analysis=None):
     return {
         "n": n,
         "passed": passed,
         "seconds": seconds,
         "tokens": 10,
-        "usd": usd,
         "tools": 1.0 if passed else 0.0,
         "reply": 1.0,
         "error": None if passed else "boom",
@@ -126,7 +125,7 @@ def test_home_counts_what_passed_and_adds_no_score() -> None:
     assert len(_health([old, *runs], period="30d")["trend"]) == 3
     # A run whose traces never arrived was not judged, so it says nothing about the app.
     blind = _run("r3", NOW - 60, {"a": [False]})
-    blind["cases"]["a"]["tries"][0].update(error=NO_TRACES, usd=0.0)
+    blind["cases"]["a"]["tries"][0].update(error=NO_TRACES)
     assert _health([blind, *runs]) == found
     assert summary(upcast(blind))["tests"] == [
         {
@@ -141,7 +140,6 @@ def test_home_counts_what_passed_and_adds_no_score() -> None:
             "passed": 0,
             "different": 0,
             "tries": 0,
-            "usd": 0.0,
         }
     ]
     # Runs judged another way don't make a change between runs: the rules moved, not the app.
@@ -314,7 +312,6 @@ def test_an_app_without_runs_reads_empty(tmp_path) -> None:
             },
             "consistent": {"value": 0, "total": 0},
             "reply_seconds": {"value": None, "delta": None},
-            "cost": {"per_question": None, "period_total": 0},
         },
         "areas": [],
         "trend": [],

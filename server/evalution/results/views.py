@@ -15,7 +15,6 @@ from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
     SERVER_RESTARTED,
-    SPEND_CAPPED,
     TARGET_GONE,
     called_of,
     comparable,
@@ -88,7 +87,6 @@ def case_row(
         else None,
         "seconds": _mean([t["seconds"] for t in tries]),
         "tokens": round(statistics.fmean([t["tokens"] for t in tries])) if tries else None,
-        "usd": _mean([t["usd"] for t in tries]),
         "last_run": last["run"] if last else None,
         "last_at": float(last["started_at"]) if last else None,
         "stale": entry.get("stale"),
@@ -139,7 +137,6 @@ def totals(run: Mapping[str, Any]) -> dict[str, Any]:
         "tools": _mean([r["tools"] for r in rows if r["tools"] is not None]),
         "reply": _mean([r["reply"] for r in rows if r["reply"] is not None]),
         "median_seconds": statistics.median([t["seconds"] for t in tries]) if tries else 0.0,
-        "usd": round(sum(t["usd"] for t in tries), 4),
         "tokens": sum(t["tokens"] for t in tries),
     }
 
@@ -164,8 +161,6 @@ _SUMMARY_KEYS = (
 
 def _why_not_played(run: Mapping[str, Any]) -> str | None:
     """Why a test has no result, in plain words; ``None`` when it was just stopped."""
-    if run.get("stop_reason") == SPEND_CAPPED:
-        return "spend cap"
     if run.get("status") != "failed":
         return None
     if _interrupted(run):
@@ -194,7 +189,6 @@ def _app_not_ready(run: Mapping[str, Any]) -> bool:
 
 def _run_test(run: Mapping[str, Any], stem: str, entry: Mapping[str, Any]) -> dict[str, Any]:
     """How one test of a run went."""
-    tries = entry.get("tries") or []
     found = verdict_of(entry)
     kind = verdict_kind(entry)
     return {
@@ -210,7 +204,6 @@ def _run_test(run: Mapping[str, Any], stem: str, entry: Mapping[str, Any]) -> di
         "passed": found.passed,
         "different": _different(entry),
         "tries": found.judged,
-        "usd": round(sum(float(t.get("usd") or 0) for t in tries), 4),
     }
 
 
@@ -280,7 +273,6 @@ def delta(run: Mapping[str, Any], base: Mapping[str, Any]) -> dict[str, Any]:
         "tools": _moved(a["tools"], b["tools"]),
         "reply": _moved(a["reply"], b["reply"]),
         "median_seconds_pct": _pct(a["median_seconds"], b["median_seconds"]),
-        "usd_pct": _pct(a["usd"], b["usd"]),
     }
 
 
@@ -321,7 +313,8 @@ def detail(
 
 
 #: What a stored try keeps that the API's ``Try`` doesn't show.
-_NOT_IN_A_TRY = ("calls", "messages", "trace_ids", "judgements", "legacy_passed")
+#: A try's own fields the API doesn't show; ``usd`` is what an older run recorded it cost.
+_NOT_IN_A_TRY = ("calls", "messages", "trace_ids", "judgements", "legacy_passed", "usd")
 
 
 def _judged(attempt: Mapping[str, Any]) -> dict[str, Any]:

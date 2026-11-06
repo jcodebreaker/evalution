@@ -1,12 +1,7 @@
 import type { ModelOption } from "../../lib/schema";
 import { Input, Select } from "../../ui/field";
 
-const perMillion = (option: ModelOption) =>
-  option.input === undefined
-    ? ""
-    : ` · $${option.input} in, $${option.output ?? 0} out per million tokens`;
-
-/** The provider's models with their prices; a plain field when there is no list. */
+/** The provider's models; a plain field when there is no list. */
 export function ModelPicker({
   value,
   options,
@@ -45,7 +40,7 @@ export function ModelPicker({
       {value ? null : <option value="">Choose a model</option>}
       {options.map((option) => (
         <option key={option.id} value={option.id}>
-          {`${option.name}${perMillion(option)}`}
+          {option.name}
         </option>
       ))}
     </Select>

@@ -1,10 +1,10 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
-import { seconds, usd } from "../../lib/format";
+import { seconds } from "../../lib/format";
 import type { Span } from "../../lib/schema";
 import { Button } from "../../ui/button";
 
-/** One step of the timeline: when, how long, the model and its spend, and what went in and out. */
+/** One step of the timeline: when, how long, the model and its tokens, and what went in and out. */
 export function Inspector({ span, onClose }: { span: Span; onClose: () => void }) {
   const rows: [string, ReactNode][] = [
     ["Started", seconds(span.start, true)],
@@ -16,7 +16,6 @@ export function Inspector({ span, onClose }: { span: Span; onClose: () => void }
     const tokensOut = (span.tokens_out ?? 0).toLocaleString();
     rows.push(["Tokens", `${tokensIn} in · ${tokensOut} out`]);
   }
-  if (span.usd) rows.push(["Spent", usd(span.usd)]);
   if (span.helper) rows.push(["Ran in", "A helper"]);
   if (span.automatic) rows.push(["Scored", "No, it ran by itself"]);
   if (span.check) {

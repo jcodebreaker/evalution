@@ -58,7 +58,7 @@ def runs_router() -> APIRouter:
 
     @router.post("/evals/runs/estimate")
     async def estimate(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
-        """Tries, chats and the estimated cost (a range: :meth:`Runs.estimate`) for a set, one
+        """Tries and chats (a range: :meth:`Runs.estimate`) for a set, one
         case or some, and the token that starts the run."""
         targets, runs = ws.targets, ws.runs
         name = target_name(targets, body.get("target"))

@@ -133,7 +133,6 @@ async def test_how_good_is_the_grader(make_rig, monkeypatch) -> None:
         table["unsure_on_bug"] += row["outcomes"].count(Outcome.UNJUDGED.value)
 
     print(f"\nmodel {MODEL}, {TRIES} tries each, {sum(r['calls'] for r in results)} grading calls")
-    print(f"spent ${llm.spent_usd:.4f}")
     print(json.dumps(table))
     for row in results:
         print(
@@ -212,7 +211,7 @@ async def test_how_good_is_the_grader_on_the_hard_ones() -> None:
                 found[key] += 1
     false_fail = sum(row["said"].count("failed") for row in rows if row["wanted"] == "passed")
     false_pass = sum(row["said"].count("passed") for row in rows if row["wanted"] == "failed")
-    print(f"\nmodel {MODEL}, {TRIES} tries each, {len(rows)} cases, spent ${llm.spent_usd:.4f}")
+    print(f"\nmodel {MODEL}, {TRIES} tries each, {len(rows)} cases")
     print(f"false passes {false_pass}, false fails {false_fail}")
     for group, found in tally.items():
         print(group, found)

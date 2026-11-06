@@ -1,13 +1,9 @@
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
-import { count, usd } from "../../lib/format";
+import { count } from "../../lib/format";
 import type { Knowledge, Understanding } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
-
-/** A button's words with what pressing it costs, when that can be told. */
-export const withCost = (label: string, cost: number | null) =>
-  cost === null ? label : `${label} · about ${usd(cost)}`;
 
 /** How much of what it knows may be out of date, and the one button that updates them. */
 export function OutOfDate({
@@ -38,7 +34,7 @@ export function OutOfDate({
       {knowledge.can_update ? (
         <Button variant="secondary" disabled={busy} onClick={() => void update()}>
           {busy ? <Spinner /> : null}
-          {withCost("Update", knowledge.update_usd)}
+          Update
         </Button>
       ) : null}
       {error ? <span className="text-destructive">{error}</span> : null}

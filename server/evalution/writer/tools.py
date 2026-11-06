@@ -75,7 +75,7 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "read_docs": f"Reading {args.get('path')}",
         "approve": None,
         "save_case": "Saving the case",
-        "estimate": f"Estimating the cost of {case or 'the set'}",
+        "estimate": f"Estimating a run of {case or 'the set'}",
         "read_run": f"Reading the results of run {run}",
         "read_try": f"Reading try {args.get('try')} of {case}",
         "read_trace": f"Reading the traces of {case}",
@@ -113,15 +113,12 @@ def _plan(value: Any) -> dict[str, Any]:
         if isinstance(step.get("note"), str) and step["note"].strip():
             read["note"] = step["note"].strip()
         steps.append(read)
-    tries, usd = value.get("tries"), value.get("usd")
+    tries = value.get("tries")
     if isinstance(tries, bool) or not isinstance(tries, int) or tries < 1:
         raise ValueError("plan.tries: must be a whole number of at least 1")
-    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or usd < 0:
-        raise ValueError("plan.usd: must be a number")
     return {
         "steps": steps,
         "tries": tries,
-        "usd": float(usd),
         "case": _text(value.get("case"), "plan.case"),
     }
 
@@ -335,7 +332,6 @@ class Tools:
             "checks",
             "seconds",
             "tokens",
-            "usd",
             "tools",
             "reply",
             "steps",
@@ -425,7 +421,7 @@ class Tools:
             raise ValueError("sessions: a whole number from 1 to 200")
         groups = await recent_sessions(source, self.targets.trace_attribute(target), sessions)
         turn.read.append(f"Read a digest of {len(groups)} sessions")
-        return fenced("the trace digest", render(digest(groups, self.targets.price)))
+        return fenced("the trace digest", render(digest(groups)))
 
     def _code(self, turn: AgentTurn) -> Any:
         code = self.targets.code(self._target(turn))
@@ -632,8 +628,7 @@ class Tools:
 
     async def _weak_lines(self, session: dict[str, Any], case: Case) -> list[dict[str, Any]]:
         """The rubric lines of *case* its replies show a grader could misread
-        (:mod:`evalution.writer.linecheck`), their calls added to the session's spend. None
-        without a model to draft on and grade with."""
+        (:mod:`evalution.writer.linecheck`). None without a model to draft on and grade with."""
         llm = self.runs.llm
         if not llm or not case.rubric:
             return []
@@ -643,13 +638,7 @@ class Tools:
         drafting = "light" if llm.model_id("light") else "strong"
         if not llm.model_id(drafting) or not llm.model_id(eval_set.grader):
             return []
-
-        def spent(usd: float) -> None:
-            session["model_usd"] = float(session["model_usd"]) + usd
-
-        return await linecheck.weak_lines(
-            case, llm.caller(drafting, spent), llm.caller(eval_set.grader, spent)
-        )
+        return await linecheck.weak_lines(case, llm.caller(drafting), llm.caller(eval_set.grader))
 
 
 #: Every tool the model can call, by the name in :data:`evalution.writer.schemas.TOOLS`.

@@ -66,7 +66,7 @@ MODEL_KEYS = (
 )
 _CONFIG = re.compile(r"^(\.env(\..+)?|compose.*\.ya?ml|docker-compose.*\.ya?ml)$")
 _KEY = re.compile(r"^\s*-?\s*([A-Z][A-Z0-9_]+)\s*[=:]", re.M)
-#: Real asks needed before the card shows a typical time and cost.
+#: Real asks needed before the card shows a typical time.
 MIN_ASKS = 3
 _DEPTH = 3
 _PY_FILES = re.compile(r"^(pyproject\.toml|setup\.py|requirements.*\.txt)$")
@@ -147,7 +147,6 @@ def build(written: Mapping[str, Any], found: Mapping[str, Any]) -> dict[str, Any
         "tools": len(set(tools) | named),
         "tools_seen": len(called),
         "ask_seconds": median("seconds"),
-        "ask_usd": median("usd"),
     }
     return doc
 
@@ -336,9 +335,8 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
         "tools": int(traced.get("tools") or 0),
         "tools_seen": int(traced.get("tools_seen") or 0),
         "state_kinds": state_kinds(state_checks, read_profile(targets, name)),
-        # Too few real asks make a typical time or cost misleading: say nothing rather than a guess.
+        # Too few real asks make a typical time misleading: say nothing rather than a guess.
         "ask_seconds": traced.get("ask_seconds") if enough else None,
-        "ask_usd": traced.get("ask_usd") if enough else None,
         **tests_numbers(targets, runs, name, rows),
     }
     card = {

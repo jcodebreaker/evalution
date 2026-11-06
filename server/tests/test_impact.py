@@ -20,7 +20,6 @@ PASSED = {
     "passed": True,
     "seconds": 1.0,
     "tokens": 1,
-    "usd": 0.1,
     "tools": 1.0,
     "reply": 1.0,
 }

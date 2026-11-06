@@ -2,7 +2,7 @@ import { ArrowUp, History, Square, SquarePen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { ago, usd } from "../../lib/format";
+import { ago } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
@@ -248,11 +248,6 @@ export function WriterPanel({
             <ArrowUp />
           </Button>
         </div>
-        {session ? (
-          <p className="m-0 px-3 pt-1.5 text-[11.5px] text-ink-3 tabular-nums">
-            This chat has cost {usd(session.spent_usd)}
-          </p>
-        ) : null}
         {error || approval.error || swap.error ? (
           <p className="m-0 pt-2 text-[12px] text-destructive">
             {error ?? approval.error ?? swap.error}

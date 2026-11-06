@@ -40,8 +40,8 @@ from evalution.traces.view import build, helper_of
 
 
 def test_serve_runs_no_phoenix_and_an_old_config_still_loads(tmp_path, monkeypatch, caplog) -> None:
-    """A config from when evalution ran Phoenix loads, says once what changed, and nothing is
-    started: the built-in store takes the spans."""
+    """A config from when evalution ran Phoenix, and priced what models cost, loads, says once what
+    changed, and nothing is started: the built-in store takes the spans."""
 
     def spawn(*args, **kwargs):
         raise AssertionError("nothing is started")
@@ -49,14 +49,19 @@ def test_serve_runs_no_phoenix_and_an_old_config_still_loads(tmp_path, monkeypat
     monkeypatch.setattr(subprocess, "Popen", spawn)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     monkeypatch.setattr(config_module, "_said_retired", False)
+    monkeypatch.setattr(config_module, "_said_money", False)
     file = tmp_path / "evalution.yaml"
     old = {"managed": True, "port": 6007, "grpc": 4317, "keep_mb": 500, "keep_days": 3}
-    file.write_text(yaml.safe_dump({"targets": {}, "traces": old}))
+    model = {"kind": "openai", "base_url": "http://m", "models": {"strong": "s", "light": "l"}}
+    priced = {**model, "prices": {"s": {"input": 1, "output": 2}}}
+    money = {"filler_usd": 0.04, "spend_cap": 3, "model": priced}
+    file.write_text(yaml.safe_dump({"targets": {}, "traces": old, **money}))
     with caplog.at_level(logging.WARNING, logger="evalution.config"):
         loaded = load(file)
         load(file)
     said = [r.getMessage() for r in caplog.records]
-    assert len(said) == 1 and "traces.managed, traces.port" in said[0] and "Phoenix" in said[0]
+    assert len(said) == 2 and "filler_usd, spend_cap, model.prices" in said[0]
+    assert "traces.managed, traces.port" in said[1] and "Phoenix" in said[1]
     assert loaded.traces.keep_days == 3 and load(tmp_path / "none.yaml").traces.keep_days == 30
     with TestClient(create_app(loaded, url="http://127.0.0.1:8080")) as client:
         assert client.get("/v1/traces").json() == {"url": "http://127.0.0.1:8080", "token": False}
@@ -148,11 +153,7 @@ def test_the_digest_is_per_ask_and_leaves_out_eval_traffic() -> None:
                 at + 2,
                 "LLM",
                 f"r{n}",
-                **{
-                    "input.value": tools,
-                    "llm.token_count.prompt": 100,
-                    "llm.cost.total": 0.01,
-                },
+                **{"input.value": tools, "llm.token_count.prompt": 100},
             )
         )
         if n < 2:
@@ -176,7 +177,6 @@ def test_the_digest_is_per_ask_and_leaves_out_eval_traffic() -> None:
     made = digest(list(found.values()))
     assert made["sessions"] == 1 and made["asks"] == 3 and made["no_tool_asks"] == 1
     assert made["typical"]["seconds"]["median"] == 30.0
-    assert made["typical"]["usd"]["median"] == 0.01
     # Offered and called tools are the same tool, without the MCP prefix.
     assert list(made["tools"]) == ["search"] and made["tools"]["search"]["offered"]
     assert "1 of 3 asks used no tools" in render(made)
@@ -403,9 +403,6 @@ def _store(tmp_path, workspace: str = "local") -> SpanStore:
 
 
 async def test_both_conventions_give_the_same_view_over_plain_spans(tmp_path) -> None:
-    def price(model, tokens_in, tokens_out):
-        return 0.5 if model == "some-model" else 0.0
-
     from_phoenix = [span_of(_phoenix_row(*s)) for s in [*PLAIN, *OPENINFERENCE]]
     with _client(tmp_path) as client:
         sent = client.post("/v1/traces", json=_otlp_json([*PLAIN, *GENAI]))
@@ -413,12 +410,12 @@ async def test_both_conventions_give_the_same_view_over_plain_spans(tmp_path) ->
     from_otlp = await _built_in_spans(_store(tmp_path))
     assert {s.kind for s in from_otlp if s.id in (ROOT, HEALTH)} == {"UNKNOWN"}
 
-    one = build(from_phoenix, 1_000.0, price=price)
-    other = build(from_otlp, 1_000.0, price=price)
+    one = build(from_phoenix, 1_000.0)
+    other = build(from_otlp, 1_000.0)
     assert other == one
     assert [row["id"] for row in one.timeline] == [AGENT, MODEL, TOOL]
     assert one.timeline[0]["parent"] is None  # its parent is a plain span, so it starts the tree
-    assert one.tokens == 120 and one.usd == 0.5
+    assert one.tokens == 120
     assert one.calls[0].name == "search" and one.calls[0].args == {"q": "shoes"}
     assert [step["kind"] for step in one.trajectory] == ["said", "called", "result"]
     assert one.context[0]["system"] == "Be brief"

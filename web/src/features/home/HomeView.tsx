@@ -145,7 +145,6 @@ export function HomeView({
               <ChangeCard
                 change={health.code_change}
                 canRead={health.knowledge.can_update}
-                readUsd={health.knowledge.read_usd}
                 onRead={() => void reload()}
                 scope={scope}
                 going={going}
@@ -156,7 +155,6 @@ export function HomeView({
             ) : null}
             <Dashboard
               health={health}
-              period={period}
               runLabel={runLabel}
               onRun={onRun}
               onRuns={onRuns}

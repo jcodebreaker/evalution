@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { seconds, tokens, usd, when } from "../../lib/format";
+import { seconds, tokens, when } from "../../lib/format";
 import type { Verdict } from "../../lib/schema";
 import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
@@ -770,7 +770,6 @@ function QuestionRow({
   const trace = traceLink(question.trace_url);
   const more = [
     question.messages ? `${question.messages} messages` : null,
-    question.usd ? usd(question.usd) : null,
     ...question.models,
   ].filter(Boolean);
   return (

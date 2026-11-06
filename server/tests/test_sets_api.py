@@ -119,7 +119,7 @@ def test_pass_marks_round_trip_and_read_the_old_key(client, tmp_path) -> None:
 
 
 FOUND = {"summary": "Never searched", "cause": "No tool", "evidence": [], "fix": "Add a line"}
-TRY = {"tools": 0.0, "reply": 1.0, "seconds": 1.0, "tokens": 10, "usd": 0.1, "error": None}
+TRY = {"tools": 0.0, "reply": 1.0, "seconds": 1.0, "tokens": 10, "error": None}
 
 
 def _run(analysis):
@@ -381,22 +381,18 @@ def _quiet_app(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("tries", "answers", "usd", "asked", "status"),
+    ("tries", "answers", "asked", "status"),
     [
         # Three hangs in a row stop it.
-        (1, (), 0.0, 3, "failed"),
+        (1, (), 3, "failed"),
         # A count asked for is played exactly, whatever the tries say.
-        (1, ("msg2", "msg5"), 0.0, 6, "done"),
+        (1, ("msg2", "msg5"), 6, "done"),
         # None asked for: each test's own three, which agree, so no more.
-        (None, _ALL, 0.0, 18, "done"),
-        # The first test's tries cost $8 against an estimate of $0.40: the cap, three times the
-        # low estimate of about $7.41 while that is more than the tries played, stops it on its
-        # third, far under three times the high end.
-        (None, _ALL, 8.0, 3, "stopped"),
+        (None, _ALL, 18, "done"),
     ],
 )
 async def test_a_run_plays_its_tries_and_stops_when_it_must(
-    tmp_path, monkeypatch, tries, answers, usd, asked, status
+    tmp_path, monkeypatch, tries, answers, asked, status
 ) -> None:
     _quiet_app(tmp_path, monkeypatch)
     folder = tmp_path / "sets" / "bot" / "main"
@@ -410,18 +406,9 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     import_sets(_docs(tmp_path), tmp_path / "sets")
     target = _Hangs(answers)
     monkeypatch.setitem(adapters._built, "bot", target)
-    play = Runs._try
-
-    async def spending(self, *args):
-        # What the traces would say the app spent on a try of the first test.
-        attempt, played = await play(self, *args)
-        return {**attempt, "usd": usd if args[7].case == "t0" else 0.0}, played
-
-    monkeypatch.setattr(Runs, "_try", spending)
     runs = Runs(Targets(config), None)
     estimate = runs.estimate("bot", "main", None, tries)
     assert (estimate["tries"], estimate["tries_high"]) == ((6, 6) if tries else (18, 120))
-    assert estimate["usd_high"] == estimate["usd"] if tries else estimate["usd_high"] > 6
     made = await runs.start(estimate["token"], env="staging")
     assert runs.load(made["run"])["status"] == "running", "stored before start answers"
     assert runs.load(made["run"])["environment"] == {"where": "local", "name": "staging"}
@@ -432,13 +419,6 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     assert all(c["planned"] == len(c["tries"]) for c in played), "planned ends at what it played"
     if status == "failed":
         assert "sleep" in run["stop_reason"]
-    if status == "stopped":
-        # Nothing judged from the tests it didn't reach, and none of its tries failed for it.
-        reasons = [t["reason"] for t in summary(run)["tests"]]
-        assert reasons == [None] + ["spend cap"] * 5
-        assert run["totals"]["usd"] < 3 * estimate["usd_high"]
-        errors = {t["error"] for c in played for t in c["tries"]}
-        assert errors <= {None, "No traces arrived"}, "the app sends none"
 
 
 async def test_stop_reaches_a_run_another_process_is_playing(tmp_path, monkeypatch) -> None:

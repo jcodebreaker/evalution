@@ -11,7 +11,7 @@ import {
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { seconds, tokens, usd, when } from "../../lib/format";
+import { seconds, tokens, when } from "../../lib/format";
 import type { Benchmarks } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { TextLink } from "../shared/group";
@@ -344,7 +344,6 @@ function Usage({ run }: { run: Run }) {
   const parts = [
     run.status === "running" ? null : `${played(run)} of ${run.questions.length} played`,
     totals?.tokens ? `${compactTokens(totals.tokens)} tokens` : null,
-    totals?.usd ? usd(totals.usd) : null,
     totals?.median_seconds ? `${seconds(totals.median_seconds)} median` : null,
     totals?.models.length ? totals.models.join(", ") : null,
     run.judge ? `judged by ${run.judge}` : null,

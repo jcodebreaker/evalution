@@ -15,7 +15,6 @@ const MESSAGE = AgentMessageSchema.parse({
     id: "p1",
     steps: [{ kind: "message", title: "Ask where the office is" }],
     tries: 3,
-    usd: 0.1,
     case: "office",
     weak_lines: [
       { line: "Says the office moved", why: "good_failed", use: { line: "Says Lisbon" } },

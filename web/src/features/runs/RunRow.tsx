@@ -1,4 +1,4 @@
-import { live, progressText, spent, when } from "../../lib/format";
+import { live, progressText, when } from "../../lib/format";
 import type { RunSummary, RunTest } from "../../lib/schema";
 import { originallyWord, unjudgedWords, verdictLine } from "../../lib/verdict";
 import { Spinner } from "../../ui/loading";
@@ -28,7 +28,6 @@ export function RunRow({
       </span>
       <span className="flex items-center gap-4 text-[12px] text-ink-2 tabular-nums">
         {test.tries ? <span>{`${test.passed} of ${test.tries} tries`}</span> : null}
-        {spent(test.usd) ? <span>{spent(test.usd)}</span> : null}
         <span className="text-ink-3">{when(run.started_at)}</span>
       </span>
     </button>

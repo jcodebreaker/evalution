@@ -28,7 +28,7 @@ from typing import Any
 from evalution.code import Code, CodeError
 from evalution.core.case import Case
 from evalution.core.rules import judged_tries
-from evalution.llm import Caller, LLMError, cut, fenced, json_answer
+from evalution.llm import Caller, cut, fenced, json_answer
 from evalution.project import drift
 from evalution.project.history import History
 from evalution.project.profile import (
@@ -64,9 +64,6 @@ SUMMARY_CAP = 500
 #: a steady stream can put that off.
 SETTLE = 5.0
 SETTLE_MOST = 60.0
-#: About how many tokens an answer takes, and how many characters make a token, for an estimate.
-ANSWER_TOKENS = 400
-CHARS_PER_TOKEN = 4
 
 INSTRUCTIONS = """\
 You read a code change in an agent app and say which of its tests it could affect. What is fenced \
@@ -81,18 +78,6 @@ use ("memory", "refunds"), never file paths. Leave it empty when behaviour canno
 
 Answer with one JSON object and nothing else:
 {"summary": "...", "areas": ["..."], "tests": ["set/test"], "uncovered": ["..."]}"""
-
-
-def about_usd(runs: History, chars: int, answer_tokens: int = ANSWER_TOKENS) -> float | None:
-    """A rough price of a light call that sends *chars*; ``None`` when there is no way to tell."""
-    llm = runs.llm
-    if not chars or not llm or llm.config is None:
-        return None
-    try:
-        model = llm.model("light")
-    except LLMError:
-        return None
-    return llm.config.price(model, chars // CHARS_PER_TOKEN, answer_tokens) or None
 
 
 def _names(value: Any) -> list[str]:
@@ -266,11 +251,6 @@ def _look(runs: History, name: str) -> dict[str, Any] | None:
     }
 
 
-def _size(look: Mapping[str, Any]) -> int:
-    """About what a call on this change sends."""
-    return len(INSTRUCTIONS) + len(look["diff"]) + len(look["profile"]) + len(str(look["tests"]))
-
-
 def _settle(runs: History, name: str, look: Mapping[str, Any], result: Mapping[str, Any]) -> None:
     """Store what the card shows, or move the tested state forward when nothing is left."""
     targets, now = runs.targets, look["now"]
@@ -283,7 +263,6 @@ def _settle(runs: History, name: str, look: Mapping[str, Any], result: Mapping[s
             "since": look["since"],
             "files": look["files"],
             "fingerprint": look["fingerprint"],
-            "chars": _size(look),
         }
         history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
         left, played = _left(current, history)
@@ -336,12 +315,6 @@ def hold(targets: Targets, name: str) -> None:
             kept = {k: current[k] for k in ("summary", "areas", "tests", "uncovered", "by")}
             doc["seen"] = {**(doc.get("seen") or {}), current["fingerprint"]: kept}
             write_doc(targets, name, IMPACT_DOC, doc)
-
-
-def read_size(targets: Targets, name: str) -> int:
-    """About what reading the change on the card would send."""
-    current = (read_doc(targets, name, IMPACT_DOC) or {}).get("current") or {}
-    return int(current.get("chars") or 0)
 
 
 def card(

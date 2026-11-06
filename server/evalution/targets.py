@@ -19,7 +19,6 @@ from evalution.storage import Database, Docs
 from evalution.traces.base import TraceSource
 from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.mirror import mirror_of
-from evalution.traces.view import Pricer
 
 
 class Guards:
@@ -110,10 +109,6 @@ class Targets:
             await source.close()
         if sink := self._sinks.pop(name, None):
             await sink.close()
-
-    @property
-    def price(self) -> Pricer | None:
-        return self.config.model.price if self.config.model else None
 
     async def close(self) -> None:
         for source in self._sources.values():

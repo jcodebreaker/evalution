@@ -2,10 +2,7 @@ import { Play } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
 
-/**
- * Run all (or `cases`, under `label`); while a run is going, the way to it instead. No price on
- * it: a run's spend cap stops one that costs far more than it should.
- */
+/** Run all (or `cases`, under `label`); while a run is going, the way to it instead. */
 export function RunAll({
   label = "Run all",
   going,

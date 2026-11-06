@@ -10,11 +10,11 @@ reply's phrases that decided the line, for the test page), asked again once when
 Each line becomes a check; :func:`evalution.core.rules.line_outcome` says how it came out. A line
 the Grader was not sure of is graded once more, by a prompt that looks for why it does not hold, and
 only that line. A call that failed on something passing (the network, a busy provider) is made once
-more after a short wait, and :attr:`Graded.retried` says so; a failed call was never charged, so
-this adds no spend of its own. When the Grader still can't be reached or doesn't read, its lines are
-unjudged, never failed. The score is arithmetic, :func:`evalution.core.rules.reply_score`: the share
-of judged lines that held, the reference counted as one more line. It is only a number to show and
-follow over runs, unless a reference is all a test has.
+more after a short wait, and :attr:`Graded.retried` says so. When the Grader still can't be reached
+or doesn't read, its lines are unjudged, never failed. The score is arithmetic,
+:func:`evalution.core.rules.reply_score`: the share of judged lines that held, the reference
+counted as one more line. It is only a number to show and follow over runs, unless a reference is
+all a test has.
 """
 
 from __future__ import annotations

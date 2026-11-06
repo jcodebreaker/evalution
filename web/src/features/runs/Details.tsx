@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import { seconds, tokens, usd } from "../../lib/format";
+import { seconds, tokens } from "../../lib/format";
 import type { RunDetail, RunSummary } from "../../lib/schema";
 import { Picker } from "../../ui/menu";
 import { Group } from "../shared/group";
@@ -53,7 +53,6 @@ export function Details({
               <Th className="w-[150px]">Reply score</Th>
               <Th end>Time</Th>
               <Th end>Tokens</Th>
-              <Th end>Spent per try</Th>
             </tr>
           </thead>
           <tbody>
@@ -68,7 +67,6 @@ export function Details({
                 </Td>
                 <Td end>{row.seconds === null ? "—" : seconds(row.seconds)}</Td>
                 <Td end>{row.tokens === null ? "—" : tokens(row.tokens)}</Td>
-                <Td end>{row.usd ? usd(row.usd) : "—"}</Td>
               </tr>
             ))}
           </tbody>

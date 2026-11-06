@@ -923,7 +923,6 @@ def compare(
         "reason": reason,
         "trace_url": attempt.get("trace_url"),
         "seconds": attempt.get("seconds"),
-        "usd": attempt.get("usd"),
         "trace_note": trace_words(attempt, judged),
         "explain": explain(judged, attempt, len(ids), marks or {}),
         "tool_rows": _tool_rows(attempt),

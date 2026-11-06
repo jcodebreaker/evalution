@@ -1,13 +1,12 @@
 import { cn } from "../../lib/cn";
-import { count, usd } from "../../lib/format";
-import type { Health, Period } from "../../lib/schema";
+import { count } from "../../lib/format";
+import type { Health } from "../../lib/schema";
 import { verdictWord } from "../../lib/verdict";
-import { NOW } from "./period";
 
 type Tone = "good" | "bad" | null;
 
-export function Tiles({ health, period }: { health: Health; period: Period }) {
-  const { passing, consistent, reply_seconds: reply, cost } = health.tiles;
+export function Tiles({ health }: { health: Health }) {
+  const { passing, consistent, reply_seconds: reply } = health.tiles;
   const tiles: { label: string; value: string; note?: string; tone: Tone }[] = [];
   if (passing?.total) {
     const delta = passing.delta;
@@ -47,15 +46,6 @@ export function Tiles({ health, period }: { health: Health; period: Period }) {
       value: `${Math.round(reply.value)} s`,
       note: delta ? `${Math.abs(delta)} s ${delta < 0 ? "faster" : "slower"}` : undefined,
       tone: delta ? (delta < 0 ? "good" : "bad") : null,
-    });
-  }
-  // Only tries with a recorded cost: the per-question field has always meant per try.
-  if (cost?.per_question) {
-    tiles.push({
-      label: "Spent per try",
-      value: usd(cost.per_question),
-      note: `${usd(cost.period_total)} spent${NOW[period] ? ` ${NOW[period]}` : ""}`,
-      tone: null,
     });
   }
   if (!tiles.length) return null;

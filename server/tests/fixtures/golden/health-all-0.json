@@ -54,8 +54,7 @@
     "pass",
     "pass"
    ],
-   "run": "20261102-023000-cccc",
-   "usd": 2.286
+   "run": "20261102-023000-cccc"
   },
   {
    "at": 1793583042.105848,
@@ -64,8 +63,7 @@
     "pass",
     "unjudged"
    ],
-   "run": "20261102-013042-bbbb",
-   "usd": 1.3464
+   "run": "20261102-013042-bbbb"
   },
   {
    "at": 1793572986.018167,
@@ -73,8 +71,7 @@
    "results": [
     "pass"
    ],
-   "run": "20261101-224306-aaaa",
-   "usd": 0.215
+   "run": "20261101-224306-aaaa"
   }
  ],
  "report": {
@@ -131,10 +128,6 @@
   "consistent": {
    "total": 4,
    "value": 4
-  },
-  "cost": {
-   "per_question": 0.2263,
-   "period_total": 3.8473
   },
   "passing": {
    "delta": null,

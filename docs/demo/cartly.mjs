@@ -43,7 +43,6 @@ export const MODEL = {
   light: "small-model",
   key_set: true,
   source: "page",
-  spent_usd: 0,
 };
 
 export const PROMISES = {
@@ -118,7 +117,6 @@ const card = {
     tools_seen: 5,
     state_kinds: ["profile", "notes", "cart"],
     ask_seconds: 6,
-    ask_usd: 0.021,
     tests: 0,
     tests_passing: null,
     library_covered: 0,
@@ -129,7 +127,7 @@ const card = {
 
 export const NOT_LEARNED = {
   version: 0,
-  card: { ...card, one_line: "", stack: [], status: "learning", numbers: { ...card.numbers, tools: 0, tools_seen: 0, state_kinds: [], ask_seconds: null, ask_usd: null } },
+  card: { ...card, one_line: "", stack: [], status: "learning", numbers: { ...card.numbers, tools: 0, tools_seen: 0, state_kinds: [], ask_seconds: null } },
 };
 
 const code = (ref) => ({ kind: "code", ref });
@@ -185,8 +183,8 @@ export const UNDERSTANDING = {
     { id: "returns", title: "Returns", picked: false },
   ],
   starters: [
-    { id: "s1", title: "Finds the right order", what: "Asked about the latest order, it looks it up and quotes the real date.", why: "11 recent conversations ask this", usd_per_try: 0.02, priority: "orders", selected: true },
-    { id: "s2", title: "A preference carries over to a new conversation", what: "A standing preference still applies in the next chat.", why: "Having to repeat yourself is what people notice first", usd_per_try: 0.02, priority: "remember", library: "preference-across-conversations", selected: false },
+    { id: "s1", title: "Finds the right order", what: "Asked about the latest order, it looks it up and quotes the real date.", why: "11 recent conversations ask this", priority: "orders", selected: true },
+    { id: "s2", title: "A preference carries over to a new conversation", what: "A standing preference still applies in the next chat.", why: "Having to repeat yourself is what people notice first", priority: "remember", library: "preference-across-conversations", selected: false },
   ],
 };
 
@@ -222,7 +220,6 @@ export const REPLIES = {
         id: "plan-shoe-size",
         case: SHOE_TEST.case,
         tries: 3,
-        usd: 0.07,
         steps: [
           { kind: "message", title: "Give the size", note: "“I wear a 9.5 in running shoes. Any trail runners under $120?”" },
           { kind: "check", title: "The size is saved to the profile" },
@@ -300,9 +297,6 @@ export const SHOE_PLAN = {
   ],
 };
 
-/** What running this many tests is estimated to cost. */
-export const ESTIMATE_USD = { 1: 0.06, 2: 0.13 };
-
 /** Run 1: the first test alone. Run 2: both, one try finishing at a time. */
 export const RUN_ONE = "20261027-182000-4e1b";
 export const RUN_TWO = "20261027-183300-7c2e";
@@ -355,7 +349,6 @@ export const HEALTH = {
     passing: { value: 1, total: 2, delta: 0 },
     consistent: { value: 2, total: 2 },
     reply_seconds: { value: 6, delta: null },
-    cost: { per_question: 0.021, period_total: 0.19 },
   },
   areas: [
     { name: "Finding the right order", pct: 100, level: "strong" },
@@ -369,8 +362,8 @@ export const HEALTH = {
     { title: `${SHOE_TEST.name} fails`, detail: SHOE_FINDING, action: "see_why", case: SHOE_TEST.case, run: RUN_TWO },
   ],
   recent: [
-    { run: RUN_TWO, name: "All tests", at: clock.secondRun, usd: 0.13, results: ["pass", "fail"] },
-    { run: RUN_ONE, name: "All tests", at: clock.firstRun, usd: 0.06, results: ["pass"] },
+    { run: RUN_TWO, name: "All tests", at: clock.secondRun, results: ["pass", "fail"] },
+    { run: RUN_ONE, name: "All tests", at: clock.firstRun, results: ["pass"] },
   ],
   report: REPORT,
 };

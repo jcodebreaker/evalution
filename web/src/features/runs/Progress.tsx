@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { progressText, spent } from "../../lib/format";
+import { progressText } from "../../lib/format";
 import type { RunDetail } from "../../lib/schema";
 import { LoadingState } from "../../ui/loading";
 import { Group, GroupHeading } from "../shared/group";
@@ -40,16 +40,9 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
             <LoadingState label="Looking at what went wrong…" />
           ) : (
             <>
-              <div className="flex items-baseline gap-3">
-                <span className="flex-1 text-[26px] leading-[1.15] font-semibold tracking-[-0.5px] tabular-nums">
-                  {progressText(run)}
-                </span>
-                {spent(run.totals.usd) ? (
-                  <span className="text-[12px] text-ink-3 tabular-nums">
-                    {spent(run.totals.usd)} so far
-                  </span>
-                ) : null}
-              </div>
+              <span className="text-[26px] leading-[1.15] font-semibold tracking-[-0.5px] tabular-nums">
+                {progressText(run)}
+              </span>
               <span
                 role="progressbar"
                 aria-valuemin={0}

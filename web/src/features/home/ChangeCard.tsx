@@ -8,14 +8,12 @@ import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
 import { RunAll } from "../runs/RunAll";
 import { TextLink } from "../shared/group";
-import { withCost } from "../shared/KnowledgeUpdate";
 import { CARD } from "./card";
 
 /** What changed in the code since it was last tested, and the tests to run for it. */
 export function ChangeCard({
   change,
   canRead,
-  readUsd,
   onRead,
   scope,
   going,
@@ -25,7 +23,6 @@ export function ChangeCard({
 }: {
   change: NonNullable<Health["code_change"]>;
   canRead: boolean;
-  readUsd: number | null;
   onRead: () => void;
   scope: Scope;
   going: boolean;
@@ -72,7 +69,7 @@ export function ChangeCard({
       {!change.read && canRead ? (
         <Button variant="secondary" disabled={reading} onClick={read}>
           {reading ? <Spinner /> : null}
-          {withCost("Read this change", readUsd)}
+          Read this change
         </Button>
       ) : null}
       {set && cases.length ? (

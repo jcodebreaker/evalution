@@ -4,8 +4,8 @@ so the agent reads a page, not raw spans; and the fingerprint drift is checked a
 
 The digest holds: tools (name, argument shapes, how often called, and the tools offered to the
 model), trajectory shapes (tool sequences, delegation, depth), the main agent's system prompt
-and its sections (from LLM spans; helpers' prompts are counted apart), and typical time, tokens
-and cost per ask. An ask is one trace (one message and everything it set off); a session (a
+and its sections (from LLM spans; helpers' prompts are counted apart), and typical time and tokens
+per ask. An ask is one trace (one message and everything it set off); a session (a
 conversation, which may live for days) only counts conversations.
 
 Eval traffic is left out (:func:`is_eval`): sessions evalution opened itself, and traces
@@ -28,11 +28,9 @@ from evalution.adapters import own_traffic
 from evalution.core.trace import tool_name
 from evalution.traces.base import Span, TraceSource, ancestors, by_trace, get, is_ai, session_of
 from evalution.traces.view import (
-    Pricer,
     helper_of,
     request_of,
     span_tokens,
-    span_usd,
     system_text,
     tool_args,
     tool_of,
@@ -176,8 +174,8 @@ def _p90(values: Sequence[float]) -> float:
     return round(ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))], 4)
 
 
-def digest(sessions: Sequence[Sequence[Span]], price: Pricer | None = None) -> dict[str, Any]:
-    """The digest of *sessions* (each a session's spans). Time, tokens, cost and calls are per
+def digest(sessions: Sequence[Sequence[Span]]) -> dict[str, Any]:
+    """The digest of *sessions* (each a session's spans). Time, tokens and calls are per
     ask (per trace), never per session."""
     called: Counter[str] = Counter()
     args: dict[str, dict[str, Any]] = {}
@@ -191,7 +189,6 @@ def digest(sessions: Sequence[Sequence[Span]], price: Pricer | None = None) -> d
     per: dict[str, list[float]] = {
         "seconds": [],
         "tokens": [],
-        "usd": [],
         "model_calls": [],
         "tool_calls": [],
     }
@@ -234,7 +231,6 @@ def digest(sessions: Sequence[Sequence[Span]], price: Pricer | None = None) -> d
             )
             per["seconds"].append(max(s.end for s in trace) - min(s.start for s in trace))
             per["tokens"].append(sum(sum(span_tokens(s)) for s in llms))
-            per["usd"].append(sum(span_usd(s, price) for s in llms))
             per["model_calls"].append(len(llms))
             per["tool_calls"].append(len(tools))
     main = systems["main"] or systems["helper"]
@@ -314,7 +310,6 @@ def render(found: Mapping[str, Any]) -> str:
         "## Typical ask (one message and everything it set off)",
         "",
         f"- time: {pair('seconds', '{:.0f} s')}",
-        f"- cost: {pair('usd', '${:.4f}')}",
         f"- tokens: {pair('tokens', '{:.0f}')}",
         f"- model calls: {pair('model_calls', '{:.0f}')}",
         f"- tool calls: {pair('tool_calls', '{:.0f}')}",

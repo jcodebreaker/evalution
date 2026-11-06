@@ -209,10 +209,9 @@ describe("runs from more than one place", () => {
         tools: null,
         reply: null,
         median_seconds: 1,
-        usd: 0,
         tokens: 0,
       },
-      tests: [{ case: "greets", name: "Greets", verdict: "pass", passed: 1, tries: 1, usd: 0 }],
+      tests: [{ case: "greets", name: "Greets", verdict: "pass", passed: 1, tries: 1 }],
     });
   const view = (runs: RunSummary[]) =>
     render(<RunsView runs={runs} label={(id) => id} empty={null} onOpen={() => {}} />);

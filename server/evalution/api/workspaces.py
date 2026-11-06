@@ -98,7 +98,7 @@ def open_workspace(
     if hosted:
         config = _hosted_config(config, database, workspace)
     targets = Targets(config, docs=database.docs(workspace), folders=not hosted)
-    llm = LLM(config.model, docs=targets.docs)
+    llm = LLM(config.model)
     runs = Runs(targets, llm)
     found = None
     watcher = None

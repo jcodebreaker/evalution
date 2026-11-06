@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 // The page's view of the server's JSON (docs/architecture.md
-// "API and page"). Times are seconds, money is USD. Parsing is lenient: fields a
+// "API and page"). Times are seconds. Parsing is lenient: fields a
 // server does not send yet fall back to their defaults.
 
 export const VerdictSchema = z.enum(["pass", "flaky", "fail", "unjudged"]);
@@ -172,7 +172,6 @@ export const BenchmarksSchema = z.object({
       totals: z
         .object({
           tokens: z.number().nullable().default(null),
-          usd: z.number().nullable().default(null),
           median_seconds: z.number().nullable().default(null),
           models: z.array(z.string()).default([]),
         })
@@ -236,7 +235,6 @@ export const BenchmarksSchema = z.object({
           error: z.string().nullable(),
           seconds: z.number().nullable(),
           tokens: z.number().nullable().default(null),
-          usd: z.number().nullable().default(null),
           messages: z.number().nullable().default(null),
           trace_url: z.string().nullable().default(null),
           models: z.array(z.string()).default([]),
@@ -346,7 +344,6 @@ export const TotalsSchema = z.object({
   tools: z.number().nullable(),
   reply: z.number().nullable(),
   median_seconds: z.number(),
-  usd: z.number(),
   tokens: z.number(),
 });
 export type Totals = z.infer<typeof TotalsSchema>;
@@ -376,7 +373,6 @@ export const RunTestSchema = z.object({
   passed: z.number(),
   different: z.number().default(0),
   tries: z.number(),
-  usd: z.number(),
 });
 export type RunTest = z.infer<typeof RunTestSchema>;
 
@@ -468,7 +464,6 @@ export const CaseRowSchema = z.object({
   reply: z.number().nullable().default(null),
   seconds: z.number().nullable().default(null),
   tokens: z.number().nullable().default(null),
-  usd: z.number().nullable().default(null),
   /** The run the latest result comes from, and when it started. */
   last_run: z.string().nullable().default(null),
   last_at: z.number().nullable().default(null),
@@ -490,7 +485,6 @@ export const RunDetailSchema = RunSummarySchema.omit({ cases: true }).extend({
       tools: z.number(),
       reply: z.number(),
       median_seconds_pct: z.number(),
-      usd_pct: z.number(),
     })
     .nullable()
     .default(null),
@@ -517,7 +511,6 @@ export const SpanSchema = z.object({
   model: z.string().optional(),
   tokens_in: z.number().optional(),
   tokens_out: z.number().optional(),
-  usd: z.number().optional(),
   input: z.string().optional(),
   output: z.string().optional(),
   check: z.string().optional(),
@@ -773,7 +766,6 @@ export const CompareSchema = TestPlanSchema.extend({
   reason: z.string().nullable().default(null),
   trace_url: z.string().nullable().default(null),
   seconds: z.number().nullable().default(null),
-  usd: z.number().nullable().default(null),
   /** What's missing of the try's traces, when any is. */
   trace_note: z.string().nullable().default(null),
   explain: ExplainSchema.optional(),
@@ -817,9 +809,7 @@ export const EstimateSchema = z.object({
   cases: z.number(),
   tries: z.number(),
   chats: z.number(),
-  usd: z.number(),
-  first_run: z.boolean().default(false),
-  /** Tests this app can't serve, left out of the run and the figure. */
+  /** Tests this app can't serve, left out of the run. */
   refused: z.array(z.object({ case: z.string(), why: z.string() })).default([]),
   /** What a new session leaves behind here, in one sentence. */
   isolation_note: z.string().nullable().default(null),
@@ -872,7 +862,6 @@ export const AgentMessageSchema = z.object({
         }),
       ),
       tries: z.number(),
-      usd: z.number(),
       case: z.string(),
       /** The time limit of a try, and where that number came from. */
       timeout: z.object({ seconds: z.number(), from: z.string() }).optional(),
@@ -925,7 +914,6 @@ export const AgentSessionSchema = z.object({
   target: z.string().nullable().default(null),
   set: z.string(),
   status: z.enum(["idle", "working", "stopped"]),
-  spent_usd: z.number(),
   messages: z.array(AgentMessageSchema),
   /** What the agent did last, newest at the end: shown while it works. */
   activity: z.array(z.object({ at: z.number(), text: z.string() })).default([]),
@@ -959,8 +947,6 @@ export const KnowledgeSchema = z.object({
   out_of_date: z.number().default(0),
   flagged: z.number().default(0),
   can_update: z.boolean().default(false),
-  update_usd: z.number().nullable().default(null),
-  read_usd: z.number().nullable().default(null),
   /** The last update from a commit, until the owner has seen it. */
   last: z
     .object({ commit: z.string(), changed: z.number(), flagged: z.number() })
@@ -1029,7 +1015,6 @@ export const UnderstandingSchema = z.object({
       tools_seen: z.number().default(0),
       state_kinds: z.array(z.string()).default([]),
       ask_seconds: z.number().nullable().default(null),
-      ask_usd: z.number().nullable().default(null),
       tests: z.number().default(0),
       tests_passing: z.number().nullable().default(null),
       library_covered: z.number().default(0),
@@ -1089,7 +1074,6 @@ export const UnderstandingSchema = z.object({
         title: z.string(),
         what: z.string().default(""),
         why: z.string().default(""),
-        usd_per_try: z.number().default(0),
         priority: z.string().optional(),
         library: z.string().optional(),
         selected: z.boolean().default(false),
@@ -1120,7 +1104,6 @@ export const ModelSettingsSchema = z.object({
   key_set: z.boolean(),
   /** `config`: set in evalution.yaml; `env`: the key comes from the environment. */
   source: z.enum(["page", "config", "env"]),
-  spent_usd: z.number().default(0),
   /** Where each provider with a fixed address is. */
   addresses: z.record(z.string(), z.string()).default({}),
   /** From a save: a stored key stayed behind, since the address's host changed. */
@@ -1129,12 +1112,10 @@ export const ModelSettingsSchema = z.object({
 export type ModelSettings = z.infer<typeof ModelSettingsSchema>;
 export type Provider = ModelSettings["provider"];
 
-/** A model the provider offers, with its USD per million tokens when known. */
+/** A model the provider offers. */
 export const ModelOptionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  input: z.number().optional(),
-  output: z.number().optional(),
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
 
@@ -1186,19 +1167,11 @@ export const HealthSchema = z.object({
         })
         .nullable()
         .default(null),
-      cost: z
-        .object({
-          per_question: z.number().nullable(),
-          period_total: z.number(),
-        })
-        .nullable()
-        .default(null),
     })
     .default({
       passing: null,
       consistent: null,
       reply_seconds: null,
-      cost: null,
     }),
   areas: z
     .array(
@@ -1237,7 +1210,6 @@ export const HealthSchema = z.object({
         run: z.string(),
         name: z.string(),
         at: z.number(),
-        usd: z.number().default(0),
         results: z.array(VerdictSchema).default([]),
       }),
     )

@@ -51,7 +51,7 @@ async def take(targets: Targets, name: str, sessions: int) -> tuple[dict[str, An
     groups = []
     if source is not None:
         groups = await recent_sessions(source, targets.trace_attribute(name), sessions)
-    found = digest(groups, targets.price)
+    found = digest(groups)
     taken = fingerprint(found)
     code = targets.code(name)
     if code is not None:

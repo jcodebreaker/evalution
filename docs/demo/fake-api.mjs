@@ -12,7 +12,7 @@ const SEC = 1000;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
 const MARKS = { tools: 0.8, reply: 0.7 };
 
-const zero = { passed: 0, cases: 0, tools: 0, reply: 0, median_seconds: 0, usd: 0, tokens: 0 };
+const zero = { passed: 0, cases: 0, tools: 0, reply: 0, median_seconds: 0, tokens: 0 };
 
 export function startFakeApi({ port, webRoot }) {
   const state = {
@@ -39,7 +39,6 @@ export function startFakeApi({ port, webRoot }) {
     });
     later(reply.activity.length * gap + 300, () => {
       session.messages.push({ id: `m${session.messages.length}`, role: "agent", at: clock.connect, ...reply.message });
-      session.spent_usd += 0.03;
       session.status = "idle";
       then?.();
     });
@@ -71,7 +70,6 @@ export function startFakeApi({ port, webRoot }) {
       reply: tries.length ? (passed ? 0.95 : 0.25) : null,
       seconds: tries.length ? 6 : null,
       tokens: tries.length ? 2100 : null,
-      usd: tries.length ? 0.021 * tries.length : null,
       last_run: tries.length ? run.id : null,
       last_at: tries.length ? run.at : null,
       stale: null,
@@ -103,14 +101,12 @@ export function startFakeApi({ port, webRoot }) {
         verdict: entry.verdict,
         passed: entry.tries.filter((outcome) => outcome === "passed").length,
         tries: entry.tries.length,
-        usd: entry.usd ?? 0,
       })),
       totals: {
         ...zero,
         passed: shown.filter((entry) => entry.verdict === "pass" && entry.tries.length === run.triesEach).length,
         cases: run.tests.length,
         median_seconds: done ? 6 : 0,
-        usd: Number((done * 0.021).toFixed(3)),
         tokens: done * 2100,
       },
       progress: {
@@ -252,13 +248,11 @@ export function startFakeApi({ port, webRoot }) {
       cases: body.cases?.length ?? state.tests.length,
       tries: 3,
       chats: 3 * (body.cases?.length ?? state.tests.length),
-      usd: cartly.ESTIMATE_USD[body.cases?.length ?? state.tests.length],
-      first_run: !state.runs.some((run) => run.id === cartly.RUN_TWO),
     })],
     ["POST", /^\/v1\/evals\/runs$/, () => summary(startRun())],
     ["GET", /^\/v1\/evals\/runs\/([^/]+)$/, (_, [id]) => detail(state.runs.find((run) => run.id === id))],
     ["POST", /^\/v1\/evals\/agent\/sessions$/, (body) => {
-      state.session = { id: "writer-1", target: body.target, set: body.set, status: "idle", spent_usd: 0, messages: [], activity: [] };
+      state.session = { id: "writer-1", target: body.target, set: body.set, status: "idle", messages: [], activity: [] };
       return state.session;
     }],
     ["GET", /^\/v1\/evals\/agent\/sessions\/[^/]+$/, () => state.session],

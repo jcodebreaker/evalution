@@ -430,7 +430,6 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "error": last.get("error"),
                 "seconds": last.get("seconds"),
                 "tokens": last.get("tokens"),
-                "usd": last.get("usd"),
                 "messages": last.get("messages"),
                 "trace_url": last.get("trace_url"),
                 "models": last.get("models") or [],
@@ -520,7 +519,6 @@ def _totals(run: Mapping[str, Any]) -> dict[str, Any]:
     seconds = [t["seconds"] for t in tries if t.get("seconds") is not None]
     return {
         "tokens": sum(t.get("tokens") or 0 for t in tries) or None,
-        "usd": round(sum(t.get("usd") or 0 for t in tries), 4) or None,
         "median_seconds": statistics.median(seconds) if seconds else None,
         "models": sorted({model for t in tries for model in t.get("models") or []}),
     }

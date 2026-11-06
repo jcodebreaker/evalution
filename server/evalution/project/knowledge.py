@@ -53,7 +53,6 @@ FILES_CAP = 40_000
 DIFF_CAP = 30_000
 SEEN = 20
 CHANGES_SHOWN = 20
-ANSWER_TOKENS = 800
 #: A call that failed is tried again on a new commit, else after this many seconds.
 RETRY_AFTER = 24 * 3600.0
 _PUNCT = "\"'`*.,:;"
@@ -240,26 +239,8 @@ def _detect(targets: Targets, name: str, code: Code, doc: Mapping[str, Any]) -> 
             if stale and not state.get("backlog_since"):
                 state["backlog_since"] = checked
             state["checked"] = head
-        state["chars"] = _size(targets, name, code, doc, state, head)
         write_doc(targets, name, DOC, state)
     return {"head": head, "fresh": fresh}
-
-
-def _size(
-    targets: Targets,
-    name: str,
-    code: Code,
-    doc: Mapping[str, Any],
-    state: Mapping[str, Any],
-    head: str,
-) -> int:
-    """How much a call on everything marked would send, for its estimate."""
-    stale = state.get("stale") or {}
-    if not stale:
-        return 0
-    seen = understanding.overlay(doc, understanding.steers(targets, name))
-    text = _prompt(code, seen, stale, state.get("links") or {}, _since(state), head)
-    return len(INSTRUCTIONS) + len(text)
 
 
 def _since(state: Mapping[str, Any]) -> str | None:
@@ -485,13 +466,11 @@ def _apply(
             flags={k: v for k, v in flags.items() if k in _items(new)},
             checked=head,
             detected=head,
-            chars=0,
         )
         state.pop("failed", None)
         # What was not answered stays marked, and keeps its base for the button.
         if state["stale"]:
             state["backlog_since"] = state.get("backlog_since") or since
-            state["chars"] = _size(targets, name, code, new, state, head)
         else:
             state.pop("backlog_since", None)
         if changed or flagged:
@@ -640,7 +619,7 @@ def _changes(targets: Targets, name: str) -> list[dict[str, Any]]:
 
 
 def summary(runs: History, name: str) -> dict[str, Any]:
-    """What the page says of it: the mode, what may be out of date and what an update costs, what
+    """What the page says of it: the mode, what may be out of date, what
     changed in the last version, and an update the owner has not seen yet."""
     targets = runs.targets
     state = load(targets, name)
@@ -656,10 +635,6 @@ def summary(runs: History, name: str) -> dict[str, Any]:
         "out_of_date": stale,
         "flagged": flagged,
         "can_update": bool(runs.llm),
-        "update_usd": impact.about_usd(runs, int(state.get("chars") or 0), ANSWER_TOKENS)
-        if stale
-        else None,
-        "read_usd": impact.about_usd(runs, impact.read_size(targets, name)),
         "last": {
             "commit": str(last["commit"])[:7],
             "changed": last["changed"],

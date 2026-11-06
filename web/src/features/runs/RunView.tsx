@@ -1,5 +1,5 @@
 import { Square } from "lucide-react";
-import { count, live, spent, when } from "../../lib/format";
+import { count, live, when } from "../../lib/format";
 import type { CaseRow, RunDetail, RunSummary } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { verdictWord } from "../../lib/verdict";
@@ -65,7 +65,6 @@ export function RunView({
             <>
               {scopeLabel} · {when(run.started_at)}
               {run.environment.name ? ` · ${run.environment.name}` : null}
-              {isLive || !spent(run.totals.usd) ? null : ` · ${spent(run.totals.usd)}`}
               {run.interrupted ? " · Interrupted" : null}
               {!run.interrupted && run.status === "stopped" ? " · Stopped" : null}
               {!run.interrupted && run.status === "failed" ? " · Didn't finish" : null}

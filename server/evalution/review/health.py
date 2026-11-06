@@ -194,11 +194,6 @@ def _tries(runs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [t for r in runs for c in r["cases"].values() for t in judged_tries(c)]
 
 
-def _every_try(runs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """Judged or not, a try cost what it cost."""
-    return [t for r in runs for c in r["cases"].values() for t in c.get("tries") or []]
-
-
 def health(
     runs: Sequence[Mapping[str, Any]],
     cases: Mapping[str, Sequence[Case]],
@@ -229,7 +224,6 @@ def health(
     earlier = [r for r in played if since - span <= float(r["started_at"]) < since] if span else []
     old_seconds = _median([float(t["seconds"]) for t in _tries(earlier)])
     typical = _median(seconds)
-    usd = [float(t["usd"]) for t in _every_try(in_period) if t.get("usd")]
     couldnt_judge = sum(verdict_kind(e) == "unjudged" for _, _, e in entries)
     tiles = {
         "passing": {
@@ -248,10 +242,6 @@ def health(
             "delta": round(typical - old_seconds, 1)
             if typical is not None and old_seconds is not None
             else None,
-        },
-        "cost": {
-            "per_question": round(statistics.fmean(usd), 4) if usd else None,
-            "period_total": round(sum(usd), 4),
         },
     }
 
@@ -314,7 +304,6 @@ def health(
                 "run": r["run"],
                 "name": set_titles.get(r["set"], r["set"]),
                 "at": float(r["started_at"]),
-                "usd": round(sum(float(t.get("usd") or 0) for t in _every_try([r])), 4),
                 "results": [
                     kind for e in r["cases"].values() if (kind := verdict_kind(e)) is not None
                 ],

@@ -2,8 +2,6 @@
 # that holds the secret.
 data_dir: ./data                 # the database (everything evalution keeps) and its secret key
 # sets_dir: ./sets               # where `sets export` / `sets import` and `run --sets` read and write tests
-filler_usd: 0.04                 # cost of one generated message, for estimates
-spend_cap: 3                     # a run stops once the app spent this many times what its tries were estimated at; 0: never
 # allowed_hosts: [evals.example.test]  # more names it answers under, say behind a proxy; $EVALUTION_ALLOWED_HOSTS wins
 
 traces:                          # apps send OTLP to this server's /v1/traces
@@ -17,9 +15,6 @@ traces:                          # apps send OTLP to this server's /v1/traces
 #   base_url: https://api.anthropic.com
 #   api_key_env: EVALUTION_MODEL_KEY
 #   models: {strong: claude-sonnet-5-5, light: claude-haiku-5-5}  # judge: optional, grades; else strong
-#   prices:                        # USD per million tokens; overrides the built-in table
-#     claude-opus-5-5: {input: 4, output: 20}
-#     claude-haiku-5-5: {input: 0.1, output: 0.5}
 
 # The apps to test. Connect one on the page, or uncomment this: one set here can't be edited there.
 # targets:

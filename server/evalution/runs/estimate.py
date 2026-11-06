@@ -1,5 +1,5 @@
-"""What a run is likely to cost, before anyone says yes to it, and how much it may spend before it
-is stopped."""
+"""What a run is likely to take, before anyone says yes to it: the messages a try sends, and a
+time limit for one."""
 
 from __future__ import annotations
 
@@ -10,19 +10,6 @@ from typing import Any
 
 from evalution.core.case import Case
 
-#: The cost of one try when the case has no earlier try to go by.
-DEFAULT_TRY_USD = 0.40
-#: Recent tries of a case its estimate averages.
-RECENT_TRIES = 5
-#: A filler turn of n messages grows the conversation as it goes: each message is a full turn
-#: on a longer chat, so the turn costs about ``c0 * n * (1 + n / FILLER_GROWTH)``.
-FILLER_GROWTH = 60
-#: Analysis in the estimate: per failed try (:data:`FAIL_SHARE` of the tries), and per run.
-ANALYSIS_TRY_USD = 0.03
-ANALYSIS_RUN_USD = 0.05
-FAIL_SHARE = 0.3
-#: One try graded again from its evidence.
-GRADE_TRY_USD = 0.03
 #: Seconds a message is assumed to take with no earlier try to go by.
 DEFAULT_MESSAGE_SECONDS = 30
 #: Room left in a time limit over what a try is expected to take.
@@ -35,43 +22,6 @@ RECENT_LATENCIES = 20
 def messages(case: Case) -> int:
     """The messages one try of *case* sends: its message turns and its generated ones."""
     return sum(t.filler or (1 if t.is_message else 0) for t in case.turns)
-
-
-def filler_usd(case: Case, c0: float) -> float:
-    """What the case's filler turns add to a try: ``c0 * n * (1 + n / 60)`` per turn of n."""
-    return sum(c0 * t.filler * (1 + t.filler / FILLER_GROWTH) for t in case.turns if t.filler)
-
-
-def per_try_usd(case: Case, runs: Sequence[Mapping[str, Any]], c0: float) -> float:
-    """Mean cost of one try of *case* over its :data:`RECENT_TRIES` newest tries (*runs* newest
-    first; they already count its fillers). Never run: :data:`DEFAULT_TRY_USD` plus
-    :func:`filler_usd`; another test's cost says nothing about it."""
-    costs = own_costs(case, runs)
-    if costs:
-        return statistics.fmean(costs)
-    return DEFAULT_TRY_USD + filler_usd(case, c0)
-
-
-def run_usd(per_try: Mapping[str, float], counts: Mapping[str, int]) -> float:
-    """What cases cost at *counts* tries each, at *per_try* (case -> one try's estimate), with the
-    analysis of the share that fails."""
-    tries = sum(counts.values())
-    usd = sum(n * per_try[case] for case, n in counts.items())
-    return usd + ANALYSIS_TRY_USD * FAIL_SHARE * tries + ANALYSIS_RUN_USD
-
-
-def capped(
-    spent: float,
-    multiple: float,
-    floor: float,
-    per_try: Mapping[str, float],
-    played: Mapping[str, int],
-) -> bool:
-    """Whether a run that has *spent* this much reached its cap: *multiple* times what the tries
-    it *played* were estimated at, so a run that plays on raises its own allowance try by try and
-    a try far dearer than its estimate trips it. Never under *multiple* times *floor*, the run's
-    low estimate, so one noisy first try doesn't stop it. A *multiple* of 0: no cap."""
-    return multiple > 0 and spent >= multiple * max(floor, run_usd(per_try, played))
 
 
 def _message_seconds(runs: Sequence[Mapping[str, Any]]) -> list[float]:
@@ -104,12 +54,3 @@ def suggest_seconds(case: Case, runs: Sequence[Mapping[str, Any]]) -> tuple[int,
     else:
         said = f"{count} {many} at an assumed {each} s each (no runs yet), doubled"
     return seconds, said
-
-
-def own_costs(case: Case, runs: Sequence[Mapping[str, Any]]) -> list[float]:
-    return [
-        t["usd"]
-        for run in runs
-        for t in reversed((run["cases"].get(case.case) or {}).get("tries") or [])
-        if t.get("usd")
-    ][:RECENT_TRIES]

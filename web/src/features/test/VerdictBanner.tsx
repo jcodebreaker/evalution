@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { seconds, spent } from "../../lib/format";
+import { seconds } from "../../lib/format";
 import type { Compare, TryOutcome } from "../../lib/schema";
 import { NEVER_REACHED, PASSED_MODEL_ONLY, retriedWords, tryWord } from "../../lib/verdict";
 
@@ -59,10 +59,7 @@ export function VerdictBanner({
           ]
             .filter(Boolean)
             .join(" ")}
-          {[shown.seconds === null ? null : seconds(shown.seconds), spent(shown.usd ?? 0)]
-            .filter(Boolean)
-            .map((part) => ` · ${part}`)
-            .join("")}
+          {shown.seconds === null ? null : ` · ${seconds(shown.seconds)}`}
         </small>
       </div>
       {shown.tries.length > 1 ? (

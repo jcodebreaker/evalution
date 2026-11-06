@@ -41,21 +41,9 @@ _TARGETS = "targets/"
 RETIRED_TRACES = ("managed", "port", "grpc", "keep_mb")
 #: The stored secret that holds the model's API key, when it was set from the page.
 MODEL_SECRET = "model/api_key"  # noqa: S105 (a name, not a value)
-#: USD per million tokens of well-known models, for models the config does not price.
-BUILTIN_PRICES: dict[str, dict[str, float]] = {
-    "claude-fable-5-1": {"input": 10, "output": 50},
-    "claude-fable-5": {"input": 10, "output": 50},
-    "claude-opus-5-5": {"input": 4, "output": 20},
-    "claude-opus-5": {"input": 5, "output": 25},
-    "claude-opus-4-8": {"input": 5, "output": 25},
-    "claude-opus-4-7": {"input": 5, "output": 25},
-    "claude-opus-4-6": {"input": 5, "output": 25},
-    "claude-sonnet-5-5": {"input": 2, "output": 10},
-    "claude-sonnet-5": {"input": 2, "output": 10},
-    "claude-sonnet-4-6": {"input": 3, "output": 15},
-    "claude-haiku-5-5": {"input": 0.1, "output": 0.5},
-    "claude-haiku-4-5": {"input": 1, "output": 5},
-}
+#: Keys from when evalution tracked what models cost, with ``model.prices``: still read, and left
+#: unused.
+RETIRED_MONEY = ("filler_usd", "spend_cap")
 #: The names a server open to other computers answers under: wins over ``allowed_hosts``.
 ALLOWED_HOSTS_ENV = "EVALUTION_ALLOWED_HOSTS"
 
@@ -118,24 +106,18 @@ class ModelConfig:
     """evalution's own model connection, for the Grader, filler, analysis and the agent.
 
     :param models: ``strong`` and ``light`` model ids.
-    :param prices: ``model id -> {"input": usd, "output": usd}`` per million tokens.
     """
 
     kind: str
     base_url: str
     api_key_env: str | None
     models: dict[str, str]
-    prices: dict[str, dict[str, float]] = field(default_factory=dict)
     #: A key typed in a form not saved yet; used before any other.
     key: str | None = field(default=None, repr=False)
     #: The form moved to another host: a key stored by a form stays behind. One in the environment
     #: is the owner's own and may go wherever they point it, as it does once this is saved.
     no_stored_key: bool = False
     keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
-
-    def rate(self, model: str) -> dict[str, float] | None:
-        """*model*'s price per million tokens: the config's table, else the built-in one."""
-        return self.prices.get(model) or BUILTIN_PRICES.get(model)
 
     def api_key(self) -> str | None:
         """The key: a typed one, then env var ``api_key_env``, then the stored ``model.api_key``,
@@ -147,14 +129,6 @@ class ModelConfig:
         if self.no_stored_key:
             return self.keys.env(self.api_key_env)
         return self.keys.get(self.api_key_env) or self.keys.stored(MODEL_SECRET)
-
-    def price(self, model: str, tokens_in: int, tokens_out: int) -> float:
-        """What *model* costs for these tokens; 0 when it is in neither table."""
-        rate = self.rate(model)
-        if not rate:
-            return 0.0
-        usd = tokens_in * rate.get("input", 0.0) + tokens_out * rate.get("output", 0.0)
-        return round(usd / 1_000_000, 6)
 
 
 @dataclass(frozen=True)
@@ -231,11 +205,6 @@ class Config:
     targets: dict[str, TargetConfig]
     #: Where the model comes from: ``config`` (this file), ``page`` (the database) or none.
     model_source: str | None = None
-    #: Cost of one generated (filler) message on a warm conversation, for estimates.
-    filler_usd: float = 0.04
-    #: A run stops once the app has spent this many times what its tries played were estimated at
-    #: (at least its low estimate); 0: never.
-    spend_cap: float = 3.0
     #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
@@ -277,21 +246,17 @@ def _model(block: dict[str, Any], keys: KeyRing) -> ModelConfig | None:
     for key in MODEL_KEYS:
         if not isinstance(models.get(key), str):
             raise ConfigError(f"model.models.{key}: must be a model id")
-    prices = {
-        str(name): {k: float(v) for k, v in _dict(rate, f"model.prices.{name}").items()}
-        for name, rate in _dict(block.get("prices"), "model.prices").items()
-    }
     return ModelConfig(
         kind=kind,
         base_url=_str(block, "base_url", "model", default_url).rstrip("/"),
         api_key_env=block.get("api_key_env"),
         models={k: str(v) for k, v in models.items()},
-        prices=prices,
         keys=keys,
     )
 
 
 _said_retired = False
+_said_money = False
 
 
 def _note_retired(block: dict[str, Any]) -> None:
@@ -304,6 +269,23 @@ def _note_retired(block: dict[str, Any]) -> None:
         _logger.warning(
             "evalution: %s no longer apply: evalution doesn't run Phoenix any more and keeps "
             "traces in its own database; remove them from the config",
+            ", ".join(found),
+        )
+
+
+def _note_money(data: dict[str, Any]) -> None:
+    """Say once per process that a config's money keys are left unread: evalution doesn't track
+    what anything costs."""
+    global _said_money
+    model = data.get("model") if isinstance(data.get("model"), dict) else {}
+    found = [k for k in RETIRED_MONEY if k in data]
+    if "prices" in model:
+        found.append("model.prices")
+    if found and not _said_money:
+        _said_money = True
+        _logger.warning(
+            "evalution: %s no longer apply: evalution doesn't track cost; remove them from the "
+            "config",
             ", ".join(found),
         )
 
@@ -433,12 +415,7 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
     hosts = allowed.split(",") if allowed is not None else data.get("allowed_hosts") or []
     if not isinstance(hosts, list) or not all(isinstance(h, str) for h in hosts):
         raise ConfigError("allowed_hosts: must be a list of names")
-    filler = data.get("filler_usd", 0.04)
-    if isinstance(filler, bool) or not isinstance(filler, (int, float)) or filler < 0:
-        raise ConfigError("filler_usd: must be a number of at least 0")
-    cap = data.get("spend_cap", 3.0)
-    if isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap < 0:
-        raise ConfigError("spend_cap: must be a number of at least 0")
+    _note_money(data)
     return Config(
         file=path.resolve(),
         root=root,
@@ -450,8 +427,6 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
         targets={
             n: target_config(n, _dict(b, f"targets.{n}"), root, keys) for n, b in targets.items()
         },
-        filler_usd=float(filler),
-        spend_cap=float(cap),
         managed=frozenset(n for n in managed if n not in own),
         traces=_traces(_dict(data.get("traces"), "traces")),
         library_dir=where("library_dir", "library"),

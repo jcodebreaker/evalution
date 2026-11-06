@@ -31,7 +31,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
       plans.py     a test's plan, for the tests and runs routes
     writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py the session store, draft.py a case from a try or a conversation
     connect/       connecting a target: connect.py by its settings, discover.py by its project folder
-    runs/          play.py one try, collect.py reading its spans back, estimate.py what a run costs, runner.py the one running task
+    runs/          play.py one try, collect.py reading its spans back, estimate.py what a run plays, runner.py the one running task
     review/        findings.py a run's analysis and report, health.py the Home page, testplan.py what a plan will do, divergence.py where a failing try first parted from a passing one
     project/       what is known about one target
       drift.py impact.py   noticing a change; what a code change means for the tests
@@ -61,7 +61,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     adapters/langgraph.py   a LangGraph graph through the LangGraph Server API
     code.py        a target's source: what is watched and read, hashes, diffs
     settings.py    the model set from the page: its block, its key, the model list, Test model
-    llm.py         one model client: OpenAI-compatible or Anthropic messages API, tool calls, spend
+    llm.py         one model client: OpenAI-compatible or Anthropic messages API, tool calls
     config.py      evalution.yaml: model connection, targets, data dir
     storage/       the database: documents, entries and encrypted secrets, by workspace (see "Storage")
     core/          case.py trace.py evidence.py judgement.py rules.py: what the rest shares, and the one place the rules live (docs/judging.md); imports nothing else of evalution
@@ -77,11 +77,11 @@ compose.yaml       evalution alone, with what it keeps in bind mounts; it points
 
 `evalution.yaml` is the operator's and is never written. What the page sets lives in the database ("Storage"), kind `settings`, owned by `config.py`: each target connected from the page under `targets/<name>` (its block, the same shape as one in the file), merged in, a name in both being the hand-edited one; and the page's model under `model`. Every `*_env` key names a secret, resolved by the config's `KeyRing`: the env var of that name, else the stored secret of that name (the page's: `targets/<target>/<key>`, `model/api_key`).
 
-**The model** can be set by hand (`model:` below) or from the page (Settings, Model), which stores its `model:` block (same shape) and the key as the secret `model/api_key`. A `model:` in `evalution.yaml` wins whole, and the page says so and stays read-only. The key is the env var `api_key_env` (`EVALUTION_MODEL_KEY` for the page's model) first, then `model/api_key`; it is never returned or logged. A save swaps the model in the running server's one client, so the agent, Grader, analysis and filler use it from their next call. Prices (USD per million tokens) come from `model.prices`, else a small built-in table of Claude models; an unpriced model counts as 0. Every call's cost is added to the document `spend`/`model` (`llm.py`; "Spent so far" on the page).
+**The model** can be set by hand (`model:` below) or from the page (Settings, Model), which stores its `model:` block (same shape) and the key as the secret `model/api_key`. A `model:` in `evalution.yaml` wins whole, and the page says so and stays read-only. The key is the env var `api_key_env` (`EVALUTION_MODEL_KEY` for the page's model) first, then `model/api_key`; it is never returned or logged. A save swaps the model in the running server's one client, so the agent, Grader, analysis and filler use it from their next call. evalution doesn't track what anything costs: `filler_usd`, `spend_cap` and `model.prices` in an older config are read, left unused, and said once in the log.
 
-- `GET /v1/settings/model`: `{provider: anthropic|openai|compatible, base_url, strong, light, key_set, source: page|config|env, spent_usd}` (`env`: the key comes from the environment).
+- `GET /v1/settings/model`: `{provider: anthropic|openai|compatible, base_url, strong, light, key_set, source: page|config|env}` (`env`: the key comes from the environment).
 - `PUT /v1/settings/model {provider, base_url?, strong, light, key?}`: `base_url` only for `compatible`; a `key` sets, `null` removes, absent keeps. 409 when `source` is `config`.
-- `GET /v1/settings/model/models?provider=&base_url=`: the provider's list (Anthropic `GET /v1/models`, else `GET {base_url}/models`) with `input`/`output` prices when known. A key typed but not saved comes as the `X-Model-Key` header.
+- `GET /v1/settings/model/models?provider=&base_url=`: the provider's list (Anthropic `GET /v1/models`, else `GET {base_url}/models`). A key typed but not saved comes as the `X-Model-Key` header.
 - `POST /v1/settings/model/test`, body as PUT or empty for the saved model: one tiny call on each, `{strong: {ok, detail, ms}, light: {...}}`.
 
 ```yaml
@@ -160,7 +160,6 @@ Nothing else runs and no vendor package is needed. The server takes spans itself
 | Tool | `tool.name`, `tool.parameters`, `output.value` | `gen_ai.tool.name`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` |
 | Messages | `llm.input_messages`, `llm.output_messages`, `llm.tools` | `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`, `gen_ai.tool.definitions`, older `gen_ai.prompt` / `gen_ai.completion`; on the span or on its `gen_ai.*` events |
 | Session | `session.id` | `gen_ai.conversation.id` (asking for either finds both) |
-| Cost | `llm.cost.total` | none defined: priced from model and tokens |
 
 **Only AI spans count.** A span is an AI span when it has a recognised AI kind or `gen_ai.*` attributes other than a lone conversation id (apps may put that on any span); anything else (`GET /health`, `fastapi.endpoint`) is `UNKNOWN`. Those never appear in the trajectory or timeline, where an AI span's parent is its nearest AI ancestor, and don't count toward `max_spans` or the digest's page cap, so they can't crowd out AI spans (`MAX_READ` and `FLOOD_PAGES` still bound a read). They are still read, since one may carry the session or link two AI spans. A try or a discovery whose spans are all plain counts as no traces having arrived.
 
@@ -299,7 +298,7 @@ When a target is added, or on "refresh", the agent builds the profile, `<name>/p
    - tool names, with argument shapes and frequency (offered and called tools named alike, without an MCP prefix);
    - the usual trajectory shapes per ask (span kinds, depth, delegated work), and how many asks used no tools;
    - the main agent's system prompt and its sections, from LLM spans (helpers' prompts counted apart);
-   - typical time, tokens and cost per ask: one trace, one message and everything it set off. A session (a conversation, which may live for days) only counts conversations; case limits come from the per-ask figures.
+   - typical time and tokens per ask: one trace, one message and everything it set off. A session (a conversation, which may live for days) only counts conversations; case limits come from the per-ask figures.
 
    A summarising pass in `traces/profile.py` does this, so the agent reads a compact digest, not raw spans.
 2. **Code:** optional, from `code: {path: ..., ignore: ["generated/**"]}` in the target config. It is read-only, and no folder layout is assumed: every file from git (tracked, plus untracked and not ignored), or a walk when the folder is not a checkout. Left out: tests, lockfiles, build output, tool and credential folders and files, binaries, files over 1 MB, whatever `ignore` names, and always secrets files (`.env*`, keys). At most 2,000 files. An `include` in an older `targets.yaml` is not read. The agent reads the same files, with size caps, and nothing git ignores.
@@ -388,7 +387,7 @@ The understanding names its evidence; `<name>/knowledge.json` keeps it honest as
 - **Hooks.** `evalution hooks install|uninstall|status --target`, `GET/POST/DELETE /v1/targets/{t}/hooks`, the Settings toggle; nothing else installs them. `git rev-parse --git-path hooks` finds the folder. A block with `# >>> evalution <name> >>>` goes right after the shebang, so a later `exit` cannot skip it. New files are 0700 and carry a created marker; uninstall removes one only if nothing else is left. Links, non-shell scripts and hooks switched off are left alone and reported. A folder git would see in the working tree, or a hooks path set outside the repo's own config, is refused. Name and URL are validated strictly, and shell-quoted.
 - **`/changed`.** Answers 202 at once. `Watcher.changed` waits for 5 quiet seconds (60 at most), so a burst is one check: code drift, knowledge, then the change card. The Home check and the daily one run the same refresh, as the fallback without hooks.
 
-**Page.** `knowledge` on the understanding and on health: `{mode, out_of_date, flagged, can_update, update_usd, read_usd, last, changes, can_undo}`. `last` is the last update until `POST .../understanding/seen`; `changes` compares the last two versions; `POST .../understanding/undo` puts back the version before a refresh, as a new version with `by: "undo"`, and starts the links again from HEAD. Estimates are characters / 4 at the light model's input price plus a fixed answer size, `null` when the model has no price.
+**Page.** `knowledge` on the understanding and on health: `{mode, out_of_date, flagged, can_update, last, changes, can_undo}`. `last` is the last update until `POST .../understanding/seen`; `changes` compares the last two versions; `POST .../understanding/undo` puts back the version before a refresh, as a new version with `by: "undo"`, and starts the links again from HEAD.
 
 ## Stateful test library
 
@@ -437,8 +436,7 @@ interface Understanding {
     stack: string[];                 // detected: "Python · FastAPI", "React web", "Claude models", adapter, traces
     status: "learning" | "up_to_date" | "out_of_date"; changes: number;
     numbers: { tools: number; tools_seen: number; state_kinds: string[];
-               ask_seconds: number | null; ask_usd: number | null;
-               tests: number; tests_passing: number | null;
+               ask_seconds: number | null; tests: number; tests_passing: number | null;
                library_covered: number; library_total: number };
     watched: string[];               // "prompts", "tool code", "docs"
   };
@@ -454,7 +452,7 @@ interface Understanding {
               claims: { id: string; text: string; evidence: Evidence[];
                         verdict?: "right" | "wrong"; fix?: string }[] }[];
   priorities: { id: string; title: string; picked: boolean; source: "agent" | "admin" }[];
-  starters: { id: string; title: string; what: string; why: string; usd_per_try: number;
+  starters: { id: string; title: string; what: string; why: string;
               priority?: string; library?: string; selected: boolean;
               exists: boolean }[];   // the page's Suggested tests; exists: already a test
 

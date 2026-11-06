@@ -1,15 +1,14 @@
 """What a try's spans say: the one place span attributes are read (docs/architecture.md,
 "Traces"). Everything here reads OpenInference attributes and the OpenTelemetry GenAI semantic
 conventions alike, and :func:`build` turns spans into what a try records: tool calls (for the
-grade), the timeline, one ``ContextCall`` per LLM span, the trajectory, tokens and cost.
+grade), the timeline, one ``ContextCall`` per LLM span, the trajectory and tokens.
 
 GenAI attributes read: ``gen_ai.request.model`` / ``gen_ai.response.model``,
 ``gen_ai.usage.input_tokens`` / ``output_tokens`` (and the older ``prompt_tokens`` /
 ``completion_tokens``), ``gen_ai.tool.name``, ``gen_ai.tool.call.arguments`` / ``result``,
 ``gen_ai.tool.definitions``, ``gen_ai.system_instructions``, ``gen_ai.input.messages`` /
 ``gen_ai.output.messages`` (and the older ``gen_ai.prompt`` / ``gen_ai.completion``). The
-conversation id is :func:`evalution.traces.base.session_of`'s. The conventions define no cost:
-a GenAI span is priced from its model and tokens.
+conversation id is :func:`evalution.traces.base.session_of`'s.
 """
 
 from __future__ import annotations
@@ -40,7 +39,6 @@ IO_CHARS = 2_000
 JSON_DEPTH = 64
 
 Sectioner = Callable[[dict[str, Any]], list[Section]]
-Pricer = Callable[[str, int, int], float]
 
 
 def _clip(text: str, limit: int = TEXT_CHARS) -> str:
@@ -323,19 +321,6 @@ def span_tokens(span: Span) -> tuple[int, int]:
     return tokens_in, tokens_out
 
 
-def span_usd(span: Span, price: Pricer | None) -> float:
-    cost = get(span.attrs, "llm.cost.total")
-    if isinstance(cost, (int, float)):
-        return float(cost)
-    if not price:
-        return 0.0
-    # A dated model that answered may be priced only under the name that was asked for.
-    for model in (model_of(span), get(span.attrs, "gen_ai.request.model")):
-        if model and (usd := price(str(model), *span_tokens(span))):
-            return usd
-    return 0.0
-
-
 def estimate_tokens(text: str) -> int:
     """A rough token count (characters / 4), the same everywhere a size is shown."""
     return math.ceil(len(text) / 4)
@@ -387,7 +372,6 @@ class TraceView:
     context: list[dict[str, Any]] = field(default_factory=list)
     trajectory: list[dict[str, Any]] = field(default_factory=list)
     tokens: int = 0
-    usd: float = 0.0
     trace_ids: list[str] = field(default_factory=list)
 
 
@@ -452,10 +436,9 @@ def build(
     t0: float,
     *,
     sectioner: Sectioner | None = None,
-    price: Pricer | None = None,
     preview: bool = True,
 ) -> TraceView:
-    """A try's calls, timeline, context, trajectory, tokens and cost from its *spans*. Only AI
+    """A try's calls, timeline, context, trajectory and tokens from its *spans*. Only AI
     spans are in it; the others (plain HTTP and framework spans) only link AI spans together."""
     view = TraceView()
     by_id = {s.id: s for s in spans}
@@ -526,9 +509,7 @@ def build(
         elif span.kind == "LLM":
             llm_n += 1
             tokens_in, tokens_out = span_tokens(span)
-            usd = span_usd(span, price)
             view.tokens += tokens_in + tokens_out
-            view.usd += usd
             call = context_call(llm_n, span, sectioner, preview=preview)
             said = output_text(span)
             view.context.append(
@@ -546,7 +527,6 @@ def build(
                 model=model,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                usd=round(usd, 6),
             )
             if said.strip():
                 view.trajectory.append(
@@ -559,6 +539,5 @@ def build(
                     }
                 )
         view.timeline.append(row)
-    view.usd = round(view.usd, 6)
     view.trajectory.sort(key=lambda s: s["t"])
     return view

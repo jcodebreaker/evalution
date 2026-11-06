@@ -119,10 +119,8 @@ export function TestView({
   const steps = view === "result" && shown ? shown.steps : (ready(plan)?.steps ?? null);
   const head = (view === "result" ? shown : null) ?? ready(plan);
   const span = shown?.detail?.timeline.find((entry) => entry.id === focus) ?? null;
-  // Limits in words: not what a try costs (the run's business) nor where the test came from.
-  const limits = (head?.limits ?? []).filter(
-    (limit) => !limit.includes("$") && !/^from\b/i.test(limit),
-  );
+  // Limits in words, not where the test came from.
+  const limits = (head?.limits ?? []).filter((limit) => !/^from\b/i.test(limit));
 
   return (
     <div className="flex min-h-0 flex-1 max-lg:flex-col">

@@ -1,4 +1,4 @@
-import type { Health, Period } from "../../lib/schema";
+import type { Health } from "../../lib/schema";
 import { Areas } from "./Areas";
 import { Attention } from "./Attention";
 import { RecentRuns } from "./RecentRuns";
@@ -7,7 +7,6 @@ import { Trend } from "./Trend";
 
 export function Dashboard({
   health,
-  period,
   runLabel,
   onRun,
   onRuns,
@@ -15,7 +14,6 @@ export function Dashboard({
   onReview,
 }: {
   health: Health;
-  period: Period;
   runLabel: (run: string) => string;
   onRun: (run: string) => void;
   onRuns: () => void;
@@ -30,7 +28,7 @@ export function Dashboard({
   };
   return (
     <>
-      <Tiles health={health} period={period} />
+      <Tiles health={health} />
 
       <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-[18px]">
         {health.areas.length ? <Areas areas={health.areas} /> : null}

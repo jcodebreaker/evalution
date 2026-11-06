@@ -158,7 +158,6 @@ def comparison(run: Mapping[str, Any], base: Mapping[str, Any]) -> dict[str, Any
         "tests": sorted(tests, key=lambda t: _ORDER.get(t["change"], len(_ORDER))),
         "seconds": {"before": b.get("median_seconds"), "now": a.get("median_seconds")},
         "tokens": {"before": b.get("tokens"), "now": a.get("tokens")},
-        "usd": {"before": b.get("usd"), "now": a.get("usd")},
     }
 
 

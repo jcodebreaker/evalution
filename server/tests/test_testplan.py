@@ -196,7 +196,7 @@ def test_a_try_says_plainly_when_its_traces_fell_short() -> None:
 
 
 def test_a_score_with_nothing_to_count_is_no_score() -> None:
-    tries = [{"tools": 1.0, "reply": 1.0, "seconds": 1, "tokens": 1, "usd": 0.0, "n": 1}]
+    tries = [{"tools": 1.0, "reply": 1.0, "seconds": 1, "tokens": 1, "n": 1}]
     done = {"judgements": [{"outcome": "passed", "checks": [], "rules": 1}]}
     entry = {"expected": {}, "reply_rubric": [], "case": {}, "tries": [{**tries[0], **done}]}
     row = case_row("c", "C", entry)
@@ -410,7 +410,7 @@ def test_a_failing_try_first_differs_from_a_passing_one(failing, sent, step, kin
     assert found["fail"]["n"] == 2
 
 
-TRIED = {"tools": 0.0, "reply": 1.0, "seconds": 1.0, "tokens": 1, "usd": 0.0, "automatic": ["auto"]}
+TRIED = {"tools": 0.0, "reply": 1.0, "seconds": 1.0, "tokens": 1, "automatic": ["auto"]}
 
 
 def test_a_first_difference_from_the_comparison_run_when_none_passed_here() -> None:

@@ -551,8 +551,8 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
             "rules": 2,
         }
         memory = {"committed": outcome == "passed", "written": True}
-        spent = {"tokens": 10, "usd": 0.5, "seconds": 3.0, "messages": 2, "models": ["m"]}
-        attempt = {"n": 1, "judgements": [made], "memory": memory, **spent}
+        played = {"tokens": 10, "seconds": 3.0, "messages": 2, "models": ["m"]}
+        attempt = {"n": 1, "judgements": [made], "memory": memory, **played}
         return {"source": source, "tries": [attempt]}
 
     broke_off = tried("failed", "longmemeval:temporal-reasoning")
@@ -590,7 +590,6 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     shown = overview("bot", docs, [run])["runs"][0]
     assert shown["totals"] == {
         "tokens": 50,
-        "usd": 2.5,
         "median_seconds": 3.0,
         "models": ["m"],
     }, "only the benchmark's own questions count"
@@ -604,7 +603,7 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     assert played["trace_url"] is None and (waiting["tokens"], waiting["models"]) == (None, [])
     bare = overview("bot", docs, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
     assert bare["happened"] == "", "nothing played, nothing to say"
-    assert bare["totals"] == {"tokens": None, "usd": None, "median_seconds": None, "models": []}
+    assert bare["totals"] == {"tokens": None, "median_seconds": None, "models": []}
     empty = {**run, "status": "stopped", "cases": {"f": run["cases"]["f"]}}
     assert overview("bot", docs, [empty])["runs"] == [], "stopped with nothing played"
 

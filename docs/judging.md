@@ -44,7 +44,7 @@ A run given a count (`--tries`, or `tries` on the estimate) plays exactly that m
 - A test that moved since the run it's compared with (`--against`, else the run a comparison picks) plays on until Fisher's test, as below, calls the move real, or until even the tries left all going the same way couldn't: then it's chance.
 - Never more than 20.
 
-The estimate is a range from each test's own `tries` to 20. After every try, a run stops once the app has spent `spend_cap` times what the tries played so far were estimated at, never less than that many times the low end (3 by default; 0 turns it off). A run that plays on raises its own allowance; a try far dearer than its estimate trips it. It reads stopped, and the tests it didn't reach read *not run: spend cap*: nothing is judged from them.
+The estimate is a range from each test's own `tries` to 20.
 
 ## What a pass rests on
 
@@ -111,7 +111,7 @@ Two things that may just pass get one more go after a short wait, and the try ke
 - A try that couldn't reach the app at its very first message, or was answered 429 or 503, with nothing to show the app heard it: the adapter saw no message taken, and the traces show nothing. A 502 or 504 isn't sent again, since a gateway may have passed the message on. Spans of the first go don't count in the second.
 - A grader call that failed on the network or a busy provider (a transport error, a 429 or a 5xx).
 
-A failed check is never tried again, and neither is a try that got further. If the second go fails too, it reads as it would have. A failed grader call costs nothing, so a second one adds only the answer it gets.
+A failed check is never tried again, and neither is a try that got further. If the second go fails too, it reads as it would have. A second grader call is made only when the first one got no answer.
 
 ### When it's the adapter
 
@@ -167,7 +167,7 @@ A score from 0 to 1 is shown and never decides, unless a reference is all a test
 
 ### Lines tried before they run
 
-When the test writer shows a plan, its rubric lines are tried first, so a line the grader can read two ways shows up before it costs tries. One call on the light model writes a reply that meets every line and, for each line, one that misses only it. The set's grader then grades them the way a run does: the good reply on every line, each bad reply on its own line. A plan of N lines costs 2 + N calls, plus a second grading for a line it wasn't sure of; they count in the chat's cost. A line is flagged when its good reply fails it, its bad reply passes it, or the grader stays unsure. The plan shows the flag with a sharper line, or a `reply.contains` / `reply.lacks` check when the line only asks for exact words that tell the two replies apart, and "Use this" puts it in the plan before you approve it. Lines about what the assistant did, rather than said, aren't tried: a written reply has no tool calls. With no model set up, nothing is tried. The code is `server/evalution/writer/linecheck.py`.
+When the test writer shows a plan, its rubric lines are tried first, so a line the grader can read two ways shows up before it costs tries. One call on the light model writes a reply that meets every line and, for each line, one that misses only it. The set's grader then grades them the way a run does: the good reply on every line, each bad reply on its own line. A plan of N lines takes 2 + N calls, plus a second grading for a line it wasn't sure of. A line is flagged when its good reply fails it, its bad reply passes it, or the grader stays unsure. The plan shows the flag with a sharper line, or a `reply.contains` / `reply.lacks` check when the line only asks for exact words that tell the two replies apart, and "Use this" puts it in the plan before you approve it. Lines about what the assistant did, rather than said, aren't tried: a written reply has no tool calls. With no model set up, nothing is tried. The code is `server/evalution/writer/linecheck.py`.
 
 ## When a person disagrees
 
@@ -183,7 +183,7 @@ When the grader changes, by `regrade --judge` or a run graded by another model o
 
 ## Money
 
-"About" is an estimate, made before anything runs. "Spent" is what a try's traces recorded for the app's model calls: their own cost, or their tokens at the price table. It leaves out grading. A try with nothing recorded shows no figure: that doesn't mean it was free.
+evalution doesn't track, estimate or show what model calls cost: a run's confirm says how many tests, tries and messages it plays, and its traces give tokens and time.
 
 ## Evidence
 
@@ -220,7 +220,7 @@ Two results of a test compare only with the same test version, rules, judge mode
 
 A try keeps a list of judgements, only ever added to; the newest is current. Every view, the health page and the CLI read those, through one verdict function.
 
-`RULES_VERSION` goes up when a rule changes what a stored try would read as. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new spend, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
+`RULES_VERSION` goes up when a rule changes what a stored try would read as. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new model calls, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
 
 ## Old runs
 

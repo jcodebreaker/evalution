@@ -84,7 +84,6 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "target": session["target"],
         "set": session["set"],
         "status": session["status"],
-        "spent_usd": round(float(session["model_usd"]), 4),
         "messages": session["messages"],
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
     }
@@ -199,7 +198,6 @@ class Agent:
             "set": set_name,
             "created_at": time.time(),
             "status": "idle",
-            "model_usd": 0.0,
             "messages": [],
             "cases": [],
             "history": [],
@@ -364,8 +362,7 @@ class Agent:
                 if required
                 else ""
             )
-            + f"Spent ${session['model_usd']:.2f}. "
-            f"Drift: {changes} change(s) since the profile.\n\n"
+            + f"Drift: {changes} change(s) since the profile.\n\n"
             + fenced("the target's profile", cut(profile, PROFILE_CHARS) or "(none yet)")
             + "\n\n"
             + fenced("the set's cases", full or "(none yet)")
@@ -394,7 +391,6 @@ class Agent:
                     reply = await self.llm.chat(
                         "strong", instructions, copy.deepcopy(history), TOOLS
                     )
-                    session["model_usd"] = float(session["model_usd"]) + reply.usd
                     history.append(
                         {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
                     )
@@ -465,7 +461,6 @@ class Agent:
         except LLMError:
             _logger.warning("agent: session %s: no summary", session["id"], exc_info=True)
             return
-        session["model_usd"] = float(session["model_usd"]) + reply.usd
         if summary := reply.text.strip():
             said = f"{EARLIER_SAID}\n{fenced('the summary', summary)}"
             history[:at] = [{"role": "user", "content": said}]

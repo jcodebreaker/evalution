@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { percent, score, seconds, signed, usd } from "../../lib/format";
+import { percent, score, seconds, signed } from "../../lib/format";
 import type { RunDetail } from "../../lib/schema";
 import { Group } from "../shared/group";
 
-/** Passed, steps score, reply score, median time and what was spent, each with its change from the base run. */
+/** Passed, steps score, reply score and median time, each with its change from the base run. */
 export function Metrics({ run }: { run: RunDetail }) {
   const { totals, delta } = run;
   const tone = (good: boolean, text: string) => (
@@ -14,7 +14,7 @@ export function Metrics({ run }: { run: RunDetail }) {
       ? text
       : tone(lowerIsBetter ? value < 0 : value > 0, text);
   return (
-    <Group className="grid grid-cols-5 max-[900px]:grid-cols-2">
+    <Group className="grid grid-cols-4 max-[900px]:grid-cols-2">
       <Metric
         label="Passed"
         value={`${totals.passed} of ${totals.cases}`}
@@ -44,11 +44,6 @@ export function Metrics({ run }: { run: RunDetail }) {
         delta={
           delta ? change(delta.median_seconds_pct, percent(delta.median_seconds_pct), true) : null
         }
-      />
-      <Metric
-        label="Spent"
-        value={totals.usd ? usd(totals.usd) : "—"}
-        delta={delta ? change(delta.usd_pct, percent(delta.usd_pct), true) : null}
       />
     </Group>
   );

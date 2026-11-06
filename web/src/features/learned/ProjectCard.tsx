@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../../lib/api";
 import { copy } from "../../lib/clipboard";
 import { cn } from "../../lib/cn";
-import { seconds, usd } from "../../lib/format";
+import { seconds } from "../../lib/format";
 import type { Understanding } from "../../lib/schema";
 import { MoreMenu } from "../../ui/menu";
 import { Group } from "../shared/group";
@@ -107,7 +107,6 @@ export function ProjectCard({ card, target }: { card: Card; target: string }) {
         <Figure
           value={numbers.ask_seconds === null ? "—" : seconds(numbers.ask_seconds)}
           label="typical ask"
-          sub={numbers.ask_usd === null ? undefined : `${usd(numbers.ask_usd)} per ask`}
         />
         <Figure value={String(numbers.tests)} label="tests" sub={tests} />
       </div>

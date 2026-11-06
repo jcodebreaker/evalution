@@ -48,7 +48,7 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
     assert "capabilities: conversation_break, isolation, reset, sections, state" in prompt
     assert "a try starts clean of" in prompt
     assert "asks every test to start clean" not in prompt, "by default it asks for nothing"
-    assert "Spent $0.00" in prompt and "Drift: 1 change(s)" in prompt
+    assert "Drift: 1 change(s)" in prompt
     assert "what the person sends, what should happen, and what must not happen" in " ".join(
         prompt.split()
     )
@@ -174,7 +174,7 @@ async def test_a_long_chat_is_summarized_or_else_loses_its_oldest_exchanges(
             summary = self.summaries.pop(0)
             if summary is None:
                 raise LLMError("down")
-            return Reply(text=summary, usd=0.25)
+            return Reply(text=summary)
 
     def old_chat() -> list[dict]:
         return [
@@ -212,7 +212,6 @@ async def test_a_long_chat_is_summarized_or_else_loses_its_oldest_exchanges(
     assert "They chose the short set." in history[0]["content"]
     assert history[1]["content"] == "Go" and history[-1]["content"] == "Done."
     assert model.heard[0]["content"] == history[0]["content"], "the agent reads the summary"
-    assert session["model_usd"] == 0.25
     assert [m["text"] for m in session["messages"]] == ["Go", "Done."], "the page loses nothing"
     assert session["activity"][-1]["text"] == "Summarizing the earlier chat"
 

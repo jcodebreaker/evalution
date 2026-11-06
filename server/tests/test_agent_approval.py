@@ -26,7 +26,6 @@ CASE = {"name": "Greets", "turns": [{"message": "hi"}]}
 PLAN = {
     "steps": [{"kind": "message", "title": "Say hi"}],
     "tries": 3,
-    "usd": 0.5,
     "case": "x",
     "file": CASE,
 }
@@ -301,7 +300,6 @@ def _model(calls: list[str], writer: list[str]) -> llm.LLM:
         base_url="http://model",
         api_key_env=None,
         models={"strong": "m", "light": "m"},
-        prices={"m": {"input": 1.0, "output": 0.0}},
     )
     return llm.LLM(config, transport=httpx.MockTransport(answer))
 
@@ -326,7 +324,6 @@ async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) ->
     # second grading for each of the two gradings with a line it wasn't sure of.
     assert calls.count(LINE_DRAFT_INSTRUCTIONS) == 1
     assert calls.count(INSTRUCTIONS) == 1 + 5 and calls.count(SCEPTIC_INSTRUCTIONS) == 2
-    assert session["model_usd"] == pytest.approx(len(calls) * 0.01), "counted in the session"
 
     with pytest.raises(LookupError):
         await agent.use_line(session["id"], plan["id"], "Says thanks")

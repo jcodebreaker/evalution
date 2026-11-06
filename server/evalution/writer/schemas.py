@@ -11,7 +11,7 @@ STEP_KINDS = ("message", "generated", "check")
 
 _PLAN_SCHEMA = {
     "type": "object",
-    "description": "When you propose a case: what it does, its tries and cost.",
+    "description": "When you propose a case: what it does and its tries.",
     "properties": {
         "steps": {
             "type": "array",
@@ -26,7 +26,6 @@ _PLAN_SCHEMA = {
             },
         },
         "tries": {"type": "integer"},
-        "usd": {"type": "number", "description": "The estimate for the run"},
         "case": {"type": "string", "description": "The case id"},
         "replaces": {
             "type": "string",
@@ -44,7 +43,7 @@ _PLAN_SCHEMA = {
             ),
         },
     },
-    "required": ["steps", "tries", "usd", "case", "file"],
+    "required": ["steps", "tries", "case", "file"],
 }
 _REVIEW_SCHEMA = {
     "type": "object",
@@ -134,8 +133,8 @@ TOOLS = [
     ),
     _tool(
         "estimate",
-        "What running this session's set, or one case of it, would cost, for "
-        "the plan. tries: overrides each case's tries (1-20). You never run anything.",
+        "How many tries and messages running this session's set, or one case of it, would "
+        "take, for the plan. tries: overrides each case's tries (1-20). You never run anything.",
         {"case": _STR, "tries": {"type": "integer"}},
         [],
     ),
@@ -231,11 +230,10 @@ TOOLS = [
                         "title": _STR,
                         "what": _STR,
                         "why": _STR,
-                        "usd_per_try": {"type": "number"},
                         "priority": {"type": "string", "description": "A priority id"},
                         "library": {"type": "string", "description": "A library test id"},
                     },
-                    "required": ["id", "title", "what", "why", "usd_per_try"],
+                    "required": ["id", "title", "what", "why"],
                 },
             },
             "step_labels": {
@@ -255,7 +253,7 @@ TOOLS = [
         "read_trace_digest",
         "A compact digest of the target's recent sessions: tools with "
         "argument shapes and frequency, trajectory shapes, the main system prompt's sections, "
-        "and typical time, tokens and cost per ask (one message and what it set off; a case's "
+        "and typical time and tokens per ask (one message and what it set off; a case's "
         "limits cover its asks, not a conversation's lifetime). Eval traffic is left out.",
         {"sessions": {"type": "integer"}},
         [],

@@ -15,7 +15,7 @@ A laptop that sleeps stops a run, and closing the lid sleeps it even with sleep 
 
 ## From the command line
 
-The full-length sizes (`s`, `m`, `oracle`) and the plan below aren't on the page. They download the full data, and a long question costs about ten times a middle one.
+The full-length sizes (`s`, `m`, `oracle`) and the plan below aren't on the page. They download the full data, and a long question sends about ten times as much as a middle one.
 
 
 A benchmark says what it needs, not how to play it, because apps differ. One has a new conversation per chat; another has one conversation per person forever.

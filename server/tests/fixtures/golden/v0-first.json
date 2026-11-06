@@ -231,8 +231,7 @@
        "t": 3.07,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.078817
+     ]
     },
     {
      "analysis": null,
@@ -440,8 +439,7 @@
        "t": 3.15,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.071296
+     ]
     },
     {
      "analysis": null,
@@ -649,8 +647,7 @@
        "t": 3.05,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.064856
+     ]
     }
    ],
    "turns": [
@@ -712,7 +709,6 @@
      "passed"
     ],
     "unjudged": [],
-    "usd": 0.072,
     "verdict": "pass"
    }
   ],
@@ -771,7 +767,6 @@
     "reason": null,
     "tries": 3,
     "unjudged": [],
-    "usd": 0.215,
     "verdict": "pass"
    }
   ],
@@ -784,8 +779,7 @@
    "reply": 0.95,
    "tokens": 158004,
    "tools": 1.0,
-   "unjudged": 0,
-   "usd": 0.215
+   "unjudged": 0
   }
  },
  "latest_rows": [
@@ -826,7 +820,6 @@
     "passed"
    ],
    "unjudged": [],
-   "usd": 0.173,
    "verdict": "pass"
   }
  ],
@@ -881,7 +874,6 @@
     "reason": null,
     "tries": 3,
     "unjudged": [],
-    "usd": 0.215,
     "verdict": "pass"
    }
   ],
@@ -894,8 +886,7 @@
    "reply": 0.95,
    "tokens": 158004,
    "tools": 1.0,
-   "unjudged": 0,
-   "usd": 0.215
+   "unjudged": 0
   }
  }
 }

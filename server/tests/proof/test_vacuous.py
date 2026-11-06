@@ -376,7 +376,7 @@ async def test_7_grading_again_needs_evidence_and_only_adds(make_rig, monkeypatc
     assert _verdict(rig.runs.load(run)) == "unjudged"
     rig.judge.default = "fail"
     estimate = rig.runs.estimate_regrade(run)
-    assert estimate["tries"] == 3 and estimate["usd"] > 0
+    assert estimate["tries"] == 3
     assert await rig.runs.regrade(estimate["token"]) == {"graded": 3, "failed": 0}
     with pytest.raises(KeyError):
         await rig.runs.regrade(estimate["token"])
@@ -659,7 +659,6 @@ async def test_12_a_case_other_than_the_approved_one_is_refused(make_rig) -> Non
     plan = {
         "steps": [{"kind": "message", "title": "Say hi"}],
         "tries": 3,
-        "usd": 0.5,
         "case": "greets",
     }
     await agent.tools.reply(AgentTurn(session), {"text": "Here is the plan", "plan": plan})
@@ -683,7 +682,6 @@ async def test_12_control_the_approved_case_saves(make_rig) -> None:
     plan = {
         "steps": [{"kind": "message", "title": "Say hi"}],
         "tries": 3,
-        "usd": 0.5,
         "case": "greets",
         "file": case,
     }

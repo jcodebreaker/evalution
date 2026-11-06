@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { count, spent, when } from "../../lib/format";
+import { count, when } from "../../lib/format";
 import type { Health } from "../../lib/schema";
 import { TextLink } from "../shared/group";
 import { VERDICT_CELL } from "../shared/marks";
@@ -41,9 +41,7 @@ export function RecentRuns({
               <span className="truncate text-[14px] font-semibold">
                 {runLabel(run.run)} · {count(run.results.length, "test")}
               </span>
-              <span className="text-[12.5px] text-ink-2">
-                {[when(run.at), spent(run.usd)].filter(Boolean).join(" · ")}
-              </span>
+              <span className="text-[12.5px] text-ink-2">{when(run.at)}</span>
             </span>
             <span className="flex max-w-40 flex-wrap gap-[3px]" aria-hidden>
               {run.results.map((verdict, at) => (

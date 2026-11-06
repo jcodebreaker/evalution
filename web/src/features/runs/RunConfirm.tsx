@@ -18,8 +18,8 @@ export type RunTarget = {
 };
 
 /**
- * Every run starts behind this confirm: what the server estimates it costs. Run spends the
- * estimate's token, so nothing starts unconfirmed.
+ * Every run starts behind this confirm, on what the server estimates. Run uses up the estimate's
+ * token, so nothing starts unconfirmed.
  */
 export function RunConfirm({
   target,

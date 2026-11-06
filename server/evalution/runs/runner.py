@@ -9,11 +9,9 @@ its ``planned`` grows as it goes, and ends at what it played.
 
 Nothing starts unconfirmed: :meth:`Runs.estimate` hands out a short-lived, single-use token and
 :meth:`Runs.start` refuses without one. One run at a time. A run is ``running``, then ``done``,
-``stopped`` (by the admin, by its spend cap, or the server shut down or restarted under it:
+``stopped`` (by the admin, or the server shut down or restarted under it:
 interrupted; none says anything of the app) or ``failed`` (it could not go on: the target session
 went away, or a try ran out of time with work the adapter can't stop); ``stop_reason`` says which.
-After every try, what the app spent is held to a multiple (``spend_cap`` in the config) of what
-the tries played so far were estimated at, never under that multiple of the low estimate.
 A run that ends on its own (``done`` or ``failed``) with failed tries is then analysed
 (:mod:`evalution.review.findings`) while ``analyzing`` is true; ``analysis_error`` says when that
 could not finish, for a retry. The run document (:mod:`evalution.results.store`) is rewritten after
@@ -53,7 +51,6 @@ from evalution.core.rules import (
     OTHER_FAILURE,
     RULES_VERSION,
     SERVER_RESTARTED,
-    SPEND_CAPPED,
     TARGET_GONE,
     current,
     judgement,
@@ -85,14 +82,7 @@ from evalution.results.views import summary, totals
 from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
 from evalution.runs import trust
-from evalution.runs.estimate import (
-    GRADE_TRY_USD,
-    capped,
-    messages,
-    own_costs,
-    per_try_usd,
-    run_usd,
-)
+from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
 from evalution.runs.play import (
     ADAPTER_FAILURES,
@@ -190,9 +180,6 @@ class _Plan:
     cases: tuple[str, ...]
     tries: int | None
     scope: str
-    #: One try of each case, and the run at the low end, as estimated: what the spend cap goes by.
-    per_try: dict[str, float]
-    low: float
     expires: float
 
 
@@ -220,10 +207,6 @@ class KeepsHanging(Exception):
 
 class StillWorking(RuntimeError):
     """A try ran out of time with the app's work still going, and it can't be stopped."""
-
-
-class SpendCapped(Exception):
-    """The app has spent the run's cap."""
 
 
 class Runs:
@@ -334,9 +317,8 @@ class Runs:
         """The ``Estimate`` for a set or some of its cases, with the token that starts it.
 
         A range: *tries*, when given, plays exactly that many, so both ends are one figure. Without
-        it, each case plays from its own ``tries`` (``tries``, ``chats`` and ``usd``: the low end,
-        what they read before tries could grow) up to :data:`MOST_TRIES` (``tries_high`` and
-        ``usd_high``).
+        it, each case plays from its own ``tries`` (``tries`` and ``chats``: the low end, what they
+        read before tries could grow) up to :data:`MOST_TRIES` (``tries_high``).
 
         :raises CaseError: An unknown set or case, or a bad case file.
         :raises LookupError: An unknown target.
@@ -347,18 +329,14 @@ class Runs:
         chosen = [load_case(docs, target, set_name, c) for c in cases] if cases else every
         refused = self._refused(target, chosen)
         chosen = [c for c in chosen if c.case not in refused]
-        runs = self.all(target, set_name)
         least = {c.case: tries or int(c.limits["tries"]) for c in chosen}
         most = {c.case: tries or MOST_TRIES for c in chosen}
-        c0 = self.targets.config.filler_usd
-        per_try = {c.case: per_try_usd(c, runs, c0) for c in chosen}
-        low, high = run_usd(per_try, least), run_usd(per_try, most)
         now = time.time()
         self._plans = {k: p for k, p in self._plans.items() if p.expires > now}
         token = secrets.token_urlsafe(18)
         scope = "all" if {c.case for c in every} <= set(least) else "some"
         self._plans[token] = _Plan(
-            target, set_name, tuple(least), tries, scope, per_try, low, now + TOKEN_SECONDS
+            target, set_name, tuple(least), tries, scope, now + TOKEN_SECONDS
         )
         return {
             "token": token,
@@ -368,11 +346,7 @@ class Runs:
             "tries": sum(least.values()),
             "tries_high": sum(most.values()),
             "chats": sum(least[c.case] * messages(c) for c in chosen),
-            "usd": round(low, 2),
-            "usd_high": round(high, 2),
-            # Some test has no cost of its own yet, so the figure is a rough guess.
-            "first_run": any(not own_costs(c, runs) for c in chosen),
-            # Tests this app can't serve, left out of the run and the figure.
+            # Tests this app can't serve, left out of the run.
             "refused": [{"case": case, "why": why} for case, why in refused.items()],
             "isolation_note": self.targets.adapter(target).capabilities.isolation_note,
         }
@@ -443,9 +417,6 @@ class Runs:
             "commit": None,
             "code": None,
             "pass_marks": dict(eval_set.pass_marks),
-            # What the app may spend before the run stops (:func:`capped`), with each case's
-            # ``try_usd``.
-            "spend_cap": {"multiple": self.targets.config.spend_cap, "floor": plan.low},
             "set_version": eval_set.version,
             "case_versions": {c.case: c.version for c in cases},
             "error": None,
@@ -464,7 +435,6 @@ class Runs:
                     "source": c.source,
                     "stale": None,
                     "planned": plan.tries or int(c.limits["tries"]),
-                    "try_usd": plan.per_try[c.case],
                     "must_hold": c.must_hold,
                     # The test as it was played: a later change to its file doesn't change this.
                     "case": c.raw,
@@ -524,7 +494,7 @@ class Runs:
         return JudgeStamp(key=key, model=model, prompt_hash=PROMPT_HASH)
 
     def estimate_regrade(self, run: str) -> dict[str, Any]:
-        """What grading *run* again from its evidence would cost, with the token that does it.
+        """How many tries grading *run* again from its evidence takes, with the token that does it.
 
         :raises ValueError: No such run, or one without evidence or a copy of its tests.
         """
@@ -548,11 +518,7 @@ class Runs:
         now = time.time()
         token = secrets.token_urlsafe(18)
         self._regrades[token] = (run, now + TOKEN_SECONDS)
-        return {
-            "token": token,
-            "tries": len(tries) + len(again),
-            "usd": round(GRADE_TRY_USD * (len(tries) + len(again)), 2),
-        }
+        return {"token": token, "tries": len(tries) + len(again)}
 
     async def regrade(self, token: str) -> dict[str, int]:
         """Grade the replies of an estimate's run again from its evidence, on the model its set
@@ -762,7 +728,7 @@ class Runs:
         """Play every try of *cases*: one case after another, or up to the target's
         ``max_parallel`` cases at once when its adapter declares ``parallel``, each slot in its own
         session; a case's tries stay in order in one slot. *tries* of each, else until they say
-        something against *base*; the run stops once the app spent its cap."""
+        something against *base*."""
         name = doc["target"]
         target = self.targets.adapter(name)
         source = self.targets.source(name)
@@ -861,8 +827,6 @@ class Runs:
                         )
                         if left_going and target.capabilities.background and not played.cancelled:
                             raise StillWorking(STILL_WORKING)
-                        if _capped(doc):
-                            raise SpendCapped(SPEND_CAPPED)
                         if not reset:
                             await close_quietly(target, sessions.pop(index))
                             opened()
@@ -880,9 +844,6 @@ class Runs:
             doc.update(status="stopped", stop_reason=self._stop_reason or SERVER_SHUTDOWN)
             await self._finish(target, list(sessions.values()), doc)
             raise
-        except SpendCapped as exc:
-            # Stopped, not failed: the app answered, and the tries left are not run, not failed.
-            doc.update(status="stopped", stop_reason=str(exc))
         except AdapterBroken as exc:
             _logger.warning("evals: run %s: the adapter isn't reading the app", doc["run"])
             doc.update(
@@ -1010,7 +971,6 @@ class Runs:
             set_dir,
             filler=filler,
             source=source,
-            price=self.targets.price,
             n=n,
             reused=reused,
             settle=self.targets.config.traces.settle_seconds,
@@ -1065,7 +1025,6 @@ class Runs:
             "n": n,
             "seconds": played.seconds,
             "tokens": view.tokens,
-            "usd": view.usd,
             "tools": tools_score,
             "reply": graded.score,
             "memory": with_fold(memory, view.context),
@@ -1139,18 +1098,6 @@ def _keepable(played: Played) -> TryEvidence:
                 for t in evidence.turns
             ),
         }
-    )
-
-
-def _capped(doc: Mapping[str, Any]) -> bool:
-    """Whether the app has spent the run's cap, over the tries played so far."""
-    cap, cases = doc["spend_cap"], doc["cases"]
-    return capped(
-        doc["totals"]["usd"],
-        cap["multiple"],
-        cap["floor"],
-        {stem: entry["try_usd"] for stem, entry in cases.items()},
-        {stem: len(entry["tries"]) for stem, entry in cases.items()},
     )
 
 

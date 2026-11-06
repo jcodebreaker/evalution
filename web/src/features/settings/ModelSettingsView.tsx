@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { api } from "../../lib/api";
-import { usd } from "../../lib/format";
 import { useLoad } from "../../lib/use-load";
 import { Skeleton } from "../../ui/field";
 import { useAccount } from "../account/account";
@@ -27,9 +26,6 @@ export function ModelSettingsView({ target }: { target: string | null }) {
       </Toolbar>
       <Page narrow>
         {body}
-        {saved ? (
-          <p className="m-0 px-1 text-[12.5px] text-ink-3">Spent so far: {usd(saved.spent_usd)}</p>
-        ) : null}
         {target ? <AppSettings key={target} target={target} /> : null}
         {account ? <WorkspaceSettings account={account} /> : null}
       </Page>

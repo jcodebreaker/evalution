@@ -7,7 +7,7 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
 * ``run --target T --set S [--case C] [--tries N] [--yes] [--sets [DIR]]``: a run in this
   process. ``--sets`` first imports T's tests from DIR (default the config's ``sets_dir``), so a
   fresh database in CI plays the repo's tests. Prints the estimate and asks before anything
-  spends, unless ``--yes``; then one row per case, the totals and each failed try's analysis.
+  plays, unless ``--yes``; then one row per case, the totals and each failed try's analysis.
   ``--tries`` plays exactly N of each case; without it each plays until its tries say something
   (:mod:`evalution.runs.sampling`), against ``--against`` when given. Ctrl-C stops the run.
   Exits 1 when a case did not pass, which a test no one could judge didn't.
@@ -30,7 +30,7 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   (:mod:`evalution.adapters.contract`).
 * ``regrade RUN --rules | --judge [--yes]``: judge a stored run again. ``--rules`` reads its checks
   under today's rules: free and offline. ``--judge`` grades its replies again from its evidence:
-  new spend, so it prints the estimate and asks first, and a run without evidence is refused.
+  new model calls, so it says how many tries and asks first, and a run without evidence is refused.
 * ``profile --target T``: the digest of the target's recent traces (no model call).
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
@@ -97,7 +97,7 @@ def table(run: dict[str, Any]) -> str:
     """One row per case, then the totals and the comparison with the base run."""
     lines = [
         f"{'case':<28} {'verdict':<8} {'tries':<6} {'steps':>5} {'reply':>5} "
-        f"{'secs':>6} {'tokens':>8} {'usd':>6}"
+        f"{'secs':>6} {'tokens':>8}"
     ]
     unplayed = {t["case"]: t["reason"] for t in run["tests"] if t.get("reason")}
     for row in run["cases"]:
@@ -105,7 +105,7 @@ def table(run: dict[str, Any]) -> str:
         lines.append(
             f"{row['case'][:28]:<28} {row['verdict'] or '-':<8} {tries:<6} "
             f"{_num(row['tools']):>5} {_num(row['reply']):>5} {_num(row['seconds'], '.0f'):>6} "
-            f"{_num(row['tokens'], '.0f'):>8} {_num(row['usd']):>6}"
+            f"{_num(row['tokens'], '.0f'):>8}"
             + (f"  stale: {row['stale']}" if row.get("stale") else "")
             + (f"  ({', '.join(row['unjudged'])})" if row.get("unjudged") else "")
             + (f"  {row['note']}" if row.get("note") else "")
@@ -117,7 +117,7 @@ def table(run: dict[str, Any]) -> str:
         f"passed {t['passed']}/{t['cases']} ({t['passed_checked']} checked, "
         f"{t['passed_model_only']} by a model only, {t['unjudged']} couldn't judge)  "
         f"steps {_num(t['tools'])}  reply {_num(t['reply'])}  "
-        f"median {t['median_seconds']:.0f}s  ${t['usd']:.2f}  {t['tokens']} tokens  "
+        f"median {t['median_seconds']:.0f}s  {t['tokens']} tokens  "
         f"(pass: steps >= {scores['tools']}, reply >= {scores['reply']})"
     )
     if run.get("stop_reason"):
@@ -128,7 +128,7 @@ def table(run: dict[str, Any]) -> str:
             f"vs {base['run']}: {delta['better']} better, {delta['worse']} worse, "
             f"{delta['changed']} where the test or rules changed, "
             f"steps {delta['tools']:+.2f}, reply {delta['reply']:+.2f}, "
-            f"time {delta['median_seconds_pct']:+.0f}%, cost {delta['usd_pct']:+.0f}%"
+            f"time {delta['median_seconds_pct']:+.0f}%"
         )
     return "\n".join(lines)
 
@@ -179,7 +179,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         folder = Path(args.sets) if args.sets else config.sets_dir
         found = import_sets(targets.docs, folder, [args.target])
         print(f"evalution: imported {len(found)} set(s) from {folder}")
-    llm = LLM(config.model, docs=targets.docs) if config.model else None
+    llm = LLM(config.model) if config.model else None
     runs = Runs(targets, llm)
     intake = await _take_traces(targets, args.traces_port)
     try:
@@ -187,13 +187,11 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         estimate = runs.estimate(
             args.target, args.set, [args.case] if args.case else None, args.tries
         )
-        tries, usd = f"{estimate['tries']}", f"${estimate['usd']:.2f}"
+        tries = f"{estimate['tries']}"
         if estimate["tries_high"] > estimate["tries"]:
             tries += f" to {estimate['tries_high']}"
-            usd += f" to ${estimate['usd_high']:.2f}"
         print(
-            f"evalution: {estimate['cases']} case(s), {tries} tries, "
-            f"{estimate['chats']} messages, about {usd}"
+            f"evalution: {estimate['cases']} case(s), {tries} tries, {estimate['chats']} messages"
         )
         refused = estimate["refused"]
         for test in refused:
@@ -272,7 +270,7 @@ async def regrade(config: Config, args: argparse.Namespace) -> int:
             runs.lock.release()
         print(f"evalution: {added} tries judged again under today's rules")
         return 0
-    llm = LLM(config.model, docs=targets.docs) if config.model else None
+    llm = LLM(config.model) if config.model else None
     runs = Runs(targets, llm)
     try:
         try:
@@ -280,7 +278,7 @@ async def regrade(config: Config, args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"evalution: {exc}", file=sys.stderr)
             return 2
-        print(f"evalution: {estimate['tries']} tries to grade again, about ${estimate['usd']:.2f}")
+        print(f"evalution: {estimate['tries']} tries to grade again")
         if not args.yes and not await _confirmed():
             print("evalution: not started")
             return 0
@@ -417,7 +415,7 @@ _STEP_MARK = {"ok": "ok ", "failed": "NO ", "skipped": "-- "}
 
 async def benchmark_plan(config: Config, args: argparse.Namespace) -> int:
     targets = Targets(config)
-    llm = LLM(config.model, docs=targets.docs) if config.model else None
+    llm = LLM(config.model) if config.model else None
     try:
         if llm is None:
             print("evalution: planning needs a model", file=sys.stderr)
@@ -570,7 +568,7 @@ async def profile(config: Config, args: argparse.Namespace) -> int:
     try:
         source = targets.source(args.target)
         groups = await recent_sessions(source, targets.trace_attribute(args.target), args.sessions)
-        print(render(digest(groups, targets.price)), end="")
+        print(render(digest(groups)), end="")
         return 0
     finally:
         await targets.close()
@@ -722,7 +720,9 @@ def main(argv: list[str] | None = None) -> int:
     again.add_argument("run")
     how = again.add_mutually_exclusive_group(required=True)
     how.add_argument("--rules", action="store_true", help="today's rules over its checks: free")
-    how.add_argument("--judge", action="store_true", help="grade again from its evidence: spends")
+    how.add_argument(
+        "--judge", action="store_true", help="grade again from its evidence: calls the model"
+    )
     again.add_argument("--yes", action="store_true", help="start without asking")
     prof = sub.add_parser("profile", help="a digest of the target's recent traces")
     prof.add_argument("--target", required=True)

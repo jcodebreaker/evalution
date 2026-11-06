@@ -58,7 +58,7 @@ The worst bugs in an assistant don't show up in one answer to one prompt: a fact
 | **Built for stateful agents** | Ready-made tests for memory, compaction, corrections, forgetting and what carries across conversations. |
 | **Knows when your code moved** | Home says which areas a change touched and which tests to run. Nothing runs until you press the button. |
 | **Keeps what it knows current** | Each claim is linked to the files it rests on, and a commit marks the claims it touches. An update reads them against the code, automatically or when you ask; your corrections win and it can be undone. |
-| **A health dashboard** | What's passing, how consistent it is, reply time and cost, with a report in plain words. |
+| **A health dashboard** | What's passing, how consistent it is and reply time, with a report in plain words. |
 | **No vendor required** | Runs locally, works with any model through a generic connection, and takes standard OpenTelemetry traces. |
 
 ## Quick start
@@ -78,7 +78,7 @@ Open **http://127.0.0.1:8080**, then:
 2. **Type your app's address or project folder** and press Connect. evalution works out how to reach your app and shows any lines needed to send its traces.
 3. **Send one test message** to see the reply and traces come back. If its settings misread your app, the model can correct them from what your app answered, and you choose whether to use them.
 4. **Ask for a test** in the box, or pick a kind (exact answer, tool use, background work, memory, bad input, attack) or one the app suggests. **Variations** on a test offers new ones with other wording, another person asking, or a flawed input. You see its plan, time limit and anything this app can't serve before it's added.
-5. **Press Run.** You see the estimated cost first.
+5. **Press Run.** You confirm it first.
 
 There is no login: evalution only answers on the computer it runs on.
 
@@ -143,9 +143,9 @@ Every step and what it checks, on one page.
 
 ### 6. Press Run
 
-You see the estimated cost first. Then it plays real conversations from a clean start.
+You confirm it first. Then it plays real conversations from a clean start.
 
-<img src="docs/demo/steps/06-run-confirm.png" alt="The run confirmation with a cost estimate" width="100%">
+<img src="docs/demo/steps/06-run-confirm.png" alt="The run confirmation" width="100%">
 
 ### 7. Get the answer
 
@@ -266,7 +266,7 @@ When code differs from what was last tested and the app's updates are set to *Au
 - **Areas with no test** link to Ask AI, with the ask ready for you to send.
 - **Regressions** name the commits: *"Memory recall passed on abc1234, fails on def5678"*.
 - **A change that can't affect behaviour** shows no card, but it isn't forgotten: it's read again with the next change until a run covers it.
-- **Set to *When I ask*** (the default), the card shows the changed files and all the tests, with no model call, and *Read this change* asks for the reading, with its rough cost on the button.
+- **Set to *When I ask*** (the default), the card shows the changed files and all the tests, with no model call, and *Read this change* asks for the reading.
 
 The check runs when you view Home (at most every five minutes), before each run, and once a day. To trigger it from CI, or with the [hooks](#keeping-what-it-knows-current):
 
@@ -289,12 +289,12 @@ Traces are compared too: new or removed tools, changed arguments, a changed syst
 
 **Choose when it updates**, per app, under Settings, *Update what it knows*:
 
-| Setting | What happens on a commit | What spends |
+| Setting | What happens on a commit | What calls the model |
 |---|---|---|
-| **When I ask** (default) | Claims are marked. *What it learned* and Home say how many may be out of date, next to *Update · about $0.002* | Only pressing the button, and *Read this change* on the change card |
+| **When I ask** (default) | Claims are marked. *What it learned* and Home say how many may be out of date, next to *Update* | Only pressing the button, and *Read this change* on the change card |
 | **Automatically** | Claims are marked, then updated | One call to the cheap model per distinct committed change, and the existing one for the change card |
 
-The default is *When I ask* because the other one spends without a click. Finding and marking changes never costs anything. Costs on the buttons are rough, worked out from the size of the diff and the cheap model's price. Turning *Automatically* on spends nothing by itself: what is already marked stays behind the button, and the next commit is the first one read.
+The default is *When I ask* because the other one calls the model without a click. Finding and marking changes never does. Turning *Automatically* on calls nothing by itself: what is already marked stays behind the button, and the next commit is the first one read.
 
 **What an update does.** One model call gets the marked claims, the diff and the text of the files they cite (secret files never), and answers per claim: still true, rewritten with a new citation, or gone. It may add up to three claims when the diff clearly adds behaviour. A rewrite that cites no real file is dropped and that claim stays marked. A failed call changes nothing and leaves everything marked; in *Automatically* it's tried again on the next commit or after a day.
 
@@ -332,14 +332,14 @@ Set `automatic_tools: [name]` on a target for tools the app calls by itself. The
 
 ```sh
 uv run --project server evalution adapter new my_app                  # a commented starter, never over a file that's there
-uv run --project server evalution adapter test my_app --target my-app # its contract over the real app: says what it spends, asks first
+uv run --project server evalution adapter test my_app --target my-app # its contract over the real app: says how many messages, asks first
 ```
 
 The test checks the adapter and not your agent: sessions are unique, a turn ends with a reply, the deadline holds, `close` works, whatever it declares really works, and its sessions find their traces. What to write, and what each built-in adapter promises, is in [writing an adapter](docs/adapters.md).
 
 ## Traces
 
-Steps, context and cost come from traces. Apps send them to evalution over standard OpenTelemetry (OTLP/HTTP to `/v1/traces`), and it keeps them in its database for `traces.keep_days` (default 30). Nothing extra to install or run. Connecting an app by its folder shows the lines to add. If your app already sends traces to its own Phoenix, tick "Use my existing Phoenix" on the target and evalution reads that too.
+Steps, context and tokens come from traces. Apps send them to evalution over standard OpenTelemetry (OTLP/HTTP to `/v1/traces`), and it keeps them in its database for `traces.keep_days` (default 30). Nothing extra to install or run. Connecting an app by its folder shows the lines to add. If your app already sends traces to its own Phoenix, tick "Use my existing Phoenix" on the target and evalution reads that too.
 
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8080
@@ -348,9 +348,9 @@ OTEL_RESOURCE_ATTRIBUTES=evalution.target=my-bot
 
 Both the OpenInference and OpenTelemetry GenAI conventions are understood, and plain HTTP and framework spans are left out of the timeline. Name the app with the resource attribute `evalution.target`, and put each conversation's id on its spans as `session.id` or `gen_ai.conversation.id`. Hosted, apps send them with a traces token: see [hosting](docs/hosting.md#traces).
 
-## Cost and privacy
+## Runs and privacy
 
-**Cost.** Every try is a full chat, paid for by you. You see an estimate before each run, based on that test's own recent tries. A test that has never run gets a rough guess, marked as one. Since tries can grow, the estimate is a range. A run stops partway once the app has spent `spend_cap` times what the tries it played were estimated at, and at least that many times the low end (3 by default, 0 turns it off); the tests it didn't reach read *not run: spend cap*. Try an expensive-looking test with one try first. Ask AI has its own budget per session, shown in its panel.
+**Runs.** Every try is a full chat with your app and its model. Before each run you see how many tests, tries and messages it plays; since tries can grow, up to 20 a test, the tries are a range. evalution doesn't track what models cost. Try a long test with one try first.
 
 **What stays local.** Results, tests and settings all live on your machine. There's no hosted service and no login. Each run also keeps what it saw in the database, `data/evalution.db`: prompts your app sent, tool arguments and outputs, in full up to 64 KB an item.
 
@@ -430,7 +430,7 @@ uv run --project server evalution compare latest --target my-bot --set main  # d
 uv run --project server evalution accept <test> --baseline <file>  # take one test's newer result into the baseline
 uv run --project server evalution check --target my-bot           # one real turn, to show the adapter works
 uv run --project server evalution regrade <run> --rules         # today's rules over its checks: free, offline
-uv run --project server evalution regrade <run> --judge         # grade its replies again from its evidence: spends, asks first
+uv run --project server evalution regrade <run> --judge         # grade its replies again from its evidence: calls the model, asks first
 uv run --project server evalution upgrade                       # back up, rewrite stored runs, check they all still read
 uv run --project server evalution backup                        # the same copy alone; restore <backup> puts one back
 uv run --project server evalution adapter test my_app --target my-bot  # an adapter's contract: spends a few messages, asks first

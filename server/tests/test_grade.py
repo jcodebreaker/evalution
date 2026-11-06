@@ -69,7 +69,7 @@ def _caller(*answers: str):
     return call
 
 
-async def test_a_passing_failure_is_retried_once_and_only_the_answer_costs(monkeypatch) -> None:
+async def test_a_passing_failure_is_retried_once(monkeypatch) -> None:
     monkeypatch.setattr(llm, "ATTEMPTS", 1)
     waited: list[float] = []
 
@@ -86,7 +86,6 @@ async def test_a_passing_failure_is_retried_once_and_only_the_answer_costs(monke
             base_url="http://model",
             api_key_env=None,
             models={"strong": "m"},
-            prices={"m": {"input": 2.0, "output": 0.0}},
         )
         return llm.LLM(
             config,
@@ -95,12 +94,11 @@ async def test_a_passing_failure_is_retried_once_and_only_the_answer_costs(monke
 
     calm = model([httpx.Response(200, json=good)])
     graded = await grade_reply(calm.caller("strong"), _evidence(), "", ["x"])
-    assert graded.retried is None and calm.spent_usd == 2.0 and not waited, "control"
+    assert graded.retried is None and not waited, "control"
 
     busy = model([httpx.Response(503, text="busy"), httpx.Response(200, json=good)])
     graded = await grade_reply(busy.caller("strong"), _evidence(), "", ["x"])
     assert graded.checks[0].outcome is Outcome.PASSED and "503" in graded.retried
-    assert busy.spent_usd == 2.0, "one answer, one charge"
     assert len(waited) == 1
 
     # It says no: the same again wouldn't change that.
@@ -113,7 +111,6 @@ async def test_a_passing_failure_is_retried_once_and_only_the_answer_costs(monke
     down = model([httpx.Response(503, text="busy"), httpx.Response(503, text="busy")])
     graded = await grade_reply(down.caller("strong"), _evidence(), "", ["x"])
     assert graded.checks[0].unjudged is WhyUnjudged.JUDGE_FAILED and graded.retried
-    assert down.spent_usd == 0.0
 
 
 async def test_the_score_is_the_share_of_lines_that_held() -> None:

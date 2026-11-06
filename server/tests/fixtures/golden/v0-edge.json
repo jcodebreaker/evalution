@@ -231,8 +231,7 @@
        "t": 4.57,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.367844
+     ]
     },
     {
      "analysis": null,
@@ -440,8 +439,7 @@
        "t": 4.94,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.078803
+     ]
     }
    ],
    "turns": [
@@ -737,8 +735,7 @@
        "t": 4.57,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.367844
+     ]
     },
     {
      "analysis": {
@@ -1076,8 +1073,7 @@
        "t": 4.31,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.274885
+     ]
     }
    ],
    "turns": [
@@ -1459,8 +1455,7 @@
        "t": 4.31,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.0
+     ]
     },
     {
      "analysis": null,
@@ -1775,8 +1770,7 @@
        "t": 4.24,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.276923
+     ]
     }
    ],
    "turns": [
@@ -2208,8 +2202,7 @@
        "t": 4.31,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.274885
+     ]
     },
     {
      "analysis": null,
@@ -2441,8 +2434,7 @@
        "t": 4.57,
        "text": "Fake step 3."
       }
-     ],
-     "usd": 0.367844
+     ]
     },
     {
      "analysis": {
@@ -2776,8 +2768,7 @@
        "t": 4.24,
        "text": "Fake step 13."
       }
-     ],
-     "usd": 0.276923
+     ]
     }
    ],
    "turns": [
@@ -2843,7 +2834,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.138,
     "verdict": "unjudged"
    },
    {
@@ -2887,7 +2877,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.307,
     "verdict": "pass"
    },
    {
@@ -2923,7 +2912,6 @@
      "passed"
     ],
     "unjudged": [],
-    "usd": 0.223,
     "verdict": "pass"
    },
    {
@@ -2962,7 +2950,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.321,
     "verdict": "pass"
    },
    {
@@ -2986,7 +2973,6 @@
     "tools": null,
     "tries": [],
     "unjudged": [],
-    "usd": null,
     "verdict": null
    }
   ],
@@ -3052,7 +3038,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.2769,
     "verdict": "unjudged"
    },
    {
@@ -3070,7 +3055,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.9197,
     "verdict": "pass"
    },
    {
@@ -3084,7 +3068,6 @@
     "reason": null,
     "tries": 2,
     "unjudged": [],
-    "usd": 0.4466,
     "verdict": "pass"
    },
    {
@@ -3101,7 +3084,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.6427,
     "verdict": "pass"
    },
    {
@@ -3115,7 +3097,6 @@
     "reason": "the app wasn't ready",
     "tries": 0,
     "unjudged": [],
-    "usd": 0,
     "verdict": null
    }
   ],
@@ -3128,8 +3109,7 @@
    "reply": 0.907,
    "tokens": 927976,
    "tools": 0.639,
-   "unjudged": 1,
-   "usd": 2.286
+   "unjudged": 1
   }
  },
  "latest_rows": [
@@ -3169,7 +3149,6 @@
     "no_traces",
     "judge_unsure"
    ],
-   "usd": 0.138,
    "verdict": "unjudged"
   },
   {
@@ -3213,7 +3192,6 @@
     "no_traces",
     "judge_unsure"
    ],
-   "usd": 0.307,
    "verdict": "pass"
   },
   {
@@ -3249,7 +3227,6 @@
     "passed"
    ],
    "unjudged": [],
-   "usd": 0.223,
    "verdict": "pass"
   },
   {
@@ -3288,7 +3265,6 @@
    "unjudged": [
     "judge_unsure"
    ],
-   "usd": 0.321,
    "verdict": "pass"
   },
   {
@@ -3312,7 +3288,6 @@
    "tools": null,
    "tries": [],
    "unjudged": [],
-   "usd": null,
    "verdict": null
   }
  ],
@@ -3374,7 +3349,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.2769,
     "verdict": "unjudged"
    },
    {
@@ -3392,7 +3366,6 @@
      "no_traces",
      "judge_unsure"
     ],
-    "usd": 0.9197,
     "verdict": "pass"
    },
    {
@@ -3406,7 +3379,6 @@
     "reason": null,
     "tries": 2,
     "unjudged": [],
-    "usd": 0.4466,
     "verdict": "pass"
    },
    {
@@ -3423,7 +3395,6 @@
     "unjudged": [
      "judge_unsure"
     ],
-    "usd": 0.6427,
     "verdict": "pass"
    },
    {
@@ -3437,7 +3408,6 @@
     "reason": "the app wasn't ready",
     "tries": 0,
     "unjudged": [],
-    "usd": 0,
     "verdict": null
    }
   ],
@@ -3450,8 +3420,7 @@
    "reply": 0.907,
    "tokens": 927976,
    "tools": 0.639,
-   "unjudged": 1,
-   "usd": 2.286
+   "unjudged": 1
   }
  }
 }

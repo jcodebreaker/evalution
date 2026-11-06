@@ -24,7 +24,6 @@ from evalution.api.app import create_app
 from evalution.config import ConfigError, PhoenixConfig, load, page_model, page_targets
 from evalution.connect import connect, probe
 from evalution.core import net
-from evalution.llm import LLM
 from evalution.results.store import RunLock
 from evalution.runs.preflight import RUN_KEY, AdapterCheck
 from evalution.runs.runner import RunBusyError
@@ -164,7 +163,7 @@ MODEL_KEY = "model-value-789"
 def test_model_settings_round_trip(client, tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EVALUTION_MODEL_KEY", raising=False)
     empty = client.get("/v1/settings/model").json()
-    assert empty["source"] == "page" and not empty["key_set"] and empty["spent_usd"] == 0
+    assert empty["source"] == "page" and not empty["key_set"]
 
     body = {"provider": "anthropic", "strong": "claude-opus-5-5", "light": "claude-haiku-5-5"}
     saved = client.put("/v1/settings/model", json={**body, "key": MODEL_KEY})
@@ -225,7 +224,7 @@ async def test_model_list_and_test_offline(tmp_path) -> None:
     model = replace(model, key=MODEL_KEY)
     found = await settings.list_models(model, transport=stub)
     assert found == [
-        {"id": "claude-opus-5-5", "name": "Opus", "input": 4, "output": 20},
+        {"id": "claude-opus-5-5", "name": "Opus"},
         {"id": "mystery", "name": "mystery"},
     ]
     assert seen[0].headers["x-api-key"] == MODEL_KEY
@@ -260,11 +259,9 @@ async def test_model_list_and_test_offline(tmp_path) -> None:
     with pytest.raises(settings.SettingsError, match="The key was refused"):
         await settings.find_models(gateway, "https://gw.test/v1", httpx.MockTransport(refused))
 
-    docs = Database.open(tmp_path).docs()
-    tested = await settings.test(model, docs, transport=stub)
+    tested = await settings.test(model, transport=stub)
     assert tested["strong"]["ok"] and tested["light"]["ok"]
     assert MODEL_KEY not in json.dumps(tested)
-    assert LLM(None, docs=docs).spent_usd == 4.0, "kept for the next process"
 
 
 @pytest.mark.parametrize(

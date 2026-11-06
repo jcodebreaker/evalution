@@ -18,7 +18,6 @@ from evalution.config import (
     MODEL_SECRET,
     Config,
     ModelConfig,
-    page_model,
     save_page_model,
 )
 from evalution.core import net
@@ -48,7 +47,7 @@ def provider(model: ModelConfig) -> str:
     return "openai" if model.base_url == URLS["openai"] else "compatible"
 
 
-def view(config: Config, spent_usd: float) -> dict[str, Any]:
+def view(config: Config) -> dict[str, Any]:
     """The model as the page shows it: no key, only whether one is set."""
     model = config.model
     env = model.api_key_env if model else KEY_ENV
@@ -61,7 +60,6 @@ def view(config: Config, spent_usd: float) -> dict[str, Any]:
         "light": model.models.get("light", "") if model else "",
         "key_set": bool(model.api_key() if model else config.keys.stored(MODEL_SECRET)),
         "source": source,
-        "spent_usd": round(spent_usd, 4),
         "addresses": URLS,
     }
 
@@ -92,8 +90,8 @@ def base_url(name: Any, given: Any) -> str:
     return _api_root(given.strip().rstrip("/"))
 
 
-def parse(body: dict[str, Any], prices: dict[str, dict[str, float]]) -> ModelConfig:
-    """The :class:`ModelConfig` a page body asks for (*prices* kept from the file).
+def parse(body: dict[str, Any]) -> ModelConfig:
+    """The :class:`ModelConfig` a page body asks for.
 
     :raises SettingsError: A field that does not follow the shape.
     """
@@ -106,7 +104,6 @@ def parse(body: dict[str, Any], prices: dict[str, dict[str, float]]) -> ModelCon
         base_url=url,
         api_key_env=KEY_ENV,
         models={"strong": _text(body, "strong"), "light": _text(body, "light")},
-        prices=prices,
     )
 
 
@@ -117,16 +114,13 @@ def save(config: Config, docs: Docs, body: dict[str, Any]) -> bool:
 
     :raises SettingsError: A field that does not follow the shape.
     """
-    kept = page_model(docs).get("prices")
-    model = parse(body, kept if isinstance(kept, dict) else {})
+    model = parse(body)
     block: dict[str, Any] = {
         "kind": model.kind,
         "base_url": model.base_url,
         "api_key_env": KEY_ENV,
         "models": model.models,
     }
-    if model.prices:
-        block["prices"] = model.prices
     secrets = config.keys.store
     key = body.get("key")
     dropped = False
@@ -144,7 +138,7 @@ def save(config: Config, docs: Docs, body: dict[str, Any]) -> bool:
 def draft(config: Config, body: dict[str, Any]) -> ModelConfig:
     """The model a form asks for, not saved; the key it will have once saved: a typed one, else one
     in the environment, else the stored one, but only on the host it was stored for."""
-    model = replace(parse(body, config.model.prices if config.model else {}), keys=config.keys)
+    model = replace(parse(body), keys=config.keys)
     key = body.get("key")
     if isinstance(key, str) and key.strip():
         return replace(model, key=key.strip())
@@ -162,7 +156,7 @@ def _moved(config: Config, url: str) -> bool:
 async def list_models(
     model: ModelConfig, transport: httpx.AsyncBaseTransport | None = None
 ) -> list[dict[str, Any]]:
-    """The models the provider offers, with their price per million tokens when known.
+    """The models the provider offers.
 
     :raises SettingsError: The provider did not answer with a list.
     """
@@ -190,10 +184,7 @@ async def list_models(
         name = str(row.get("id") or "") if isinstance(row, dict) else ""
         if not name:
             continue
-        entry: dict[str, Any] = {"id": name, "name": str(row.get("display_name") or name)}
-        if rate := model.rate(name):
-            entry["input"], entry["output"] = rate.get("input", 0.0), rate.get("output", 0.0)
-        found.append(entry)
+        found.append({"id": name, "name": str(row.get("display_name") or name)})
     return sorted(found, key=lambda m: m["id"])
 
 
@@ -240,11 +231,10 @@ def _failure(message: str) -> str:
 
 
 async def test(
-    model: ModelConfig, docs: Docs | None, transport: httpx.AsyncBaseTransport | None = None
+    model: ModelConfig, transport: httpx.AsyncBaseTransport | None = None
 ) -> dict[str, Any]:
-    """One tiny call on each of the strong and light models: ``{key: {ok, detail, ms}}``; what
-    they cost adds to the spend kept in *docs*."""
-    llm = LLM(model, transport=transport, docs=docs)
+    """One tiny call on each of the strong and light models: ``{key: {ok, detail, ms}}``."""
+    llm = LLM(model, transport=transport)
 
     async def one(key: str) -> dict[str, Any]:
         started = time.monotonic()
