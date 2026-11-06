@@ -1,5 +1,5 @@
-"""``evalution serve | run | sets | profile | hooks | migrate | regrade | backup | upgrade |
-restore | adapter`` (docs/architecture.md, "Layout").
+"""``evalution serve | run | accept | sets | profile | hooks | migrate | regrade | backup |
+upgrade | restore | adapter`` (docs/architecture.md, "Layout").
 
 * ``serve``: the API and the page, on 127.0.0.1:8080, and evalution's own Phoenix when
   ``traces.managed`` (:mod:`evalution.traces.managed`). There is no login: it answers only this
@@ -10,6 +10,11 @@ restore | adapter`` (docs/architecture.md, "Layout").
   fresh database in CI plays the repo's tests. Prints the estimate and asks before anything
   spends, unless ``--yes``; then one row per case, the totals and each failed try's analysis.
   Ctrl-C stops the run. Exits 1 when a case did not pass, which a test no one could judge didn't.
+* ``run ... --against FILE [--summary MD] [--page URL]``: compare with a baseline (``run --save``)
+  instead; ``--summary`` also writes that comparison as markdown, for a pull request, each test
+  linked to the run on the page at URL when there is one (:mod:`evalution.results.markdown`).
+* ``accept TEST --baseline FILE [--run RUN]``: take TEST's result from RUN (default: the newest
+  that played it) into the baseline, leaving every other test's (:mod:`evalution.results.baseline`).
 * ``sets export|import [DIR] [--target T]``: the tests as files, in DIR (default the config's
   ``sets_dir``): ``<target>/<set>/set.json``, ``*.case.json`` and the set's files. Import
   replaces each set of the same name whole (:mod:`evalution.suite.store`).
@@ -58,8 +63,9 @@ from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
 from evalution.llm import LLM
 from evalution.project import hooks as git_hooks
+from evalution.results import baseline
 from evalution.results.compare import comparison, default_base
-from evalution.results.migrate import upcast
+from evalution.results.markdown import comparison_markdown
 from evalution.results.record import pass_marks, regrade_rules
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import detail
@@ -191,10 +197,12 @@ async def run(config: Config, args: argparse.Namespace) -> int:
         if notes := analysis(doc):
             print(notes)
         if args.save:
-            args.save.write_text(json.dumps(doc, indent=1))
+            baseline.write(args.save, doc)
         if args.against:
-            said = comparison(doc, _baseline(args.against))
+            said = comparison(doc, baseline.read(args.against))
             _print_comparison(said)
+            if args.summary:
+                args.summary.write_text(comparison_markdown(said, doc, args.page))
             return 1 if said["answer"] in ("worse", "mixed") else 0
         return 0 if not refused and all(c["verdict"] == "pass" for c in found["cases"]) else 1
     finally:
@@ -281,7 +289,7 @@ def compare_runs(config: Config, args: argparse.Namespace) -> int:
     chosen = args.base or default_base(doc, others)
     base = None
     if chosen:
-        base = _baseline(Path(chosen)) if Path(chosen).is_file() else store.load(chosen)
+        base = baseline.read(Path(chosen)) if Path(chosen).is_file() else store.load(chosen)
     if base is None:
         print("Nothing to compare it with", file=sys.stderr)
         return 2
@@ -293,9 +301,22 @@ def compare_runs(config: Config, args: argparse.Namespace) -> int:
     return 1 if said["answer"] in ("worse", "mixed") else 0
 
 
-def _baseline(path: Path) -> dict[str, Any]:
-    """A run kept as a file, read as today's runs are."""
-    return upcast(json.loads(path.read_text()))
+def accept(config: Config, args: argparse.Namespace) -> int:
+    """Take one test's newer result into the baseline file, to be committed with the change."""
+    if not args.baseline.is_file():
+        raise LookupError(f"no baseline at {args.baseline}: make one with run --save")
+    kept = baseline.read(args.baseline)
+    store = RunStore(_targets(config).docs)
+    if args.run is None:
+        runs = store.all(kept["target"], kept["set"])
+    else:
+        found = baseline.read(Path(args.run)) if Path(args.run).is_file() else store.load(args.run)
+        if found is None:
+            raise LookupError(f"no run {args.run}")
+        runs = [found]
+    baseline.write(args.baseline, baseline.accept(kept, args.test, runs))
+    print(f"evalution: {args.test} accepted into {args.baseline}; commit it with the change")
+    return 0
 
 
 def _print_comparison(said: dict[str, Any]) -> None:
@@ -605,6 +626,10 @@ def main(argv: list[str] | None = None) -> int:
         "--save", type=Path, help="keep this run as a file, to compare later ones with"
     )
     play.add_argument(
+        "--summary", type=Path, help="with --against, also write the comparison here as markdown"
+    )
+    play.add_argument("--page", help="with --summary, where the page is, to link each test")
+    play.add_argument(
         "--sets",
         nargs="?",
         const="",
@@ -617,6 +642,10 @@ def main(argv: list[str] | None = None) -> int:
         default=8080,
         help="with built-in traces, where the app sends them while this runs (default 8080)",
     )
+    take = sub.add_parser("accept", help="take a test's newer result into the baseline file")
+    take.add_argument("test", help="the test (its file stem)")
+    take.add_argument("--baseline", type=Path, required=True, help="the file run --against reads")
+    take.add_argument("--run", help="the run, or a run file, to take it from; default: the newest")
     carry = sub.add_parser("sets", help="the tests as files: export them, or import a folder")
     carry.add_argument("action", choices=("export", "import"))
     carry.add_argument(
@@ -682,6 +711,8 @@ def main(argv: list[str] | None = None) -> int:
     hook.add_argument("--target", required=True)
     hook.add_argument("--url", default="http://127.0.0.1:8080", help="where serve listens")
     args = parser.parse_args(argv)
+    if args.command == "run" and args.summary and not args.against:
+        parser.error("--summary needs --against")
     try:
         config = config_file.load(args.config)
         if args.command == "serve":
@@ -718,6 +749,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(check_target(config, args.target, args.isolation))
         if args.command == "compare":
             return compare_runs(config, args)
+        if args.command == "accept":
+            return accept(config, args)
         if args.command == "doctor":
             return asyncio.run(run_doctor(config))
         if args.command == "service":

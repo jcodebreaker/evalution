@@ -369,15 +369,31 @@ uv run --project server evalution run --target my-bot --set main --save .evaluti
 The Action imports the repo's `sets/` (the config's `sets_dir`) before it runs, as `run --sets` does, so a fresh CI database plays the tests in the pull request.
 
 ```yaml
-- uses: jcodebreaker/evalution@main
-  with:
-    target: my-bot
-    baseline: .evalution/baseline.json
-  env:
-    EVALUTION_MODEL_KEY: ${{ secrets.EVALUTION_MODEL_KEY }}
+permissions:
+  contents: read
+  pull-requests: write   # one comment on the pull request, updated on every run
+steps:
+  - uses: jcodebreaker/evalution@main
+    with:
+      target: my-bot
+      baseline: .evalution/baseline.json
+    env:
+      EVALUTION_MODEL_KEY: ${{ secrets.EVALUTION_MODEL_KEY }}
 ```
 
+What got worse, what got better and what could be chance go in the job's summary and, on a pull request, in one comment the Action keeps up to date. Give it `page:` where the run can be opened to link each test.
+
 Your app has to be running where the job can reach it. A baseline holds the replies from that run, so read it before committing it. The Action hasn't been run on GitHub yet.
+
+### Accept a change
+
+When a test changed on purpose, take its new result into the baseline and commit that with the change:
+
+```sh
+uv run --project server evalution accept greets --baseline .evalution/baseline.json
+```
+
+It takes the test from your newest run that played it (`--run` names another) and leaves every other test as it was, so the diff shows only what you accepted.
 
 ## Upgrading
 
@@ -407,6 +423,7 @@ uv run --project server evalution profile --target my-bot       # digest of rece
 uv run --project server evalution hooks status --target my-bot  # git hooks: install, uninstall, status
 uv run --project server evalution migrate                       # rewrite stored runs as today's shape
 uv run --project server evalution compare latest --target my-bot --set main  # did this change make it worse? 1 when a test did
+uv run --project server evalution accept <test> --baseline <file>  # take one test's newer result into the baseline
 uv run --project server evalution check --target my-bot           # one real turn, to show the adapter works
 uv run --project server evalution regrade <run> --rules         # today's rules over its checks: free, offline
 uv run --project server evalution regrade <run> --judge         # grade its replies again from its evidence: spends, asks first

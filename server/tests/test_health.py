@@ -5,6 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -12,7 +13,9 @@ from evalution.api.app import create_app
 from evalution.config import load
 from evalution.core.rules import RULES_VERSION, steps_bind
 from evalution.judging.claims import EvidenceIndex
+from evalution.results import baseline
 from evalution.results.compare import comparison, default_base
+from evalution.results.markdown import comparison_markdown
 from evalution.results.migrate import upcast
 from evalution.results.record import regrade_rules
 from evalution.results.views import detail, summary
@@ -431,3 +434,30 @@ def test_a_comparison_keeps_a_test_edited_between_runs_and_says_so() -> None:
         _on_record(_run("r5", NOW - DAY, {"a": [True] * 3})),
     )
     assert not five["could_be_chance"] and five["headline"] == "1 test got worse"
+    # For a pull request: worse, better and could-be-chance apart, linked when there's a page.
+    mixed_now = _on_record(_run("r8", NOW, {"a": [False] * 5, "b": [True] * 5, "c": [False] * 3}))
+    mixed_was = _on_record(
+        _run("r7", NOW - DAY, {"a": [True] * 5, "b": [False] * 5, "c": [True] * 3})
+    )
+    said = comparison(mixed_now, mixed_was)
+    text = comparison_markdown(said, mixed_now)
+    assert text.startswith("### 2 tests got worse and 1 test got better\n")
+    worse, better, chance = (
+        text.split(f"**{part}**\n")[1] for part in ("Worse", "Better", "Could be chance")
+    )
+    assert worse.startswith("- A `a`: 5/5 → 0/5\n")
+    assert better.startswith("- B `b`: 0/5 → 5/5\n")
+    assert chance == "- C `c`: 3/3 → 0/3 (worse)\n"
+    linked = comparison_markdown(said, mixed_now, "http://evals.test/")
+    assert "- [A](http://evals.test/?target=bot&set=main&view=runs&run=r8&case=a) `a`" in linked
+    # Accepting one test takes its newer result into the baseline and leaves the others'.
+    kept = baseline.accept(mixed_was, "a", [mixed_now])
+    assert kept["cases"]["a"] == mixed_now["cases"]["a"]
+    assert {k: v for k, v in kept["cases"].items() if k != "a"} == {
+        k: v for k, v in mixed_was["cases"].items() if k != "a"
+    }
+    assert kept["run"] == "r7" and mixed_was["cases"]["a"] != kept["cases"]["a"], "a copy"
+    with pytest.raises(LookupError, match="no test nope"):
+        baseline.accept(mixed_was, "nope", [mixed_now])
+    with pytest.raises(LookupError, match="no run of a"):
+        baseline.accept(mixed_was, "a", [])

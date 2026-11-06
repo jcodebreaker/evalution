@@ -185,10 +185,24 @@ def test_a_failed_run_records_what_kind_of_failure(
         )
     monkeypatch.setitem(adapters._built, "bot", _LosesTheApp(where, error))
     # As in CI: a database with no tests yet, and the repo's folder imported as the run starts.
+    config, kept = str(tmp_path / "evalution.yaml"), tmp_path / ".evalution" / "baseline.json"
     play = ["run", "--target", "bot", "--set", "main", "--tries", "1", "--yes", "--sets"]
-    assert cli.main(["--config", str(tmp_path / "evalution.yaml"), *play]) == 1
+    assert cli.main(["--config", config, *play, "--save", str(kept)]) == 1
     assert "imported 1 set(s)" in capsys.readouterr().out
     [run] = RunStore(_docs(tmp_path)).all()
+    assert json.loads(kept.read_text())["run"] == run["run"]
+    # Against that baseline, the comparison is also written as markdown, for a pull request.
+    said = tmp_path / "summary.md"
+    assert (
+        cli.main(["--config", config, *play, "--against", str(kept), "--summary", str(said)]) == 0
+    )
+    assert said.read_text().startswith("### ")
+    # Only a test some run played can be accepted into it, and then nothing is written.
+    before = kept.read_text()
+    for test, error in (("nope", "no test nope in bot/main"), ("greets", "no run of greets")):
+        assert cli.main(["--config", config, "accept", test, "--baseline", str(kept)]) == 2
+        assert error in capsys.readouterr().err
+    assert kept.read_text() == before
     assert run["status"] == "failed"
     assert run["failure"] == ("app_not_ready" if "ready" in reason else "other")
     # The test the run never got to says why.
