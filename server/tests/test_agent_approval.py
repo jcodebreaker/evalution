@@ -7,7 +7,6 @@ import yaml
 
 from evalution.config import load
 from evalution.project.profile import update_connection
-from evalution.results.store import FileStore
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, parse_case
@@ -34,7 +33,7 @@ async def agent(tmp_path):
     (tmp_path / "sets" / "bot" / "main").mkdir(parents=True)
     (tmp_path / "sets" / "bot" / "main" / "set.json").write_text(json.dumps({"name": "Main"}))
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     made = Agent(runs, SessionFiles(config.data_dir), None)
     yield made
     for task in list(made._tasks.values()):

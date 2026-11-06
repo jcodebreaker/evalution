@@ -10,7 +10,6 @@ import yaml
 from evalution.config import load
 from evalution.project import impact
 from evalution.project.profile import read_json, set_updates
-from evalution.results.store import FileStore
 from evalution.review.health import for_target
 from evalution.runs.runner import Runs
 from evalution.suite.cases import load_cases
@@ -61,7 +60,7 @@ def app(tmp_path):
             json.dumps({"name": stem.upper(), "turns": [{"message": "hi"}]})
         )
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     runs.tmp = tmp_path
     set_updates(runs.targets, "bot", "auto")
     return runs
@@ -81,7 +80,7 @@ def _ran(runs, n, stamp, tests, scope="some"):
         "cases": {t: {"name": t, "tries": [PASSED]} for t in tests},
         **{k: stamp[k] for k in ("commit", "code")},
     }
-    asyncio.run(runs.files.save(doc))
+    asyncio.run(runs.store.save(doc))
 
 
 def _stamp(runs):

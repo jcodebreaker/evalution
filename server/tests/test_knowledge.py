@@ -12,7 +12,6 @@ from evalution.code import CodeError
 from evalution.config import load
 from evalution.project import hooks, impact, imports, knowledge, understanding
 from evalution.project.profile import read_profile, set_updates, updates
-from evalution.results.store import FileStore
 from evalution.runs.runner import Runs
 from evalution.targets import Targets
 
@@ -93,7 +92,7 @@ def app(tmp_path, monkeypatch):
         )
     )
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     understanding.save(runs.targets, "bot", _doc())
     runs.repo = repo
     runs.calls = []

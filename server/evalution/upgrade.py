@@ -2,9 +2,11 @@
 
 A backup is one timestamped folder, under ``<config folder>/backups`` by default: ``data/``,
 ``sets/``, ``targets/`` and ``settings/`` (the config, ``targets.yaml``, ``model.yaml``), with a
-``manifest.json`` written last and holding every file's hash and first mode. It holds secrets, so
-every folder in it is 0700 and every file 0600. ``run.lock`` isn't kept: it means nothing later, and
-a restore must not swap the one it is holding.
+``manifest.json`` written last and holding every file's hash and first mode. ``data/`` holds the
+database, ``evalution.db``, copied through SQLite's own backup so a server writing to it can't tear
+the copy. A database ``$DATABASE_URL`` names that isn't SQLite is not in it: that one is backed up
+with its own tools. A backup holds secrets, so every folder in it is 0700 and every file 0600.
+``run.lock`` isn't kept: it means nothing later, and a restore must not swap the one it is holding.
 
 All three hold the run lock throughout, so they refuse while a run is going. ``restore``, which
 pulls files from under a ``serve``, refuses one on this data folder even when it's idle, and holds
@@ -32,10 +34,11 @@ from pathlib import Path
 from typing import Any
 
 from evalution.config import Config
-from evalution.results.migrate import migrate_dir
 from evalution.results.record import SCHEMA
-from evalution.results.store import FileStore, FolderUse
+from evalution.results.store import FolderUse, RunLock, RunStore
 from evalution.results.views import detail, summary
+from evalution.storage import Database
+from evalution.storage.database import URL_ENV
 from evalution.suite.cases import CaseError, list_sets, load_cases
 
 _logger = logging.getLogger(__name__)
@@ -43,11 +46,14 @@ MANIFEST = "manifest.json"
 BACKUPS = "backups"
 #: In a backup, the files that live next to the config.
 SETTINGS = "settings"
-_SKIPPED_NAMES = frozenset({"run.lock", "__pycache__"})
+_SKIPPED_NAMES = frozenset({RunLock.FILE, "__pycache__"})
 _SQLITE = (".db", ".sqlite", ".sqlite3")
 #: What SQLite keeps beside a database; its online backup already holds what they do.
 _SQLITE_SIDE = ("-wal", "-shm", "-journal")
 _CHUNK = 1024 * 1024
+_ELSEWHERE = (
+    f"evalution: the database ${URL_ENV} names is not in it: back that one up with its own tools"
+)
 
 
 class UpgradeError(RuntimeError):
@@ -212,15 +218,27 @@ def _make_backup(config: Config, parent: Path, why: str) -> Backup:
     return Backup(path, len(files), sum(int(f["size"]) for f in files.values()))
 
 
-def _held(config: Config) -> FileStore:
-    """The store, with the run lock taken.
+def _held(config: Config) -> RunLock:
+    """The run lock, taken.
 
     :raises UpgradeError: A run is going.
     """
-    store = FileStore(config.data_dir)
-    if not store.lock.acquire():
+    lock = RunLock(config.data_dir)
+    if not lock.acquire():
         raise UpgradeError("a run is going on this data folder: let it end, or stop it, first")
-    return store
+    return lock
+
+
+def _elsewhere() -> bool:
+    """Whether the database is one no backup of the folders holds: not SQLite."""
+    url = os.environ.get(URL_ENV, "")
+    return bool(url) and not url.startswith("sqlite")
+
+
+def _runs(config: Config) -> RunStore:
+    """The stored runs, through the database alone: nothing else in the folders a restore swaps
+    is opened (a target's view would open its traces too)."""
+    return RunStore(Database.open(config.data_dir).docs())
 
 
 def _restore_command(config: Config, backup: Path) -> str:
@@ -235,14 +253,15 @@ def backup(config: Config, to: Path | None = None) -> Outcome:
 
     :raises UpgradeError: It refused, or failed.
     """
-    store = _held(config)
+    lock = _held(config)
     try:
         made = _make_backup(config, to or config.root / BACKUPS, "backup")
     finally:
-        store.lock.release()
+        lock.release()
     return Outcome(
         [
             f"evalution: backed up to {made.said()}. It holds your secrets, owner-only",
+            *([_ELSEWHERE] if _elsewhere() else []),
             f"evalution: to put it back: {_restore_command(config, made.path)}",
         ]
     )
@@ -252,11 +271,10 @@ def _as_text(view: Any) -> str:
     return json.dumps(view, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def _reports(store: FileStore) -> dict[str, str | None]:
+def _reports(store: RunStore) -> dict[str, str | None]:
     """What each stored run says on the page, in words to compare; ``None`` for one that doesn't
     read."""
-    stems = [p.stem for p in sorted(store.runs.glob("*.json"))] if store.runs.is_dir() else []
-    docs = {stem: store.load(stem) for stem in stems}
+    docs = {run: store.load(run) for run in store.ids()}
     by_set: dict[tuple[Any, Any], list[dict[str, Any]]] = {}
     for doc in docs.values():
         if doc is not None and isinstance(doc.get("started_at"), (int, float)):
@@ -268,7 +286,7 @@ def _reports(store: FileStore) -> dict[str, str | None]:
         found[stem] = None
         if doc is not None:
             others = by_set.get((doc.get("target"), doc.get("set")), [])
-            # A run file can be off in any way at all; that is what this is here to report.
+            # A stored run can be off in any way at all; that is what this is here to report.
             try:
                 found[stem] = _as_text([summary(doc), detail(doc, others, None)])
             except Exception as exc:
@@ -291,7 +309,7 @@ def _tests(config: Config) -> tuple[int, list[str]]:
 
 def _check_reads(
     config: Config,
-    store: FileStore,
+    store: RunStore,
     before: Mapping[str, str | None],
     tests_before: int,
     out: Outcome,
@@ -323,31 +341,34 @@ def upgrade(config: Config, to: Path | None = None) -> Outcome:
 
     :raises UpgradeError: It refused, or the backup failed; nothing was changed.
     """
-    store = _held(config)
+    lock = _held(config)
     try:
         made = _make_backup(config, to or config.root / BACKUPS, "upgrade")
         out = Outcome([f"evalution: backed up to {made.said()}. It holds your secrets, owner-only"])
+        if _elsewhere():
+            out.lines.append(_ELSEWHERE)
+        store = _runs(config)
         before = _reports(store)
         tests_before = _tests(config)[0]
         try:
-            changed = migrate_dir(store.runs) if store.runs.is_dir() else []
-        except OSError as exc:
+            changed, _ = store.upcast_all()
+        except Exception as exc:  # the database's own errors, whatever the database
             raise UpgradeError(
-                f"rewriting the runs stopped partway ({exc.strerror}). To get back what was here: "
-                f"{_restore_command(config, made.path)}"
+                f"rewriting the runs stopped partway ({type(exc).__name__}). To get back what was "
+                f"here: {_restore_command(config, made.path)}"
             ) from exc
         if not before:
             out.lines.append("evalution: no stored runs to rewrite")
         elif changed:
             out.lines.append(
-                f"evalution: {len(changed)} of {len(before)} runs rewritten as today's shape, each "
-                f"original kept beside it as .bak: {', '.join(changed)}"
+                f"evalution: {len(changed)} of {len(before)} runs rewritten as today's shape: "
+                f"{', '.join(changed)}"
             )
         else:
             out.lines.append(f"evalution: all {len(before)} runs already have today's shape")
         _check_reads(config, store, before, tests_before, out)
     finally:
-        store.lock.release()
+        lock.release()
     out.lines.append(f"evalution: to undo all of it: {_restore_command(config, made.path)}")
     return out
 
@@ -410,7 +431,7 @@ def _restore_section(path: Path, name: str, folder: Path, manifest: Mapping[str,
             dest = staging / inner
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.symlink(link, dest)
-    _clear_except(folder, frozenset({staging.name, "run.lock"}))
+    _clear_except(folder, frozenset({staging.name, RunLock.FILE}))
     for item in staging.iterdir():
         item.replace(folder / item.name)
     staging.rmdir()
@@ -458,11 +479,16 @@ def restore(config: Config, source: Path, to: Path | None = None) -> Outcome:
 
 
 def _restore(config: Config, path: Path, to: Path | None) -> Outcome:
-    store = _held(config)
+    lock = _held(config)
     try:
         manifest = _read_manifest(path, config)
         safety = _make_backup(config, to or config.root / BACKUPS, "before a restore")
         out = Outcome([f"evalution: what was here is backed up to {safety.said()}"])
+        if _elsewhere():
+            out.lines.append(f"evalution: the database ${URL_ENV} names is left as it is")
+        else:
+            # No connection may go on using the file the swap replaces.
+            Database.open(config.data_dir).close()
         try:
             for name, folder in _sections(config).items():
                 _restore_section(path, name, folder, manifest)
@@ -472,7 +498,7 @@ def _restore(config: Config, path: Path, to: Path | None) -> Outcome:
                 f"{_restore_command(config, safety.path)}"
             ) from exc
         _restore_settings(path, config, manifest, out)
-        reports = _reports(store)
+        reports = _reports(_runs(config))
         good = sum(1 for said in reports.values() if said is not None)
         out.lines.append(
             f"evalution: restored {len(manifest['files'])} files from {path}, made "
@@ -481,4 +507,4 @@ def _restore(config: Config, path: Path, to: Path | None) -> Outcome:
         out.lines.append(f"evalution: {good} of {len(reports)} runs read")
         return out
     finally:
-        store.lock.release()
+        lock.release()

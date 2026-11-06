@@ -62,9 +62,8 @@ from evalution.judging.rubric import (
 from evalution.judging.steps import Step, check_line, chosen_calls, grade_tools
 from evalution.llm import LLM, Caller, cut, fenced
 from evalution.project import drift, impact
-from evalution.results import evidence as sidecar
 from evalution.results.record import SCHEMA, add_judgement, pass_marks
-from evalution.results.store import FileStore
+from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review.findings import analyze_run, write_report
 from evalution.runs.estimate import (
@@ -202,9 +201,11 @@ class StillWorking(RuntimeError):
 class Runs:
     """The runs of this server: estimates, the one running task, Stop."""
 
-    def __init__(self, targets: Targets, files: FileStore, llm: LLM | None) -> None:
+    def __init__(self, targets: Targets, llm: LLM | None) -> None:
         self.targets = targets
-        self.files = files
+        self.store = RunStore(targets.docs)
+        #: One run or analysis at a time on this data folder, whichever process plays it.
+        self.lock = RunLock(targets.config.data_dir)
         self.llm = llm
         self._plans: dict[str, _Plan] = {}
         self._regrades: dict[str, tuple[str, float]] = {}
@@ -230,16 +231,16 @@ class Runs:
         going: looked at again later."""
         if self._orphans_marked:
             return
-        if not self.files.lock.acquire():
+        if not self.lock.acquire():
             return
         try:
             self._mark_stored_orphans()
         finally:
-            self.files.lock.release()
+            self.lock.release()
 
     def _mark_stored_orphans(self) -> None:
         self._orphans_marked = True
-        for run in self.files.all():
+        for run in self.store.all():
             if run["run"] == self._running:
                 continue
             if run.get("status") == "running":
@@ -254,7 +255,7 @@ class Runs:
             elif not run.get("analyzing"):
                 continue
             run["analyzing"] = False
-            self.files.write(run)
+            self.store.write(run)
 
     async def recover(self) -> None:
         """Mark orphans, and stop and close the sessions they left open. Cheap once done."""
@@ -269,11 +270,11 @@ class Runs:
 
     def all(self, target: str | None = None, set_name: str | None = None) -> list[dict[str, Any]]:
         self._mark_orphans()
-        return self.files.all(target, set_name)
+        return self.store.all(target, set_name)
 
     def load(self, run: str) -> dict[str, Any] | None:
         self._mark_orphans()
-        return self.files.load(run)
+        return self.store.load(run)
 
     def set_rows(self, target: str) -> list[dict[str, Any]]:
         """Every set of *target* as a ``SetSummary``; a set that does not read is left out."""
@@ -363,11 +364,11 @@ class Runs:
         :raises KeyError: An unknown or expired token.
         :raises CaseError: A case file that no longer reads.
         """
-        if self.busy() or self.probing or not self.files.lock.acquire():
+        if self.busy() or self.probing or not self.lock.acquire():
             raise RunBusyError
         plan = self._plans.pop(token, None)
         if plan is None or plan.expires < time.time():
-            self.files.lock.release()
+            self.lock.release()
             raise KeyError(token)
         root = self.targets.sets(plan.target)
         try:
@@ -376,7 +377,7 @@ class Runs:
             if not cases:
                 raise CaseError("none of these tests can run on this app")
         except CaseError:
-            self.files.lock.release()
+            self.lock.release()
             raise
         started = time.time()
         stamp = datetime.fromtimestamp(started, UTC).strftime("%Y%m%d-%H%M%S")
@@ -449,19 +450,19 @@ class Runs:
         task = self._task
         assert task is not None
         while not task.done():
-            if self.files.stop_asked(run):
+            if self.store.stop_asked(run):
                 self._stop_reason = STOPPED_BY_ADMIN
                 task.cancel()
                 break
             await asyncio.sleep(STOP_POLL_SECONDS)
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait([task])
-        self.files.clear_stop(run)
+        self.store.clear_stop(run)
 
     def _go(self, work: Coroutine[Any, Any, None]) -> None:
         """Run *work* in the background, holding the run lock until it ends."""
         self._task = asyncio.get_running_loop().create_task(work)
-        self._task.add_done_callback(lambda _: self.files.lock.release())
+        self._task.add_done_callback(lambda _: self.lock.release())
 
     def _judge(self, key: str) -> JudgeStamp:
         """Who grades under model key *key*."""
@@ -478,7 +479,7 @@ class Runs:
             raise ValueError(f"no run {run}")
         if self.caller(doc["judge"]["key"]) is None:
             raise ValueError("no model is set up to grade with")
-        kept = list(sidecar.read(self.files.runs, run))
+        kept = self.store.evidence(run)
         if not kept:
             raise ValueError(f"run {run} kept no evidence to grade from")
         tries = [
@@ -506,7 +507,7 @@ class Runs:
         run, expires = self._regrades.pop(token, ("", 0.0))
         if expires < time.time():
             raise KeyError(token)
-        if self.busy() or not self.files.lock.acquire():
+        if self.busy() or not self.lock.acquire():
             raise RunBusyError
         try:
             doc = self.load(run)
@@ -515,17 +516,17 @@ class Runs:
             caller = self.caller(key)
             stamp = self._judge(key)
             found = {"graded": 0, "failed": 0}
-            for evidence in sidecar.read(self.files.runs, run):
+            for evidence in self.store.evidence(run):
                 graded = await self._regrade_try(doc, evidence, caller, stamp)
                 if graded is not None:
                     found["graded" if graded else "failed"] += 1
             if found["graded"]:
                 doc["judge"] = stamp.model_dump(mode="json")
                 doc["totals"] = totals(doc)
-                await self.files.save(doc)
+                await self.store.save(doc)
             return found
         finally:
-            self.files.lock.release()
+            self.lock.release()
 
     async def _regrade_try(
         self, doc: dict[str, Any], evidence: TryEvidence, caller: Caller | None, stamp: JudgeStamp
@@ -578,14 +579,14 @@ class Runs:
         doc = await asyncio.to_thread(self.load, run)
         if doc is None:
             return None
-        if self.busy() or doc["status"] == "running" or not self.files.lock.acquire():
+        if self.busy() or doc["status"] == "running" or not self.lock.acquire():
             raise RunBusyError
         doc["analyzing"] = True
         self._go(self._analyze(doc))
         return summary(doc)
 
     async def _analyze(self, doc: dict[str, Any]) -> None:
-        """Analyse *doc*'s failed tries and the run, into the file store. Never raises."""
+        """Analyse *doc*'s failed tries and the run, into the run store. Never raises."""
         doc["analyzing"] = True
         doc["analysis"] = None
         doc["analysis_error"] = None
@@ -595,12 +596,12 @@ class Runs:
                 attempt["analysis"] = None
         caller = self.caller(doc["judge"]["key"])
         try:
-            await self.files.save(doc)
-            kept = await asyncio.to_thread(lambda: list(sidecar.read(self.files.runs, doc["run"])))
+            await self.store.save(doc)
+            kept = await asyncio.to_thread(self.store.evidence, doc["run"])
             by_try = {(e.case, e.n): index_of([e]) for e in kept}
             by_case = {stem: index_of(e for e in kept if e.case == stem) for stem in doc["cases"]}
             await analyze_run(caller, doc, by_try, index_of(kept))
-            await self.files.save(doc)
+            await self.store.save(doc)
             earlier = await asyncio.to_thread(self.all, doc["target"], doc["set"])
             ran = [r for r in earlier if r["started_at"] < doc["started_at"]]
             await write_report(caller, doc, ran[0] if ran else None, by_case)
@@ -613,7 +614,7 @@ class Runs:
             elif failed and (doc["analysis"] is None or any(not t["analysis"] for t in failed)):
                 doc["analysis_error"] = "Part of the analysis didn't finish. Try again."
             doc["analyzing"] = False
-            await asyncio.shield(self.files.save(doc))
+            await asyncio.shield(self.store.save(doc))
 
     async def stop(self, run: str) -> dict[str, Any] | None:
         """Stop *run* if it is the one running; its summary, or ``None`` for no such run."""
@@ -627,13 +628,13 @@ class Runs:
         doc = self.load(run)
         if doc and doc.get("status") == "running":
             # Not ours: it's another process's to stop. It looks for this while it plays.
-            self.files.ask_stop(run)
+            self.store.ask_stop(run)
         return summary(doc) if doc else None
 
     async def _save(self, doc: Mapping[str, Any]) -> None:
-        """Into the file store, and once the run ended into the target's sink, if it has one (a
+        """Into the run store, and once the run ended into the target's sink, if it has one (a
         sink's failure is logged by the sink, never raised)."""
-        await self.files.save(doc)
+        await self.store.save(doc)
         if doc["status"] != "running" and (sink := self.targets.sink(doc["target"])):
             await sink.save(doc)
 
@@ -649,7 +650,7 @@ class Runs:
         sessions: dict[int, Session] = {}
         try:
             await self.recover()
-            await self.files.save(doc)
+            await self.store.save(doc)
             doc.update(await asyncio.to_thread(impact.record_run, self.targets, name))
             await drift.check_quietly(self.targets, name)
             found = drift.read(self.targets, name)
@@ -657,7 +658,7 @@ class Runs:
                 doc["cases"][case.case]["stale"] = drift.stale(case, found)
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
-                await self.files.save(doc)
+                await self.store.save(doc)
                 await self._check_first(name, target, source)
             grader = self.caller(eval_set.grader)
             filler = (
@@ -690,7 +691,7 @@ class Runs:
                             opened()
                         if reset:
                             await _in_time("reset", target.reset(sessions[index]))
-                        await self.files.save(doc)
+                        await self.store.save(doc)
                         attempt, played = await self._try(
                             target,
                             sessions[index],
@@ -727,7 +728,7 @@ class Runs:
                         if not reset:
                             await close_quietly(target, sessions.pop(index))
                             opened()
-                        await self.files.save(doc)
+                        await self.store.save(doc)
 
             playing = [asyncio.ensure_future(slot(i)) for i in range(slots)]
             try:
@@ -839,13 +840,13 @@ class Runs:
                 playing.update(stage="playing")
                 if planned > 1:
                     playing.update(turn=sent, turns=planned)
-                await self.files.save(doc)
+                await self.store.save(doc)
 
         async def on_stage(stage: str) -> None:
             playing = doc.get("current")
             if playing and playing.get("case") == case.case:
                 playing["stage"] = stage
-                await self.files.save(doc)
+                await self.store.save(doc)
 
         played = await play_with_retry(
             target,
@@ -868,7 +869,7 @@ class Runs:
         else:
             self._no_traces.discard(doc["run"])
         evidence = _keepable(played)
-        await self.files.keep_evidence(doc["run"], evidence)
+        await self.store.keep_evidence(doc["run"], evidence)
         view = played.view
         if not doc["prompt"] and view.context and view.context[0].get("system"):
             doc["prompt"] = hashlib.sha256(view.context[0]["system"].encode()).hexdigest()[:8]
@@ -972,7 +973,7 @@ async def _in_time[T](what: str, work: Coroutine[Any, Any, T]) -> T:
 
 def _keepable(played: Played) -> TryEvidence:
     """*played*'s evidence with no login or query in its errors: an adapter's exception may quote
-    the URL it called, and this goes into run files and to the model."""
+    the URL it called, and this goes into the stored run and to the model."""
     evidence = played.evidence
     assert evidence is not None
     return evidence.model_copy(

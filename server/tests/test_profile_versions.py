@@ -13,7 +13,7 @@ from evalution.api.app import create_app
 from evalution.config import load
 from evalution.project import library_fit, understanding
 from evalution.project.profile import profile_versions, profile_view, write_json, write_profile
-from evalution.results.store import FileStore
+from evalution.results.store import RunStore
 from evalution.runs.runner import Runs
 from evalution.targets import Targets
 
@@ -133,7 +133,7 @@ def target(tmp_path) -> Path:
         case = {"name": stem.title(), "turns": [{"message": "hi"}]}
         (main / f"{stem}.case.json").write_text(json.dumps({**case, "source": source}))
     config = load(tmp_path / "evalution.yaml")
-    FileStore(config.data_dir).write(
+    RunStore(Targets(config).docs).write(
         {
             "run": "r1",
             "target": "bot",
@@ -150,7 +150,7 @@ def target(tmp_path) -> Path:
 def test_numbers_come_from_the_digest_runs_and_library(target) -> None:
     config = load(target / "evalution.yaml")
     targets = Targets(config)
-    found = understanding.view(targets, Runs(targets, FileStore(config.data_dir), None), "bot")
+    found = understanding.view(targets, Runs(targets, None), "bot")
     rows = library_fit.for_target(targets, "bot")
     assert found["card"]["numbers"] == {
         "tools": 3,

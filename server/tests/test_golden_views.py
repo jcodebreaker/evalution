@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +18,12 @@ import pytest
 
 from evalution.core.rules import RULES_VERSION, SERVER_RESTARTED, TARGET_GONE
 from evalution.project.drift import stale
-from evalution.results.migrate import migrate_dir, upcast
+from evalution.results.migrate import upcast
 from evalution.results.record import SCHEMA, regrade_rules
+from evalution.results.store import RUN, RunStore
 from evalution.results.views import case_detail, detail, latest_rows, summary
 from evalution.review.health import health
+from evalution.storage import Database
 from evalution.suite.cases import parse_case
 from evalution.suite.library import Template
 
@@ -157,19 +158,18 @@ def test_upcast_is_pure_and_keeps_what_it_read() -> None:
     assert {j["rules_from"] for t in new for j in t["judgements"]} == {0}
 
 
-def test_migrate_rewrites_with_a_bak_and_twice_changes_nothing(tmp_path) -> None:
+def test_migrate_rewrites_stored_runs_and_twice_changes_nothing(tmp_path) -> None:
+    store = RunStore(Database.open(tmp_path).docs())
     for name in NAMES:
-        shutil.copy(FIXTURES / "runs" / f"{name}.json", tmp_path / f"{name}.json")
-    first = migrate_dir(tmp_path)
-    assert sorted(first) == sorted(NAMES)
-    baks = {p.name: p.read_bytes() for p in tmp_path.glob("*.bak")}
-    assert len(baks) == 3
-    written = {p.name: p.read_bytes() for p in tmp_path.glob("*.json")}
-    assert migrate_dir(tmp_path) == []
-    assert written == {p.name: p.read_bytes() for p in tmp_path.glob("*.json")}
-    assert baks == {p.name: p.read_bytes() for p in tmp_path.glob("*.bak")}
-    assert baks["v0-edge.json.bak"] == (FIXTURES / "runs" / "v0-edge.json").read_bytes()
-    assert all(json.loads(v)["schema"] == SCHEMA for v in written.values())
+        store.docs.put(RUN, name, json.loads((FIXTURES / "runs" / f"{name}.json").read_text()))
+    store.docs.put(RUN, "not-a-run", [1, 2])
+    first, unreadable = store.upcast_all()
+    assert sorted(first) == sorted(NAMES) and unreadable == ["not-a-run"]
+    written = {key: body for key, body, _ in store.docs.items(RUN)}
+    assert store.upcast_all() == ([], ["not-a-run"])
+    assert written == {key: body for key, body, _ in store.docs.items(RUN)}
+    assert all(written[name]["schema"] == SCHEMA for name in NAMES)
+    assert store.load("v0-edge") == written["v0-edge"], "what it wrote reads as it is"
 
 
 def test_regrading_under_the_rules_only_adds() -> None:

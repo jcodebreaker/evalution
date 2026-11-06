@@ -1,32 +1,37 @@
-"""Where results go: one JSON file per run,
-``<data dir>/runs/<run>.json``, which the routes read (:class:`FileStore`). A target may also send
-finished runs to a :class:`RunSink`.
+"""Where results go: each run a document of kind :data:`RUN` under its id, which the routes read,
+with its evidence (:mod:`evalution.results.evidence`) and any request to stop it
+(:class:`RunStore`). A target may also send finished runs to a :class:`RunSink`. The data folder
+keeps the locks that let one process at a time play (:class:`RunLock`) and keep a restore apart
+from ``serve`` (:class:`FolderUse`).
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import fcntl
-import json
 import logging
 import os
 import re
-import secrets
 import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from evalution.core.evidence import TryEvidence
-from evalution.results import evidence as sidecar
+from evalution.results import evidence as evidence_log
 from evalution.results.migrate import UNREADABLE, upcast
+from evalution.storage import Docs
 
 _logger = logging.getLogger(__name__)
+RUN = "run"
+#: A request, from another process, to stop the run under the same key.
+STOP = "run-stop"
 _RUN_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class ResultStore(Protocol):
-    """Takes a run (the ``runs/<run>.json`` document) each time it changes."""
+    """Takes a run (the :data:`RUN` document) each time it changes."""
 
     async def save(self, run: Mapping[str, Any]) -> None:
         """Store *run*."""
@@ -48,8 +53,10 @@ class RunLock:
     Within a process, each :meth:`acquire` that returned true takes one :meth:`release`, from any
     thread, so one holder ending can't take it from under another."""
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    FILE = "run.lock"
+
+    def __init__(self, data_dir: Path) -> None:
+        self.path = data_dir / self.FILE
         self._file: TextIO | None = None
         self._holders = 0
         self._guard = threading.Lock()
@@ -117,75 +124,66 @@ class FolderUse:
             self._fd = None
 
 
-class FileStore:
-    """Runs as JSON files; the one the routes read."""
+class RunStore:
+    """A workspace's runs, their evidence and the requests to stop them; the one the routes
+    read."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.runs = self.root / "runs"
-        self.lock = RunLock(self.root / "run.lock")
-        self._lock = asyncio.Lock()
+    def __init__(self, docs: Docs) -> None:
+        self.docs = docs
+        self._turn = asyncio.Lock()
 
-    def _path(self, run: str) -> Path | None:
-        return self.runs / f"{run}.json" if _RUN_ID.match(run) else None
-
-    def write(self, run: Mapping[str, Any], text: str | None = None) -> None:
-        path = self._path(str(run["run"]))
-        if path is None:
+    def write(self, run: Mapping[str, Any]) -> None:
+        """:raises ValueError: Not a run id."""
+        if not _RUN_ID.match(str(run["run"])):
             raise ValueError(f"not a run id: {run['run']}")
-        self.runs.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.stem}.{secrets.token_hex(4)}.tmp")
-        try:
-            tmp.write_text(text or json.dumps(run, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(path)
-        finally:
-            tmp.unlink(missing_ok=True)
+        self.docs.put(RUN, str(run["run"]), run)
 
     async def _in_turn(self, write: Callable[..., None], *args: Any) -> None:
         """*write* in a thread, one at a time and in the order asked. Stop cancels the caller, not
         the write: it finishes before the next one starts, or it would land on top of it."""
 
         async def turn() -> None:
-            async with self._lock:
+            async with self._turn:
                 await asyncio.to_thread(write, *args)
 
         await asyncio.shield(asyncio.ensure_future(turn()))
 
     async def save(self, run: Mapping[str, Any]) -> None:
-        """Write *run* as it is now (read here, so tries played side by side may go on
+        """Write *run* as it is now (copied here, so tries played side by side may go on
         changing it) and one save at a time."""
-        await self._in_turn(self.write, run, json.dumps(run, ensure_ascii=False))
+        await self._in_turn(self.write, copy.deepcopy(dict(run)))
 
     async def keep_evidence(self, run: str, evidence: TryEvidence) -> None:
-        """Add one try to the run's sidecar, one writer at a time."""
-        await self._in_turn(sidecar.append, self.runs, run, evidence)
+        """Add one try to the run's evidence, in turn with its saves."""
+        await self._in_turn(evidence_log.keep, self.docs, run, evidence)
+
+    def evidence(self, run: str) -> list[TryEvidence]:
+        """Every try kept for *run*, in the order played."""
+        return list(evidence_log.read(self.docs, run))
 
     def ask_stop(self, run: str) -> None:
         """Ask whichever process is playing *run* to stop it."""
-        self.runs.mkdir(parents=True, exist_ok=True)
-        (self.runs / f"{run}.stop").touch()
+        self.docs.put(STOP, run, True)
 
     def stop_asked(self, run: str) -> bool:
-        return (self.runs / f"{run}.stop").exists()
+        return self.docs.get(STOP, run) is not None
 
     def clear_stop(self, run: str) -> None:
-        (self.runs / f"{run}.stop").unlink(missing_ok=True)
+        self.docs.delete(STOP, run)
 
     def load(self, run: str) -> dict[str, Any] | None:
-        path = self._path(run)
-        if path is None or not path.is_file():
+        """*run* as today's schema; ``None`` for no such run, or one that doesn't read."""
+        if not _RUN_ID.match(run):
             return None
-        try:
-            return upcast(dict(json.loads(path.read_text(encoding="utf-8"))))
-        except (OSError, *UNREADABLE):
-            _logger.warning("evals: run file %s unreadable", path, exc_info=True)
-            return None
+        found = self.docs.get(RUN, run)
+        return None if found is None else _read(run, found)
+
+    def ids(self) -> list[str]:
+        return self.docs.keys(RUN)
 
     def all(self, target: str | None = None, set_name: str | None = None) -> list[dict[str, Any]]:
         """Every run (of *target*, and of its set *set_name*), newest first."""
-        if not self.runs.is_dir():
-            return []
-        found = [self.load(p.stem) for p in self.runs.glob("*.json")]
+        found = (_read(key, body) for key, body, _ in self.docs.items(RUN))
         runs = [
             r
             for r in found
@@ -194,3 +192,28 @@ class FileStore:
             and (set_name is None or r.get("set") == set_name)
         ]
         return sorted(runs, key=lambda r: float(r.get("started_at") or 0), reverse=True)
+
+    def upcast_all(self) -> tuple[list[str], list[str]]:
+        """Rewrite every run of an older schema as today's: the ones changed, and the ones that
+        don't read as a run, left as they are for the others' sake."""
+        changed, unreadable = [], []
+        for key, body, _ in self.docs.items(RUN):
+            try:
+                doc = dict(body)
+                new = upcast(doc)
+            except UNREADABLE as exc:
+                _logger.warning("evals: run %s unreadable: %s", key, type(exc).__name__)
+                unreadable.append(key)
+                continue
+            if new is not doc:
+                self.docs.put(RUN, key, new)
+                changed.append(key)
+        return changed, unreadable
+
+
+def _read(key: str, body: Any) -> dict[str, Any] | None:
+    try:
+        return upcast(dict(body))
+    except UNREADABLE:
+        _logger.warning("evals: run %s unreadable", key, exc_info=True)
+        return None

@@ -23,7 +23,7 @@ from evalution.api.app import create_app
 from evalution.config import load
 from evalution.core.evidence import Failure
 from evalution.results.migrate import upcast
-from evalution.results.store import FileStore
+from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary
 from evalution.runs.runner import Runs
 from evalution.suite.cases import is_benchmark, meaning_changes, own_sets
@@ -96,7 +96,7 @@ def _run(analysis):
 
 def test_a_failed_test_shows_its_finding(client, tmp_path) -> None:
     run = _run({**FOUND, "kind": "assistant"})
-    FileStore(load(tmp_path / "evalution.yaml").data_dir).write(run)
+    RunStore(Targets(load(tmp_path / "evalution.yaml")).docs).write(run)
     why = {
         "summary": {"text": "Never searched", "refs": [], "quotes": [], "verified": False},
         "cause": {"text": "No tool", "refs": [], "quotes": [], "verified": False},
@@ -113,7 +113,7 @@ async def test_an_analysis_that_cannot_finish_says_so(tmp_path) -> None:
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
     )
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     run = upcast(_run(None))
     await runs._analyze(run)
     assert summary(run)["analysis_error"].startswith("No model is set up yet")
@@ -165,7 +165,7 @@ async def test_a_failed_run_records_what_kind_of_failure(
         )
     config = load(tmp_path / "evalution.yaml")
     monkeypatch.setitem(adapters._built, "bot", _LosesTheApp(where, error))
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
     await runs.wait()
     run = runs.load(made["run"])
@@ -212,7 +212,7 @@ async def test_a_run_stops_when_try_after_try_hangs(
     config = load(tmp_path / "evalution.yaml")
     target = _Hangs(answers)
     monkeypatch.setitem(adapters._built, "bot", target)
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
     await runs.wait()
     run = runs.load(made["run"])
@@ -242,12 +242,12 @@ async def test_stop_reaches_a_run_another_process_is_playing(tmp_path, monkeypat
 
     monkeypatch.setitem(adapters._built, "bot", Slow("send", TargetGone("unused")))
     monkeypatch.setattr("evalution.runs.runner.STOP_POLL_SECONDS", 0.01)
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
     await asyncio.wait_for(playing.wait(), 5)
 
     # The page's server: the same files, and not the process that holds the run.
-    page = Runs(Targets(config), FileStore(config.data_dir), None)
+    page = Runs(Targets(config), None)
     page._orphans_marked = True
     await page.stop(made["run"])
     with contextlib.suppress(asyncio.CancelledError):
