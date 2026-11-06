@@ -57,7 +57,7 @@ from evalution.adapters import contract
 from evalution.adapters.base import Session
 from evalution.api.app import create_app
 from evalution.api.deps import ALLOWED_HOSTS_ENV, answers_to
-from evalution.api.traces import traces_router
+from evalution.api.traces import intake_router
 from evalution.benchmarks import longmemeval as benchmarks
 from evalution.benchmarks import planning
 from evalution.code import CodeError
@@ -231,7 +231,7 @@ async def _take_traces(targets: Targets, port: int) -> tuple[uvicorn.Server, asy
         if probe.connect_ex(("127.0.0.1", port)) == 0:
             return None
     app = FastAPI()
-    app.include_router(traces_router(targets), prefix="/v1")
+    app.include_router(intake_router(targets), prefix="/v1")
     settings = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(settings)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]

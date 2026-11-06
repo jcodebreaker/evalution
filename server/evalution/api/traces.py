@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from evalution.api.deps import Current, not_found
+from evalution.targets import Targets
 from evalution.traces import otlp
 
 
@@ -23,9 +24,25 @@ def traces_router() -> APIRouter:
     @router.post("/traces")
     async def post_traces(request: Request, ws: Current) -> Response:
         """Spans over OTLP/HTTP, for the built-in source; there is nothing here without it."""
-        targets = ws.targets
-        if targets.store is None:
-            raise not_found("Trace intake")
-        return await otlp.receive(request, targets.store)
+        return await _receive(request, ws.targets)
 
     return router
+
+
+def intake_router(targets: Targets) -> APIRouter:
+    """Only the intake, over *targets*: what ``evalution run`` serves while it plays, outside any
+    workspace's server."""
+    router = APIRouter()
+
+    @router.post("/traces")
+    async def post_traces(request: Request) -> Response:
+        return await _receive(request, targets)
+
+    return router
+
+
+async def _receive(request: Request, targets: Targets) -> Response:
+    """Spans over OTLP/HTTP, for the built-in source; there is nothing here without it."""
+    if targets.store is None:
+        raise not_found("Trace intake")
+    return await otlp.receive(request, targets.store)
