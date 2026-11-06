@@ -10,22 +10,21 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from evalution.api.deps import invalid, not_found, target_name
+from evalution.api.deps import Current, invalid, not_found, target_name
 from evalution.config import ConfigError
 from evalution.core.case import CLEAN_KINDS
 from evalution.project import drift, profile
 from evalution.runs.preflight import passed_setups, setup_key
-from evalution.runs.runner import Runs
 from evalution.suite.store import list_sets
 
 
-def targets_router(runs: Runs) -> APIRouter:
+def targets_router() -> APIRouter:
     router = APIRouter()
-    targets = runs.targets
 
     @router.get("/targets")
-    async def get_targets() -> dict[str, Any]:
+    async def get_targets(ws: Current) -> dict[str, Any]:
         """The targets, with what each can do and how many sets and drift changes it has."""
+        targets, runs = ws.targets, ws.runs
         await runs.recover()
         rows = []
         passed = passed_setups(targets.config.data_dir)
@@ -63,17 +62,18 @@ def targets_router(runs: Runs) -> APIRouter:
     return router
 
 
-def target_router(runs: Runs) -> APIRouter:
+def target_router() -> APIRouter:
     router = APIRouter()
-    targets = runs.targets
 
     @router.get("/targets/{target}/sets")
-    async def get_target_sets(target: str) -> dict[str, Any]:
+    async def get_target_sets(ws: Current, target: str) -> dict[str, Any]:
+        targets, runs = ws.targets, ws.runs
         return {"data": await asyncio.to_thread(runs.set_rows, target_name(targets, target))}
 
     @router.put("/targets/{target}/isolation")
-    async def put_isolation(target: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def put_isolation(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """What every new test of this app must start clean of: only what the app can promise."""
+        targets = ws.targets
         name = target_name(targets, target)
         kinds = body.get("required")
         if not isinstance(kinds, list) or set(map(str, kinds)) - set(CLEAN_KINDS):
@@ -85,16 +85,18 @@ def target_router(runs: Runs) -> APIRouter:
         return {"required": kinds}
 
     @router.get("/targets/{target}/profile")
-    async def get_profile(target: str) -> dict[str, Any]:
+    async def get_profile(ws: Current, target: str) -> dict[str, Any]:
         """The profile text, and the drift since it was written; 404 when there is none yet."""
+        targets = ws.targets
         name = target_name(targets, target)
         if not profile.read_profile(targets, name):
             raise not_found("Profile")
         return {**profile.profile_view(targets, name), "drift": drift.read(targets, name)}
 
     @router.put("/targets/{target}/profile")
-    async def put_profile(target: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def put_profile(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """The admin's edit of the profile (the fingerprint stays as it was)."""
+        targets = ws.targets
         name = target_name(targets, target)
         if not isinstance(body.get("text"), str):
             raise invalid("text: required")

@@ -8,10 +8,9 @@ from typing import Any
 import httpx
 from fastapi import APIRouter
 
-from evalution.api.deps import busy, invalid, target_name
+from evalution.api.deps import Current, busy, invalid, target_name
 from evalution.benchmarks import longmemeval as benchmarks
 from evalution.benchmarks import planning
-from evalution.runs.runner import Runs
 from evalution.traces.base import TraceSource
 
 
@@ -25,13 +24,13 @@ def _relink(found: dict[str, Any], source: TraceSource | None) -> None:
                 question["trace_url"] = source.trace_url(url.rsplit("/", 1)[-1])
 
 
-def benchmarks_router(runs: Runs) -> APIRouter:
+def benchmarks_router() -> APIRouter:
     router = APIRouter()
-    targets = runs.targets
 
     @router.get("/benchmarks")
-    async def get_benchmarks(target: str) -> dict[str, Any]:
+    async def get_benchmarks(ws: Current, target: str) -> dict[str, Any]:
         """Its sizes, and each run's numbers and questions, newest first."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, target)
         await runs.recover()
         played = await asyncio.to_thread(runs.all, name)
@@ -43,8 +42,9 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         return found
 
     @router.post("/benchmarks/plan")
-    async def make_plan(body: dict[str, Any]) -> dict[str, Any]:
+    async def make_plan(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Work out how the benchmark should play on this app, and try it for real."""
+        targets, runs = ws.targets, ws.runs
         name = target_name(targets, body.get("target"))
         caller = runs.caller("strong")
         if caller is None:
@@ -63,8 +63,9 @@ def benchmarks_router(runs: Runs) -> APIRouter:
             runs.lock.release()
 
     @router.post("/benchmarks/plan/approve")
-    async def approve_plan(body: dict[str, Any]) -> dict[str, Any]:
+    async def approve_plan(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Write the planned test set, ready to run."""
+        targets = ws.targets
         name = target_name(targets, body.get("target"))
         try:
             return await asyncio.to_thread(planning.approve, targets, name)
@@ -72,8 +73,9 @@ def benchmarks_router(runs: Runs) -> APIRouter:
             raise invalid(str(exc)) from exc
 
     @router.post("/benchmarks/install")
-    async def install(body: dict[str, Any]) -> dict[str, Any]:
+    async def install(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Write a size as a test set, downloading its data the first time."""
+        targets = ws.targets
         name = target_name(targets, body.get("target"))
         size = str(body.get("size"))
         if size not in benchmarks.SIZES:

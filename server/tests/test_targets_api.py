@@ -10,6 +10,13 @@ import yaml
 from fastapi.testclient import TestClient
 
 from evalution import cli
+from evalution.accounts.context import acting_user
+from evalution.accounts.settings import (
+    CLIENT_ID_ENV,
+    CLIENT_SECRET_ENV,
+    ISSUER_ENV,
+    PUBLIC_URL_ENV,
+)
 from evalution.api.app import create_app
 from evalution.config import ConfigError, PhoenixConfig, load, page_model, page_targets
 from evalution.connect import connect, probe
@@ -610,3 +617,115 @@ def test_required_isolation_is_what_the_app_can_promise(client) -> None:
     assert row["required_clean"] == ["conversation"]
     names = [a["name"] for a in client.get("/v1/adapters").json()["data"]]
     assert "http" in names
+
+
+_TEAM_A, _TEAM_B = {"X-Test-Workspace": "team-a"}, {"X-Test-Workspace": "team-b"}
+
+
+@pytest.fixture
+def hosted(tmp_path, monkeypatch):
+    """A hosted server whose requests run in the workspace ``X-Test-Workspace`` names, as the
+    sign-in will place them."""
+    for name, value in {
+        ISSUER_ENV: "https://id.example.test",
+        CLIENT_ID_ENV: "evalution",
+        CLIENT_SECRET_ENV: "placeholder",
+        PUBLIC_URL_ENV: "https://evals.example.test",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("SERVER_ONLY", "server-value-789")
+    model = {
+        "kind": "openai",
+        "base_url": "http://model.example.test",
+        "api_key_env": "SERVER_ONLY",
+    }
+    model["models"] = {"strong": "big", "light": "small"}
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "model": model,
+                "traces": {"managed": False},
+                "targets": {"operator": {"adapter": "http", "http": {"send": {"url": "x"}}}},
+            }
+        )
+    )
+    app = create_app(load(tmp_path / "evalution.yaml"))
+
+    @app.middleware("http")
+    async def place(request, call_next):
+        if found := request.headers.get("x-test-workspace"):
+            request.state.workspace = found
+        return await call_next(request)
+
+    with TestClient(app) as made:
+        yield made
+
+
+def test_each_workspace_sees_only_its_own(hosted, monkeypatch) -> None:
+    assert hosted.post("/v1/targets", json=_http_body(), headers=_TEAM_A).status_code == 201
+    # The file's own targets are the operator's: no workspace sees them.
+    assert hosted.get("/v1/targets", headers=_TEAM_B).json() == {"data": []}
+    assert hosted.get("/v1/targets/operator", headers=_TEAM_A).status_code == 404
+    assert hosted.get("/v1/targets/shop", headers=_TEAM_B).status_code == 404
+    other = _http_body(send={"url": "http://other.example.test/c", "body": {"m": "{message}"}})
+    assert hosted.post("/v1/targets", json=other, headers=_TEAM_B).status_code == 201
+    a, b = (hosted.get("/v1/targets/shop", headers=h).json()["options"] for h in (_TEAM_A, _TEAM_B))
+    assert a != b
+
+    workspaces = hosted.app.state.workspaces
+    one, two = workspaces.get("team-a"), workspaces.get("team-b")
+    assert one.targets.adapter("shop") is not two.targets.adapter("shop")
+    one.runs.store.write(
+        {"run": "r1", "target": "shop", "set": "main", "status": "done", "cases": {}}
+    )
+    assert [r["run"] for r in hosted.get("/v1/evals/runs", headers=_TEAM_A).json()["data"]] == [
+        "r1"
+    ]
+    assert hosted.get("/v1/evals/runs", headers=_TEAM_B).json()["data"] == []
+    # One run at a time per workspace, not per server.
+    assert one.runs.lock.acquire() and two.runs.lock.acquire()
+    one.runs.lock.release(), two.runs.lock.release()
+    assert sorted(workspaces.ids()) == ["team-a", "team-b"]
+
+    # The model key is the account's, never the server's environment, whatever a name says.
+    seen = []
+    monkeypatch.setattr(
+        "evalution.api.workspaces.model_key_for",
+        lambda _db, ws, user: seen.append((ws, user)) or f"key-of-{user}",
+    )
+    model = one.targets.config.model
+    assert model.api_key() == "key-of-None"
+    started = acting_user.set("ana")
+    try:
+        assert model.api_key() == "key-of-ana"
+    finally:
+        acting_user.reset(started)
+    assert seen == [("team-a", None), ("team-a", "ana")]
+    assert model.keys.get("SERVER_ONLY") is None
+
+    # A request no sign-in placed, or naming no workspace id, runs nowhere.
+    assert hosted.get("/v1/targets").status_code == 404
+    assert hosted.get("/v1/targets", headers={"X-Test-Workspace": "../a"}).status_code == 404
+
+
+def test_hosted_turns_this_computers_folders_off(hosted, tmp_path) -> None:
+    (tmp_path / "app").mkdir()
+    off = [
+        ("post", "/v1/targets/discover", {"path": str(tmp_path / "app")}),
+        ("get", "/v1/targets/discover/abc", None),
+        ("post", "/v1/targets/discover/abc/accept", {}),
+        ("get", "/v1/targets/shop/hooks", None),
+        ("post", "/v1/targets/shop/hooks", None),
+        ("post", "/v1/targets/shop/changed", None),
+        ("post", "/v1/targets/shop/change/read", None),
+        ("post", "/v1/targets", {**_http_body(), "code": {"path": "app"}}),
+    ]
+    for method, path, body in off:
+        answer = hosted.request(method, path, json=body, headers=_TEAM_A)
+        assert (answer.status_code, answer.json()["detail"]) == (
+            400,
+            "Code folders are not available hosted"
+            if "code" in (body or {})
+            else "Not available hosted",
+        ), path
+    assert hosted.app.state.workspaces.get("team-a").found is None

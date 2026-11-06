@@ -17,6 +17,7 @@ from pathlib import Path
 
 from evalution.adapters.base import AdapterInfo, OwnTraffic, Target
 from evalution.config import ConfigError, TargetConfig
+from evalution.storage import LOCAL
 
 _logger = logging.getLogger(__name__)
 
@@ -65,15 +66,22 @@ def own_traffic() -> OwnTraffic:
     )
 
 
-def build(target: TargetConfig) -> Target:
-    """The adapter of *target*, made once per target name.
+def _key(workspace: str, name: str) -> str:
+    """Where a target's adapter is kept: by name locally, by workspace and name hosted, where two
+    workspaces may each have a target of the same name."""
+    return name if workspace == LOCAL else f"{workspace}/{name}"
+
+
+def build(target: TargetConfig, workspace: str = LOCAL) -> Target:
+    """The adapter of *target*, made once per target name in its *workspace*.
 
     :raises ConfigError: No such adapter.
     """
-    if target.name in _built:
-        return _built[target.name]
+    key = _key(workspace, target.name)
+    if key in _built:
+        return _built[key]
     made = make(target)
-    _built[target.name] = made
+    _built[key] = made
     return made
 
 
@@ -97,6 +105,6 @@ def make(target: TargetConfig) -> Target:
     return module.create(target)
 
 
-def forget(name: str) -> None:
+def forget(name: str, workspace: str = LOCAL) -> None:
     """Drop target *name*'s adapter, so the next :func:`build` reads its config again."""
-    _built.pop(name, None)
+    _built.pop(_key(workspace, name), None)

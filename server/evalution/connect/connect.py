@@ -217,7 +217,7 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
         phoenix = {"url": conf.phoenix.url, "project": conf.phoenix.project}
         if conf.phoenix.public_url:
             phoenix["public_url"] = conf.phoenix.public_url
-    raw_code = block.get("code") if isinstance(block.get("code"), dict) else None
+    raw_code = block.get("code") if isinstance(block.get("code"), dict) and conf.code else None
     code = {"path": str(raw_code["path"]), "ignore": list(conf.code.ignore)} if raw_code else None
     return {
         "name": conf.name,

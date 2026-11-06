@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Header, Request
 
 from evalution import settings
-from evalution.api.deps import busy, invalid, read_body
+from evalution.api.deps import Current, busy, invalid, read_body
 from evalution.config import ConfigError, load
 from evalution.llm import LLM
 from evalution.targets import Targets
@@ -19,16 +19,18 @@ def _view(targets: Targets, llm: LLM) -> dict[str, Any]:
     return settings.view(targets.config, llm.spent_usd)
 
 
-def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter:
+def settings_router() -> APIRouter:
     router = APIRouter()
 
     @router.get("/settings/model")
-    async def get_model() -> dict[str, Any]:
+    async def get_model(ws: Current) -> dict[str, Any]:
+        targets, llm = ws.targets, ws.llm
         return _view(targets, llm)
 
     @router.put("/settings/model")
-    async def put_model(request: Request) -> dict[str, Any]:
+    async def put_model(ws: Current, request: Request) -> dict[str, Any]:
         """Save the model; every part uses it from the next call."""
+        targets, llm, lock = ws.targets, ws.llm, ws.lock
         body = await read_body(request)
         if request.app.state.auth is not None and "key" in body and body["key"] != "":
             # Hosted, a model key is each person's own, never the workspace's.
@@ -38,7 +40,7 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
         async with lock:
             try:
                 dropped = await asyncio.to_thread(settings.save, targets.config, targets.docs, body)
-                fresh = load(targets.config.file, targets.docs)
+                fresh = load(targets.config.file, targets.docs, targets.config.keys)
             except (settings.SettingsError, ConfigError) as exc:
                 raise invalid(str(exc)) from exc
             targets.config = replace(
@@ -49,12 +51,14 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
 
     @router.get("/settings/model/models")
     async def get_models(
+        ws: Current,
         provider: str,
         base_url: str | None = None,
         x_model_key: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """The provider's models with their prices; a key typed but not saved comes as the
         ``X-Model-Key`` header."""
+        targets = ws.targets
         try:
             url = settings.base_url(provider, base_url)
             model = settings.draft(
@@ -72,8 +76,9 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
             raise invalid(str(exc)) from exc
 
     @router.post("/settings/model/test")
-    async def test_model(request: Request) -> dict[str, Any]:
+    async def test_model(ws: Current, request: Request) -> dict[str, Any]:
         """One tiny call on each model: the form as it stands when given, else the saved one."""
+        targets = ws.targets
         body = await read_body(request)
         try:
             model = settings.draft(targets.config, body) if body else targets.config.model
