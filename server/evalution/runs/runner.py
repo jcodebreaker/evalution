@@ -442,6 +442,13 @@ class Runs:
         self._running = doc["run"]
         self._playing = plan.target
         self._stop_reason = None
+        # Stored before it is answered: whoever reads the run next must find it.
+        try:
+            await self.store.save(doc)
+        except BaseException:
+            self._running = self._playing = None
+            self.lock.release()
+            raise
         self._go(self._play(doc, eval_set, cases, plan.tries))
         self._stop_watch = asyncio.get_running_loop().create_task(self._heed_stop(doc["run"]))
         return summary(doc)

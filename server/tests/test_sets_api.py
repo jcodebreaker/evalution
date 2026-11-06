@@ -235,6 +235,7 @@ async def test_a_run_stops_when_try_after_try_hangs(
     monkeypatch.setitem(adapters._built, "bot", target)
     runs = Runs(Targets(config), None)
     made = await runs.start(runs.estimate("bot", "main", None, 1)["token"])
+    assert runs.load(made["run"])["status"] == "running", "stored before start answers"
     await runs.wait()
     run = runs.load(made["run"])
     assert (run["status"], target.asked) == (status, asked)
