@@ -33,6 +33,8 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.exc import ArgumentError
 
+from evalution.storage.identity import identity
+
 #: This server's own workspace: the only one until people sign in.
 LOCAL = "local"
 URL_ENV = "DATABASE_URL"
@@ -70,10 +72,14 @@ def _documents_and_entries(db: Connection) -> None:
     _meta.create_all(db, tables=[documents, entries])
 
 
+def _who_signs_in(db: Connection) -> None:
+    identity.create_all(db)
+
+
 #: What takes the database from version ``n`` to ``n + 1`` is ``_STEPS[n]``, run in order, each in
 #: the one transaction :meth:`Database._migrate` holds. A change of the tables is a step added
 #: at the end, never an edit of one already released.
-_STEPS: list[Callable[[Connection], None]] = [_documents_and_entries]
+_STEPS: list[Callable[[Connection], None]] = [_documents_and_entries, _who_signs_in]
 #: The version this evalution makes; :meth:`Database.open` refuses a newer database.
 SCHEMA = len(_STEPS)
 #: Any number of our own, the same in every process: two servers starting at once on one

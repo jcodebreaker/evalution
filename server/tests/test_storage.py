@@ -7,7 +7,7 @@ import os
 import threading
 
 import pytest
-from sqlalchemy import MetaData, create_engine, select
+from sqlalchemy import MetaData, create_engine, func, inspect, select
 
 from evalution.storage import LOCAL, Database
 from evalution.storage.database import (
@@ -18,6 +18,7 @@ from evalution.storage.database import (
     _opened,
     schema,
 )
+from evalution.storage.identity import identity
 from evalution.storage.secrets import KEY_ENV, SecretKeyError, Secrets
 
 
@@ -156,9 +157,17 @@ def test_servers_starting_at_once_make_the_tables_once(tmp_path, url) -> None:
             database.engine.dispose()
 
 
-def test_a_newer_database_is_refused(tmp_path, url) -> None:
+def test_an_older_database_moves_forward_and_a_newer_one_is_refused(tmp_path, url) -> None:
     database = Database.open(tmp_path, url)
+    identity.drop_all(database.engine)
     with database.engine.begin() as db:
+        db.execute(schema.delete())
+        db.execute(schema.insert().values(version=1))
+    database.close()
+    database = Database.open(tmp_path, url)
+    assert set(identity.tables) <= set(inspect(database.engine).get_table_names())
+    with database.engine.begin() as db:
+        assert db.scalar(select(func.max(schema.c.version))) == SCHEMA
         db.execute(schema.insert().values(version=SCHEMA + 1))
     database.close()
     with pytest.raises(StorageError, match="newer evalution"):

@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse
 
+from evalution.api.auth import mount_accounts
 from evalution.api.benchmarks import benchmarks_router
 from evalution.api.connect import connect_router
 from evalution.api.deps import answers_to, guard
@@ -152,6 +153,7 @@ def create_app(
     app.state.runs = runs
     app.state.remote = remote
     app.state.allowed_hosts = answers_to(bind, config.allowed_hosts)
+    mount_accounts(app, targets.docs.database)
     app.middleware("http")(guard)
     app.include_router(create_router(runs, agent, found, llm, watcher, url))
     web = config.web_dir
