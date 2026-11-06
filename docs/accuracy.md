@@ -57,6 +57,7 @@ You could argue with our answers on these, since the two tool cases give the jud
 - The same line can get different verdicts on different tries, as the Lisbon line did. That's why a test runs more than once.
 - Anything you can state exactly belongs in a code check, which doesn't vary.
 - A line like the Lisbon one, which a grader can read two ways, can be caught before it runs: the test writer tries each line of a plan on a reply written to meet it and one written to miss it, and flags it with a sharper wording or a code check ([how](judging.md#lines-tried-before-they-run)).
+- To see how it does on *your* agent, agree or disagree with it on the test page. A line it gets wrong too often stops earning passes ([how](judging.md#when-a-person-disagrees)).
 
 ## What this doesn't show
 

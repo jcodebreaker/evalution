@@ -45,6 +45,9 @@ class WhyUnjudged(StrEnum):
     CREDENTIALS_REFUSED = "credentials_refused"
     APP_BUSY = "app_busy"
     LEFTOVER_STATE = "leftover_state"
+    #: The grader passed a rubric line it agrees with a person on too seldom
+    #: (:mod:`evalution.judging.agreement`): its pass isn't taken as earned.
+    GRADER_UNRELIABLE = "grader_unreliable"
 
 
 class CheckKind(StrEnum):
@@ -95,6 +98,7 @@ class Label(StrEnum):
     ADAPTER_ERROR = "Adapter error"
     GRADER_UNAVAILABLE = "Grader unavailable"
     MISSING_EVIDENCE = "Missing evidence"
+    GRADER_UNRELIABLE = "Grader unreliable"
 
 
 class Change(StrEnum):

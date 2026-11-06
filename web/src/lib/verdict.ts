@@ -59,7 +59,11 @@ const WHY_UNJUDGED: Record<string, string> = {
   credentials_refused: "the app refused the credentials",
   app_busy: "the app or its gateway was busy or down",
   leftover_state: "it started with leftover state",
+  grader_unreliable: "grader unreliable here",
 };
+
+/** A line whose grader a person disagrees with too often: its passes don't count. */
+export const UNRELIABLE = WHY_UNJUDGED.grader_unreliable;
 
 /** Why a test couldn't be judged, in plain words. */
 export const unjudgedWords = (reasons: readonly string[]) =>

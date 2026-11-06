@@ -132,9 +132,14 @@ class RunStore:
     """A workspace's runs, their evidence and the requests to stop them; the one the routes
     read."""
 
-    def __init__(self, docs: Docs) -> None:
+    def __init__(self, docs: Docs, settle: Callable[[dict[str, Any]], Any] | None = None) -> None:
         self.docs = docs
-        self._turn = asyncio.Lock()
+        #: What a run is read again with just before each save, under its lock: the workspace's
+        #: labelled examples (:mod:`evalution.runs.trust`), which change while a run is held.
+        self.settle = settle
+        #: One lock per run: every read-modify-write of a stored run takes it, so none lands on
+        #: top of another (one process per workspace).
+        self._turns: dict[str, asyncio.Lock] = {}
 
     def write(self, run: Mapping[str, Any]) -> None:
         """:raises ValueError: Not a run id."""
@@ -142,20 +147,41 @@ class RunStore:
             raise ValueError(f"not a run id: {run['run']}")
         self.docs.put(RUN, str(run["run"]), run)
 
-    async def _in_turn(self, write: Callable[..., None], *args: Any) -> None:
-        """*write* in a thread, one at a time and in the order asked. Stop cancels the caller, not
-        the write: it finishes before the next one starts, or it would land on top of it."""
+    async def _in_turn[T](self, run: str, work: Callable[..., T], *args: Any) -> T:
+        """*work* in a thread, holding *run*'s lock: one at a time and in the order asked. Stop
+        cancels the caller, not the work: it finishes before the next one starts, or it would land
+        on top of it."""
+        lock = self._turns.setdefault(run, asyncio.Lock())
 
-        async def turn() -> None:
-            async with self._turn:
-                await asyncio.to_thread(write, *args)
+        async def turn() -> T:
+            async with lock:
+                return await asyncio.to_thread(work, *args)
 
-        await asyncio.shield(asyncio.ensure_future(turn()))
+        return await asyncio.shield(asyncio.ensure_future(turn()))
+
+    def _settled(self, run: dict[str, Any]) -> None:
+        if self.settle is not None:
+            self.settle(run)
+        self.write(run)
 
     async def save(self, run: Mapping[str, Any]) -> None:
         """Write *run* as it is now (copied here, so tries played side by side may go on
-        changing it) and one save at a time."""
-        await self._in_turn(self.write, copy.deepcopy(dict(run)))
+        changing it), settled, and one save of it at a time."""
+        doc = copy.deepcopy(dict(run))
+        await self._in_turn(str(doc["run"]), self._settled, doc)
+
+    async def update(self, run: str, change: Callable[[dict[str, Any]], bool]) -> bool:
+        """Read *run*, *change* it and write it back if *change* says it changed, under its lock;
+        whether it did."""
+
+        def read_change_write() -> bool:
+            doc = self.load(run)
+            if doc is None or not change(doc):
+                return False
+            self.write(doc)
+            return True
+
+        return await self._in_turn(run, read_change_write)
 
     def replace(self, run: Mapping[str, Any], evidence: Iterable[TryEvidence]) -> None:
         """*run* and its evidence as given, whatever was kept under its id before: an uploaded
@@ -172,7 +198,7 @@ class RunStore:
 
     async def keep_evidence(self, run: str, evidence: TryEvidence) -> None:
         """Add one try to the run's evidence, in turn with its saves."""
-        await self._in_turn(evidence_log.keep, self.docs, run, evidence)
+        await self._in_turn(run, evidence_log.keep, self.docs, run, evidence)
 
     def evidence(self, run: str) -> list[TryEvidence]:
         """Every try kept for *run*, in the order played."""

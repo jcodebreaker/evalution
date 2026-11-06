@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from evalution.core.judgement import Change
+from evalution.core.judgement import Change, WhyUnjudged
 from evalution.core.rules import change_of, could_be_chance
 from evalution.results.record import (
     agent_models,
     environment_of,
     judge_model,
     pass_marks,
+    unjudged_reasons,
     verdict_of,
 )
 
@@ -81,6 +82,9 @@ def _caveats(run: Mapping[str, Any], base: Mapping[str, Any], stem: str) -> list
         found.append("the rules changed")
     if judge_model(run) != judge_model(base):
         found.append("the grader changed")
+    entries = [r["cases"][stem] for r in (run, base) if stem in r["cases"]]
+    if any(WhyUnjudged.GRADER_UNRELIABLE.value in unjudged_reasons(e) for e in entries):
+        found.append("grader unreliable here")
     return found
 
 

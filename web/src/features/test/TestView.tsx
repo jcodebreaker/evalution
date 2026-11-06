@@ -2,7 +2,7 @@ import { ExternalLink, FileCode, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { api } from "../../lib/api";
-import type { CaseFileView, Finding } from "../../lib/schema";
+import type { CaseFileView, Compare, Finding } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { POLL_MS, ready, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button, buttonClass } from "../../ui/button";
@@ -12,6 +12,7 @@ import { StaleChip } from "../shared/marks";
 import { Earlier } from "./Earlier";
 import { EditFile } from "./EditFile";
 import { FindingNote } from "./FindingNote";
+import type { Doubt } from "./HowDecided";
 import { HowDecided } from "./HowDecided";
 import { Inspector } from "./Inspector";
 import { Output } from "./Output";
@@ -22,6 +23,20 @@ import { Timeline } from "./Timeline";
 import { Trajectory } from "./Trajectory";
 import { TryContext } from "./TryContext";
 import { VerdictBanner } from "./VerdictBanner";
+
+/** The rubric lines that failed on the try shown although the grader is unreliable on them. */
+function doubtsOf(shown: Compare): Doubt[] {
+  const lines = shown.steps.flatMap((step) =>
+    step.items.filter((item) => item.id.startsWith("rubric-")),
+  );
+  return lines.flatMap((item, index) => {
+    const said = shown.agreement[item.id];
+    const failed = item.actual && !item.actual.passed && !item.actual.unjudged;
+    return failed && said?.unreliable
+      ? [{ line: index + 1, disagreed: said.labelled - said.agreed, labelled: said.labelled }]
+      : [];
+  });
+}
 
 /**
  * A test as a timeline: what it checks, step by step, before any run; and the latest result,
@@ -177,6 +192,17 @@ export function TestView({
               appName={appName}
               result={view === "result"}
               onSpan={setFocus}
+              agreement={view === "result" ? shown?.agreement : undefined}
+              onLabel={
+                view === "result" && shown?.try
+                  ? (item, agree) => {
+                      const line = Number(item.split("-")[1]);
+                      void api
+                        .label(shown.run, id, shown.try ?? 0, line, agree)
+                        .then(reloadResult, () => null);
+                    }
+                  : undefined
+              }
             />
           ) : plan.status === "loading" ? (
             <p className="m-0 shimmer text-[13px]">Reading the test…</p>
@@ -186,7 +212,9 @@ export function TestView({
 
           {view === "result" && shown?.try ? (
             <>
-              {shown.explain ? <HowDecided explain={shown.explain} /> : null}
+              {shown.explain ? (
+                <HowDecided explain={shown.explain} doubts={doubtsOf(shown)} />
+              ) : null}
               {shown.trajectory ? (
                 <Trajectory
                   shown={shown}

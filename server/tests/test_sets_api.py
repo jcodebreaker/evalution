@@ -22,11 +22,22 @@ from evalution.adapters.base import (
 from evalution.api.app import create_app
 from evalution.config import load
 from evalution.core.evidence import Clipped, Failure, ToolRecord, TryEvidence
+from evalution.core.judgement import (
+    CheckKind,
+    CheckResult,
+    Decider,
+    JudgeStamp,
+    Outcome,
+    Role,
+    Route,
+)
+from evalution.core.rules import judgement
+from evalution.judging.labels import LABEL
 from evalution.results.migrate import upcast
 from evalution.results.store import RunStore
-from evalution.results.views import case_detail, summary
+from evalution.results.views import case_detail, summary, totals
 from evalution.review.findings import TRY_INSTRUCTIONS, report_input, try_input
-from evalution.runs import collect
+from evalution.runs import collect, trust
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.suite.cases import CaseError, is_benchmark, meaning_changes
@@ -182,6 +193,70 @@ def test_a_failed_test_shows_its_finding(client, tmp_path) -> None:
     assert "[Data: the first difference from a passing try." in asked
     assert "start the cause from it" in TRY_INSTRUCTIONS
     assert "files_read instead of run_code" in report_input(differs, None)
+
+
+def _graded(run: str, started: float) -> dict:
+    """A run of three tries the grader passed on one rubric line."""
+    line = CheckResult(
+        id="rubric:0", kind=CheckKind.RUBRIC, decided_by=Decider.MODEL, role=Role.MUST,
+        outcome=Outcome.PASSED, why="Greets back",
+    )  # fmt: skip
+    found = judgement([line], JudgeStamp(key="default", model="m"), Route.UNKNOWN)
+    doc = {**upcast(_run(None)), "run": run, "started_at": started, "judge": {"key": "default"}}
+    entry = doc["cases"]["greets"]
+    entry["reply_rubric"] = ["Greets back"]
+    entry["tries"] = [
+        {"n": n, **TRY, "judgements": [found.model_dump(mode="json")], "rubric": []}
+        for n in (1, 2, 3)
+    ]
+    doc["totals"] = totals(doc)
+    return doc
+
+
+def test_a_line_the_grader_too_often_gets_wrong_stops_earning_passes(client, tmp_path) -> None:
+    store = RunStore(_docs(tmp_path))
+    store.write(_graded("r0", 0.5))
+    store.write(_graded("r1", 1.0))
+    url = "/v1/evals/runs/r1/cases/greets/tries/{}/rubric/0/label"
+    assert client.put(url.format(1), json={"agree": "no"}).status_code == 400
+    assert client.put(url.format(9), json={"agree": False}).status_code == 404
+    said = [client.put(url.format(n), json={"agree": False}).json() for n in (1, 2)]
+    assert said[-1] == {"agreed": 0, "labelled": 2, "unreliable": False, "mine": False, "can": True}
+    assert client.get("/v1/evals/runs/r1").json()["totals"]["passed"] == 1, "two aren't a pattern"
+
+    # A third: the grader is unreliable on the line, and its passes count for nothing, here and in
+    # the set's other runs, in the totals and in the comparison. Given while a regrade holds the
+    # run, the regrade's save after it can't write over what the label did.
+    runs = Runs(Targets(load(tmp_path / "evalution.yaml")), None)
+    held = runs.store.load("r1")
+
+    async def label_while_saving() -> None:
+        await trust.label(runs.store, runs.targets.docs, "r1", "greets", 3, 0, agree=False)
+        await runs.store.save(held)
+
+    asyncio.run(label_while_saving())
+    for run in ("r0", "r1"):
+        detail = client.get(f"/v1/evals/runs/{run}").json()
+        assert detail["totals"]["passed"] == 0 and detail["totals"]["unjudged"] == 1
+    case = client.get("/v1/evals/runs/r1/cases/greets").json()
+    assert case["verdict"] == "unjudged" and case["unjudged"] == ["grader_unreliable"]
+    assert case["agreement"] == [
+        {"line": "Greets back", "agreed": 0, "labelled": 3, "unreliable": True}
+    ]
+    assert [t["labels"] for t in case["tries"]] == [[False], [False], [False]]
+    compared = client.get("/v1/evals/runs/r1/comparison", params={"base": "r0"}).json()
+    assert compared["tests"][0]["caveats"] == ["grader unreliable here"]
+
+    # Kept in the workspace it was given in, and nowhere else.
+    assert len(_docs(tmp_path).keys(LABEL)) == 3
+    assert Database.open(load(tmp_path / "evalution.yaml").data_dir).docs("other").keys(LABEL) == []
+
+    # Cleared, the line is back under the bar and its passes count again.
+    gone = client.delete(url.format(3))
+    assert gone.json()["labelled"] == 2 and gone.json()["mine"] is None
+    assert client.delete(url.format(3)).status_code == 404
+    assert client.get("/v1/evals/runs/r1").json()["totals"]["passed"] == 1
+    assert client.get("/v1/evals/runs/r1/cases/greets").json()["verdict"] == "pass"
 
 
 async def test_an_analysis_that_cannot_finish_says_so(tmp_path) -> None:

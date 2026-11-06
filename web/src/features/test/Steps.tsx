@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import type { Actual, PlanStep } from "../../lib/schema";
+import type { Actual, LineAgreement, PlanStep } from "../../lib/schema";
 import { StepBody } from "./StepBody";
 
 const ICON: Record<PlanStep["kind"], ReactNode> = {
@@ -62,12 +62,17 @@ export function Steps({
   appName,
   result,
   onSpan,
+  agreement,
+  onLabel,
 }: {
   steps: PlanStep[];
   names: Record<string, string>;
   appName: string;
   result: boolean;
   onSpan?: (span: string) => void;
+  /** By rubric item id: how often the grader agrees with a person on each line. */
+  agreement?: Record<string, LineAgreement>;
+  onLabel?: (item: string, agree: boolean | null) => void;
 }) {
   let number = 0;
   return (
@@ -102,7 +107,14 @@ export function Steps({
               ) : (
                 <div className="h-2" />
               )}
-              <StepBody step={step} names={names} result={result} onSpan={onSpan} />
+              <StepBody
+                step={step}
+                names={names}
+                result={result}
+                onSpan={onSpan}
+                agreement={agreement}
+                onLabel={onLabel}
+              />
             </div>
           </li>
         );

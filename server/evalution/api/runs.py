@@ -25,6 +25,7 @@ from evalution.results.store import RunStore
 from evalution.results.upload import UploadError, read_upload
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
+from evalution.runs import trust
 from evalution.runs.runner import RunBusyError
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import load_case, sent_files
@@ -156,9 +157,36 @@ def runs_router() -> APIRouter:
         runs = ws.runs
         doc = await asyncio.to_thread(runs.load, run)
         found = case_detail(doc, case) if doc else None
-        if found is None:
+        if doc is None or found is None:
             raise not_found("Test")
+        await asyncio.to_thread(trust.case_view, ws.targets.docs, doc, case, found)
         return found
+
+    @router.put("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
+    async def put_label(
+        ws: Current, run: str, case: str, n: int, line: int, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The person agrees, or not, with what the grader says of rubric line *line* (its place
+        in the try) on try *n*: a labelled example. The line's agreement after it."""
+        agree = body.get("agree")
+        if not isinstance(agree, bool):
+            raise invalid("agree: must be true or false")
+        try:
+            return await trust.label(ws.runs.store, ws.targets.docs, run, case, n, line, agree)
+        except LookupError as exc:
+            raise not_found("Rubric line") from exc
+        except ValueError as exc:
+            raise invalid(str(exc)) from exc
+
+    @router.delete("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
+    async def delete_label(ws: Current, run: str, case: str, n: int, line: int) -> dict[str, Any]:
+        """Forget the person's answer on that line. The line's agreement after it."""
+        try:
+            return await trust.unlabel(ws.runs.store, ws.targets.docs, run, case, n, line)
+        except LookupError as exc:
+            raise not_found("Answer") from exc
+        except ValueError as exc:
+            raise invalid(str(exc)) from exc
 
     @router.get("/evals/runs/{run}/cases/{case}/compare")
     async def compare_case(
@@ -209,8 +237,18 @@ def runs_router() -> APIRouter:
         except LookupError as exc:
             raise not_found("Try") from exc
         one = next(t for t in (case_detail(doc, case) or {})["tries"] if t["n"] == shown["try"])
+        rubric = {
+            item["id"]: item["text"]
+            for step in shown["steps"]
+            for item in step["items"]
+            if item["id"].startswith("rubric-")
+        }
+        rows = await asyncio.to_thread(
+            trust.lines_view, targets.docs, doc, case, list(rubric.values()), shown["try"]
+        )
         return {
             **shown,
+            "agreement": dict(zip(rubric, rows, strict=True)),
             "run": run,
             "verdict": verdict_kind(entry),
             "divergence": entry.get("divergence"),

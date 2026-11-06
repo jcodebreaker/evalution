@@ -36,6 +36,7 @@ import time
 from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,7 @@ from evalution.core.rules import (
     current,
     judgement,
 )
+from evalution.judging import labels
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
 from evalution.judging.memory import grade_memory, with_fold
@@ -82,6 +84,7 @@ from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
+from evalution.runs import trust
 from evalution.runs.estimate import (
     GRADE_TRY_USD,
     capped,
@@ -228,7 +231,7 @@ class Runs:
 
     def __init__(self, targets: Targets, llm: LLM | None) -> None:
         self.targets = targets
-        self.store = RunStore(targets.docs)
+        self.store = RunStore(targets.docs, partial(trust.settle, targets.docs))
         #: One run or analysis at a time on this data folder, whichever process plays it.
         self.lock = RunLock(targets.config.data_dir)
         self.llm = llm
@@ -538,13 +541,17 @@ class Runs:
         ]
         if not tries:
             raise ValueError(f"run {run} has nothing to grade again")
+        judge = labels.grader_of(self._judge(doc["judge"]["key"]))
+        # The labelled examples of other runs another grader graded are graded again too.
+        examples = labels.of(self.targets.docs, doc["target"], doc["set"])
+        again = [e for e in examples if e["run"] != run and e["judge"] != judge]
         now = time.time()
         token = secrets.token_urlsafe(18)
         self._regrades[token] = (run, now + TOKEN_SECONDS)
         return {
             "token": token,
-            "tries": len(tries),
-            "usd": round(GRADE_TRY_USD * len(tries), 2),
+            "tries": len(tries) + len(again),
+            "usd": round(GRADE_TRY_USD * (len(tries) + len(again)), 2),
         }
 
     async def regrade(self, token: str) -> dict[str, int]:
@@ -573,6 +580,7 @@ class Runs:
                     found["graded" if graded else "failed"] += 1
             if found["graded"]:
                 doc["judge"] = stamp.model_dump(mode="json")
+                await self._trust(doc)
                 doc["totals"] = totals(doc)
                 await self.store.save(doc)
             return found
@@ -587,20 +595,9 @@ class Runs:
         attempt = next((t for t in entry.get("tries") or [] if t["n"] == evidence.n), None)
         if attempt is None or not _to_grade(doc, evidence):
             return None
-        case = parse_case(entry["case"], f"{doc['run']}/{evidence.case}", evidence.case)
         before = current(attempt)
         code = [c for c in before.checks if c.decided_by is Decider.CODE]
-        states = [s for s in attempt.get("steps") or [] if _is_state_step(s)]
-        graded = await grade_reply(
-            caller,
-            evidence,
-            case.reference,
-            case.rubric,
-            check_lines=[check_line(Step(**s)) for s in states],
-            need=case.reply_pass,
-            mark=pass_marks(doc)["reply"],
-            decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
-        )
+        graded = await self._graded_again(doc, attempt, evidence, caller)
         if any(c.unjudged is WhyUnjudged.JUDGE_FAILED for c in graded.checks):
             return False
         add_judgement(attempt, judgement([*code, *graded.checks], stamp, before.route))
@@ -613,6 +610,70 @@ class Runs:
             attempt.get("context") or [],
         )
         return True
+
+    async def _graded_again(
+        self,
+        doc: Mapping[str, Any],
+        attempt: Mapping[str, Any],
+        evidence: TryEvidence,
+        caller: Caller | None,
+    ) -> Graded:
+        """The reply of a kept try graded again by *caller*, as the run's copy of its test asks."""
+        entry = doc["cases"][evidence.case]
+        case = parse_case(entry["case"], f"{doc['run']}/{evidence.case}", evidence.case)
+        states = [s for s in attempt.get("steps") or [] if _is_state_step(s)]
+        return await grade_reply(
+            caller,
+            evidence,
+            case.reference,
+            case.rubric,
+            check_lines=[check_line(Step(**s)) for s in states],
+            need=case.reply_pass,
+            mark=pass_marks(doc)["reply"],
+            decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
+        )
+
+    async def _trust(self, doc: dict[str, Any]) -> None:
+        """After *doc* was graded: its set's labelled examples as its grader says them, then *doc*
+        and the set's other runs read again with what they say of the grader now
+        (:mod:`evalution.runs.trust`). Never raises: the run stands without it."""
+        try:
+            await self._recheck_labels(doc, JudgeStamp.model_validate(doc["judge"]))
+            trust.apply(self.targets.docs, doc)
+            await trust.apply_stored(self.store, self.targets.docs, doc["target"], doc["set"])
+        except Exception:
+            _logger.warning("evals: run %s: labelled examples not read", doc["run"], exc_info=True)
+
+    async def _recheck_labels(self, doc: Mapping[str, Any], stamp: JudgeStamp) -> None:
+        """The set's labelled examples as the grader *stamp* says them: those of *doc* read from it,
+        the others graded again from their run's evidence, as a regrade grades, when another model
+        or other prompts graded them. One the grader can't decide keeps what it had."""
+        docs, judge, caller = self.targets.docs, labels.grader_of(stamp), self.caller(stamp.key)
+        kept: dict[str, tuple[dict[str, Any] | None, list[TryEvidence]]] = {}
+        for example in labels.of(docs, doc["target"], doc["set"]):
+            where = (example["case"], example["try"])
+            if example["run"] == doc["run"]:
+                found = current(trust.try_of(doc, *where))
+                said, by = (
+                    trust.said_on(found.checks, example["line"]),
+                    labels.grader_of(found.judge),
+                )
+            elif example["judge"] != judge and caller is not None:
+                if example["run"] not in kept:
+                    run = example["run"]
+                    kept[run] = (self.load(run), await asyncio.to_thread(self.store.evidence, run))
+                other, evidence = kept[example["run"]]
+                played = next((e for e in evidence if (e.case, e.n) == where), None)
+                if other is None or played is None:
+                    continue
+                graded = await self._graded_again(
+                    other, trust.try_of(other, *where), played, caller
+                )
+                said, by = trust.said_on(graded.checks, example["line"]), judge
+            else:
+                continue
+            if said is not None and (said, by) != (example["graded"], example["judge"]):
+                labels.regraded(docs, doc["target"], example, said, by)
 
     async def wait(self) -> None:
         """Until the running task (a run and its analysis) ends."""
@@ -849,6 +910,7 @@ class Runs:
                 message = f"The app refused the credentials: {message}"
             failure = APP_NOT_READY if isinstance(exc, APP_NOT_READY_ERRORS) else OTHER_FAILURE
             doc.update(status="failed", failure=failure, error=message, stop_reason=message)
+        await self._trust(doc)
         failed = bool(_failed_tries(doc))
         # Every run that ends on its own explains itself: its failed tries, and a report when a
         # model can write one. One stopped (by the admin or its cap) is left as it is. Set before

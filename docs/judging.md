@@ -73,6 +73,7 @@ Steps are a guide when the test has a state or context check or a rubric, so ano
 | `not_supported` | The target doesn't answer this check, or says it couldn't read what it answers about. |
 | `blocked` | The app stopped to wait on something, an approval, say, and the test didn't expect it. A test that does sets `"blocked": true` on the turn: then not stopping fails the try. |
 | `never_started` | Out of time, with no sign of the agent working: the target has traces, and none arrived. It may have hung before any span ended. |
+| `grader_unreliable` | The grader passed a rubric line a person found it too often wrong on (below). |
 
 An app error is not on this list: the app did that, and the try failed. Failed work is the same, with the app's own reason when it gives one. An exception out of `send` isn't an app error: it is the adapter's, and reads as such, unless it is the session going away, the app not being there, or running out of time.
 
@@ -97,6 +98,7 @@ Every try and test reads as one label, worked out from its checks when it is rea
 | Adapter error | The adapter didn't read the app | Not judged |
 | Missing evidence | Traces, or what they hold, didn't arrive | Not judged |
 | Grader unavailable | The grader failed, or wasn't sure | Not judged |
+| Grader unreliable | The grader passed a line a person disagrees with it on too often | Not judged |
 
 A try holding several speaks for what the app did first, then for what stands most in the way: adapter, setup, evidence, grader. A test takes the same order across its tries, with a pass above anything unjudged, as for its verdict. The last four stay out of what's counted for or against the app.
 
@@ -166,6 +168,14 @@ A score from 0 to 1 is shown and never decides, unless a reference is all a test
 ### Lines tried before they run
 
 When the test writer shows a plan, its rubric lines are tried first, so a line the grader can read two ways shows up before it costs tries. One call on the light model writes a reply that meets every line and, for each line, one that misses only it. The set's grader then grades them the way a run does: the good reply on every line, each bad reply on its own line. A plan of N lines costs 2 + N calls, plus a second grading for a line it wasn't sure of; they count in the chat's cost. A line is flagged when its good reply fails it, its bad reply passes it, or the grader stays unsure. The plan shows the flag with a sharper line, or a `reply.contains` / `reply.lacks` check when the line only asks for exact words that tell the two replies apart, and "Use this" puts it in the plan before you approve it. Lines about what the assistant did, rather than said, aren't tried: a written reply has no tool calls. With no model set up, nothing is tried. The code is `server/evalution/writer/linecheck.py`.
+
+## When a person disagrees
+
+On a try's page, each rubric line the grader decided takes an answer: agree or disagree (`a` or `d` on the focused line). An answer is a labelled example, kept in the workspace under the line's identity, the hash of its words (lines have no id, and a line reworded is another line), with the run, the test, the try, what the grader said then and what it says now.
+
+A line's **agreement** is how many of its labelled tries the grader matched the person on: "3/4". With at least 3 labels and fewer than 2 in 3 agreed (`judging/agreement.py`), the grader is **unreliable** on that line: its passes on it, in every run of the set, are unjudged, `grader_unreliable`, so they count neither way, in totals and comparisons alike, where the test says "grader unreliable here". Its fails stand: a real failure beats a doubtful grader. Each change adds a judgement, as a regrade does; agreement back over the bar gives the passes back.
+
+When the grader changes, by `regrade --judge` or a run graded by another model or other prompts, the labelled examples are graded again from their evidence and agreement is worked out anew. A regrade's estimate counts them.
 
 ## The scores
 

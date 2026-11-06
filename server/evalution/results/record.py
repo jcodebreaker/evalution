@@ -5,12 +5,19 @@ read from those and nothing else, so every view says the same of one document.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from typing import Any
 
 from evalution.core.case import DEFAULT_PASS_MARKS
 from evalution.core.judgement import Judgement, Outcome, ResultKey, Role, Verdict, VerdictKind
-from evalution.core.rules import RULES_VERSION, current, judgement, verdict, verdict_note
+from evalution.core.rules import (
+    RULES_VERSION,
+    current,
+    distrusted,
+    judgement,
+    verdict,
+    verdict_note,
+)
 
 SCHEMA = 2
 #: Where a run played: ``hosted``, by a hosted server against an app on the internet, or ``local``,
@@ -167,3 +174,27 @@ def regrade_rules(run: dict[str, Any]) -> int:
             added += 1
     run["rules"] = RULES_VERSION
     return added
+
+
+def _needs(entry: Mapping[str, Any]) -> int | None:
+    """How many rubric lines the run's copy of a test needs, when not all."""
+    return (((entry.get("case") or {}).get("reply")) or {}).get("pass")
+
+
+def distrust(run: dict[str, Any], unreliable: Mapping[str, Set[str]]) -> int:
+    """Read *run* again with the rubric lines, by test, whose grader a person disagrees with too
+    often (:func:`evalution.core.rules.distrusted`), and those since trusted again. Like a regrade,
+    it adds a judgement, and only to a try that reads differently. How many it added. A run under
+    older rules is read under today's first, so its tries don't stand under two."""
+    changed = [
+        (attempt, found)
+        for stem, entry in run["cases"].items()
+        for attempt in entry.get("tries") or []
+        if (found := distrusted(current(attempt), unreliable.get(stem, set()), _needs(entry)))
+    ]
+    if changed and run.get("rules") != RULES_VERSION:
+        regrade_rules(run)
+        return distrust(run, unreliable)
+    for attempt, found in changed:
+        add_judgement(attempt, found)
+    return len(changed)

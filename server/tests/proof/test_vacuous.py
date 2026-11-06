@@ -75,7 +75,7 @@ from evalution.results.views import (
 )
 from evalution.review.findings import report_input
 from evalution.review.health import _played, _verdicts, regressions
-from evalution.runs import play, runner
+from evalution.runs import play, runner, trust
 from evalution.runs.collect import TRACE_WAIT, Wanted, own_spans
 from evalution.runs.play import play_try, play_with_retry
 from evalution.runs.preflight import forget_setup, passed_setups, remember_setup, setup_key
@@ -365,20 +365,39 @@ async def test_7_a_try_leaves_its_whole_evidence_with_the_run(make_rig) -> None:
     assert len(rig.runs.store.all()) == 1, "the evidence is no run"
 
 
-async def test_7_grading_again_needs_evidence_and_only_adds(make_rig) -> None:
+async def test_7_grading_again_needs_evidence_and_only_adds(make_rig, monkeypatch) -> None:
     rig = make_rig()
     rig.add(_case(ASKS))
-    doc = await rig.run()
+    doc = await rig.run(tries=3)
     run, stem = doc["run"], next(iter(doc["cases"]))
+    # A person says the grader's pass is wrong on every try: its passes stop counting.
+    for n in (1, 2, 3):
+        await trust.label(rig.runs.store, rig.docs, run, stem, n, 0, agree=False)
+    assert _verdict(rig.runs.load(run)) == "unjudged"
     rig.judge.default = "fail"
     estimate = rig.runs.estimate_regrade(run)
-    assert estimate["tries"] == 1 and estimate["usd"] > 0
-    assert await rig.runs.regrade(estimate["token"]) == {"graded": 1, "failed": 0}
+    assert estimate["tries"] == 3 and estimate["usd"] > 0
+    assert await rig.runs.regrade(estimate["token"]) == {"graded": 3, "failed": 0}
     with pytest.raises(KeyError):
         await rig.runs.regrade(estimate["token"])
     after = rig.runs.load(run)
     judged = after["cases"][stem]["tries"][0]["judgements"]
-    assert [j["outcome"] for j in judged] == ["passed", "failed"]
+    assert [j["outcome"] for j in judged] == ["passed", "unjudged", "failed"]
+    # The labelled examples were graded again with it: it now says what the person said.
+    line = RUBRIC["rubric"]
+    assert trust.lines_view(rig.docs, after, stem, line)[0]["agreed"] == 3
+
+    # Another model grades the next run: the examples are graded again from their evidence, it
+    # passes them against the person, and its own passes on the line don't count.
+    rig.judge.default = "pass"
+    monkeypatch.setattr(rig.runs.llm, "model_id", lambda _key: "another-model", raising=False)
+    later = await rig.run(tries=1)
+    assert trust.lines_view(rig.docs, later, stem, line)[0] == {
+        "agreed": 0,
+        "labelled": 3,
+        "unreliable": True,
+    }
+    assert _verdict(later) == "unjudged" and _verdict(rig.runs.load(run)) == "fail"
     rig.runs.store.docs.clear_entries(EVIDENCE, run)
     with pytest.raises(ValueError, match="no evidence"):
         rig.runs.estimate_regrade(run)

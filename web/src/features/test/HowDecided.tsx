@@ -49,8 +49,11 @@ function Panel({
   );
 }
 
+/** A line that failed here, whose grader the person disagrees with too often. */
+export type Doubt = { line: number; disagreed: number; labelled: number };
+
 /** What decided the try: what code checked, apart from what a model graded, and on what footing. */
-export function HowDecided({ explain }: { explain: Explain }) {
+export function HowDecided({ explain, doubts = [] }: { explain: Explain; doubts?: Doubt[] }) {
   const { code, model } = explain;
   const graded = model.total > 0 || !!model.reference;
   if (!code.checks.length && !graded) return null;
@@ -94,6 +97,11 @@ export function HowDecided({ explain }: { explain: Explain }) {
             {model.unjudged ? (
               <p className="m-0 text-[12.5px] text-ink-2">{`${model.unjudged} couldn't be judged`}</p>
             ) : null}
+            {doubts.map((doubt) => (
+              <p key={doubt.line} className="m-0 text-[12.5px] text-warning">
+                {`Line ${doubt.line}: you disagreed ${doubt.disagreed} of ${doubt.labelled} times`}
+              </p>
+            ))}
             {model.cut ? (
               <p className="m-0 text-[12.5px] text-ink-2">
                 {`It wasn't shown ${model.cut.toLocaleString()} characters of the evidence`}
