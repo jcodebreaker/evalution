@@ -24,11 +24,35 @@ from evalution.api.app import create_app
 from evalution.api.auth import LOGIN_COOKIE, safe_next
 from evalution.config import load
 from evalution.storage.secrets import KEY_ENV
+from evalution.traces.builtin import SpanStore
 
 ISSUER = "https://issuer.test"
 CLIENT = "evals-client"
 CSRF = {"X-Requested-With": "evalution"}
 KEY = "sk-test-0123456789abcdWXYZ"
+#: One span over OTLP/JSON, for the target ``bot``.
+SPAN = {
+    "resourceSpans": [
+        {
+            "resource": {
+                "attributes": [{"key": "evalution.target", "value": {"stringValue": "bot"}}]
+            },
+            "scopeSpans": [
+                {
+                    "spans": [
+                        {
+                            "traceId": "0af7651916cd43dd8448eb211c80319c",
+                            "spanId": "b7ad6b7169203331",
+                            "name": "chat",
+                            "startTimeUnixNano": "1700000000000000000",
+                            "endTimeUnixNano": "1700000001000000000",
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+}
 
 
 class FakeIssuer:
@@ -245,6 +269,26 @@ def test_a_token_reaches_its_own_workspace_only(app, issuer):
     # No header needed, and a token can't make more of itself.
     assert ci.post("/v1/tokens", json={"name": "more"}, headers=bearer).status_code == 403
     assert ci.get("/v1/me", headers={"Authorization": "Bearer evt_nope"}).status_code == 401
+
+    # A traces token sends spans to its workspace and reaches nothing else; a full one sends too.
+    spans = ana.post(
+        "/v1/tokens", json={"name": "app", "scope": "traces"}, headers=CSRF | {"X-Workspace": team}
+    ).json()
+    assert spans["scope"] == "traces"
+    assert ana.get("/v1/traces", headers={"X-Workspace": team}).json() == {
+        "url": "https://evals.test",
+        "token": True,
+    }
+    app_only = {"Authorization": f"Bearer {spans['token']}"}
+    assert ci.post("/v1/traces", json=SPAN, headers=app_only).status_code == 200
+    assert ci.post("/v1/traces", json=SPAN, headers=bearer).status_code == 200
+    for method, path in [("GET", "/v1/targets"), ("GET", "/v1/me"), ("GET", "/v1/traces")]:
+        assert ci.request(method, path, headers=app_only).status_code == 403
+    assert ci.post("/v1/traces", json=SPAN).status_code == 401, "hosted, no token, no spans"
+    stored = SpanStore(app.state.workspaces.database, team)
+    assert stored.has("bot") and not SpanStore(stored.database, personal).has("bot")
+    odd = {"name": "x", "scope": "admin"}
+    assert ana.post("/v1/tokens", json=odd, headers=CSRF).status_code == 400
 
     gone = ana.delete(f"/v1/tokens/{made['id']}", headers=CSRF | {"X-Workspace": team})
     assert gone.status_code == 204

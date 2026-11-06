@@ -8,6 +8,7 @@ import type {
   Period,
   Steer,
   TargetBody,
+  TokenScope,
   Understanding,
 } from "./schema";
 import {
@@ -223,7 +224,8 @@ export const api = {
   /** The current workspace's tokens, for the CLI and CI. */
   tokens: {
     list: () => get(many(ApiTokenSchema), "/v1/tokens"),
-    create: (name: string) => post(one(NewTokenSchema), "/v1/tokens", { name }),
+    create: (name: string, scope: TokenScope) =>
+      post(one(NewTokenSchema), "/v1/tokens", { name, scope }),
     remove: (id: string) => call("DELETE", `/v1/tokens/${enc(id)}`),
   },
   /** Hosted: the signed-in person's own model key. */
@@ -240,7 +242,7 @@ export const api = {
   discover: (path: string) => post(one(DiscoverySchema), "/v1/targets/discover", { path }),
   discovery: (id: string) => get(one(DiscoverySchema), `/v1/targets/discover/${enc(id)}`),
   /** Save what the folder showed, with answers to its questions, or the Details form. */
-  /** Check again whether the app's traces reach evalution's own Phoenix. */
+  /** Check again whether the app's traces reach evalution. */
   checkTraces: (id: string) =>
     post(one(DiscoverySchema), `/v1/targets/discover/${enc(id)}/traces`, {}),
   traces: () => get(one(TracesSchema), "/v1/traces"),

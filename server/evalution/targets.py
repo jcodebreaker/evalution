@@ -1,5 +1,5 @@
 """The configured targets and what each one comes with: its adapter (built on first use), where
-its traces are read (:func:`evalution.traces.managed.reader`) and its code folder.
+its traces are read (:func:`evalution.traces.builtin.reader`) and its code folder.
 :attr:`Targets.docs` is the workspace's storage (:mod:`evalution.storage`), which everything above
 reads and writes through; what is kept on each target is :mod:`evalution.project.profile`'s.
 """
@@ -17,8 +17,7 @@ from evalution.core.case import SLUG
 from evalution.results.store import RunSink
 from evalution.storage import Database, Docs
 from evalution.traces.base import TraceSource
-from evalution.traces.builtin import SpanStore
-from evalution.traces.managed import reader
+from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.mirror import mirror_of
 from evalution.traces.view import Pricer
 
@@ -47,7 +46,6 @@ class Targets:
     def __init__(
         self,
         config: Config,
-        managed_url: str | None = None,
         docs: Docs | None = None,
         folders: bool = True,
     ) -> None:
@@ -57,16 +55,8 @@ class Targets:
         #: This workspace's storage; by default this server's own, in its data folder.
         self.docs = docs or Database.open(config.data_dir).docs()
         add_folder(config.adapters_dir or config.data_dir / "adapters")
-        #: Where apps send traces to evalution, when it keeps them (its own Phoenix, or this
-        #: server for the built-in source; docs/architecture.md, "Traces").
-        self.managed_url = managed_url
-        traces = config.traces
-        #: The built-in source's spans, when ``traces.managed`` is ``builtin``.
-        self.store = (
-            SpanStore(config.data_dir / "traces" / "spans.db", traces.keep_mb, traces.keep_days)
-            if traces.builtin
-            else None
-        )
+        #: The spans apps sent this workspace (docs/architecture.md, "Traces").
+        self.store = SpanStore(self.docs.database, self.docs.workspace)
         self._sources: dict[str, TraceSource] = {}
         self._sinks: dict[str, RunSink] = {}
         self._digests: Digests = {}
@@ -85,14 +75,11 @@ class Targets:
     def adapter(self, name: str) -> Target:
         return build(self.conf(name), self.docs.workspace)
 
-    def source(self, name: str) -> TraceSource | None:
-        """Where *name*'s traces are read: what evalution keeps itself (its project, the default
-        project) plus the app's own Phoenix when it has one; or only the app's own."""
+    def source(self, name: str) -> TraceSource:
+        """Where *name*'s traces are read: what evalution keeps itself (its spans, the default
+        ones) plus the app's own Phoenix when it has one."""
         if name not in self._sources:
-            found = reader(name, self.conf(name).phoenix, self.managed_url, store=self.store)
-            if found is None:
-                return None
-            self._sources[name] = found
+            self._sources[name] = reader(name, self.conf(name).phoenix, self.store)
         return self._sources[name]
 
     def sink(self, name: str) -> RunSink | None:

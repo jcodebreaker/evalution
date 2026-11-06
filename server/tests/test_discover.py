@@ -17,20 +17,27 @@ from evalution.api.app import create_app
 from evalution.config import load, page_targets
 from evalution.connect import discover, probe
 from evalution.llm import Reply
+from evalution.runs import collect
 from evalution.storage import Database
 from evalution.targets import Targets
+from evalution.traces.builtin import SpanStore
 
 PHOENIX_KEY = "phoenix-value-012"
 APP_SECRET = "header-value-345"
 APP_VALUE = "app-value-678"
 BEARER = "Bearer abc.def.ghi"
+URL = "http://127.0.0.1:8080"
+
+
+def _store(tmp_path) -> SpanStore:
+    return SpanStore(Database.open(tmp_path / "data"), "local")
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     checked = []
 
-    async def check(conf, overlay, managed=None, store=None):
+    async def check(conf, overlay, store):
         checked.append((conf, overlay))
         return {
             "adapter": {"ok": False, "detail": "Couldn't reach it"},
@@ -118,7 +125,8 @@ def test_langgraph_project(client, tmp_path) -> None:
     assert target["code"] == {"path": str(app)}
     texts = [s["text"] for s in found["steps"]]
     assert "It's a LangGraph app (graph memory_agent)" in texts
-    assert any(t.startswith("It sends traces to Phoenix") for t in texts)
+    assert "Send traces to evalution" in texts, "evalution keeps its traces itself"
+    assert "OTEL_RESOURCE_ATTRIBUTES=evalution.target=memory-agent" in found["traces"]["lines"]
     saved = client.post(f"/v1/targets/discover/{found['id']}/accept", json={})
     assert saved.status_code == 201, saved.text
     block = page_targets(Database.open(tmp_path / "data").docs())["memory-agent"]
@@ -146,7 +154,7 @@ async def test_the_evals_model_reads_what_heuristics_cannot(client, tmp_path) ->
             text = '{"path": "/talk", "body": {"q": "{message}"}, "reply": "$.a", "port": 7001}'
             return Reply(text=text)
 
-    found = discover.Discoveries(tmp_path, list, StubLLM())
+    found = discover.Discoveries(tmp_path, list, StubLLM(), URL, _store(tmp_path))
     job = found.start(str(app))
     await asyncio.wait(found._tasks)
     assert job.status == "ready"
@@ -217,8 +225,12 @@ _READS = {**_MISSES, "reply": "$.items[?data.role=='assistant'][-1].data.content
 
 @pytest.fixture
 def connected(tmp_path, monkeypatch):
-    """A saved http target, whose guess at the app is wrong, playing against the fake app."""
-    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"targets": {}}))
+    """A saved http target, whose guess at the app is wrong, playing against the fake app, which
+    sends no traces: they are waited for only briefly."""
+    monkeypatch.setattr(collect, "TRACE_WAIT", 0.2)
+    monkeypatch.setattr(collect, "_POLL", 0.05)
+    quick = {"targets": {}, "traces": {"settle_seconds": 0.1}}
+    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump(quick))
     with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as made:
         body = {
             "name": "odd",
@@ -351,7 +363,7 @@ async def test_discovery_keeps_a_plan_off_the_apps_address_from_being_used(
         async def chat(self, key, system, messages, **_):
             return Reply(text=json.dumps(answer))
 
-    found = discover.Discoveries(tmp_path, list, Steered())
+    found = discover.Discoveries(tmp_path, list, Steered(), URL, _store(tmp_path))
     job = found.start(str(app))
     await asyncio.wait(found._tasks)
     assert job.status == "ready"

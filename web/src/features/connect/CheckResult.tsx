@@ -4,7 +4,7 @@ import { Group } from "../shared/group";
 
 const PARTS = [
   ["adapter", "App"],
-  ["phoenix", "Phoenix"],
+  ["phoenix", "Traces"],
   ["code", "Code"],
 ] as const;
 

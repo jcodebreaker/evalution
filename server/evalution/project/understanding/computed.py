@@ -184,7 +184,7 @@ def _package_files(folder: Path) -> tuple[str, set[str], bool]:
 
 def stack(folder: Path | None, adapter: str, traces: str | None) -> list[str]:
     """What the target is built with: ``["Python · FastAPI", "React web", "Claude models",
-    "HTTP adapter", "Traces: evalution Phoenix"]``, from its package files."""
+    "HTTP adapter", "Traces: evalution"]``, from its package files."""
     out: list[str] = []
     if folder is not None and folder.is_dir():
         python, js, typescript = _package_files(folder)
@@ -328,15 +328,7 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
         rows = library_fit.for_target(targets, name)
     except library.LibraryError:
         rows = []
-    traces = (
-        "evalution"
-        if targets.store
-        else "evalution Phoenix"
-        if targets.managed_url
-        else "own Phoenix"
-        if conf.phoenix is not None
-        else None
-    )
+    traces = "evalution, own Phoenix" if conf.phoenix else "evalution"
     changes = len(drift.read(targets, name).get("changes") or [])
     traced = (doc or {}).get("traced") or {}
     enough = int(traced.get("asks") or 0) >= MIN_ASKS and int(traced.get("tools_seen") or 0) > 0

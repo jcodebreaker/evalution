@@ -1,10 +1,9 @@
 """``evalution serve | run | accept | sets | profile | hooks | migrate | regrade | backup |
 upgrade | restore | adapter`` (docs/architecture.md, "Layout").
 
-* ``serve``: the API and the page, on 127.0.0.1:8080, and evalution's own Phoenix when
-  ``traces.managed`` (:mod:`evalution.traces.managed`). There is no login: it answers only this
-  computer, unless ``--host`` names another address on purpose (it then warns: anyone who can
-  reach that address can use it).
+* ``serve``: the API, the page and the trace intake, on 127.0.0.1:8080. There is no login: it
+  answers only this computer, unless ``--host`` names another address on purpose (it then warns:
+  anyone who can reach that address can use it).
 * ``run --target T --set S [--case C] [--tries N] [--yes] [--sets [DIR]]``: a run in this
   process. ``--sets`` first imports T's tests from DIR (default the config's ``sets_dir``), so a
   fresh database in CI plays the repo's tests. Prints the estimate and asks before anything
@@ -78,7 +77,6 @@ from evalution.suite.cases import CaseError
 from evalution.suite.store import export_sets, import_sets
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
-from evalution.traces.managed import INSTALL, Supervisor, installed, running_url
 from evalution.traces.profile import digest, recent_sessions, render
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -154,22 +152,15 @@ def analysis(doc: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _targets(config: Config) -> Targets:
-    """The targets, reading traces from the Phoenix a running ``serve`` keeps, if any (the
-    built-in source needs no ``serve`` to be read)."""
-    managed = running_url(config.data_dir) if config.traces.phoenix else None
-    return Targets(config, managed)
-
-
 async def run(config: Config, args: argparse.Namespace) -> int:
-    targets = _targets(config)
+    targets = Targets(config)
     if args.sets is not None:
         folder = Path(args.sets) if args.sets else config.sets_dir
         found = import_sets(targets.docs, folder, [args.target])
         print(f"evalution: imported {len(found)} set(s) from {folder}")
     llm = LLM(config.model, docs=targets.docs) if config.model else None
     runs = Runs(targets, llm)
-    intake = await _take_traces(targets, args.traces_port) if config.traces.builtin else None
+    intake = await _take_traces(targets, args.traces_port)
     try:
         await runs.recover()
         estimate = runs.estimate(
@@ -225,8 +216,8 @@ async def run(config: Config, args: argparse.Namespace) -> int:
 
 
 async def _take_traces(targets: Targets, port: int) -> tuple[uvicorn.Server, asyncio.Task] | None:
-    """With no server up, nothing would hear the spans an app sends to built-in traces: listen for
-    them while the run plays. If the port is taken, a server is likely there already."""
+    """With no server up, nothing would hear the spans an app sends: listen for them while the run
+    plays. If the port is taken, a server is likely there already."""
     with socket.socket() as probe:
         if probe.connect_ex(("127.0.0.1", port)) == 0:
             return None
@@ -242,7 +233,7 @@ async def _take_traces(targets: Targets, port: int) -> tuple[uvicorn.Server, asy
 
 
 async def regrade(config: Config, args: argparse.Namespace) -> int:
-    targets = _targets(config)
+    targets = Targets(config)
     if args.rules:
         runs = Runs(targets, None)
         if not runs.lock.acquire():
@@ -288,7 +279,7 @@ async def regrade(config: Config, args: argparse.Namespace) -> int:
 
 def compare_runs(config: Config, args: argparse.Namespace) -> int:
     """Print *args.run* against its base; 1 when a test got worse, 2 when it can't be told."""
-    store = RunStore(_targets(config).docs)
+    store = RunStore(Targets(config).docs)
     found = store.all(args.target, args.set)
     doc = found[0] if args.run == "latest" and found else store.load(args.run)
     if doc is None:
@@ -315,7 +306,7 @@ def accept(config: Config, args: argparse.Namespace) -> int:
     if not args.baseline.is_file():
         raise LookupError(f"no baseline at {args.baseline}: make one with run --save")
     kept = baseline.read(args.baseline)
-    store = RunStore(_targets(config).docs)
+    store = RunStore(Targets(config).docs)
     if args.run is None:
         runs = store.all(kept["target"], kept["set"])
     else:
@@ -346,7 +337,7 @@ def _tries(side: dict[str, Any] | None) -> str:
 
 async def run_doctor(config: Config) -> int:
     """What a first run needs; 0 when nothing is wrong."""
-    found = await doctor.examine(config, _targets(config))
+    found = await doctor.examine(config, Targets(config))
     for item in found:
         print(f"{'ok ' if item.ok else 'NO '} {item.what}")
         if item.fix:
@@ -356,7 +347,7 @@ async def run_doctor(config: Config) -> int:
 
 async def check_target(config: Config, name: str, isolation: bool = False) -> int:
     """One real turn through *name*'s adapter; 0 when it works."""
-    targets = _targets(config)
+    targets = Targets(config)
     target = targets.adapter(name)
     traces = config.traces
     found = await check_adapter(
@@ -383,7 +374,7 @@ async def check_target(config: Config, name: str, isolation: bool = False) -> in
 
 
 def migrate(config: Config) -> int:
-    changed, unreadable = RunStore(_targets(config).docs).upcast_all()
+    changed, unreadable = RunStore(Targets(config).docs).upcast_all()
     print(f"evalution: {len(changed)} runs rewritten")
     if unreadable:
         print(
@@ -403,7 +394,7 @@ _STEP_MARK = {"ok": "ok ", "failed": "NO ", "skipped": "-- "}
 
 
 async def benchmark_plan(config: Config, args: argparse.Namespace) -> int:
-    targets = _targets(config)
+    targets = Targets(config)
     llm = LLM(config.model, docs=targets.docs) if config.model else None
     try:
         if llm is None:
@@ -428,7 +419,7 @@ def benchmark(config: Config, args: argparse.Namespace) -> int:
     if args.action == "plan":
         return asyncio.run(benchmark_plan(config, args))
     if args.action == "approve":
-        found = planning.approve(_targets(config), args.target)
+        found = planning.approve(Targets(config), args.target)
         print(f"evalution: {found['set']} has {found['questions']} questions")
         return 0
     if args.action == "install":
@@ -437,7 +428,7 @@ def benchmark(config: Config, args: argparse.Namespace) -> int:
         print(f"evalution: {slug} has {count} questions, for target {args.target}")
         print(f"evalution: run it with: evalution run --target {args.target} --set {slug}")
         return 0
-    doc = RunStore(_targets(config).docs).load(args.run)
+    doc = RunStore(Targets(config).docs).load(args.run)
     if doc is None:
         print(f"evalution: no run {args.run}", file=sys.stderr)
         return 1
@@ -472,7 +463,7 @@ def _print_step(step: contract.Step) -> None:
 async def adapter_test(config: Config, args: argparse.Namespace) -> int:
     """The contract kit over target ``args.target``: the free setup check, then, once asked, the
     messages. 0 when the adapter keeps its contract."""
-    targets = _targets(config)
+    targets = Targets(config)
     lock = RunLock(config.data_dir)
     try:
         conf = targets.conf(args.target)
@@ -490,16 +481,17 @@ async def adapter_test(config: Config, args: argparse.Namespace) -> int:
                 f"evalution: the {args.name} adapter doesn't load: {kind}: {exc}", file=sys.stderr
             )
             return 2
-        said = (await check_parts(conf, {}, targets.managed_url, targets.store))["adapter"]
+        said = (await check_parts(conf, {}, targets.store))["adapter"]
         if not said["ok"]:
             print(f"Setup problem: {said.get('detail')}", file=sys.stderr)
             if said.get("fix"):
                 print(said["fix"], file=sys.stderr)
             return 1
         source = targets.source(args.target)
+        # An app that never sent evalution a span can't show its trace value finds them.
+        traced = conf.phoenix is not None or await source.project_exists()
 
         async def spans(session: Session, start: float, end: float) -> int:
-            assert source is not None
             read = await source.session(session.trace_attribute, session.trace_value, start, end)
             return sum(1 for span in read.spans if is_ai(span))
 
@@ -511,7 +503,7 @@ async def adapter_test(config: Config, args: argparse.Namespace) -> int:
         report = await contract.run(
             target,
             adapters.adapter_info(args.name),
-            spans=spans if source is not None else None,
+            spans=spans if traced else None,
             on_step=_print_step,
             settle=config.traces.settle_seconds * 5,
         )
@@ -550,13 +542,10 @@ async def _confirmed() -> bool:
 
 
 async def profile(config: Config, args: argparse.Namespace) -> int:
-    targets = _targets(config)
+    targets = Targets(config)
     try:
-        phoenix = targets.source(args.target)
-        if phoenix is None:
-            print(f"evalution: {args.target} has no Phoenix project", file=sys.stderr)
-            return 2
-        groups = await recent_sessions(phoenix, targets.trace_attribute(args.target), args.sessions)
+        source = targets.source(args.target)
+        groups = await recent_sessions(source, targets.trace_attribute(args.target), args.sessions)
         print(render(digest(groups, targets.price)), end="")
         return 0
     finally:
@@ -581,21 +570,6 @@ def hooks(config: Config, args: argparse.Namespace) -> int:
     for hook, state in found["hooks"].items():
         print(f"{hook}: {state}")
     return 0
-
-
-def _supervisor(config: Config) -> Supervisor | None:
-    """evalution's own Phoenix, when the config wants it and it is installed."""
-    if not config.traces.phoenix:
-        return None
-    if not installed():
-        print(
-            f"evalution: to keep traces here, install Phoenix: {INSTALL}. "
-            "Until then each target's own Phoenix is used.",
-            file=sys.stderr,
-        )
-        return None
-    traces = config.traces
-    return Supervisor(config.data_dir / "phoenix", traces.port, traces.grpc)
 
 
 def carry_sets(config: Config, args: argparse.Namespace) -> int:
@@ -653,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
         "--traces-port",
         type=int,
         default=8080,
-        help="with built-in traces, where the app sends them while this runs (default 8080)",
+        help="where the app sends traces while this runs, with no server up (default 8080)",
     )
     take = sub.add_parser("accept", help="take a test's newer result into the baseline file")
     take.add_argument("test", help="the test (its file stem)")
@@ -744,7 +718,6 @@ def main(argv: list[str] | None = None) -> int:
             app = create_app(
                 config,
                 remote=remote,
-                phoenix=_supervisor(config),
                 url=f"http://{reached}:{args.port}",
                 bind=args.host,
             )

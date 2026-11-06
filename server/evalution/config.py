@@ -6,8 +6,8 @@ stored under that name in the data folder's database (the secrets of what the pa
 The file is ``$EVALUTION_CONFIG``, else ``./evalution.yaml``. Relative paths are resolved
 against the file's folder (the repo root): ``sets/`` (the tests as files, which ``evalution sets
 import`` and ``export`` use), ``targets/`` (profiles), ``library/`` and ``web/dist`` live there
-unless the file says otherwise. ``traces:`` says where evalution keeps traces itself, if it does
-(:class:`TracesConfig`).
+unless the file says otherwise. ``traces:`` says how long evalution keeps the spans apps send it
+and how it reads them (:class:`TracesConfig`).
 
 What the page sets lives in the database, kind :data:`SETTINGS`, owned here: the targets
 connected from the page under ``targets/<name>`` (each its block), merged in, a name in both
@@ -17,6 +17,7 @@ block), which a ``model:`` in the file wins over whole. The file itself is never
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -28,14 +29,16 @@ import yaml
 from evalution.storage import Database, Docs
 from evalution.storage.secrets import SecretKeyError, Secrets
 
+_logger = logging.getLogger(__name__)
+
 MODEL_KINDS = ("anthropic", "openai")
 MODEL_KEYS = ("strong", "light")
 #: What the page sets (a document kind): :data:`MODEL_DOC` and ``targets/<name>``.
 SETTINGS = "settings"
 MODEL_DOC = "model"
 _TARGETS = "targets/"
-#: ``traces.managed``: evalution keeps traces itself, with no Phoenix.
-BUILTIN_TRACES = "builtin"
+#: ``traces`` keys from when evalution could run Phoenix itself: still read, and left unused.
+RETIRED_TRACES = ("managed", "port", "grpc", "keep_mb")
 #: The stored secret that holds the model's API key, when it was set from the page.
 MODEL_SECRET = "model/api_key"  # noqa: S105 (a name, not a value)
 #: USD per million tokens of well-known models, for models the config does not price.
@@ -206,32 +209,15 @@ class TargetConfig:
 
 @dataclass(frozen=True)
 class TracesConfig:
-    """Where traces land. ``managed``: ``evalution serve`` runs its own Phoenix (under
-    ``<data_dir>/phoenix``) on ``port``, or the next free one, and each target's spans go to
-    project ``evalution-<target>``. ``grpc``: also take OTLP over gRPC on this port (off by
-    default). Not managed: each target's own Phoenix, as configured on the target. ``builtin``:
-    no Phoenix, ``POST /v1/traces`` takes OTLP into ``<data_dir>/traces/`` and keeps it
-    ``keep_days`` days and ``keep_mb`` megabytes at most. ``settle_seconds``: how long the spans of
-    a try must hold still before they are taken as all there (above OpenTelemetry's 5 s batch)."""
+    """How evalution keeps and reads traces. Apps send spans to ``POST /v1/traces``, kept in the
+    database ``keep_days`` days. ``settle_seconds``: how long the spans of a try must hold still
+    before they are taken as all there (above OpenTelemetry's 5 s batch)."""
 
-    managed: bool | str = True
-    port: int = 6007
-    grpc: int | None = None
-    keep_days: int = 14
-    keep_mb: int = 500
+    keep_days: int = 30
     settle_seconds: float = 6.0
     #: How long after an agent's answer an adapter may go on waiting, before it's taken to have
     #: missed it. ``0``: never.
     stuck_seconds: float = 120.0
-
-    @property
-    def builtin(self) -> bool:
-        return self.managed == BUILTIN_TRACES
-
-    @property
-    def phoenix(self) -> bool:
-        """Whether evalution runs its own Phoenix."""
-        return self.managed is True
 
 
 @dataclass(frozen=True)
@@ -305,27 +291,35 @@ def _model(block: dict[str, Any], keys: KeyRing) -> ModelConfig | None:
     )
 
 
+_said_retired = False
+
+
+def _note_retired(block: dict[str, Any]) -> None:
+    """Say once per process that a config from before still works, and what changed: evalution
+    no longer runs Phoenix, whatever ``traces.managed`` says."""
+    global _said_retired
+    found = [f"traces.{k}" for k in RETIRED_TRACES if k in block]
+    if found and not _said_retired:
+        _said_retired = True
+        _logger.warning(
+            "evalution: %s no longer apply: evalution doesn't run Phoenix any more and keeps "
+            "traces in its own database; remove them from the config",
+            ", ".join(found),
+        )
+
+
 def _traces(block: dict[str, Any]) -> TracesConfig:
-    managed = block.get("managed", True)
-    if not isinstance(managed, bool) and managed != BUILTIN_TRACES:
-        raise ConfigError(f"traces.managed: true, false or {BUILTIN_TRACES}")
-    port, grpc = block.get("port", 6007), block.get("grpc")
-    for key, value in (("port", port), ("grpc", grpc)):
-        if value is None and key == "grpc":
-            continue
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < 65536:
-            raise ConfigError(f"traces.{key}: a port number")
-    keep_days, keep_mb = block.get("keep_days", 14), block.get("keep_mb", 500)
-    for key, value in (("keep_days", keep_days), ("keep_mb", keep_mb)):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ConfigError(f"traces.{key}: a whole number of at least 1")
+    _note_retired(block)
+    keep_days = block.get("keep_days", 30)
+    if isinstance(keep_days, bool) or not isinstance(keep_days, int) or keep_days < 1:
+        raise ConfigError("traces.keep_days: a whole number of at least 1")
     settle = block.get("settle_seconds", 6.0)
     if isinstance(settle, bool) or not isinstance(settle, (int, float)) or settle <= 0:
         raise ConfigError("traces.settle_seconds: a number above 0")
     stuck = block.get("stuck_seconds", 120.0)
     if isinstance(stuck, bool) or not isinstance(stuck, (int, float)) or stuck < 0:
         raise ConfigError("traces.stuck_seconds: a number of 0 or more")
-    return TracesConfig(managed, port, grpc, keep_days, keep_mb, float(settle), float(stuck))
+    return TracesConfig(keep_days, float(settle), float(stuck))
 
 
 def _check_adapters(raw: dict[str, Any]) -> bool:

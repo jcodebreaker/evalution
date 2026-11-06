@@ -122,17 +122,34 @@ describe("the page, hosted", () => {
     expect(last?.headers["X-Requested-With"]).toBe("evalution");
   });
 
-  it("shows a new token once, then only its prefix", async () => {
+  it("shows a new token once, then only its prefix and scope", async () => {
     window.history.replaceState(null, "", "/?workspace=w1&view=model");
     let made = false;
     serve({
       "POST /v1/tokens": () => {
         made = true;
-        return { body: { id: "t1", name: "ci", prefix: "evt_ab12", token: "evt_ab12secret" } };
+        return {
+          body: {
+            id: "t1",
+            name: "app",
+            prefix: "evt_ab12",
+            scope: "traces",
+            token: "evt_ab12secret",
+          },
+        };
       },
       "GET /v1/tokens": () => ({
         body: made
-          ? [{ id: "t1", name: "ci", prefix: "evt_ab12", created_at: 1, last_used_at: null }]
+          ? [
+              {
+                id: "t1",
+                name: "app",
+                prefix: "evt_ab12",
+                created_at: 1,
+                last_used_at: null,
+                scope: "traces",
+              },
+            ]
           : [],
       }),
     });
@@ -144,13 +161,20 @@ describe("the page, hosted", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "New token" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Token name" }), {
-      target: { value: "ci" },
+      target: { value: "app" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Token scope" }), {
+      target: { value: "traces" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     const shown = await screen.findByRole<HTMLInputElement>("textbox", { name: "New token" });
     expect(shown.value).toBe("evt_ab12secret");
-    expect(calls.find((call) => call.method === "POST")?.body).toEqual({ name: "ci" });
+    expect(calls.find((call) => call.method === "POST")?.body).toEqual({
+      name: "app",
+      scope: "traces",
+    });
     await screen.findByText("evt_ab12…");
+    screen.getByText("· Traces only");
 
     unmount();
     render(<WorkspaceSettings account={account} />);

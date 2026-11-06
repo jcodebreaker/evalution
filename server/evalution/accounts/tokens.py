@@ -2,6 +2,10 @@
 
 A token belongs to one workspace and reaches only it. It is shown once, when it is made; after
 that only its first characters (:data:`PREFIX_LENGTH`) tell tokens apart.
+
+Its scope is :data:`ALL` (everything a token may do) or :data:`TRACES`: only ``POST /v1/traces``.
+A traces token goes into an app's environment, next to everything else the app holds, so a leak
+of it sends spans to the workspace and reads nothing.
 """
 
 from __future__ import annotations
@@ -17,6 +21,9 @@ from evalution.storage.identity import api_tokens
 
 MARK = "evt_"
 PREFIX_LENGTH = 12
+ALL = "all"
+TRACES = "traces"
+SCOPES = (ALL, TRACES)
 #: How stale ``last_used_at`` may get, so a busy token doesn't write on every request.
 TOUCH_EVERY = 60.0
 
@@ -28,12 +35,20 @@ class Token:
     prefix: str
     created_at: float
     last_used_at: float | None
+    scope: str = ALL
 
 
-def create(database: Database, workspace_id: str, user_id: str, name: str) -> tuple[Token, str]:
-    """A new token and its value, which is never available again."""
+def create(
+    database: Database, workspace_id: str, user_id: str, name: str, scope: str = ALL
+) -> tuple[Token, str]:
+    """A new token and its value, which is never available again.
+
+    :raises ValueError: *scope* isn't one of :data:`SCOPES`.
+    """
+    if scope not in SCOPES:
+        raise ValueError(f"scope: {' or '.join(SCOPES)}")
     value = MARK + new_secret()
-    token = Token(new_id(), name, value[:PREFIX_LENGTH], time.time(), None)
+    token = Token(new_id(), name, value[:PREFIX_LENGTH], time.time(), None, scope)
     with database.engine.begin() as db:
         db.execute(
             insert(api_tokens).values(
@@ -44,6 +59,7 @@ def create(database: Database, workspace_id: str, user_id: str, name: str) -> tu
                 prefix=token.prefix,
                 created_by=user_id,
                 created_at=token.created_at,
+                scope=scope,
             )
         )
     return token, value
@@ -53,7 +69,7 @@ def listed(database: Database, workspace_id: str) -> list[Token]:
     c = api_tokens.c
     with database.engine.begin() as db:
         rows = db.execute(
-            select(c.id, c.name, c.prefix, c.created_at, c.last_used_at)
+            select(c.id, c.name, c.prefix, c.created_at, c.last_used_at, c.scope)
             .where(c.workspace_id == workspace_id)
             .order_by(c.created_at, c.id)
         ).all()
@@ -69,15 +85,16 @@ def remove(database: Database, workspace_id: str, token_id: str) -> bool:
     return bool(gone.rowcount)
 
 
-def workspace_of(database: Database, value: str) -> str | None:
-    """The workspace token *value* reaches, ``None`` for no live token; notes that it was used."""
+def grant_of(database: Database, value: str) -> tuple[str, str] | None:
+    """The workspace token *value* reaches and its scope, ``None`` for no live token; notes that
+    it was used."""
     if not value.startswith(MARK):
         return None
     c, now = api_tokens.c, time.time()
     hashed = digest(value)
     with database.engine.begin() as db:
-        workspace_id = db.scalar(select(c.workspace_id).where(c.token_hash == hashed))
-        if workspace_id is not None:
+        found = db.execute(select(c.workspace_id, c.scope).where(c.token_hash == hashed)).first()
+        if found is not None:
             db.execute(
                 update(api_tokens)
                 .where(
@@ -86,4 +103,4 @@ def workspace_of(database: Database, value: str) -> str | None:
                 )
                 .values(last_used_at=now)
             )
-    return workspace_id
+    return (found.workspace_id, found.scope) if found else None

@@ -1,4 +1,5 @@
-"""The storage layer under every store: documents, entries, workspaces and encrypted secrets.
+"""The storage layer under every store: documents, entries, workspaces, its migrations and
+encrypted secrets.
 
 Each test runs on SQLite, and on Postgres too where ``$TEST_DATABASE_URL`` names one (CI does);
 that database is emptied first, so give it one of its own."""
@@ -7,7 +8,7 @@ import os
 import threading
 
 import pytest
-from sqlalchemy import MetaData, create_engine, func, inspect, select
+from sqlalchemy import MetaData, create_engine, func, inspect, select, text
 
 from evalution.storage import LOCAL, Database
 from evalution.storage.database import (
@@ -18,8 +19,9 @@ from evalution.storage.database import (
     _opened,
     schema,
 )
-from evalution.storage.identity import identity
+from evalution.storage.identity import api_tokens, identity, workspaces
 from evalution.storage.secrets import KEY_ENV, SecretKeyError, Secrets
+from evalution.storage.spans import spans
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
@@ -166,7 +168,24 @@ def test_an_older_database_moves_forward_and_a_newer_one_is_refused(tmp_path, ur
     database.close()
     database = Database.open(tmp_path, url)
     assert set(identity.tables) <= set(inspect(database.engine).get_table_names())
+
+    # From before spans and token scopes: a token made then still reaches everything.
     with database.engine.begin() as db:
+        db.execute(text("ALTER TABLE api_tokens DROP COLUMN scope"))
+        spans.drop(db)
+        db.execute(workspaces.insert().values(id="w1", name="W", personal=False, created_at=1.0))
+        db.execute(
+            text(
+                "INSERT INTO api_tokens (id, workspace_id, name, token_hash, prefix, created_by, "
+                "created_at) VALUES ('t1', 'w1', 'ci', 'h', 'evt_x', 'u1', 1.0)"
+            )
+        )
+        db.execute(schema.delete().where(schema.c.version > 2))
+    database.close()
+    database = Database.open(tmp_path, url)
+    assert "spans" in inspect(database.engine).get_table_names()
+    with database.engine.begin() as db:
+        assert db.scalar(select(api_tokens.c.scope)) == "all"
         assert db.scalar(select(func.max(schema.c.version))) == SCHEMA
         db.execute(schema.insert().values(version=SCHEMA + 1))
     database.close()

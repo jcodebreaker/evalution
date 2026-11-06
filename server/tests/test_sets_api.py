@@ -25,6 +25,7 @@ from evalution.core.evidence import Failure
 from evalution.results.migrate import upcast
 from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary
+from evalution.runs import collect
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.suite.cases import is_benchmark, meaning_changes
@@ -229,6 +230,16 @@ class _Hangs(_LosesTheApp):
 _ALL = tuple(f"msg{n}" for n in range(6))
 
 
+def _quiet_app(tmp_path, monkeypatch) -> None:
+    """A target ``bot`` whose app sends no traces: a try waits for them only briefly."""
+    monkeypatch.setattr(collect, "TRACE_WAIT", 0.2)
+    monkeypatch.setattr(collect, "_POLL", 0.05)
+    monkeypatch.setattr("evalution.runs.runner.NO_TRACES_WAIT", 0.1)
+    bot = {"adapter": "http", "http": {"send": {"url": "x"}}}
+    config = {"targets": {"bot": bot}, "traces": {"settle_seconds": 0.1}}
+    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump(config))
+
+
 @pytest.mark.parametrize(
     ("tries", "answers", "usd", "asked", "status"),
     [
@@ -247,9 +258,7 @@ _ALL = tuple(f"msg{n}" for n in range(6))
 async def test_a_run_plays_its_tries_and_stops_when_it_must(
     tmp_path, monkeypatch, tries, answers, usd, asked, status
 ) -> None:
-    (tmp_path / "evalution.yaml").write_text(
-        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
-    )
+    _quiet_app(tmp_path, monkeypatch)
     folder = tmp_path / "sets" / "bot" / "main"
     folder.mkdir(parents=True)
     (folder / "set.json").write_text(json.dumps({"name": "Main"}))
@@ -287,13 +296,12 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
         reasons = [t["reason"] for t in summary(run)["tests"]]
         assert reasons == [None] + ["spend cap"] * 5
         assert run["totals"]["usd"] < 3 * estimate["usd_high"]
-        assert not any(t["error"] for c in played for t in c["tries"])
+        errors = {t["error"] for c in played for t in c["tries"]}
+        assert errors <= {None, "No traces arrived"}, "the app sends none"
 
 
 async def test_stop_reaches_a_run_another_process_is_playing(tmp_path, monkeypatch) -> None:
-    (tmp_path / "evalution.yaml").write_text(
-        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
-    )
+    _quiet_app(tmp_path, monkeypatch)
     folder = tmp_path / "sets" / "bot" / "main"
     folder.mkdir(parents=True)
     (folder / "set.json").write_text(json.dumps({"name": "Main"}))

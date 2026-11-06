@@ -2,8 +2,8 @@
 
 Locally, evalution has no login and one workspace. Set an OpenID Connect issuer and it is hosted:
 people sign in, each works in workspaces they belong to, and the CLI and CI use workspace API
-tokens. What needs this computer's folders (finding apps on disk, git hooks, reading an app's code,
-the managed Phoenix) is off.
+tokens. What needs this computer's folders (finding apps on disk, git hooks, reading an app's code)
+is off.
 
 ## Settings
 
@@ -40,7 +40,8 @@ someone isn't in answers 404.
 
 ## Tokens
 
-`POST /v1/tokens {"name"}` makes a token for the current workspace and shows it once:
+`POST /v1/tokens {"name", "scope"?}` makes a token for the current workspace and shows it once
+(Settings, Workspace, New token):
 
 ```sh
 curl -H "Authorization: Bearer evt_..." https://evals.example.com/v1/targets
@@ -48,6 +49,29 @@ curl -H "Authorization: Bearer evt_..." https://evals.example.com/v1/targets
 
 A token reaches its own workspace only, ignores `X-Workspace`, and can't manage tokens, members,
 invites or model keys. Only its first characters are kept for display; the rest only as a hash.
+
+Its scope is `all` (the default: everything above) or `traces`: it can only send spans
+(`POST /v1/traces`) and gets 403 anywhere else. That is the one to put in an app's environment,
+next to everything else the app holds.
+
+## Traces
+
+Apps send their traces to the workspace over standard OTLP/HTTP (protobuf or JSON, optionally
+gzipped, 32 MB at most) at `<EVALUTION_PUBLIC_URL>/v1/traces`, with a workspace token. Any
+OpenTelemetry exporter takes this from its environment; the header value is URL-encoded:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=https://evals.example.com
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20evt_...
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_RESOURCE_ATTRIBUTES=evalution.target=my-bot
+OTEL_METRICS_EXPORTER=none
+OTEL_LOGS_EXPORTER=none
+```
+
+`evalution.target` names the target the spans are for. The spans are kept in the database, each
+workspace's apart, for `traces.keep_days` (default 30) and then dropped. A target can also read an
+app's own Phoenix, set on the target. The page's Details show the endpoint.
 
 ## Model keys
 

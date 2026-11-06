@@ -1,5 +1,6 @@
 """Taking spans in (docs/architecture.md, "Traces"): ``POST /v1/traces``, standard OTLP over HTTP,
-``application/x-protobuf`` or ``application/json``, optionally gzipped, for the built-in source.
+``application/x-protobuf`` or ``application/json``, optionally gzipped, into the built-in source.
+Hosted, the request carries a workspace token (a traces token is made for this); locally, none.
 
 This is a network input, so nothing is trusted: the body is capped before and after gunzip, the
 content type must be one of the two (a browser can't send either across sites without asking),
@@ -21,7 +22,6 @@ import base64
 import json
 import logging
 import re
-import sqlite3
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import Any
@@ -34,6 +34,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import Span as ProtoSpan
+from sqlalchemy.exc import SQLAlchemyError
 
 from evalution.traces.base import with_events
 from evalution.traces.builtin import (
@@ -371,7 +372,7 @@ async def receive(request: Request, store: SpanStore) -> Response:
         await asyncio.to_thread(store.add, rows)
     except Refused as exc:
         return _error(exc.status, exc.message, binary)
-    except (sqlite3.Error, OSError) as exc:
+    except SQLAlchemyError as exc:
         _logger.warning("traces: spans not stored: %s", type(exc).__name__)
         return _error(503, "the trace store failed", binary)
     return _answer(rejected, binary)

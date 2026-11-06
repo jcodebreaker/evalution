@@ -26,6 +26,7 @@ from sqlalchemy import (
     event,
     func,
     insert,
+    inspect,
     select,
     text,
 )
@@ -33,7 +34,8 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.exc import ArgumentError
 
-from evalution.storage.identity import identity
+from evalution.storage.identity import api_tokens, identity
+from evalution.storage.spans import traces
 
 #: This server's own workspace: the only one until people sign in.
 LOCAL = "local"
@@ -76,10 +78,27 @@ def _who_signs_in(db: Connection) -> None:
     identity.create_all(db)
 
 
+def _spans(db: Connection) -> None:
+    traces.create_all(db)
+
+
+def _token_scope(db: Connection) -> None:
+    """Tokens made before scopes reach everything, as they did. A database made since already has
+    the column: :func:`_who_signs_in` makes the table as it is defined now."""
+    if "scope" not in {c["name"] for c in inspect(db).get_columns(api_tokens.name)}:
+        add = "ALTER TABLE api_tokens ADD COLUMN scope VARCHAR(16) NOT NULL DEFAULT 'all'"
+        db.execute(text(add))
+
+
 #: What takes the database from version ``n`` to ``n + 1`` is ``_STEPS[n]``, run in order, each in
 #: the one transaction :meth:`Database._migrate` holds. A change of the tables is a step added
 #: at the end, never an edit of one already released.
-_STEPS: list[Callable[[Connection], None]] = [_documents_and_entries, _who_signs_in]
+_STEPS: list[Callable[[Connection], None]] = [
+    _documents_and_entries,
+    _who_signs_in,
+    _spans,
+    _token_scope,
+]
 #: The version this evalution makes; :meth:`Database.open` refuses a newer database.
 SCHEMA = len(_STEPS)
 #: Any number of our own, the same in every process: two servers starting at once on one
@@ -282,9 +301,7 @@ class Docs:
             return bool(done.rowcount)
 
     def _insert(self, kind: str, key: str, body: Any) -> Any:
-        """The dialect's own ``INSERT``, which knows ``ON CONFLICT``."""
-        made = _INSERTS[self.database.engine.dialect.name](documents)
-        return made.values(
+        return upsert(self.database, documents).values(
             workspace=self.workspace, kind=kind, key=key, body=_dump(body), updated_at=time.time()
         )
 
@@ -362,6 +379,11 @@ _INSERTS: dict[str, Callable[[Table], Any]] = {
     "sqlite": sqlite.insert,
     "postgresql": postgresql.insert,
 }
+
+
+def upsert(database: Database, table: Table) -> Any:
+    """The dialect's own ``INSERT`` into *table*, which knows ``ON CONFLICT``."""
+    return _INSERTS[database.engine.dialect.name](table)
 
 
 def _starts(column: Any, prefix: str) -> Any:

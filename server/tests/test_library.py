@@ -26,6 +26,7 @@ from evalution.benchmarks.longmemeval import (
 from evalution.benchmarks.planning import probe, read_plan
 from evalution.config import load
 from evalution.llm import LLM
+from evalution.runs import collect
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
 from evalution.storage import Database
@@ -405,10 +406,15 @@ class _OneThreadForever(_RemembersByProfile):
 async def test_any_app_goes_from_plan_to_report(
     tmp_path, monkeypatch, app, boundary, breaks
 ) -> None:
+    # The fake app sends no traces: a try waits for them only briefly.
+    monkeypatch.setattr(collect, "TRACE_WAIT", 0.2)
+    monkeypatch.setattr(collect, "_POLL", 0.05)
+    monkeypatch.setattr("evalution.runs.runner.NO_TRACES_WAIT", 0.1)
     (tmp_path / "evalution.yaml").write_text(
         yaml.safe_dump(
             {
                 "targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}},
+                "traces": {"settle_seconds": 0.1},
                 "model": {
                     "kind": "openai",
                     "base_url": "http://model",

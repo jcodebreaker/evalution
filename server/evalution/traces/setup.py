@@ -6,15 +6,11 @@ turns that into the exact lines to add, in plain words. An adapter that knows be
 itself (its ``trace_setup``).
 
 * **Traced with Phoenix's** ``register()`` (Python): ``PHOENIX_COLLECTOR_ENDPOINT`` and
-  ``PHOENIX_PROJECT_NAME``.
+  ``PHOENIX_PROJECT_NAME``, which the intake reads as the target.
 * **Traced with OpenTelemetry / OpenInference** otherwise: the standard ``OTEL_*`` lines, the
-  project as the ``openinference.project.name`` resource attribute.
+  target as the ``evalution.target`` resource attribute, metrics and logs off.
 * **Not traced**: tests still play and are graded on replies, but steps and context need
-  tracing; the snippet for its language.
-
-With the built-in source there is no Phoenix to name: the same advice, except that the standard
-``OTEL_*`` lines name the target as the ``evalution.target`` resource attribute, and an app with
-no tracing gets the plain OpenTelemetry SDK exporting OTLP, with no Phoenix package.
+  tracing; the plain OpenTelemetry SDK exporting OTLP, for its language.
 """
 
 from __future__ import annotations
@@ -97,45 +93,6 @@ def detect(files: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def _python_snippet(endpoint: str, project: str, framework: str | None) -> str:
-    package = f" openinference-instrumentation-{framework}" if framework else ""
-    return "\n".join(
-        [
-            f"# pip install arize-phoenix-otel{package}",
-            "from phoenix.otel import register",
-            "",
-            f'register(project_name="{project}", endpoint="{endpoint}/v1/traces",',
-            "         auto_instrument=True)",
-            "",
-            "# Put each conversation's id on its spans:",
-            "# from openinference.instrumentation import using_session",
-            "# with using_session(session_id): ...",
-        ]
-    )
-
-
-def _js_snippet(endpoint: str, project: str, framework: str | None) -> str:
-    name = framework if framework in JS_CLASSES else "openai"
-    cls = JS_CLASSES[name]
-    package = f"@arizeai/openinference-instrumentation-{name}"
-    return "\n".join(
-        [
-            f"// npm install @arizeai/phoenix-otel {package}",
-            'import { register } from "@arizeai/phoenix-otel";',
-            f'import {{ {cls} }} from "{package}";',
-            "",
-            "register({",
-            f'  projectName: "{project}",',
-            f'  url: "{endpoint}/v1/traces",',
-            f"  instrumentations: [new {cls}()],",
-            "});",
-            "",
-            "// Put each conversation's id on its spans with setSession from",
-            "// @arizeai/openinference-core.",
-        ]
-    )
-
-
 def _python_otlp_snippet(endpoint: str, target: str, framework: str | None) -> str:
     packages = "opentelemetry-sdk opentelemetry-exporter-otlp-proto-http"
     instrument = ["# Turn on your LLM library's OpenTelemetry instrumentation here."]
@@ -192,14 +149,11 @@ def _js_otlp_snippet(endpoint: str, target: str, framework: str | None) -> str:
     )
 
 
-def advice(
-    found: dict[str, Any] | None, url: str, project: str, *, builtin: bool = False
-) -> dict[str, Any]:
+def advice(found: dict[str, Any] | None, url: str, project: str) -> dict[str, Any]:
     """What to tell the person: ``text`` (one or two plain sentences), ``lines`` (to copy),
     ``command`` (to run after, if any) and ``traced`` (the app sends traces at all).
 
     :param url: Where evalution takes traces, as this computer reaches it.
-    :param builtin: *url* is evalution itself (the built-in source), not its Phoenix.
     """
     target = project.removeprefix(TARGET_PREFIX)
     found = found or {}
@@ -213,27 +167,21 @@ def advice(
         lines = f"PHOENIX_COLLECTOR_ENDPOINT={url}\nPHOENIX_PROJECT_NAME={project}"
         return {"traced": True, "text": text, "lines": lines, "command": None}
     if found.get("otel"):
-        named = (
-            f"{TARGET_ATTRIBUTE}={target}" if builtin else f"openinference.project.name={project}"
-        )
         lines = "\n".join(
             [
                 f"OTEL_EXPORTER_OTLP_ENDPOINT={url}",
                 "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
-                f"OTEL_RESOURCE_ATTRIBUTES={named}",
-                *(["OTEL_METRICS_EXPORTER=none", "OTEL_LOGS_EXPORTER=none"] if builtin else []),
+                f"OTEL_RESOURCE_ATTRIBUTES={TARGET_ATTRIBUTE}={target}",
+                "OTEL_METRICS_EXPORTER=none",
+                "OTEL_LOGS_EXPORTER=none",
             ]
         )
         text = "Set these in your app's environment, then restart it."
         if found.get("project"):
             text += f' Its code names project "{found["project"]}"; take that out.'
         return {"traced": True, "text": text, "lines": lines, "command": None}
-    js = found.get("language") == "js"
-    if builtin:
-        make = _js_otlp_snippet if js else _python_otlp_snippet
-        snippet = make(url, target, found.get("framework"))
-    else:
-        snippet = (_js_snippet if js else _python_snippet)(url, project, found.get("framework"))
+    make = _js_otlp_snippet if found.get("language") == "js" else _python_otlp_snippet
+    snippet = make(url, target, found.get("framework"))
     return {
         "traced": False,
         "text": "Your app doesn't send traces. Tests will still play and be graded on its "

@@ -8,7 +8,7 @@ need() {
 }
 need uv "https://docs.astral.sh/uv/"
 need npm "https://nodejs.org"
-uv sync --project server --group traces
+uv sync --project server
 npm ci --prefix web
 npm run build --prefix web
 if [ -f evalution.yaml ]; then

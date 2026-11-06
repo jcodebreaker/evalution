@@ -42,6 +42,8 @@ FOLDERS = "workspaces"
 class Workspace:
     id: str
     targets: Targets
+    #: Where its apps send traces: this server as they reach it (``POST /v1/traces``).
+    traces_url: str
     llm: LLM
     runs: Runs
     agent: Agent
@@ -86,18 +88,16 @@ def _hosted_config(config: Config, database: Database, workspace: str) -> Config
 
 
 def open_workspace(
-    config: Config, database: Database, workspace: str, hosted: bool, url: str
+    config: Config, database: Database, workspace: str, hosted: bool, traces_url: str
 ) -> Workspace:
-    """The service graph of *workspace*. *config* is the server's, read for :data:`LOCAL`; *url*
-    is where this server listens, where the built-in trace source takes spans.
+    """The service graph of *workspace*. *config* is the server's, read for :data:`LOCAL`;
+    *traces_url* is where its apps send spans.
 
     :raises ConfigError: *workspace*'s config doesn't read.
     """
     if hosted:
         config = _hosted_config(config, database, workspace)
     targets = Targets(config, docs=database.docs(workspace), folders=not hosted)
-    if targets.store is not None:
-        targets.managed_url = url
     llm = LLM(config.model, docs=targets.docs)
     runs = Runs(targets, llm)
     found = None
@@ -107,13 +107,14 @@ def open_workspace(
             config.root,
             lambda: list(targets.config.targets),
             llm,
-            lambda: targets.managed_url,
+            traces_url,
             targets.store,
         )
         watcher = impact.Watcher(runs, knowledge.refresh)
     return Workspace(
         id=workspace,
         targets=targets,
+        traces_url=traces_url,
         llm=llm,
         runs=runs,
         agent=Agent(runs, SessionStore(targets.docs), llm),
@@ -128,11 +129,12 @@ def open_workspace(
 class Workspaces:
     """The workspaces this server has opened, each built on first use and kept until it stops."""
 
-    def __init__(self, config: Config, database: Database, hosted: bool, url: str) -> None:
+    def __init__(self, config: Config, database: Database, hosted: bool, traces_url: str) -> None:
         self.config = config
         self.database = database
         self.hosted = hosted
-        self.url = url
+        #: Where apps send traces: this server as they reach it, the public address when hosted.
+        self.traces_url = traces_url
         self._open: dict[str, Workspace] = {}
 
     def get(self, workspace: str) -> Workspace:
@@ -143,7 +145,7 @@ class Workspaces:
             if not _ID.match(workspace) or (workspace == LOCAL) == self.hosted:
                 raise LookupError(f"no workspace {workspace!r}")
             self._open[workspace] = open_workspace(
-                self.config, self.database, workspace, self.hosted, self.url
+                self.config, self.database, workspace, self.hosted, self.traces_url
             )
         return self._open[workspace]
 

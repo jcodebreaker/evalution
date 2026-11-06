@@ -10,12 +10,12 @@ steps the page shows as they go. In order:
    the chat endpoint, its body and reply field, the port, and the tracing setup (Phoenix URL and
    project). When that is not enough, the evals model reads a compact digest of those files
    (never ``.env``).
-3. **Send traces here**, when evalution runs its own Phoenix: the lines that point the app at
-   it (:mod:`evalution.traces.setup`), and whether spans arrive yet.
+3. **Send traces here**: the lines that point the app at evalution
+   (:mod:`evalution.traces.setup`), and whether spans arrive yet.
    An app given by its address instead skips the reading: its first guess is put right by the
    test message (:mod:`evalution.connect.probe`).
-4. **Verify**, without sending a chat message: the app answers, Phoenix answers and the project
-   has conversations (:func:`evalution.connect.connect.check`).
+4. **Verify**, without sending a chat message: the app answers, and its traces hold
+   conversations (:func:`evalution.connect.connect.check`).
 5. **Code**: the folder itself; everything in it that is source is watched.
 
 What it could not tell becomes at most a couple of plain questions. ``.env`` is only ever read
@@ -57,9 +57,8 @@ from evalution.core.case import SLUG
 from evalution.llm import LLM, LLMError, cut
 from evalution.traces import setup
 from evalution.traces.base import is_ai
-from evalution.traces.builtin import SpanStore
-from evalution.traces.managed import landing
-from evalution.traces.managed import project as project_of
+from evalution.traces.builtin import TARGET_PREFIX, Builtin, SpanStore
+from evalution.traces.builtin import project as project_of
 
 _logger = logging.getLogger(__name__)
 
@@ -77,7 +76,6 @@ ENV_FILE = ".env"
 ENV_EXAMPLES = (".env.example", ".env.sample", ".env.template")
 #: The only ``.env`` keys read here; an adapter names its own.
 GENERIC_KEYS = ("PORT", "PHOENIX_COLLECTOR_ENDPOINT", "PHOENIX_PROJECT_NAME", "PHOENIX_API_KEY")
-PHOENIX = "http://127.0.0.1:6006"
 #: The adapter for an app no other adapter claims; its ``propose`` takes what ``_generic`` reads.
 FALLBACK = "http"
 
@@ -298,8 +296,8 @@ def _local(url: str) -> str | None:
     return f"{parts.scheme or 'http'}://{host}{port}"
 
 
-def tracing(text: str, env: dict[str, str]) -> tuple[str | None, str | None, bool]:
-    """``(phoenix url, project, sends traces)`` from the code, configs and env."""
+def tracing(text: str, env: dict[str, str]) -> tuple[str | None, str | None]:
+    """``(phoenix url, project)`` from the code, configs and env."""
     project = env.get("PHOENIX_PROJECT_NAME")
     if not project and (
         found := re.search(r"project_name\s*=\s*[\"']([\w.-]+)[\"']", text)
@@ -315,8 +313,7 @@ def tracing(text: str, env: dict[str, str]) -> tuple[str | None, str | None, boo
                 break
     if not url and (found := re.search(r"endpoint\s*=\s*[\"'](https?://[^\"']+)[\"']", text)):
         url = found[1]
-    sends = bool(re.search(r"openinference|arize-phoenix|phoenix\.otel|@arizeai", text))
-    return (_local(url) if url else None), project, sends or bool(url)
+    return (_local(url) if url else None), project
 
 
 def _count(n: int, noun: str) -> str:
@@ -354,13 +351,11 @@ class Job:
     #: The base URL is a framework's usual port, not read from the project.
     guessed: bool = False
     options: dict[str, Any] = field(default_factory=dict)
-    #: The app's own Phoenix; ``None`` when evalution's own Phoenix is all it has.
-    phoenix: dict[str, str] | None = field(
-        default_factory=lambda: {"url": PHOENIX, "project": "default"}
-    )
+    #: The app's own Phoenix, when it has one; evalution's own traces are read either way.
+    phoenix: dict[str, str] | None = None
     #: Secret values found in the project: kept here, never shown.
     secrets: dict[str, str] = field(default_factory=dict)
-    #: How to send traces to evalution's own Phoenix (:func:`setup.advice`), and ``arriving``.
+    #: How to send traces to evalution (:func:`setup.advice`), and ``arriving``.
     traces: dict[str, Any] | None = None
 
     def step(self, text: str) -> dict[str, str]:
@@ -422,31 +417,13 @@ def _detected(folder: Folder) -> tuple[AdapterInfo, Detection] | None:
 
 
 def _tracing(
-    job: Job,
-    files: dict[str, str],
-    known: dict[str, str],
-    managed: bool,
-    project: str | None = None,
+    job: Job, files: dict[str, str], known: dict[str, str], project: str | None = None
 ) -> None:
-    """Where the app's Phoenix is, and (without evalution's own) a step saying whether it
-    sends traces at all."""
+    """The app's own Phoenix, read too when the project names one: the history of real
+    traffic."""
     text = "\n".join(files.values()) + "\n" + "\n".join(f"{k}={v}" for k, v in known.items())
-    url, found, sends = tracing(text, known)
-    job.phoenix = {"url": url or PHOENIX, "project": found or project or "default"}
-    if managed:
-        # Its own Phoenix only when the project names one: the history of real traffic.
-        job.phoenix = job.phoenix if url else None
-        return
-    traced = job.step("Looking for its tracing setup")
-    if sends:
-        traced["text"] = f"It sends traces to Phoenix (project {job.phoenix['project']})"
-        traced["state"] = "done"
-    else:
-        traced["text"] = (
-            "Couldn't find tracing in the code. evalution learns from the traces your app "
-            "sends to Phoenix with OpenInference."
-        )
-        traced["state"] = "problem"
+    url, found = tracing(text, known)
+    job.phoenix = {"url": url, "project": found or project or "default"} if url else None
 
 
 def digest(files: dict[str, str], found: list[Route], example: dict[str, str]) -> str:
@@ -531,16 +508,15 @@ class Discoveries:
         root: Path,
         names: Any,
         llm: LLM | None,
-        managed: Any = lambda: None,
-        store: SpanStore | None = None,
+        traces_url: str,
+        store: SpanStore,
     ) -> None:
         self.root = root
         self.names = names
         self.llm = llm
-        #: Where apps send traces to evalution, or ``None`` (its Phoenix may start after this is
-        #: made).
-        self.managed = managed
-        #: The built-in source's spans, when evalution keeps traces that way.
+        #: Where apps send traces to evalution, as this computer reaches it.
+        self.traces_url = traces_url
+        #: The workspace's spans.
         self.store = store
         self.jobs: dict[str, Job] = {}
         self._tasks: set[asyncio.Task[None]] = set()
@@ -601,14 +577,13 @@ class Discoveries:
             reading["state"] = "problem"
             job.status = "failed"
             return
-        managed = self.managed()
         folder = Folder(job.folder, partial(scan, job.folder))
         detected = await asyncio.to_thread(_detected, folder)
         reading["state"] = "done"
         if detected:
-            await self._known(job, folder, *detected, bool(managed))
+            await self._known(job, folder, *detected)
         else:
-            await self._generic(job, await asyncio.to_thread(_files, folder), bool(managed))
+            await self._generic(job, await asyncio.to_thread(_files, folder))
         await self._finish(job, await asyncio.to_thread(_files, folder))
 
     async def _address(self, job: Job, looking: dict[str, str]) -> None:
@@ -619,36 +594,27 @@ class Discoveries:
         job.options["reply"] = "$.reply"
         if job.options["path"] in ("", "/"):
             job.ask("chat")
-        # Nothing says where its traces go, and a guess would fail its test message for nothing.
-        job.phoenix = None
         await self._finish(job, {})
 
     async def _finish(self, job: Job, files: dict[str, str]) -> None:
         job.step(f"Using the {infos()[job.adapter].label}")["state"] = "done"
         for note in net.notes(job.base):
             job.step(note)["state"] = "problem"
-        managed = self.managed()
-        if managed:
-            builtin = self.store is not None
-            job.traces = infos()[job.adapter].trace_setup(managed, builtin) or setup.advice(
-                setup.detect(files),
-                managed,
-                project_of(job.name),
-                builtin=builtin,
-            )
-            job.traces["arriving"] = False
-            job.step("Send traces to evalution")
-            await self.check_traces(job)
+        job.traces = infos()[job.adapter].trace_setup(self.traces_url) or setup.advice(
+            setup.detect(files), self.traces_url, project_of(job.name)
+        )
+        job.traces["arriving"] = False
+        job.step(SEND_STEPS[0])
+        await self.check_traces(job)
         await self._verify(job)
         job.status = "ready"
 
     async def check_traces(self, job: Job) -> None:
-        """Whether spans from the app reach evalution's own traces (in the last hour)."""
-        managed = self.managed()
-        if job.traces is None or not managed:
+        """Whether spans from the app reach evalution (in the last hour)."""
+        if job.traces is None:
             return
-        name = infos()[job.adapter].trace_project or project_of(job.name)
-        source = landing(name, managed, self.store)
+        name = infos()[job.adapter].trace_project or job.name
+        source = Builtin(self.store, name.removeprefix(TARGET_PREFIX))
         now = time.time()
         try:
             spans = await source.spans(now - ARRIVAL_WINDOW, now, max_spans=1)
@@ -664,7 +630,7 @@ class Discoveries:
             state="done" if arriving else "problem",
         )
 
-    async def _generic(self, job: Job, files: dict[str, str], managed: bool = False) -> None:
+    async def _generic(self, job: Job, files: dict[str, str]) -> None:
         env = await asyncio.to_thread(read_env, job.folder / ENV_FILE, GENERIC_KEYS)
         example = await asyncio.to_thread(example_env, job.folder)
         known = {**{k: v for k, v in example.items() if k in GENERIC_KEYS}, **env}
@@ -725,11 +691,9 @@ class Discoveries:
             job.guessed = True
         job.base = f"http://127.0.0.1:{port}"
         project = plan.get("phoenix_project")
-        _tracing(job, files, known, managed, project if isinstance(project, str) else None)
+        _tracing(job, files, known, project if isinstance(project, str) else None)
 
-    async def _known(
-        self, job: Job, folder: Folder, info: AdapterInfo, found: Detection, managed: bool
-    ) -> None:
+    async def _known(self, job: Job, folder: Folder, info: AdapterInfo, found: Detection) -> None:
         """Fill *job* with what *info*'s adapter read from the folder."""
         job.adapter, job.base, job.options = info.name, found.base, found.options
         job.secrets.update(found.secrets)
@@ -739,11 +703,9 @@ class Discoveries:
             env = await asyncio.to_thread(read_env, job.folder / ENV_FILE, GENERIC_KEYS)
             if env.get("PHOENIX_API_KEY"):
                 job.secrets["phoenix_api_key"] = env.pop("PHOENIX_API_KEY")
-            _tracing(job, await asyncio.to_thread(_files, folder), env, managed)
-        elif found.phoenix:
+            _tracing(job, await asyncio.to_thread(_files, folder), env)
+        else:
             job.phoenix = found.phoenix
-        elif managed:
-            job.phoenix = None
 
     async def _verify(self, job: Job) -> None:
         body = job.body()
@@ -754,12 +716,10 @@ class Discoveries:
             _logger.warning("discover: %s gave a target that does not load", job.id)
             return
         app = job.step("Checking that your app is running")
-        where = "" if self.store else " in Phoenix"
-        phoenix = job.step(f"Looking for conversations{where}")
+        traced = job.step("Looking for conversations")
         code = job.step("Letting the agent read your code") if job.folder else None
-        managed = self.managed()
         overlay = {k: v for k, v in changes.items() if v}
-        found = await connect.check(conf, overlay, managed, self.store)
+        found = await connect.check(conf, overlay, self.store)
 
         host = urlsplit(job.base).netloc
         if found["adapter"]["ok"]:
@@ -776,27 +736,14 @@ class Discoveries:
                 job.ask("port")
 
         seen = found["phoenix"]
-        url = urlsplit((job.phoenix or {}).get("url") or "").netloc
-        if (managed and not seen["ok"]) or (job.folder is None and not managed):
-            # The step that sends traces to evalution says what to do; or nothing is known of them.
-            job.steps.remove(phoenix)
-        elif seen["ok"]:
-            phoenix.update(
-                text=f"Found {_count(seen['sessions_seen'], 'recent conversation')}{where}",
+        if seen["ok"]:
+            traced.update(
+                text=f"Found {_count(seen['sessions_seen'], 'recent conversation')}",
                 state="done",
             )
-        elif not seen.get("reached"):
-            phoenix.update(
-                text=f"Phoenix isn't running at {url}. Start it so evalution can see what your "
-                "agent does.",
-                state="problem",
-            )
         else:
-            phoenix.update(
-                text="Phoenix is running, but has no conversations from your app yet. Chat with "
-                "your app once; evalution learns from those.",
-                state="problem",
-            )
+            # The step that sends traces to evalution says what to do.
+            job.steps.remove(traced)
 
         files = found["code"]["files_matched"]
         if code is None:

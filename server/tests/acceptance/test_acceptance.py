@@ -109,7 +109,7 @@ class World:
             yaml.safe_dump(
                 {
                     "web_dir": "no-page",
-                    "traces": {"managed": "builtin", "settle_seconds": 1, "stuck_seconds": 60},
+                    "traces": {"settle_seconds": 1, "stuck_seconds": 60},
                     "model": {
                         "kind": "openai",
                         "base_url": f"http://127.0.0.1:{self.app_port}/llm/v1",

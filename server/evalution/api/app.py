@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from evalution.accounts.settings import AuthSettings
 from evalution.api.auth import mount_accounts
@@ -38,7 +39,7 @@ from evalution.config import Config, ConfigError
 from evalution.project import drift, knowledge
 from evalution.results.store import FolderUse
 from evalution.storage import LOCAL, Database
-from evalution.traces.managed import Supervisor
+from evalution.traces.builtin import prune
 
 DAY = 24 * 3600
 
@@ -89,17 +90,25 @@ async def _daily_drift(workspaces: Workspaces) -> None:
                 await knowledge.refresh_quietly(ws.runs, name)
 
 
+async def _daily_prune(database: Database, keep_days: int) -> None:
+    """Drop spans past ``traces.keep_days``, now and once a day: one pass over every workspace."""
+    while True:
+        try:
+            await asyncio.to_thread(prune, database, keep_days)
+        except SQLAlchemyError as exc:
+            print(f"evalution: old spans not pruned: {type(exc).__name__}", file=sys.stderr)
+        await asyncio.sleep(DAY)
+
+
 def create_app(
     config: Config,
     remote: bool = False,
-    phoenix: Supervisor | None = None,
     url: str = "http://127.0.0.1:8080",
     bind: str | None = None,
 ) -> FastAPI:
     """The app. *remote* lets in clients from other computers (``serve --host``, the *bind*), with
-    no login. *phoenix* is evalution's own Phoenix, started and stopped with the app; never
-    hosted, where nothing runs on this computer's folders. *url* is where this server listens,
-    which is where apps send traces with the built-in source.
+    no login. *url* is where this server listens, which is where apps on this computer send
+    traces; hosted, they send them to its public address.
 
     Hosted (:meth:`AuthSettings.from_env`), each request runs in its own workspace; locally, every
     one runs in :data:`LOCAL`, opened here so a config that doesn't read fails now.
@@ -109,9 +118,8 @@ def create_app(
     """
     auth = AuthSettings.from_env()
     hosted = auth is not None
-    if hosted:
-        phoenix = None
-    workspaces = Workspaces(config, Database.open(config.data_dir), hosted, url)
+    database = Database.open(config.data_dir)
+    workspaces = Workspaces(config, database, hosted, auth.public_url if auth else url)
     local = None if hosted else workspaces.get(LOCAL)
     use = FolderUse(config.data_dir)
 
@@ -119,20 +127,15 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if not use.serving():
             raise RuntimeError("a restore is going on this data folder: let it end first")
-        if phoenix is not None and local is not None:
-            try:
-                for note in await phoenix.start():
-                    print(f"evalution: {note}", file=sys.stderr)
-                local.targets.managed_url = phoenix.url
-            except RuntimeError as exc:
-                print(f"evalution: {exc}; using each target's own Phoenix", file=sys.stderr)
-        daily = asyncio.create_task(_daily_drift(workspaces))
+        daily = [
+            asyncio.create_task(_daily_drift(workspaces)),
+            asyncio.create_task(_daily_prune(database, config.traces.keep_days)),
+        ]
         try:
             yield
         finally:
-            daily.cancel()
-            if phoenix is not None:
-                await phoenix.stop()
+            for task in daily:
+                task.cancel()
             await workspaces.close()
             use.release()
 
