@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
+import type { Environment, RunSummary } from "../../lib/schema";
+import { RunSummarySchema } from "../../lib/schema";
+import { RunsView } from "../runs/RunsView";
 import { Root } from "../shell/Root";
 import { Sidebar } from "../shell/Sidebar";
 import type { Account } from "./account";
@@ -156,5 +159,46 @@ describe("the page, hosted", () => {
     render(<WorkspaceSettings account={account} />);
     await screen.findByText("evt_ab12…");
     expect(screen.queryByDisplayValue("evt_ab12secret")).toBeNull();
+  });
+});
+
+describe("runs from more than one place", () => {
+  /** A finished run of one passing test, played where `environment` says. */
+  const run = (id: string, at: number, environment?: Environment) =>
+    RunSummarySchema.parse({
+      run: id,
+      set: "main",
+      started_at: at,
+      status: "done",
+      environment,
+      pass_marks: { tools: 0.8, reply: 0.7 },
+      totals: {
+        passed: 1,
+        cases: 1,
+        tools: null,
+        reply: null,
+        median_seconds: 1,
+        usd: 0,
+        tokens: 0,
+      },
+      tests: [{ case: "greets", name: "Greets", verdict: "pass", passed: 1, tries: 1, usd: 0 }],
+    });
+  const view = (runs: RunSummary[]) =>
+    render(<RunsView runs={runs} label={(id) => id} empty={null} onOpen={() => {}} />);
+
+  it("groups them by where they played, hosted first", () => {
+    view([
+      run("r3", 3, { where: "local", name: "staging" }),
+      run("r2", 2, { where: "local", name: null }),
+      run("r1", 1, { where: "hosted", name: null }),
+    ]);
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Hosted", "Local", "staging"]);
+  });
+
+  it("shows no heading when every run played in one place, as runs stored before did", () => {
+    view([run("r2", 2), run("r1", 1)]);
+    expect(screen.queryAllByRole("heading", { level: 2 })).toEqual([]);
+    expect(screen.getByText("r1")).toBeTruthy();
   });
 });

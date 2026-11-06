@@ -64,6 +64,7 @@ export function RunView({
           sub={
             <>
               {scopeLabel} · {when(run.started_at)}
+              {run.environment.name ? ` · ${run.environment.name}` : null}
               {isLive || !spent(run.totals.usd) ? null : ` · ${spent(run.totals.usd)}`}
               {run.interrupted ? " · Interrupted" : null}
               {!run.interrupted && run.status === "stopped" ? " · Stopped" : null}

@@ -12,7 +12,13 @@ from typing import Any
 
 from evalution.core.judgement import Change
 from evalution.core.rules import change_of, could_be_chance
-from evalution.results.record import agent_models, judge_model, pass_marks, verdict_of
+from evalution.results.record import (
+    agent_models,
+    environment_of,
+    judge_model,
+    pass_marks,
+    verdict_of,
+)
 
 SHORT_COMMIT = 7
 
@@ -24,11 +30,14 @@ def _setup(run: Mapping[str, Any]) -> tuple[Any, ...]:
 
 def default_base(run: Mapping[str, Any], others: Sequence[Mapping[str, Any]]) -> str | None:
     """What *run* is best compared with: the newest earlier run on another setup, else the one
-    before it. Only runs that played anything count."""
+    before it. Only runs that played anything, where it played, count: an app on staging and on
+    someone's computer differ in more than the setup says."""
+    here = environment_of(run)
     earlier = [
         r
         for r in others
         if r["run"] != run["run"]
+        and environment_of(r) == here
         and float(r["started_at"]) < float(run["started_at"])
         and any(c.get("tries") for c in r["cases"].values())
     ]

@@ -49,6 +49,24 @@ curl -H "Authorization: Bearer evt_..." https://evals.example.com/v1/targets
 A token reaches its own workspace only, ignores `X-Workspace`, and can't manage tokens, members,
 invites or model keys. Only its first characters are kept for display; the rest only as a hash.
 
+## Run where your app runs
+
+A hosted server plays only apps it can reach on the internet. An app that runs only on your
+computer or in CI is played there, and the run uploaded to the workspace:
+
+```sh
+EVALUTION_TOKEN=evt_... evalution run --target my-bot --set main --server https://evals.example.com --env staging
+```
+
+It takes the workspace's tests for that set first (`GET /v1/evals/sets/export?target=&set=`, the
+files `sets export` writes, as JSON), plays them with your local config's settings for the app and
+your own model key, then uploads the run and its evidence (`POST /v1/evals/runs/import`, at most
+32 MiB). The app and the set must exist in the workspace. Sending a run again replaces it.
+
+Every run records where it played: `hosted`, or `local` for one played by `evalution run`, with the
+name `--env` gives it (a run the page starts can say one too: `environment` beside the token). The
+runs page groups runs by it, and a run is compared only with runs from the same place.
+
 ## Model keys
 
 Each person saves their own key (`PUT /v1/me/model-key`); it is encrypted, can be replaced or

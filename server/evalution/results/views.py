@@ -24,6 +24,7 @@ from evalution.core.rules import (
     label_of,
 )
 from evalution.results.record import (
+    environment_of,
     judgements,
     key_of,
     noted,
@@ -221,6 +222,7 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "scope": run.get("scope") or "all",
         "prompt": run.get("prompt") or "",
         "pass_marks": pass_marks(run),
+        "environment": dict(zip(("where", "name"), environment_of(run), strict=True)),
         "case_ids": list(run["cases"]),
         "tests": [_run_test(run, k, c) for k, c in run["cases"].items()],
         "analyzing": bool(run.get("analyzing")),
@@ -286,8 +288,13 @@ def detail(
     run: Mapping[str, Any], others: Sequence[Mapping[str, Any]], base_id: str | None
 ) -> dict[str, Any]:
     """The ``RunDetail`` of *run*; *others* are the set's runs, newest first. The base is
-    *base_id*, else the run before this one."""
-    earlier = [r for r in others if float(r["started_at"]) < float(run["started_at"])]
+    *base_id*, else the run before this one where it played."""
+    here = environment_of(run)
+    earlier = [
+        r
+        for r in others
+        if float(r["started_at"]) < float(run["started_at"]) and environment_of(r) == here
+    ]
     base = next((r for r in others if r["run"] == base_id), None) if base_id else None
     if base is None and not base_id and earlier:
         base = earlier[0]

@@ -2988,6 +2988,10 @@
   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
   "delta": null,
   "ended_at": 1793586742.105848,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": "The app's session went away mid-try",
   "history": [
    {
@@ -3319,6 +3323,10 @@
   ],
   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
   "ended_at": 1793586742.105848,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": "The app's session went away mid-try",
   "interrupted": false,
   "judge": {

@@ -387,6 +387,8 @@ What got worse, what got better and what could be chance go in the job's summary
 
 Your app has to be running where the job can reach it. A baseline holds the replies from that run, so read it before committing it. The Action hasn't been run on GitHub yet.
 
+With a hosted evalution, give the Action `server:` and `server-token: ${{ secrets.EVALUTION_TOKEN }}` (a workspace API token) and, if you like, `env: ci`: it plays that workspace's tests against the app in the job and uploads the run, so it shows on the page next to the others ([Run where your app runs](docs/hosting.md#run-where-your-app-runs)).
+
 ### Accept a change
 
 When a test changed on purpose, take its new result into the baseline and commit that with the change:
@@ -419,6 +421,7 @@ uv run --project server evalution upgrade     # with Docker, see "With Docker": 
 ```sh
 uv run --project server evalution serve                         # the page and API on :8080
 uv run --project server evalution run --target my-bot --set main  # prints the estimate, asks first; --sets imports sets/ first
+uv run --project server evalution run --target my-bot --set main --server https://evals.example.com  # a workspace's tests here, the run uploaded there
 uv run --project server evalution sets export                   # the tests as files in sets/ (or a folder you name); --target for one app
 uv run --project server evalution sets import                   # sets/ into evalution, each set replacing the one of its name
 uv run --project server evalution profile --target my-bot       # digest of recent traces

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { live, progressText, when } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { Spinner } from "../../ui/loading";
@@ -13,6 +13,26 @@ import { RunRow } from "./RunRow";
 const SHOWN_RUNS = 5;
 
 type TestRuns = { id: string; name: string; entries: Entry[] };
+type Place = { key: string; label: string; groups: TestRuns[] };
+
+/** The runs by where they played: hosted first, then each local place, unnamed before named. */
+function byPlace(runs: RunSummary[]): Place[] {
+  const places = new Map<string, { label: string; runs: RunSummary[] }>();
+  for (const run of runs) {
+    const { where, name } = run.environment;
+    const key = `${where === "hosted" ? 0 : 1}${name === null ? 0 : 1}${name ?? ""}`;
+    const place = places.get(key) ?? {
+      label: name ?? (where === "hosted" ? "Hosted" : "Local"),
+      runs: [],
+    };
+    place.runs.push(run);
+    places.set(key, place);
+  }
+  return [...places.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, place]) => ({ key, label: place.label, groups: byTest(place.runs) }))
+    .filter((place) => place.groups.length);
+}
 
 /** Each test with its runs, the most recently run test first; a run counts for every test it played. */
 function byTest(runs: RunSummary[]): TestRuns[] {
@@ -51,10 +71,10 @@ export function RunsView({
   benchmarks?: RunSummary[];
   onBenchmark?: (run: string) => void;
 }) {
-  const groups = byTest(runs);
+  const places = byPlace(runs);
   // A benchmark run that stopped before playing anything has nothing behind it.
   const played = benchmarks.filter((run) => live(run) || run.tests.some((test) => test.tries));
-  if (!groups.length && !played.length) {
+  if (!places.length && !played.length) {
     return (
       <Centered>
         <p className="m-0 text-[15px] font-semibold text-foreground">No runs yet</p>
@@ -94,9 +114,21 @@ export function RunsView({
             </Group>
           </section>
         ) : null}
-        {groups.map((group) => (
-          <TestGroup key={group.id} group={group} label={label} onOpen={onOpen} />
-        ))}
+        {places.map((place) => {
+          const groups = place.groups.map((group) => (
+            <TestGroup key={group.id} group={group} label={label} onOpen={onOpen} />
+          ));
+          // One place is every run: nothing to tell apart, so no heading.
+          if (places.length === 1) return <Fragment key={place.key}>{groups}</Fragment>;
+          return (
+            <section key={place.key} className="flex flex-col gap-6">
+              <h2 className="m-0 px-1 text-[11.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">
+                {place.label}
+              </h2>
+              {groups}
+            </section>
+          );
+        })}
       </Page>
     </>
   );

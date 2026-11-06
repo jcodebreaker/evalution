@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from evalution.api.deps import Current, invalid, known_set, target_name
+from evalution.api.deps import Current, invalid, known_set, not_found, target_name
 from evalution.project import library_fit
 from evalution.suite import library
 from evalution.suite.cases import CaseError
-from evalution.suite.store import save_pass_marks
+from evalution.suite.store import list_sets, save_pass_marks, set_bundle
 
 
 def sets_router() -> APIRouter:
@@ -35,6 +35,24 @@ def sets_router() -> APIRouter:
         names = [target_name(targets, target)] if target else targets.names()
         rows = [row for name in names for row in await asyncio.to_thread(runs.set_rows, name)]
         return {"data": rows}
+
+    @router.get("/evals/sets/export")
+    async def export(
+        ws: Current, target: str | None = None, set_name: str | None = Query(None, alias="set")
+    ) -> dict[str, Any]:
+        """A target's sets (or one) as ``evalution sets export`` writes them, as JSON:
+        ``{target, sets: {<set>: {<path>: text | {base64}}}}``. ``evalution run --server`` plays
+        these where the app runs."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        if set_name is not None:
+            known_set(targets, name, set_name)
+        chosen = [set_name] if set_name else list_sets(targets.docs, name)
+        try:
+            sets = {s: await asyncio.to_thread(set_bundle, targets.docs, name, s) for s in chosen}
+        except CaseError as exc:  # gone since it was listed
+            raise not_found("Test set") from exc
+        return {"target": name, "sets": sets}
 
     @router.put("/evals/sets/{set_name}/pass-marks")
     async def put_pass_marks(

@@ -378,11 +378,19 @@ export const RunTestSchema = z.object({
 });
 export type RunTest = z.infer<typeof RunTestSchema>;
 
+/** Where a run played: by a hosted server, or by `evalution run` and uploaded; and its name. */
+export const EnvironmentSchema = z.object({
+  where: z.enum(["hosted", "local"]),
+  name: z.string().nullable().default(null),
+});
+export type Environment = z.infer<typeof EnvironmentSchema>;
+
 export const RunSummarySchema = z.object({
   run: z.string(),
   target: z.string().nullable().default(null),
   set: z.string(),
   started_at: z.number(),
+  environment: EnvironmentSchema.default({ where: "local", name: null }),
   status: z.enum(["running", "done", "stopped", "failed"]),
   /** The server restarted under it, which says nothing of the app. */
   interrupted: z.boolean().default(false),

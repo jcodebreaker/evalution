@@ -421,6 +421,10 @@ def test_a_comparison_keeps_a_test_edited_between_runs_and_says_so() -> None:
     middle = {**now, "run": "r1b", "started_at": NOW - 60, "commit": "b" * 40}
     latest = {**now, "commit": "b" * 40}
     assert default_base(latest, [latest, middle, other]) == "r1"
+    # A run of the app somewhere else is no base: the app, its data and its network differ.
+    staging = {**latest, "environment": {"where": "local", "name": "staging"}}
+    assert default_base(staging, [staging, middle, other]) is None
+    assert default_base({**staging, "run": "r9", "started_at": NOW + 60}, [staging, middle]) == "r2"
     # Two connected apps are two setups, and five tries each can settle what three can't.
     across = comparison({**now, "target": "b"}, {**before, "target": "a"})
     assert {"what": "App", "before": "a", "now": "b"} in across["changed"]

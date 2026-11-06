@@ -149,6 +149,10 @@ def test_upcast_is_pure_and_keeps_what_it_read() -> None:
     assert json.dumps(raw) == before, "the document it was given is untouched"
     assert upcast(read) is read
     assert read["schema"] == SCHEMA and read["pass_marks"] == raw["pass_scores"]
+    # Every run then played on the computer that kept it.
+    assert read["environment"] == {"where": "local", "name": None}
+    one = {k: v for k, v in read.items() if k != "environment"} | {"schema": 1}
+    assert upcast(one)["environment"] == read["environment"] and "environment" not in one
     assert read["judge"] == {"key": raw["grader"], "model": None, "prompt_hash": None}
     assert read["report"]["verified"] is False
     old = raw["cases"]["flaky"]["tries"]

@@ -12,7 +12,34 @@ from evalution.core.case import DEFAULT_PASS_MARKS
 from evalution.core.judgement import Judgement, Outcome, ResultKey, Role, Verdict, VerdictKind
 from evalution.core.rules import RULES_VERSION, current, judgement, verdict, verdict_note
 
-SCHEMA = 1
+SCHEMA = 2
+#: Where a run played: ``hosted``, by a hosted server against an app on the internet, or ``local``,
+#: on someone's computer or in CI (``evalution run``, uploaded or not). Runs of one app in two
+#: places aren't one series: the app, its data and its network differ.
+WHERE = ("hosted", "local")
+#: How long an environment's name (``--env staging``) may be.
+ENV_NAME_CHARS = 64
+
+
+def environment(where: str, name: Any = None) -> dict[str, Any]:
+    """A run's ``environment``.
+
+    :raises ValueError: An unknown *where*, or a *name* that isn't a short text.
+    """
+    if where not in WHERE:
+        raise ValueError(f"environment: where is one of {', '.join(WHERE)}")
+    if name is not None and not isinstance(name, str):
+        raise ValueError("environment: the name must be text")
+    name = (name or "").strip() or None
+    if name is not None and (len(name) > ENV_NAME_CHARS or not name.isprintable()):
+        raise ValueError(f"environment: the name is at most {ENV_NAME_CHARS} printable characters")
+    return {"where": where, "name": name}
+
+
+def environment_of(run: Mapping[str, Any]) -> tuple[str, str | None]:
+    """Where *run* played, as a key to group or match runs by."""
+    found = run.get("environment") or {}
+    return found.get("where") or "local", found.get("name")
 
 
 def judgements(entry: Mapping[str, Any]) -> list[Judgement]:
