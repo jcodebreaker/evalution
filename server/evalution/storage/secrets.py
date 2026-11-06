@@ -23,9 +23,16 @@ class SecretKeyError(RuntimeError):
     """The secrets can't be read with this key: it changed, or it isn't a key."""
 
 
-def _cipher(data_dir: Path) -> Fernet:
+def cipher(data_dir: Path | None) -> Fernet:
+    """The encryption key's cipher. With no *data_dir* (a signed-in person's own secrets, hosted
+    only) the key must come from the environment.
+
+    :raises SecretKeyError: Not a key, or none to be had.
+    """
     key = os.environ.get(KEY_ENV, "").strip()
     if not key:
+        if data_dir is None:
+            raise SecretKeyError(f"{KEY_ENV} is needed")
         path = data_dir / KEY_FILE
         if not path.is_file():
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -42,9 +49,9 @@ def _cipher(data_dir: Path) -> Fernet:
 class Secrets:
     """One workspace's secrets, by name (``model/api_key``, ``targets/<name>/api_key``...)."""
 
-    def __init__(self, docs: Docs, data_dir: Path) -> None:
+    def __init__(self, docs: Docs, data_dir: Path | None) -> None:
         self.docs = docs
-        self._cipher = _cipher(data_dir)
+        self._cipher = cipher(data_dir)
 
     def get(self, name: str) -> str | None:
         """:raises SecretKeyError: Stored under another key."""

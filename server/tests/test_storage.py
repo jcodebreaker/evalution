@@ -3,9 +3,11 @@
 import threading
 
 import pytest
+from sqlalchemy import func, inspect, select
 
 from evalution.storage import LOCAL, Database
 from evalution.storage.database import SCHEMA, StorageError, schema
+from evalution.storage.identity import identity
 from evalution.storage.secrets import KEY_ENV, SecretKeyError, Secrets
 
 
@@ -81,9 +83,17 @@ def test_writes_from_many_threads_all_land(tmp_path) -> None:
     assert not docs.create("doc", "k0", "late") and docs.get("doc", "k0") != "late"
 
 
-def test_a_newer_database_is_refused(tmp_path) -> None:
+def test_an_older_database_moves_forward_and_a_newer_one_is_refused(tmp_path) -> None:
     database = Database.open(tmp_path)
+    identity.drop_all(database.engine)
     with database.engine.begin() as db:
+        db.execute(schema.delete())
+        db.execute(schema.insert().values(version=1))
+    database.close()
+    database = Database.open(tmp_path)
+    assert set(identity.tables) <= set(inspect(database.engine).get_table_names())
+    with database.engine.begin() as db:
+        assert db.scalar(select(func.max(schema.c.version))) == SCHEMA
         db.execute(schema.insert().values(version=SCHEMA + 1))
     database.close()
     with pytest.raises(StorageError, match="newer evalution"):

@@ -30,6 +30,9 @@ def settings_router(targets: Targets, llm: LLM, lock: asyncio.Lock) -> APIRouter
     async def put_model(request: Request) -> dict[str, Any]:
         """Save the model; every part uses it from the next call."""
         body = await read_body(request)
+        if request.app.state.auth is not None and "key" in body and body["key"] != "":
+            # Hosted, a model key is each person's own, never the workspace's.
+            raise invalid("Save your own key with PUT /v1/me/model-key")
         if targets.config.model_source == "config":
             raise busy(f"The model is set in {targets.config.file.name}; edit it there")
         async with lock:

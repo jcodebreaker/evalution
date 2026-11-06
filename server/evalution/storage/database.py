@@ -32,12 +32,14 @@ from sqlalchemy import (
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
+from evalution.storage.identity import identity
+
 #: This server's own workspace: the only one until people sign in.
 LOCAL = "local"
 URL_ENV = "DATABASE_URL"
 FILE = "evalution.db"
 #: Bumped with every change of the tables below; :meth:`Database.open` refuses a newer database.
-SCHEMA = 1
+SCHEMA = 2  # 2: who may sign in (storage/identity.py)
 
 _meta = MetaData()
 documents = Table(
@@ -128,6 +130,7 @@ class Database:
     def _migrate(self) -> None:
         try:
             _meta.create_all(self.engine)
+            identity.create_all(self.engine)
             with self.engine.begin() as db:
                 found = db.scalar(select(func.max(schema.c.version)))
                 if found is None:
@@ -137,6 +140,8 @@ class Database:
                         f"the database is from a newer evalution (schema {found}, this knows "
                         f"{SCHEMA}): upgrade evalution"
                     )
+                elif found < SCHEMA:  # the new tables were made just above
+                    db.execute(insert(schema).values(version=SCHEMA))
         except StorageError:
             raise
         except Exception as exc:  # the driver's own errors, whatever the database
