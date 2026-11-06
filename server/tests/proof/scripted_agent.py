@@ -48,7 +48,7 @@ from evalution.llm import LLMError
 from evalution.review.findings import REPORT_INSTRUCTIONS, RUN_INSTRUCTIONS, TRY_INSTRUCTIONS
 from evalution.runs.runner import Runs
 from evalution.suite import library
-from evalution.suite.cases import save_case, save_set
+from evalution.suite.store import save_case, save_set
 from evalution.targets import Targets
 from evalution.traces import otlp
 

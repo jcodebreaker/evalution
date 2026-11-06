@@ -9,14 +9,8 @@ from evalution.config import load
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
-from evalution.suite.cases import (
-    CaseError,
-    case_text,
-    load_case,
-    parse_case,
-    save_set,
-    write_case_text,
-)
+from evalution.suite.cases import CaseError, parse_case
+from evalution.suite.store import case_text, load_case, save_set, write_case_text
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionStore

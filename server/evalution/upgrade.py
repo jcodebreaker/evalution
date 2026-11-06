@@ -39,7 +39,8 @@ from evalution.results.store import FolderUse, RunLock, RunStore
 from evalution.results.views import detail, summary
 from evalution.storage import Database
 from evalution.storage.database import URL_ENV
-from evalution.suite.cases import CaseError, list_sets, load_cases, stored_targets
+from evalution.suite.cases import CaseError
+from evalution.suite.store import list_sets, load_cases, stored_targets
 
 _logger = logging.getLogger(__name__)
 MANIFEST = "manifest.json"

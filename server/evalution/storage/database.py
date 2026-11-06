@@ -30,6 +30,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import IntegrityError
 
 #: This server's own workspace: the only one until people sign in.
 LOCAL = "local"
@@ -213,6 +214,21 @@ class Docs:
                         workspace=self.workspace, kind=kind, key=key, body=text, updated_at=now
                     )
                 )
+
+    def create(self, kind: str, key: str, body: Any) -> bool:
+        """Write the document only when there is none under *key*; whether it was made. Of two
+        made at once, by any process, one is."""
+        text, now = _dump(body), time.time()
+        try:
+            with self._lock, self._tx() as db:
+                db.execute(
+                    insert(documents).values(
+                        workspace=self.workspace, kind=kind, key=key, body=text, updated_at=now
+                    )
+                )
+        except IntegrityError:
+            return False
+        return True
 
     def delete(self, kind: str, key: str) -> bool:
         with self._tx() as db:

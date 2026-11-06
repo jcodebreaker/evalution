@@ -12,7 +12,7 @@ from evalution.project import impact
 from evalution.project.profile import read_doc, set_updates
 from evalution.review.health import for_target
 from evalution.runs.runner import Runs
-from evalution.suite.cases import import_sets, load_cases
+from evalution.suite.store import import_sets, load_cases
 from evalution.targets import Targets
 
 PASSED = {

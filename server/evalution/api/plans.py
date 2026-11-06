@@ -9,7 +9,7 @@ from evalution.core.case import Case
 from evalution.project import understanding
 from evalution.review import testplan
 from evalution.runs.runner import Runs
-from evalution.suite.cases import sent_files
+from evalution.suite.store import sent_files
 
 #: Seconds the test page's plan waits for its words before answering without them.
 WORDING_WAIT = 2.0

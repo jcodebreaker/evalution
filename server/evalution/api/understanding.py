@@ -12,7 +12,7 @@ from evalution.api.deps import busy, invalid, not_found, target_name
 from evalution.code import CodeError
 from evalution.project import hooks, knowledge, profile, understanding
 from evalution.runs.runner import Runs
-from evalution.suite.cases import list_sets
+from evalution.suite.store import list_sets
 from evalution.writer.agent import Agent
 
 

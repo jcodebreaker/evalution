@@ -23,7 +23,8 @@ from evalution.project.understanding.steering import marks, overlay, steers
 from evalution.project.understanding.store import load
 from evalution.results.views import latest_rows
 from evalution.suite import library
-from evalution.suite.cases import CaseError, load_cases, own_sets, slugify
+from evalution.suite.cases import CaseError, slugify
+from evalution.suite.store import load_cases, own_sets
 from evalution.targets import Targets
 
 PATHS_SHOWN = 5

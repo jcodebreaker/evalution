@@ -25,8 +25,8 @@ from evalution.judging.rubric import INSTRUCTIONS as GRADER_INSTRUCTIONS
 from evalution.judging.rubric import SCEPTIC_INSTRUCTIONS, grade_reply
 from evalution.llm import LLM
 from evalution.runs.runner import Runs
-from evalution.suite.cases import case_text, put_case
 from evalution.suite.library import load_templates
+from evalution.suite.store import case_text, put_case
 
 MODEL = os.environ.get("BENCH_MODEL", "claude-sonnet-5-5")
 TRIES = int(os.environ.get("BENCH_TRIES", "1"))

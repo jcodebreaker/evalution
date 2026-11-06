@@ -11,7 +11,8 @@ from evalution.api.deps import invalid, known_set, target_name
 from evalution.project import library_fit
 from evalution.runs.runner import Runs
 from evalution.suite import library
-from evalution.suite.cases import CaseError, save_pass_marks
+from evalution.suite.cases import CaseError
+from evalution.suite.store import save_pass_marks
 
 
 def sets_router(runs: Runs) -> APIRouter:

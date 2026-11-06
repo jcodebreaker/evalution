@@ -41,7 +41,8 @@ from evalution.llm import LLM, LLMError, cut, fenced
 from evalution.project import drift
 from evalution.project.profile import read_profile, required_clean
 from evalution.runs.runner import Runs
-from evalution.suite.cases import CaseError, case_stems, list_sets, load_case
+from evalution.suite.cases import CaseError
+from evalution.suite.store import case_stems, list_sets, load_case
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionStore

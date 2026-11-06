@@ -27,7 +27,8 @@ from typing import Any
 from evalution.core.trace import Call
 from evalution.llm import Caller, ask_json, cut, fenced, json_answer
 from evalution.storage import Docs
-from evalution.suite.cases import CaseError, load_case, parse_case
+from evalution.suite.cases import CaseError, parse_case
+from evalution.suite.store import load_case
 from evalution.traces.base import Span, TraceSource, by_trace, root_of, session_of
 from evalution.traces.view import ask_text, build, output_text, tool_of
 

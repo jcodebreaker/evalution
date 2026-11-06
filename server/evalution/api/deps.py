@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from evalution.config import ALLOWED_HOSTS_ENV
-from evalution.suite.cases import list_sets
+from evalution.suite.store import list_sets
 from evalution.targets import Targets
 
 LOCAL_NAMES = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}

@@ -18,7 +18,8 @@ from evalution.results.migrate import upcast
 from evalution.results.views import case_row
 from evalution.review.testplan import case_plan, compare, explain, peek, trace_words
 from evalution.storage import Database
-from evalution.suite.cases import import_sets, parse_case, read_file, sent_files
+from evalution.suite.cases import parse_case
+from evalution.suite.store import import_sets, read_file, sent_files
 
 CASE = {
     "name": "Keeps the total after a long chat",

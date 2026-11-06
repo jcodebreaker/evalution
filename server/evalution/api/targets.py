@@ -16,7 +16,7 @@ from evalution.core.case import CLEAN_KINDS
 from evalution.project import drift, profile
 from evalution.runs.preflight import passed_setups, setup_key
 from evalution.runs.runner import Runs
-from evalution.suite.cases import list_sets
+from evalution.suite.store import list_sets
 
 
 def targets_router(runs: Runs) -> APIRouter:

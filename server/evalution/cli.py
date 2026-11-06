@@ -66,7 +66,8 @@ from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
 from evalution.runs.runner import RunBusyError, Runs
 from evalution.storage import Database
-from evalution.suite.cases import CaseError, export_sets, import_sets
+from evalution.suite.cases import CaseError
+from evalution.suite.store import export_sets, import_sets
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
 from evalution.traces.managed import INSTALL, Supervisor, installed, running_url

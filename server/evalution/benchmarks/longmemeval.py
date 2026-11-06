@@ -39,7 +39,7 @@ from evalution.core.judgement import VerdictKind
 from evalution.core.rules import line_reason
 from evalution.results.record import verdict_of
 from evalution.storage import Docs
-from evalution.suite.cases import case_stems, delete_set, put_case, save_set, write_file
+from evalution.suite.store import case_stems, delete_set, put_case, save_set, write_file
 
 NAME = "longmemeval"
 _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/"

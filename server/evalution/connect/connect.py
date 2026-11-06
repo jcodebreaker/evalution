@@ -32,7 +32,7 @@ from evalution.config import (
 from evalution.core import net
 from evalution.core.case import SLUG
 from evalution.storage import Docs
-from evalution.suite.cases import list_sets, save_set
+from evalution.suite.store import list_sets, save_set
 from evalution.traces.builtin import SpanStore
 from evalution.traces.managed import reader
 from evalution.traces.profile import recent_sessions

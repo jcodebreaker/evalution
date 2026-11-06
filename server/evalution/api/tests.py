@@ -14,8 +14,8 @@ from evalution.api.plans import CasePlans
 from evalution.project import drift
 from evalution.results.views import case_history, finding, latest_rows
 from evalution.runs.runner import Runs
-from evalution.suite.cases import (
-    CaseError,
+from evalution.suite.cases import CaseError
+from evalution.suite.store import (
     case_text,
     changes_in_text,
     load_case,
@@ -23,7 +23,7 @@ from evalution.suite.cases import (
     load_set,
     write_case_text,
 )
-from evalution.suite.cases import save_case as write_case
+from evalution.suite.store import save_case as write_case
 from evalution.targets import Targets
 from evalution.writer.draft import draft, from_traces, from_try, sources
 

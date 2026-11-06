@@ -60,10 +60,15 @@ def test_documents_entries_and_workspaces_keep_apart(tmp_path) -> None:
 def test_writes_from_many_threads_all_land(tmp_path) -> None:
     docs = Database.open(tmp_path).docs()
 
+    made: dict[int, list[int]] = {i: [] for i in range(20)}
+
     def write(n: int) -> None:
         for i in range(20):
             docs.put("doc", f"k{i % 5}", {"n": n, "i": i})
             docs.append("log", "one", n)
+            # Only one of the writers makes a document that is created, never replaced.
+            if docs.create("new", f"c{i}", n):
+                made[i].append(n)
 
     threads = [threading.Thread(target=write, args=(n,)) for n in range(8)]
     for thread in threads:
@@ -72,6 +77,8 @@ def test_writes_from_many_threads_all_land(tmp_path) -> None:
         thread.join()
     assert len(docs.keys("doc")) == 5
     assert len(docs.entries("log", "one")) == 160
+    assert all(made[i] == [docs.get("new", f"c{i}")] for i in range(20))
+    assert not docs.create("doc", "k0", "late") and docs.get("doc", "k0") != "late"
 
 
 def test_a_newer_database_is_refused(tmp_path) -> None:

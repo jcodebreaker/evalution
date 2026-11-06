@@ -29,7 +29,7 @@ from evalution.llm import LLM
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
 from evalution.storage import Database
-from evalution.suite.cases import CaseError, load_cases, parse_case, save_set
+from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.library import (
     KINDS,
     PLACEHOLDERS,
@@ -40,6 +40,7 @@ from evalution.suite.library import (
     load_templates,
     parse_template,
 )
+from evalution.suite.store import load_cases, save_set
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionStore

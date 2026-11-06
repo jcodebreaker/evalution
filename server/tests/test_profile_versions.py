@@ -23,7 +23,7 @@ from evalution.project.profile import (
 from evalution.results.store import RunStore
 from evalution.runs.runner import Runs
 from evalution.storage import Database
-from evalution.suite.cases import import_sets
+from evalution.suite.store import import_sets
 from evalution.targets import Targets
 
 LIBRARY = Path(__file__).resolve().parents[2] / "library"

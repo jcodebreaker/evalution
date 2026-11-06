@@ -27,12 +27,11 @@ from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary
 from evalution.runs.runner import Runs
 from evalution.storage import Database
-from evalution.suite.cases import (
+from evalution.suite.cases import is_benchmark, meaning_changes
+from evalution.suite.store import (
     case_text,
     export_sets,
     import_sets,
-    is_benchmark,
-    meaning_changes,
     own_sets,
     put_case,
     save_set,

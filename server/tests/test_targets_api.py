@@ -19,7 +19,7 @@ from evalution.results.store import RunLock
 from evalution.runs.preflight import RUN_KEY, AdapterCheck
 from evalution.runs.runner import RunBusyError
 from evalution.storage import Database
-from evalution.suite.cases import list_sets
+from evalution.suite.store import list_sets
 from evalution.traces.phoenix import Phoenix
 from evalution.traces.profile import recent_sessions
 

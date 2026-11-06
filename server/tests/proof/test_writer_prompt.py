@@ -9,7 +9,7 @@ from scripted_agent import SET, TARGET
 from evalution.llm import LLMError, Reply
 from evalution.project import drift
 from evalution.project.profile import update_connection, write_doc, write_profile
-from evalution.suite.cases import CASE
+from evalution.suite.store import CASE
 from evalution.writer import agent as writer
 from evalution.writer.prompts import INSTRUCTIONS
 from evalution.writer.sessions import SessionStore

@@ -18,7 +18,8 @@ from evalution.results.store import RunStore
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs.runner import RunBusyError, Runs
-from evalution.suite.cases import CaseError, load_case, parse_case, sent_files
+from evalution.suite.cases import CaseError, parse_case
+from evalution.suite.store import load_case, sent_files
 
 
 def _replies(store: RunStore, run: str, case: str, n: int) -> list[str]:

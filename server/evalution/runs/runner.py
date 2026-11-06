@@ -93,14 +93,12 @@ from evalution.runs.preflight import (
     setup_key,
 )
 from evalution.storage import Docs
-from evalution.suite.cases import (
-    CaseError,
-    is_benchmark,
+from evalution.suite.cases import CaseError, is_benchmark, parse_case
+from evalution.suite.store import (
     list_sets,
     load_case,
     load_cases,
     load_set,
-    parse_case,
     read_file,
     unpack_files,
 )

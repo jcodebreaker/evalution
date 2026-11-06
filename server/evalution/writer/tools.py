@@ -24,7 +24,7 @@ from evalution.review.findings import SUSPECTS
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.fit import why_not
 from evalution.runs.runner import Runs
-from evalution.suite import cases, library
+from evalution.suite import cases, library, store
 from evalution.traces.profile import digest, recent_sessions, render
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
@@ -171,12 +171,12 @@ class Tools:
         target = self._target(turn)
         set_name = str(args.get("set") or turn.session["set"])
         docs = self.targets.docs
-        if set_name not in cases.list_sets(docs, target):
+        if set_name not in store.list_sets(docs, target):
             raise LookupError(f"no set {set_name}")
         found = drift.read(self.targets, target)
         return await asyncio.to_thread(
             lambda: latest_rows(
-                cases.load_cases(docs, target, set_name),
+                store.load_cases(docs, target, set_name),
                 self.runs.all(target, set_name),
                 lambda case: drift.stale(case, found),
             )
@@ -186,7 +186,7 @@ class Tools:
         set_name = str(args.get("set") or turn.session["set"])
         stem = str(args.get("case") or "")
         case = await asyncio.to_thread(
-            cases.load_case, self.targets.docs, self._target(turn), set_name, stem
+            store.load_case, self.targets.docs, self._target(turn), set_name, stem
         )
         turn.read.append(f"Read case {case.case}")
         return {"case": case.case, "file": case.raw}
@@ -259,13 +259,13 @@ class Tools:
                 "replaces set, so the admin sees what changes."
             )
         if replace is not None:
-            now = await asyncio.to_thread(cases.load_case, docs, target, session["set"], replace)
+            now = await asyncio.to_thread(store.load_case, docs, target, session["set"], replace)
             if now.version != plan.get("base"):
                 return (
                     f"Refused: {replace} changed since the plan was shown. Show a new plan, so "
                     "the admin sees the difference from what it is now."
                 )
-        stem = await asyncio.to_thread(cases.save_case, docs, target, session["set"], test, replace)
+        stem = await asyncio.to_thread(store.save_case, docs, target, session["set"], test, replace)
         if stem not in session["cases"]:
             session["cases"].append(stem)
         plan["saved"] = stem
@@ -286,7 +286,7 @@ class Tools:
         if len(content.encode()) > FIXTURE_BYTES:
             raise ValueError(f"content: at most {FIXTURE_BYTES // 1000} KB")
         path = await asyncio.to_thread(
-            cases.write_file,
+            store.write_file,
             self.targets.docs,
             self._target(turn),
             session["set"],
@@ -530,7 +530,7 @@ class Tools:
             )
         except LookupError as exc:
             raise LookupError(f"no conversation {exc} in the last week") from exc
-        eval_set = await asyncio.to_thread(cases.load_set, self.targets.docs, target, set_name)
+        eval_set = await asyncio.to_thread(store.load_set, self.targets.docs, target, set_name)
         found = await draft(self.runs.caller(eval_set.grader), *material)
         turn.read.append(f"Drafted a test from {'trace' if trace_id else 'conversation'}")
         return {"case": found, "next": "Show it as a plan; save it with save_case once approved."}
@@ -621,7 +621,7 @@ class Tools:
             return file, None
         try:
             old = await asyncio.to_thread(
-                cases.load_case, self.targets.docs, target, set_name, replaces
+                store.load_case, self.targets.docs, target, set_name, replaces
             )
         except cases.CaseError as exc:
             raise LookupError(f"plan.replaces: no test {replaces}") from exc

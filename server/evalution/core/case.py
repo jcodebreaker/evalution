@@ -1,6 +1,7 @@
 """What a test is, as data: a set, a case and its turns, and the words their files may use.
 
-Loading and checking those files is :mod:`evalution.suite.cases`."""
+Reading and checking their text is :mod:`evalution.suite.cases`; keeping them,
+:mod:`evalution.suite.store`."""
 
 from __future__ import annotations
 

@@ -1,33 +1,20 @@
-"""Sets and cases (docs/case-format.md): load, validate, save, and carry them to and from files.
+"""What a set and a case may say (docs/case-format.md): their text read and checked, how two
+versions of a test differ in what they check, and the words their ids come from. Where they are
+kept is :mod:`evalution.suite.store`.
 
-Tests are documents of the workspace (:mod:`evalution.storage`), one kind each, keyed by path:
-
-* :data:`SET`, ``<target>/<set>``: the set's ``set.json``, as text;
-* :data:`CASE`, ``<target>/<set>/<case>``: a case's ``<case>.case.json``, the text exactly as
-  written, since the page edits it as text and its version is the text's hash;
-* :data:`FILE`, ``<target>/<set>/<path>``: any other file of the set, e.g. ``fixtures/orders.csv``
-  a turn sends, or the ``plan.json`` that chose a benchmark: text as text, other bytes as
-  ``{"base64": ...}``.
-
-:func:`export_sets` and :func:`import_sets` carry them to and from folders laid out as
-``<folder>/<target>/<set>/set.json``, ``*.case.json`` and the files, which is how a repo keeps its
-tests for CI. Every error names the file and the field, e.g.
+Every error names the file and the field, e.g.
 ``my-bot/core/two-files.case.json: tools.expected[1].times: must be a whole number of at least 1``.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import re
-import shutil
-from collections.abc import Iterable
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from evalution.core.case import (
-    CASE_SUFFIX,
     CLEAN_KINDS,
     CONTEXT_CHECKS,
     DEFAULT_PASS_MARKS,
@@ -40,15 +27,7 @@ from evalution.core.case import (
     CaseTurn,
     EvalSet,
 )
-from evalution.storage import Docs
 
-#: The set's ``set.json``, under ``<target>/<set>``.
-SET = "set"
-#: A case's text, under ``<target>/<set>/<case>``.
-CASE = "case"
-#: Any other file of a set, under ``<target>/<set>/<path>``.
-FILE = "set-file"
-SET_FILE = "set.json"
 BENCHMARK_PREFIX = "longmemeval-"
 
 
@@ -60,11 +39,11 @@ def _version(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def _key(target: str, slug: str, *rest: str) -> str:
-    return "/".join((target, slug, *rest))
+def read_object(text: str, where: str) -> dict[str, Any]:
+    """*text* as a JSON object; *where* names the file in errors.
 
-
-def _parse_object(text: str, where: str) -> dict[str, Any]:
+    :raises CaseError: Not JSON, or not an object.
+    """
     try:
         data = json.loads(text)
     except ValueError as exc:
@@ -72,10 +51,6 @@ def _parse_object(text: str, where: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise CaseError(f"{where}: must be a JSON object")
     return data
-
-
-def _json_text(data: Any, indent: int = 2) -> str:
-    return json.dumps(data, indent=indent, ensure_ascii=False) + "\n"
 
 
 def _score(value: Any, where: str) -> float:
@@ -109,24 +84,12 @@ def _text(data: dict[str, Any], key: str, where: str) -> str | None:
     return " ".join(value.split()) or None
 
 
-def _set_text(docs: Docs, target: str, slug: str) -> str:
-    """:raises CaseError: An unsafe id or no such set."""
-    if not SLUG.match(slug):
-        raise CaseError(f"{slug}: not a set id")
-    text = docs.get(SET, _key(target, slug))
-    if not isinstance(text, str):
-        raise CaseError(f"{target}/{slug}: no such set")
-    return text
+def read_set(text: str, where: str, slug: str) -> EvalSet:
+    """Set *slug* from its ``set.json`` *text*; *where* names the file in errors.
 
-
-def load_set(docs: Docs, target: str, slug: str) -> EvalSet:
-    """The set *slug* of *target*.
-
-    :raises CaseError: An unsafe id, no such set or a bad ``set.json``.
+    :raises CaseError: Text that is not a valid ``set.json``.
     """
-    where = f"{target}/{slug}/{SET_FILE}"
-    text = _set_text(docs, target, slug)
-    data = _parse_object(text, where)
+    data = read_object(text, where)
     name = data.get("name")
     if not isinstance(name, str) or not name.strip():
         raise CaseError(f"{where}: name: must be a non-empty string")
@@ -149,44 +112,30 @@ def load_set(docs: Docs, target: str, slug: str) -> EvalSet:
     )
 
 
-def save_set(docs: Docs, target: str, slug: str, data: dict[str, Any]) -> None:
-    """Write *data* as the ``set.json`` of set *slug* of *target*, made or replaced; its cases and
-    files stay."""
-    if not SLUG.match(slug):
-        raise CaseError(f"{slug}: not a set id")
-    docs.put(SET, _key(target, slug), _json_text(data))
+def with_pass_marks(text: str, where: str, value: Any) -> tuple[str, dict[str, float]]:
+    """``set.json`` *text* with its pass marks set from *value* (the old ``pass_scores`` key
+    goes); a key left out keeps the set's current mark. The new text, and the marks now in force.
 
-
-def save_pass_marks(docs: Docs, target: str, slug: str, value: Any) -> dict[str, float]:
-    """Set the pass marks of set *slug* in its ``set.json`` (the old ``pass_scores`` key goes);
-    a key left out keeps the set's current mark. Returns the marks now in force.
-
-    :raises CaseError: An unknown set, or marks that are not numbers from 0 to 1.
+    :raises CaseError: Marks that are not numbers from 0 to 1, or a bad ``set.json``.
     """
-    current = load_set(docs, target, slug).pass_marks
+    current = read_set(text, where, "").pass_marks
     if not isinstance(value, dict):
         raise CaseError("pass marks: must be an object with tools and reply")
     marks = parse_pass_marks({**current, **value}, "pass marks")
-    data = _parse_object(_set_text(docs, target, slug), f"{target}/{slug}/{SET_FILE}")
+    data = read_object(text, where)
     data.pop("pass_scores", None)
     data["pass_marks"] = marks
-    save_set(docs, target, slug, data)
-    return marks
+    return as_text(data), marks
 
 
-def list_sets(docs: Docs, target: str) -> list[str]:
-    """The set ids of *target*, sorted."""
-    return [key.split("/", 1)[1] for key in docs.keys(SET, f"{target}/")]
+def as_text(data: Any) -> str:
+    """A set's or case's JSON as evalution writes it."""
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def is_benchmark(slug: str | None) -> bool:
     """Whether a set is a ready-made benchmark, kept apart from the app's own tests."""
     return str(slug).startswith(BENCHMARK_PREFIX)
-
-
-def own_sets(docs: Docs, target: str) -> list[str]:
-    """The app's own tests: its sets, benchmarks left out."""
-    return [slug for slug in list_sets(docs, target) if not is_benchmark(slug)]
 
 
 def _result(spec: Any, where: str) -> None:
@@ -515,90 +464,18 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
     )
 
 
-def _case_where(target: str, slug: str, stem: str) -> str:
-    return f"{target}/{slug}/{stem}{CASE_SUFFIX}"
+def read_case(text: str, where: str, stem: str) -> Case:
+    """Case *stem* from its file's *text*, versioned by it; *where* names the file in errors.
 
-
-def case_text(docs: Docs, target: str, slug: str, stem: str) -> str:
-    """Case *stem* of set *slug* as written.
-
-    :raises CaseError: An unsafe id or no such case.
+    :raises CaseError: Text that is not JSON, or the first field that does not follow the schema.
     """
-    if not SLUG.match(slug) or not SLUG.match(stem):
-        raise CaseError(f"{slug}/{stem}: not a case id")
-    text = docs.get(CASE, _key(target, slug, stem))
-    if not isinstance(text, str):
-        raise CaseError(f"{slug}/{stem}: no such test")
-    return text
-
-
-def load_case(docs: Docs, target: str, slug: str, stem: str) -> Case:
-    """Case *stem* of set *slug*.
-
-    :raises CaseError: An unsafe id, no such case or a bad case.
-    """
-    return _case_of(target, slug, stem, case_text(docs, target, slug, stem))
-
-
-def _case_of(target: str, slug: str, stem: str, text: str) -> Case:
-    where = _case_where(target, slug, stem)
-    return parse_case(_parse_object(text, where), where, stem, _version(text))
-
-
-def case_stems(docs: Docs, target: str, slug: str) -> list[str]:
-    """The case ids of set *slug*, sorted."""
-    prefix = _key(target, slug, "")
-    return [key[len(prefix) :] for key in docs.keys(CASE, prefix)]
-
-
-def load_cases(docs: Docs, target: str, slug: str) -> list[Case]:
-    """Every case of set *slug*, by id.
-
-    :raises CaseError: The first bad case.
-    """
-    prefix = _key(target, slug, "")
-    return [
-        _case_of(target, slug, key[len(prefix) :], text)
-        for key, text, _ in docs.items(CASE, prefix)
-    ]
+    return parse_case(read_object(text, where), where, stem, _version(text))
 
 
 def slugify(name: str) -> str:
     """A case stem from a case's name: lowercase words joined by ``-``."""
     words = re.findall(r"[a-z0-9]+", name.lower())
     return "-".join(words)[:60].strip("-") or "case"
-
-
-def save_case(docs: Docs, target: str, slug: str, data: Any, stem: str | None = None) -> str:
-    """Validate *data* and write it as a new case of set *slug*, or over case *stem* of that set
-    when given; returns its stem.
-
-    :raises CaseError: An unknown set or case, or a bad case.
-    """
-    load_set(docs, target, slug)
-    case = parse_case(data, f"{slug}/{stem or '(new case)'}")
-    if stem is not None:
-        case_text(docs, target, slug, stem)
-    else:
-        taken = set(case_stems(docs, target, slug))
-        base = slugify(case.name)
-        stem, n = base, 1
-        while stem in taken:
-            n += 1
-            stem = f"{base}-{n}"
-    put_case(docs, target, slug, stem, data)
-    return stem
-
-
-def put_case(docs: Docs, target: str, slug: str, stem: str, data: Any) -> None:
-    """Write *data* as case *stem* of set *slug*, made or replaced, once it reads as a case.
-
-    :raises CaseError: An unsafe id or a bad case.
-    """
-    if not SLUG.match(stem):
-        raise CaseError(f"{slug}/{stem}: not a case id")
-    parse_case(data, _case_where(target, slug, stem), stem)
-    docs.put(CASE, _key(target, slug, stem), _json_text(data))
 
 
 def _said(data: dict[str, Any]) -> list[Any]:
@@ -654,216 +531,3 @@ def meaning_changes(old: dict[str, Any], new: dict[str, Any]) -> list[dict[str, 
         for what, read in _MEANING
         if (read(old) or None) != (read(new) or None)
     ]
-
-
-def _typed(docs: Docs, target: str, slug: str, stem: str, text: str) -> tuple[str, dict]:
-    """The case as written now and *text* read as a valid case to go over it.
-
-    :raises CaseError: An unknown set or test, text that is not JSON, or a bad test.
-    """
-    load_set(docs, target, slug)
-    now = case_text(docs, target, slug, stem)
-    where = _case_where(target, slug, stem)
-    try:
-        data = json.loads(text)
-    except ValueError as exc:
-        raise CaseError(f"{where}: not JSON ({exc})") from exc
-    parse_case(data, where, stem)
-    return now, data
-
-
-def changes_in_text(
-    docs: Docs, target: str, slug: str, stem: str, text: str
-) -> list[dict[str, Any]]:
-    """What saving *text* over test *stem* would change in its meaning.
-
-    :raises CaseError: An unknown set or test, text that is not JSON, or a bad test.
-    """
-    now, data = _typed(docs, target, slug, stem, text)
-    return meaning_changes(_parse_object(now, _case_where(target, slug, stem)), data)
-
-
-def write_case_text(docs: Docs, target: str, slug: str, stem: str, text: str) -> Case:
-    """Write *text*, as typed, over test *stem* of set *slug* once it reads as a valid test;
-    returns the test as saved.
-
-    :raises CaseError: An unknown set or test, text that is not JSON, or a bad test.
-    """
-    _typed(docs, target, slug, stem, text)
-    docs.put(CASE, _key(target, slug, stem), text if text.endswith("\n") else text + "\n")
-    return load_case(docs, target, slug, stem)
-
-
-# A set's other files
-
-
-def _file_body(data: bytes) -> Any:
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return {"base64": base64.b64encode(data).decode("ascii")}
-
-
-def _file_bytes(body: Any) -> bytes:
-    if isinstance(body, dict):
-        return base64.b64decode(body["base64"])
-    return str(body).encode("utf-8")
-
-
-def _file_name(name: str) -> str:
-    """*name* as a path inside the set, ``a/b.csv``.
-
-    :raises CaseError: One that would leave it, or names a set's own file.
-    """
-    parts = PurePosixPath(name).parts
-    if not parts or name.startswith("/") or ".." in parts or "\\" in name:
-        raise CaseError(f"{name}: must be a path inside the set")
-    path = "/".join(p for p in parts if p != ".")
-    if path == SET_FILE or ("/" not in path and path.endswith(CASE_SUFFIX)):
-        raise CaseError(f"{name}: is the set's own file")
-    return path
-
-
-def write_file(docs: Docs, target: str, slug: str, name: str, data: bytes) -> str:
-    """Write *data* as the set's file *name* (``fixtures/x.csv``), made or replaced; its path.
-
-    :raises CaseError: An unknown set, or a name outside it.
-    """
-    load_set(docs, target, slug)
-    path = _file_name(name)
-    docs.put(FILE, _key(target, slug, path), _file_body(data))
-    return path
-
-
-def read_file(docs: Docs, target: str, slug: str, name: str) -> bytes | None:
-    """The set's file *name*, ``None`` when it has none."""
-    try:
-        path = _file_name(name)
-    except CaseError:
-        return None
-    body = docs.get(FILE, _key(target, slug, path))
-    return None if body is None else _file_bytes(body)
-
-
-def sent_files(docs: Docs, target: str, slug: str, case: Case) -> dict[str, bytes]:
-    """The set's files *case*'s turns send, by name as the case writes it; those the set has."""
-    found = {}
-    for name in dict.fromkeys(name for turn in case.turns for name in turn.files):
-        data = read_file(docs, target, slug, name)
-        if data is not None:
-            found[name] = data
-    return found
-
-
-def _files(docs: Docs, target: str, slug: str) -> list[tuple[str, bytes]]:
-    prefix = _key(target, slug, "")
-    return [(key[len(prefix) :], _file_bytes(body)) for key, body, _ in docs.items(FILE, prefix)]
-
-
-def unpack_files(docs: Docs, target: str, slug: str, into: Path) -> Path:
-    """The set's files written out under *into*, emptied first, for an adapter that is handed
-    paths; *into*."""
-    if into.is_dir():
-        shutil.rmtree(into)
-    into.mkdir(parents=True)
-    for path, data in _files(docs, target, slug):
-        out = into / path
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(data)
-    return into
-
-
-# To and from folders
-
-
-def stored_targets(docs: Docs) -> list[str]:
-    """The targets that have a set, sorted."""
-    return sorted({key.split("/", 1)[0] for key in docs.keys(SET)})
-
-
-def delete_set(docs: Docs, target: str, slug: str) -> None:
-    """Set *slug* of *target* gone: its ``set.json``, cases and files."""
-    docs.delete(SET, _key(target, slug))
-    docs.delete_prefix(CASE, _key(target, slug, ""))
-    docs.delete_prefix(FILE, _key(target, slug, ""))
-
-
-def _read_text(path: Path, where: str) -> str:
-    try:
-        return path.read_bytes().decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise CaseError(f"{where}: must be UTF-8 text") from exc
-
-
-def _import_set(docs: Docs, target: str, folder: Path) -> None:
-    slug = folder.name
-    where = f"{target}/{slug}"
-    texts = {SET_FILE: _read_text(folder / SET_FILE, f"{where}/{SET_FILE}")}
-    files: dict[str, bytes] = {}
-    for path in sorted(folder.rglob("*")):
-        rel = path.relative_to(folder).as_posix()
-        if path.is_symlink() or not path.is_file() or rel == SET_FILE:
-            continue
-        if path.parent == folder and rel.endswith(CASE_SUFFIX):
-            if SLUG.match(rel[: -len(CASE_SUFFIX)]):
-                texts[rel] = _read_text(path, f"{where}/{rel}")
-        else:
-            files[rel] = path.read_bytes()
-    delete_set(docs, target, slug)
-    docs.put(SET, _key(target, slug), texts.pop(SET_FILE))
-    for rel, text in texts.items():
-        docs.put(CASE, _key(target, slug, rel[: -len(CASE_SUFFIX)]), text)
-    for rel, data in files.items():
-        docs.put(FILE, _key(target, slug, rel), _file_body(data))
-
-
-def _set_folders(folder: Path, targets: Iterable[str] | None) -> list[tuple[str, Path]]:
-    names = sorted(targets) if targets is not None else None
-    found = []
-    for target in sorted(folder.iterdir()) if folder.is_dir() else []:
-        if not target.is_dir() or not SLUG.match(target.name):
-            continue
-        if names is not None and target.name not in names:
-            continue
-        found += [
-            (target.name, s)
-            for s in sorted(target.iterdir())
-            if SLUG.match(s.name) and (s / SET_FILE).is_file() and not s.is_symlink()
-        ]
-    return found
-
-
-def import_sets(docs: Docs, folder: Path, targets: Iterable[str] | None = None) -> list[str]:
-    """Every set in *folder* (``<target>/<set>/set.json``, of *targets* only when given) put in
-    the workspace, each replacing the set of that name whole; ``<target>/<set>`` of each.
-    Symbolic links are left out.
-
-    :raises CaseError: A file that is not UTF-8 text where text is wanted; nothing of that set is
-        changed.
-    """
-    done = []
-    for target, path in _set_folders(folder, targets):
-        _import_set(docs, target, path)
-        done.append(f"{target}/{path.name}")
-    return done
-
-
-def export_sets(docs: Docs, folder: Path, targets: Iterable[str] | None = None) -> list[str]:
-    """Every set of the workspace (of *targets* only when given) written into *folder* as
-    :func:`import_sets` reads it, each set's folder replaced whole; ``<target>/<set>`` of each."""
-    done = []
-    for target in sorted(targets) if targets is not None else stored_targets(docs):
-        for slug in list_sets(docs, target):
-            out = folder / target / slug
-            if out.is_dir() and not out.is_symlink():
-                shutil.rmtree(out)
-            out.mkdir(parents=True, exist_ok=True)
-            (out / SET_FILE).write_bytes(_set_text(docs, target, slug).encode())
-            for stem in case_stems(docs, target, slug):
-                text = case_text(docs, target, slug, stem)
-                (out / f"{stem}{CASE_SUFFIX}").write_bytes(text.encode())
-            for path, data in _files(docs, target, slug):
-                (out / path).parent.mkdir(parents=True, exist_ok=True)
-                (out / path).write_bytes(data)
-            done.append(f"{target}/{slug}")
-    return done

@@ -40,7 +40,8 @@ from evalution.results.record import (
 )
 from evalution.results.views import report_facts
 from evalution.suite import library
-from evalution.suite.cases import CaseError, is_benchmark, load_cases, load_set, own_sets, slugify
+from evalution.suite.cases import CaseError, is_benchmark, slugify
+from evalution.suite.store import load_cases, load_set, own_sets
 from evalution.targets import Targets
 
 DAY = 24 * 3600

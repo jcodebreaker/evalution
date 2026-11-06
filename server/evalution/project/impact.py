@@ -39,7 +39,8 @@ from evalution.project.profile import (
     updates,
     write_doc,
 )
-from evalution.suite.cases import CaseError, is_benchmark, load_cases, own_sets
+from evalution.suite.cases import CaseError, is_benchmark
+from evalution.suite.store import load_cases, own_sets
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
