@@ -36,6 +36,7 @@ import time
 from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -229,7 +230,7 @@ class Runs:
 
     def __init__(self, targets: Targets, llm: LLM | None) -> None:
         self.targets = targets
-        self.store = RunStore(targets.docs)
+        self.store = RunStore(targets.docs, partial(trust.settle, targets.docs))
         #: One run or analysis at a time on this data folder, whichever process plays it.
         self.lock = RunLock(targets.config.data_dir)
         self.llm = llm
@@ -638,14 +639,7 @@ class Runs:
         try:
             await self._recheck_labels(doc, JudgeStamp.model_validate(doc["judge"]))
             trust.apply(self.targets.docs, doc)
-            await asyncio.to_thread(
-                trust.apply_stored,
-                self.store,
-                self.targets.docs,
-                doc["target"],
-                doc["set"],
-                doc["run"],
-            )
+            await trust.apply_stored(self.store, self.targets.docs, doc["target"], doc["set"])
         except Exception:
             _logger.warning("evals: run %s: labelled examples not read", doc["run"], exc_info=True)
 

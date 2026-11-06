@@ -372,7 +372,7 @@ async def test_7_grading_again_needs_evidence_and_only_adds(make_rig, monkeypatc
     run, stem = doc["run"], next(iter(doc["cases"]))
     # A person says the grader's pass is wrong on every try: its passes stop counting.
     for n in (1, 2, 3):
-        trust.label(rig.runs.store, rig.docs, run, stem, n, 0, agree=False)
+        await trust.label(rig.runs.store, rig.docs, run, stem, n, 0, agree=False)
     assert _verdict(rig.runs.load(run)) == "unjudged"
     rig.judge.default = "fail"
     estimate = rig.runs.estimate_regrade(run)

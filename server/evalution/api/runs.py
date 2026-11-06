@@ -172,9 +172,7 @@ def runs_router() -> APIRouter:
         if not isinstance(agree, bool):
             raise invalid("agree: must be true or false")
         try:
-            return await asyncio.to_thread(
-                trust.label, ws.runs.store, ws.targets.docs, run, case, n, line, agree
-            )
+            return await trust.label(ws.runs.store, ws.targets.docs, run, case, n, line, agree)
         except LookupError as exc:
             raise not_found("Rubric line") from exc
         except ValueError as exc:
@@ -184,9 +182,7 @@ def runs_router() -> APIRouter:
     async def delete_label(ws: Current, run: str, case: str, n: int, line: int) -> dict[str, Any]:
         """Forget the person's answer on that line. The line's agreement after it."""
         try:
-            return await asyncio.to_thread(
-                trust.unlabel, ws.runs.store, ws.targets.docs, run, case, n, line
-            )
+            return await trust.unlabel(ws.runs.store, ws.targets.docs, run, case, n, line)
         except LookupError as exc:
             raise not_found("Answer") from exc
         except ValueError as exc:

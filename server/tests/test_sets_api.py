@@ -36,7 +36,7 @@ from evalution.judging.labels import LABEL
 from evalution.results.migrate import upcast
 from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary, totals
-from evalution.runs import collect
+from evalution.runs import collect, trust
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.suite.cases import CaseError, is_benchmark, meaning_changes
@@ -187,8 +187,16 @@ def test_a_line_the_grader_too_often_gets_wrong_stops_earning_passes(client, tmp
     assert client.get("/v1/evals/runs/r1").json()["totals"]["passed"] == 1, "two aren't a pattern"
 
     # A third: the grader is unreliable on the line, and its passes count for nothing, here and in
-    # the set's other runs, in the totals and in the comparison.
-    client.put(url.format(3), json={"agree": False})
+    # the set's other runs, in the totals and in the comparison. Given while a regrade holds the
+    # run, the regrade's save after it can't write over what the label did.
+    runs = Runs(Targets(load(tmp_path / "evalution.yaml")), None)
+    held = runs.store.load("r1")
+
+    async def label_while_saving() -> None:
+        await trust.label(runs.store, runs.targets.docs, "r1", "greets", 3, 0, agree=False)
+        await runs.store.save(held)
+
+    asyncio.run(label_while_saving())
     for run in ("r0", "r1"):
         detail = client.get(f"/v1/evals/runs/{run}").json()
         assert detail["totals"]["passed"] == 0 and detail["totals"]["unjudged"] == 1

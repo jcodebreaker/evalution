@@ -2,11 +2,13 @@
 or disagrees with the grader on one rubric line of one try; the example is kept
 (:mod:`evalution.judging.labels`), and the runs of its set are read again, so a line the grader
 turns out unreliable on stops passing tries, and one it is trusted on again gives their passes back
-(:func:`evalution.results.record.distrust`). Offline: no model.
+(:func:`evalution.results.record.distrust`), through each run's lock in its
+:class:`~evalution.results.store.RunStore`. Offline: no model.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -72,7 +74,7 @@ def _example(store: RunStore, run: str, case: str, n: int, index: int) -> tuple[
     return doc, example, said
 
 
-def label(
+async def label(
     store: RunStore, docs: Docs, run: str, case: str, n: int, index: int, agree: bool
 ) -> dict[str, Any]:
     """Keep the person's answer on line *index* of try *n*: they *agree* with what the grader says
@@ -81,23 +83,26 @@ def label(
     :raises LookupError: No such run, test, try or line.
     :raises ValueError: The grader didn't decide that line on that try.
     """
-    doc, example, said = _example(store, run, case, n, index)
-    labels.put(docs, doc["target"], {**example, "holds": said if agree else not said})
-    apply_stored(store, docs, doc["target"], doc["set"])
-    return _line_view(docs, doc, case, n, example["text"])
+    doc, example, said = await asyncio.to_thread(_example, store, run, case, n, index)
+    held = {**example, "holds": said if agree else not said}
+    await asyncio.to_thread(labels.put, docs, doc["target"], held)
+    await apply_stored(store, docs, doc["target"], doc["set"])
+    return await asyncio.to_thread(_line_view, docs, doc, case, n, example["text"])
 
 
-def unlabel(store: RunStore, docs: Docs, run: str, case: str, n: int, index: int) -> dict[str, Any]:
+async def unlabel(
+    store: RunStore, docs: Docs, run: str, case: str, n: int, index: int
+) -> dict[str, Any]:
     """Forget the person's answer on line *index* of try *n*. The line's agreement after it.
 
     :raises LookupError: No such run, test, try or line, or no answer on it.
     :raises ValueError: The grader didn't decide that line on that try.
     """
-    doc, example, _ = _example(store, run, case, n, index)
-    if not labels.clear(docs, doc["target"], example):
+    doc, example, _ = await asyncio.to_thread(_example, store, run, case, n, index)
+    if not await asyncio.to_thread(labels.clear, docs, doc["target"], example):
         raise LookupError("no answer on this line")
-    apply_stored(store, docs, doc["target"], doc["set"])
-    return _line_view(docs, doc, case, n, example["text"])
+    await apply_stored(store, docs, doc["target"], doc["set"])
+    return await asyncio.to_thread(_line_view, docs, doc, case, n, example["text"])
 
 
 def apply(docs: Docs, doc: dict[str, Any]) -> int:
@@ -105,21 +110,20 @@ def apply(docs: Docs, doc: dict[str, Any]) -> int:
     return distrust(doc, unreliable_lines(labels.of(docs, doc["target"], doc["set"])))
 
 
-def apply_stored(
-    store: RunStore, docs: Docs, target: str, set_name: str, skip: str | None = None
-) -> list[str]:
-    """:func:`apply` to every stored run of the set but a going one, which is read again as it ends,
-    and *skip*, which the caller holds; the runs changed."""
-    lines = unreliable_lines(labels.of(docs, target, set_name))
-    changed = []
-    for run in store.all(target, set_name):
-        if run.get("status") == "running" or run["run"] == skip:
-            continue
-        if distrust(run, lines):
-            run["totals"] = totals(run)
-            store.write(run)
-            changed.append(run["run"])
-    return changed
+def settle(docs: Docs, doc: dict[str, Any]) -> bool:
+    """:func:`apply`, with *doc*'s totals counted again when it changed it: what a run store does
+    before each save, so a run held in memory while a label changed can't write over it."""
+    if not apply(docs, doc):
+        return False
+    doc["totals"] = totals(doc)
+    return True
+
+
+async def apply_stored(store: RunStore, docs: Docs, target: str, set_name: str) -> list[str]:
+    """:func:`settle` every stored run of the set, each under its run's lock; the runs changed. One
+    held in memory is settled again as it is saved."""
+    ids = [r["run"] for r in await asyncio.to_thread(store.all, target, set_name)]
+    return [run for run in ids if await store.update(run, lambda doc: settle(docs, doc))]
 
 
 def lines_view(
