@@ -13,6 +13,7 @@ export function Picker<T extends string>({
   options,
   onPick,
   actions = [],
+  header,
   className,
 }: {
   /** The accessible name of the picker. */
@@ -22,6 +23,8 @@ export function Picker<T extends string>({
   onPick: (value: T) => void;
   /** Shown under the options, after a hairline. */
   actions?: { label: ReactNode; onClick: () => void }[];
+  /** A quiet line above the options, after which a hairline. */
+  header?: ReactNode;
   className?: string;
 }) {
   return (
@@ -39,6 +42,12 @@ export function Picker<T extends string>({
       <Menu.Portal>
         <Menu.Positioner sideOffset={4} align="start" className="z-50 outline-none">
           <Menu.Popup className="min-w-44 rounded-lg bg-popover p-1 text-[13px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
+            {header ? (
+              <>
+                <div className="truncate px-2 pt-1 pb-1.5 text-[12px] text-ink-3">{header}</div>
+                <Menu.Separator className="mx-1 my-1 h-px bg-separator" />
+              </>
+            ) : null}
             {options.map((option) => (
               <Menu.Item key={option.value} onClick={() => onPick(option.value)} className={ITEM}>
                 {option.label}

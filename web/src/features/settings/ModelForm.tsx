@@ -6,6 +6,7 @@ import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/field";
 import { Spinner } from "../../ui/loading";
+import { useAccount } from "../account/account";
 import { Group } from "../shared/group";
 import { hostOf, KEY_LEFT_BEHIND } from "../shared/hosts";
 import { Row } from "../shared/Row";
@@ -27,6 +28,9 @@ export function ModelForm({
   onSaved: (keyDropped: boolean) => Promise<unknown>;
 }) {
   const fixed = saved.source === "config";
+  // Hosted, the key is the signed-in person's own, kept apart from the workspace's model choice.
+  const account = useAccount();
+  const ownKey = account?.me.model_key ?? null;
   const [provider, setProvider] = useState(saved.provider);
   const [baseUrl, setBaseUrl] = useState(saved.provider === "compatible" ? saved.base_url : "");
   const [key, setKey] = useState("");
@@ -67,12 +71,12 @@ export function ModelForm({
   });
   const options = models.status === "ready" ? models.data : null;
 
-  const form = (): ModelBody => ({
+  const form = (withKey = true): ModelBody => ({
     provider,
     ...(url ? { base_url: url } : {}),
     strong,
     light,
-    ...(key ? { key } : {}),
+    ...(key && withKey ? { key } : {}),
   });
   const runTest = async () => {
     setTesting(true);
@@ -90,7 +94,11 @@ export function ModelForm({
     setError(null);
     setOutcome(null);
     try {
-      const done = await api.model.save(form());
+      if (account && key) {
+        await api.modelKey.set(key);
+        await account.reload();
+      }
+      const done = await api.model.save(form(!account));
       setKey("");
       setOutcome(done.key_dropped ? `Saved. ${KEY_LEFT_BEHIND}` : "Saved.");
       await onSaved(done.key_dropped);
@@ -105,8 +113,25 @@ export function ModelForm({
   const host = hostOf(url || (saved.addresses[provider] ?? ""));
   const moved = !!saved.strong && !!host && host !== hostOf(saved.base_url);
   const stored = saved.source === "page" && saved.key_set;
-  const keyHint =
-    saved.source === "env" ? "From EVALUTION_MODEL_KEY" : stored && !moved ? "Saved" : "";
+  const keyHint = ownKey
+    ? ownKey.set
+      ? `•••• ${ownKey.last4 ?? ""}`
+      : ""
+    : saved.source === "env"
+      ? "From EVALUTION_MODEL_KEY"
+      : stored && !moved
+        ? "Saved"
+        : "";
+  const deleteKey = async () => {
+    if (!account) return;
+    setError(null);
+    try {
+      await api.modelKey.remove();
+      await account.reload();
+    } catch (failure) {
+      setError(errorText(failure, "Couldn't delete the key."));
+    }
+  };
 
   return (
     <form
@@ -160,15 +185,22 @@ export function ModelForm({
         ) : null}
         {fixed ? null : (
           <Row label="API key">
-            <Input
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              onBlur={() => setListKey(key.trim())}
-              disabled={saved.source === "env"}
-              type="password"
-              autoComplete="off"
-              placeholder={keyHint}
-            />
+            <span className="flex min-w-0 items-center gap-2">
+              <Input
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+                onBlur={() => setListKey(key.trim())}
+                disabled={!account && saved.source === "env"}
+                type="password"
+                autoComplete="off"
+                placeholder={keyHint}
+              />
+              {ownKey?.set ? (
+                <Button variant="ghost" size="sm" onClick={() => void deleteKey()}>
+                  Delete
+                </Button>
+              ) : null}
+            </span>
           </Row>
         )}
         <Row label="For thinking" hint="Writing tests, reviewing runs, grading">
@@ -194,7 +226,7 @@ export function ModelForm({
         <p className="m-0 text-[12.5px] text-ink-2">{listError} Type their names, or fix it.</p>
       ) : null}
       {note ? <p className="m-0 text-[12.5px] text-ink-2">{note}</p> : null}
-      {stored && moved && !key.trim() ? (
+      {!account && stored && moved && !key.trim() ? (
         <p className="m-0 text-[12.5px] text-ink-2">{KEY_LEFT_BEHIND}</p>
       ) : outcome ? (
         <p className="m-0 text-[12.5px] text-ink-2">{outcome}</p>

@@ -15,8 +15,11 @@ import type { Place, View } from "../../lib/router";
 import type { RunSummary, SetSummary, Target } from "../../lib/schema";
 import { Spinner } from "../../ui/loading";
 import { Picker } from "../../ui/menu";
+import { useAccount } from "../account/account";
+import { WorkspaceMenu } from "../account/WorkspaceMenu";
 import type { Card } from "../learned/ProjectCard";
 import { CardRow } from "../learned/ProjectCard";
+import { Logo } from "./Logo";
 
 /**
  * The app picker (with Connect), then Home, What it learned, Tests, Benchmarks and Runs (with the going run
@@ -64,11 +67,21 @@ export function Sidebar({
     />
   );
   const card = target ? (cards?.get(target) ?? null) : null;
+  const account = useAccount();
   return (
     <aside aria-label="Navigation" className="glass flex min-h-0 flex-col">
-      <div className="flex items-center gap-2.5 border-b border-separator px-4 py-3.5 max-md:hidden">
+      <div
+        className={cn(
+          "flex items-center gap-2.5 border-b border-separator px-4 py-3.5",
+          account ? "min-w-0" : "max-md:hidden",
+        )}
+      >
         <Logo />
-        <span className="text-[16px] font-semibold tracking-[-0.02em]">evalution</span>
+        {account ? (
+          <WorkspaceMenu account={account} />
+        ) : (
+          <span className="text-[16px] font-semibold tracking-[-0.02em]">evalution</span>
+        )}
       </div>
       {target ? (
         <div className="flex min-w-0 flex-col gap-1 px-3 pt-3 pb-2 max-md:pt-3">
@@ -200,37 +213,5 @@ function NavItem({
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
-  );
-}
-
-/**
- * The mark: an `e` in one even stroke. A line across the centre of a circle of radius 22, then 320 degrees
- * around it, leaving 40 open under the line.
- */
-/** The mark: a spider chart whose data shape is the bot. */
-function Logo() {
-  return (
-    <svg viewBox="0 0 64 64" aria-hidden className="size-7 shrink-0">
-      <path
-        d="M57.9 21.3 42.7 6.1H21.3L6.1 21.3v21.4l15.2 15.2h21.4l15.2-15.2z"
-        fill="none"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        className="stroke-foreground opacity-30"
-      />
-      <path
-        d="M6.1 21.3 57.9 42.7M57.9 21.3 6.1 42.7M21.3 6.1l21.4 51.8M42.7 6.1 21.3 57.9"
-        fill="none"
-        className="stroke-foreground opacity-20"
-      />
-      <path
-        d="M54.2 22.8 37.7 18.1H26.3L9.8 22.8l3.7 16.9 13.1 5.2h10.8l13.1-5.2z"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-        className="fill-tint stroke-tint"
-      />
-      <circle cx="26.5" cy="29.5" r="3.2" className="fill-primary-foreground" />
-      <circle cx="37.5" cy="29.5" r="3.2" className="fill-primary-foreground" />
-    </svg>
   );
 }

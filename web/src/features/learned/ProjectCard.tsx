@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../../lib/api";
+import { copy } from "../../lib/clipboard";
 import { cn } from "../../lib/cn";
 import { seconds, usd } from "../../lib/format";
 import type { Understanding } from "../../lib/schema";
@@ -7,25 +8,6 @@ import { MoreMenu } from "../../ui/menu";
 import { Group } from "../shared/group";
 
 export type Card = Understanding["card"];
-
-/** Puts `text` on the clipboard, through a hidden field where the clipboard API is missing. */
-async function copy(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const field = document.createElement("textarea");
-    field.value = text;
-    field.setAttribute("readonly", "");
-    field.style.position = "fixed";
-    field.style.opacity = "0";
-    document.body.append(field);
-    field.select();
-    const done = document.execCommand("copy");
-    field.remove();
-    return done;
-  }
-}
 
 function Figure({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (

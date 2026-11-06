@@ -1273,3 +1273,60 @@ export const HealthSchema = z.object({
 });
 export type Health = z.infer<typeof HealthSchema>;
 export type Period = "7d" | "30d" | "all";
+
+/** A time from the account routes: epoch seconds, or an ISO string; read as seconds. */
+const AtSchema = z
+  .union([z.number(), z.string()])
+  .transform((at) => (typeof at === "number" ? at : Date.parse(at) / 1000));
+
+export const WorkspaceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  personal: z.boolean().default(false),
+});
+export type WorkspaceInfo = z.infer<typeof WorkspaceSchema>;
+
+/** A person's own model key: only its last four characters ever come back. */
+export const ModelKeySchema = z.object({
+  set: z.boolean(),
+  last4: z.string().nullable().default(null),
+});
+
+/** Who is asking, in which workspace (GET /v1/me). Local: not hosted, no user, the one workspace. */
+export const MeSchema = z.object({
+  hosted: z.boolean().default(false),
+  user: z.object({ id: z.string(), email: z.string(), name: z.string().default("") }).nullable(),
+  workspace: WorkspaceSchema.nullable(),
+  workspaces: z.array(WorkspaceSchema).default([]),
+  model_key: ModelKeySchema.default({ set: false, last4: null }),
+});
+export type Me = z.infer<typeof MeSchema>;
+
+export const MemberSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  name: z.string().default(""),
+  joined_at: AtSchema,
+});
+export type Member = z.infer<typeof MemberSchema>;
+
+export const InviteSchema = z.object({ url: z.string(), expires_at: AtSchema.optional() });
+
+export const AcceptedSchema = z.object({ workspace: WorkspaceSchema });
+
+export const ApiTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  created_at: AtSchema,
+  last_used_at: AtSchema.nullable().default(null),
+});
+export type ApiToken = z.infer<typeof ApiTokenSchema>;
+
+/** A token just made: the only time its value is sent. */
+export const NewTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  token: z.string(),
+});
