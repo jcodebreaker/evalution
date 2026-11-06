@@ -191,10 +191,12 @@ async def test_memory_survives_a_break_but_not_a_reset(app, monkeypatch) -> None
     await target.break_conversation(session)
     assert session.id != conversation and session.extra["agent"] == first_agent
     assert (await target.state(session, {"memory_contains": "code is 41"})).ok
+    assert (await target.probe(session, {"memory_contains": "code is 41"})).ok
 
     await target.reset(session)
     assert session.extra["agent"] != first_agent
     assert (await target.state(session, {"memory_lacks": "code is 41"})).ok
+    assert not (await target.probe(session, {"memory_contains": "code is 41"})).ok
 
     await target.close(session)
     assert not stub.agents

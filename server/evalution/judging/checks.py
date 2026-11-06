@@ -53,6 +53,7 @@ _FAILURE = {
     Failure.BLOCKED: WhyUnjudged.BLOCKED,
     Failure.REFUSED: WhyUnjudged.CREDENTIALS_REFUSED,
     Failure.TRANSIENT: WhyUnjudged.APP_BUSY,
+    Failure.LEFTOVER_STATE: WhyUnjudged.LEFTOVER_STATE,
 }
 #: A try cut short by one of these is on the app. Cut short by anything else, what it didn't get to
 #: do says nothing.

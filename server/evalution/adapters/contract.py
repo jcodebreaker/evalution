@@ -3,10 +3,10 @@ anyone who wants it in their own tests.
 
 It plays a short sequence over a real target and checks the adapter, never the agent: sessions are
 unique, a turn returns a reply and ends, the deadline holds, ``close`` works from a rebuilt
-``Session``, what is declared really works, and the session's trace value finds spans. What an app
-answers is not judged, only that the adapter read an answer. It spends :func:`messages_needed`
-messages. Nothing here raises for an adapter that doesn't work: that is what it reports, naming what
-isn't supported, with no stack trace.
+``Session``, what is declared really works (``probe`` on a session yet to send anything), and the
+session's trace value finds spans. What an app answers is not judged, only that the adapter read an
+answer. It spends :func:`messages_needed` messages. Nothing here raises for an adapter that doesn't
+work: that is what it reports, naming what isn't supported, with no stack trace.
 
 The traces live above this layer, so the caller hands in a :data:`SpanCount`.
 
@@ -55,7 +55,9 @@ PROBE = "evalution-contract-probe"
 _404ISH = frozenset({404, 405, 501})
 #: The fields of :class:`Capabilities` that say how a session behaves, and aren't a thing to try.
 _DESCRIPTIVE = frozenset({"isolation", "isolation_note", "clean"})
-_EXERCISED = frozenset({"reset", "conversation_break", "files", "stop", "state_checks", "sections"})
+_EXERCISED = frozenset(
+    {"reset", "conversation_break", "files", "stop", "state_checks", "probe", "sections"}
+)
 _NOT_EXERCISED = {
     "parallel": "two turns at once aren't tried here",
     "background": "work after an answer can't be told from outside",
@@ -164,6 +166,7 @@ class _Sequence:
             ),
             "sections": (declared.sections, target.sections is not Target.sections),
             "state_checks": (bool(declared.state_checks), target.state is not Target.state),
+            "probe": (declared.probe, target.probe is not Target.probe),
         }
         wrong = [name for name, (says, has) in replaced.items() if says != has]
         if wrong:
@@ -317,11 +320,13 @@ class _Sequence:
         else:
             self.said("stop", "ok")
 
-    async def state_checks(self, session: Session) -> None:
+    async def state_checks(self, session: Session, *, before: bool = False) -> None:
+        """Each state check read; *before* the session's first message, through ``probe``."""
+        read, what = (self.target.probe, "probe") if before else (self.target.state, "state check")
         for key in sorted(self.target.capabilities.state_checks):
-            name = f"state check {key}"
+            name = f"{what} {key}"
             try:
-                found = await self.bounded(self.target.state(session, {key: PROBE}))
+                found = await self.bounded(read(session, {key: PROBE}))
             except Exception as exc:
                 self.said(name, "failed", explain(name, exc))
                 continue
@@ -430,6 +435,8 @@ async def run(
                 await steps.reset(first)
             if declared.conversation_break:
                 await steps.conversation_break(first)
+            if declared.probe:
+                await steps.state_checks(second, before=True)
             steps.rest()
             await steps.deadline(second)
         return steps.report
@@ -543,6 +550,8 @@ class AppTarget(Target):
     #   conversation_break=True  async def break_conversation(self, session): same person, new chat
     #   state_checks=frozenset({"memory_contains"})
     #                            async def state(self, session, check) -> StateResult
+    #   probe=True               async def probe(self, session, check) -> StateResult: the same,
+    #                            read once without waiting, before a try's first message
     #   sections=True            def sections(self, request) -> list[Section]
     #   files=True, stop=True    honour send()'s files and stop_after
     #   background=True          the app answers first and works on, and send() waits for the work

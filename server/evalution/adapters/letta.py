@@ -34,6 +34,7 @@ blocked.
 committed in the agent's memory files, since a file only written didn't reach a new conversation
 in testing (``docs/letta-findings.md``). Waits up to :data:`STATE_WAIT_SECONDS` for background
 writes. A committed file deleted but not committed isn't listed, so ``memory_lacks`` can't see it.
+:meth:`LettaTarget.probe` reads the same, once, without waiting.
 
 **At the end** (:meth:`LettaTarget.close`): what the run made stays. With ``cleanup: true`` on the
 target, the agents it made are deleted, and no one else's.
@@ -123,6 +124,7 @@ class LettaTarget(Target):
         cancel=True,
         blocks=True,
         state_checks=frozenset({"memory_contains", "memory_lacks"}),
+        probe=True,
     )
 
     def __init__(self, target: TargetConfig):
@@ -375,12 +377,19 @@ class LettaTarget(Target):
         return Turn(reply, started, time.time(), error=said, ended_as=TurnEnd.FAILED)
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
+        return await self._read(session, check, STATE_WAIT_SECONDS)
+
+    async def probe(self, session: Session, check: dict[str, Any]) -> StateResult:
+        return await self._read(session, check, 0.0)
+
+    async def _read(self, session: Session, check: dict[str, Any], wait: float) -> StateResult:
+        """One memory check, waiting up to *wait* seconds for it to come true."""
         ((key, value),) = check.items()
         if key not in self.capabilities.state_checks:
             return StateResult(False, None, f"letta has no {key!r} check", observed=False)
         needle, want = str(value).casefold(), key == "memory_contains"
         agent = session.extra.get("agent")
-        stop = time.time() + STATE_WAIT_SECONDS
+        stop = time.time() + wait
         while True:
             files = await self._memory(agent)
             if files is None:
