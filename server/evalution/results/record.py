@@ -190,7 +190,10 @@ def distrust(run: dict[str, Any], unreliable: Mapping[str, Set[str]]) -> int:
         (attempt, found)
         for stem, entry in run["cases"].items()
         for attempt in entry.get("tries") or []
-        if (found := distrusted(current(attempt), unreliable.get(stem, set()), _needs(entry)))
+        # A try not judged yet (still being played, or kept from before judgements) has nothing
+        # a person's labels could change.
+        if attempt.get("judgements")
+        and (found := distrusted(current(attempt), unreliable.get(stem, set()), _needs(entry)))
     ]
     if changed and run.get("rules") != RULES_VERSION:
         regrade_rules(run)
