@@ -23,7 +23,6 @@ from evalution.api.app import create_app
 from evalution.config import PhoenixConfig, load
 from evalution.core.evidence import TraceStatus
 from evalution.project import drift, profile
-from evalution.results.store import FileStore
 from evalution.runs import collect as collect_module
 from evalution.runs.collect import Wanted, collect, own_spans
 from evalution.runs.runner import Runs
@@ -705,7 +704,7 @@ async def test_a_mirror_is_one_client_closed_with_its_target(tmp_path, monkeypat
         saved.append(run["status"])
 
     monkeypatch.setattr(sink, "save", save)
-    runs = Runs(targets, FileStore(config.data_dir), None)
+    runs = Runs(targets, None)
     run = {"run": "r1", "target": "bot", "set": "main", "started_at": 1.0, "cases": {}}
     await runs._save({**run, "status": "running"})
     await runs._save({**run, "status": "done"})

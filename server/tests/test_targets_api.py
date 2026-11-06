@@ -473,7 +473,7 @@ def test_a_test_message_and_a_run_keep_out_of_each_others_way(
     monkeypatch.setattr(probe, "check_adapter", one)
 
     # A run in another process holds the lock, and this one's guard sees it.
-    other = RunLock(tmp_path / "data" / "run.lock")
+    other = RunLock(tmp_path / "data")
     assert other.acquire()
     try:
         assert client.post("/v1/targets/shop/check").status_code == 409
@@ -484,10 +484,10 @@ def test_a_test_message_and_a_run_keep_out_of_each_others_way(
     # Control: with no run going it's sent, and lets go of everything after.
     assert client.post("/v1/targets/shop/check").json()["ok"]
     assert keys == [probe.PLAYS_AS] and probe.PLAYS_AS != RUN_KEY
-    assert not runs.probing and not runs.files.lock.held
+    assert not runs.probing and not runs.lock.held
     with pytest.raises(KeyError):
         asyncio.run(runs.start("any"))
-    assert not runs.files.lock.held
+    assert not runs.lock.held
 
 
 def test_addresses_are_explained_in_words(monkeypatch) -> None:

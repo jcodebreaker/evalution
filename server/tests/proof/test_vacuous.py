@@ -62,9 +62,9 @@ from evalution.core.trace import Call
 from evalution.judging.checks import _answering, code_checks
 from evalution.judging.claims import index_of, read_claim
 from evalution.judging.steps import chosen_calls, grade_tools
-from evalution.results import evidence as sidecar
+from evalution.results.evidence import EVIDENCE
 from evalution.results.record import verdict_kind, verdict_of
-from evalution.results.store import FileStore
+from evalution.results.store import RUN, RunLock, RunStore
 from evalution.results.views import (
     _run_test,
     case_detail,
@@ -80,6 +80,7 @@ from evalution.runs.collect import TRACE_WAIT, Wanted, own_spans
 from evalution.runs.play import play_try, play_with_retry
 from evalution.runs.preflight import forget_setup, passed_setups, remember_setup, setup_key
 from evalution.runs.runner import STILL_WORKING, RunBusyError, Runs
+from evalution.storage import Database
 from evalution.suite.cases import parse_case
 from evalution.traces.base import Span, SpanRead, nest
 from evalution.traces.view import answered_at
@@ -351,19 +352,17 @@ async def test_7_control_a_short_try_shows_both(make_rig) -> None:
     assert FORBIDDEN in seen and "check state:memory_lacks" in seen
 
 
-async def test_7_a_try_leaves_its_whole_evidence_beside_the_run(make_rig) -> None:
+async def test_7_a_try_leaves_its_whole_evidence_with_the_run(make_rig) -> None:
     rig = make_rig()
     big = "x" * (ITEM_BYTES + 10_000)
     rig.add(_case({"message": f"Some background on the team: {big}"}, ASKS))
     doc = await rig.run()
-    path = sidecar.path_of(rig.files.runs, doc["run"])
-    assert path.stat().st_mode & 0o777 == 0o600
-    (kept,) = sidecar.read(rig.files.runs, doc["run"])
+    (kept,) = rig.runs.store.evidence(doc["run"])
     assert kept.case == next(iter(doc["cases"])) and len(kept.turns) == 2
     assert kept.turns[0].message.elided == 10_000 + len("Some background on the team: ")
     assert kept.turns[0].message.sha256
     assert kept.model_calls and kept.model_calls[0].sent.text
-    assert len(rig.files.all()) == 1, "the sidecar is no run"
+    assert len(rig.runs.store.all()) == 1, "the evidence is no run"
 
 
 async def test_7_grading_again_needs_evidence_and_only_adds(make_rig) -> None:
@@ -380,7 +379,7 @@ async def test_7_grading_again_needs_evidence_and_only_adds(make_rig) -> None:
     after = rig.runs.load(run)
     judged = after["cases"][stem]["tries"][0]["judgements"]
     assert [j["outcome"] for j in judged] == ["passed", "failed"]
-    sidecar.path_of(rig.files.runs, run).unlink()
+    rig.runs.store.docs.clear_entries(EVIDENCE, run)
     with pytest.raises(ValueError, match="no evidence"):
         rig.runs.estimate_regrade(run)
 
@@ -388,61 +387,59 @@ async def test_7_grading_again_needs_evidence_and_only_adds(make_rig) -> None:
 async def test_7_one_run_at_a_time_across_processes(make_rig) -> None:
     rig = make_rig()
     rig.add(_case(ASKS))
-    other = FileStore(rig.config.data_dir)
-    assert other.lock.acquire()
+    other = RunLock(rig.config.data_dir)
+    assert other.acquire()
     try:
         with pytest.raises(RunBusyError):
             await rig.runs.start(rig.runs.estimate(TARGET, SET, None, None)["token"])
     finally:
-        other.lock.release()
+        other.release()
     await rig.run()
-    assert not rig.files.lock.held
+    assert not rig.runs.lock.held
 
 
 async def test_7_a_stopped_save_cant_land_on_top_of_the_one_after_it(tmp_path) -> None:
-    files = FileStore(tmp_path)
-    written = files.write
+    store = RunStore(Database.open(tmp_path).docs())
+    written = store.write
 
-    def slow_while_running(run: Any, text: str | None = None) -> None:
+    def slow_while_running(run: Any) -> None:
         if run["status"] == "running":
             time.sleep(0.2)
-        written(run, text)
+        written(run)
 
-    files.write = slow_while_running
+    store.write = slow_while_running
     doc = {"run": "r1", "status": "running"}
-    stopping = asyncio.ensure_future(files.save(doc))
+    stopping = asyncio.ensure_future(store.save(doc))
     await asyncio.sleep(0.05)
     stopping.cancel()
     with pytest.raises(asyncio.CancelledError):
         await stopping
     doc["status"] = "stopped"
-    await files.save(doc)
+    await store.save(doc)
     # Control: had the write been lost, or last, this says so.
     await asyncio.sleep(0.3)
-    assert json.loads((tmp_path / "runs" / "r1.json").read_text())["status"] == "stopped"
-    assert [p.name for p in (tmp_path / "runs").iterdir()] == ["r1.json"], "no temporary file left"
+    assert store.docs.get(RUN, "r1")["status"] == "stopped"
 
 
-def test_7_writers_of_one_run_share_no_temporary_file(tmp_path) -> None:
-    files = FileStore(tmp_path)
+def test_7_writers_of_one_run_from_many_threads_leave_one_run(tmp_path) -> None:
+    store = RunStore(Database.open(tmp_path).docs())
     with ThreadPoolExecutor(8) as pool:
-        for found in [pool.submit(files.write, {"run": "r1", "n": n}) for n in range(200)]:
+        for found in [pool.submit(store.write, {"run": "r1", "n": n}) for n in range(200)]:
             found.result()
-    assert json.loads((tmp_path / "runs" / "r1.json").read_text())["run"] == "r1"
-    assert [p.name for p in (tmp_path / "runs").iterdir()] == ["r1.json"]
+    assert store.docs.get(RUN, "r1")["run"] == "r1" and store.ids() == ["r1"]
 
 
 def test_7_one_holder_ending_doesnt_take_the_lock_from_another(tmp_path) -> None:
-    mine = FileStore(tmp_path).lock
+    mine = RunLock(tmp_path)
     assert mine.acquire()  # the pass over a last server's runs
     assert mine.acquire()  # a run starting meanwhile
     mine.release()
     assert mine.held
-    assert not FileStore(tmp_path).lock.acquire(), "another process is still kept out"
+    assert not RunLock(tmp_path).acquire(), "another process is still kept out"
     mine.release()
     assert not mine.held
     # Control: it's free again, and letting go twice takes nothing that isn't there.
-    other = FileStore(tmp_path).lock
+    other = RunLock(tmp_path)
     assert other.acquire()
     mine.release()
     assert other.held
@@ -456,14 +453,14 @@ async def test_7_the_orphan_pass_leaves_a_starting_runs_lock_alone(make_rig) -> 
     marking = rig.runs._mark_stored_orphans
 
     def while_a_run_starts() -> None:
-        assert rig.files.lock.acquire()  # what start does, in the loop's thread
+        assert rig.runs.lock.acquire()  # what start does, in the loop's thread
         marking()
 
     rig.runs._mark_stored_orphans = while_a_run_starts
     await rig.runs.recover()
-    assert rig.files.lock.held
-    rig.files.lock.release()
-    assert not rig.files.lock.held
+    assert rig.runs.lock.held
+    rig.runs.lock.release()
+    assert not rig.runs.lock.held
 
 
 @pytest.mark.parametrize("what", ["open", "reset"])
@@ -482,7 +479,7 @@ async def test_7_an_app_that_never_opens_or_resets_ends_the_run(
     doc = await asyncio.wait_for(rig.run(), 30)
     assert doc["status"] == "failed" and doc["failure"] == APP_NOT_READY
     assert "didn't" in doc["error"] and "in 0 s" in doc["error"]
-    assert not rig.files.lock.held
+    assert not rig.runs.lock.held
 
 
 async def test_7_a_runs_own_exception_keeps_no_login_or_query(make_rig) -> None:
@@ -510,7 +507,7 @@ async def test_7_a_runs_own_exception_keeps_no_login_or_query(make_rig) -> None:
     attempt = _tries(doc)[0]
     assert "app.example.test/c" in attempt["error"]
     assert "fake-pw" not in json.dumps(doc)
-    (kept,) = sidecar.read(rig.files.runs, doc["run"])
+    (kept,) = rig.runs.store.evidence(doc["run"])
     assert "fake-pw" not in kept.model_dump_json() and "fake-key" not in kept.model_dump_json()
 
 
@@ -528,7 +525,7 @@ def _readers(rig, capsys, monkeypatch, tries: set[int]) -> tuple[dict[str, str |
     )
     table = capsys.readouterr().out.splitlines()
     row = next(line for line in table if line.startswith(stem))
-    (doc,) = rig.files.all(TARGET, SET)
+    (doc,) = rig.runs.store.all(TARGET, SET)
     entry = doc["cases"][stem]
     given(any(t["error"] for t in entry["tries"]), "no try lost its traces")
     return {
@@ -1025,13 +1022,13 @@ async def test_13_a_long_test_says_which_message_it_is_on(make_rig) -> None:
     rig = make_rig()
     rig.add({"name": "Long", "turns": [{"message": "One."}, {"message": "Two."}], "reply": RUBRIC})
     seen = []
-    save = rig.files.save
+    save = rig.runs.store.save
 
     async def noting(doc):
         seen.append(dict(doc.get("current") or {}))
         await save(doc)
 
-    rig.files.save = noting
+    rig.runs.store.save = noting
     await rig.run(tries=1)
     assert {(c.get("turn"), c.get("turns")) for c in seen} >= {(1, 2), (2, 2)}
     stages = list(dict.fromkeys(c["stage"] for c in seen if c.get("stage")))
@@ -1089,18 +1086,16 @@ async def test_14_a_restart_reads_as_interrupted_and_a_new_run_can_start(make_ri
     rig.add(LONG)
     started = await _mid_try(rig, from_message=2)
     run = started["run"]
-    # The process dies here: the file stays as it was, with the run going and its session open.
-    file = rig.files.runs / f"{run}.json"
-    left = file.read_text()
-    assert '"status": "running"' in left, "the rig is broken"
+    # The process dies here: the run stays as it was stored, going and with its session open.
+    left = rig.runs.store.docs.get(RUN, run)
+    assert left["status"] == "running", "the rig is broken"
     await rig.runs.stop(run)
-    file.write_text(left)
+    rig.runs.store.docs.put(RUN, run, left)
     rig.agent.cancelled.clear()
     rig.agent.closed.clear()
     rig.agent.hold = None
 
-    rig.files = FileStore(rig.config.data_dir)
-    rig.runs = Runs(rig.targets, rig.files, StubLLM(rig.judge))  # type: ignore[arg-type]
+    rig.runs = Runs(rig.targets, StubLLM(rig.judge))  # type: ignore[arg-type]
     doc = rig.runs.load(run)
     said = summary(doc)
     assert (doc["status"], doc["failure"]) == ("stopped", None)
@@ -2017,7 +2012,7 @@ def test_17_a_pass_with_quiet_tries_says_so_on_its_verdict_line(
     row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith(stem))
     note = "2 of 3 tries couldn't be judged"
     assert note in row
-    (doc,) = rig.files.all(TARGET, SET)
+    (doc,) = rig.runs.store.all(TARGET, SET)
     entry = doc["cases"][stem]
     assert _verdict(doc) == "pass", "it isn't held against the agent"
     assert case_row(stem, entry["name"], entry)["note"] == note
@@ -2226,7 +2221,7 @@ def test_17_a_cli_run_with_only_refused_tests_plays_nothing(make_rig, capsys, mo
     capsys.readouterr()
     assert cli.main(["--config", str(rig.config_file), *THE_RUN]) != 0
     assert "no_such_check" in "".join(capsys.readouterr())
-    assert rig.agent.every_send == 0 and not rig.files.all(TARGET, SET)
+    assert rig.agent.every_send == 0 and not rig.runs.store.all(TARGET, SET)
 
 
 # M9. Grading again without a grader

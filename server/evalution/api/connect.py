@@ -92,7 +92,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
     def claim(name: str) -> None:
         """One message at a time per app, and none while a run plays, in this process or another;
         no run starts while it's on its way. :func:`let_go` when it has ended."""
-        if runs.busy() or (name not in probes.busy and not runs.files.lock.acquire()):
+        if runs.busy() or (name not in probes.busy and not runs.lock.acquire()):
             raise busy("A run is going. Try again when it ends.")
         if name in probes.busy:
             raise busy("A test message is already on its way.")
@@ -100,7 +100,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
 
     def let_go(name: str) -> None:
         probes.busy.discard(name)
-        runs.files.lock.release()
+        runs.lock.release()
 
     @contextlib.contextmanager
     def changing(name: str) -> Iterator[None]:

@@ -18,7 +18,7 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.llm import cut, fenced
 from evalution.project import drift, knowledge, library_fit, profile, understanding
-from evalution.results import evidence as sidecar
+from evalution.results.evidence import look_into
 from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
 from evalution.runs.estimate import suggest_seconds
@@ -352,14 +352,14 @@ class Tools:
         find = args.get("find")
         kept = await asyncio.to_thread(
             lambda: next(
-                (e for e in sidecar.read(self.runs.files.runs, run) if e.case == case and e.n == n),
+                (e for e in self.runs.store.evidence(run) if e.case == case and e.n == n),
                 None,
             )
         )
         if kept is None:
             raise LookupError(f"no traces kept for try {n} of {case} in run {run}")
         turn.read.append(f"Read the traces of try {n} of {case}")
-        looked = sidecar.look_into(kept, str(find) if find else None)
+        looked = look_into(kept, str(find) if find else None)
         return fenced("the traces", json.dumps(looked, ensure_ascii=False))
 
     async def read_profile(self, turn: AgentTurn, _args: dict) -> Any:

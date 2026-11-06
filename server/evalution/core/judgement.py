@@ -1,7 +1,7 @@
 """What a judgement is, as data (docs/judging.md): the words every part of evalution shares for how
 a check, a try and a test came out. How they are decided is :mod:`evalution.core.rules`.
 
-Models are frozen and dump to the plain JSON a run file holds; reading one back validates it.
+Models are frozen and dump to the plain JSON a stored run holds; reading one back validates it.
 """
 
 from __future__ import annotations

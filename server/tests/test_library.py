@@ -26,7 +26,6 @@ from evalution.benchmarks.longmemeval import (
 from evalution.benchmarks.planning import probe, read_plan
 from evalution.config import load
 from evalution.llm import LLM
-from evalution.results.store import FileStore
 from evalution.runs.play import play_try
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, parse_case
@@ -170,7 +169,7 @@ async def test_the_agent_adapts_only_what_fits(tmp_path) -> None:
     (tmp_path / "sets" / "bot" / "main").mkdir(parents=True)
     (tmp_path / "sets" / "bot" / "main" / "set.json").write_text(json.dumps({"name": "Main"}))
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     agent = Agent(runs, SessionStore(runs.targets.docs), None)
     opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
@@ -437,7 +436,7 @@ async def test_any_app_goes_from_plan_to_report(
 
     llm = LLM(config.model, transport=httpx.MockTransport(model))
     targets = Targets(config)
-    runs = Runs(targets, FileStore(config.data_dir), llm)
+    runs = Runs(targets, llm)
     plan = await planning.plan_for(targets, "bot", target, llm.caller("strong"), config.data_dir)
     assert plan["boundary"] == boundary and plan["probe"]["ok"] and plan["probe"]["answered"]
     assert plan["questions"] == 3 and plan["messages"] == 12

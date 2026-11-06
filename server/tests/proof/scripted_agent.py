@@ -45,7 +45,6 @@ from evalution.core.trace import Section
 from evalution.judging.rubric import FILLER_INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
 from evalution.judging.rubric import INSTRUCTIONS as GRADER_INSTRUCTIONS
 from evalution.llm import LLMError
-from evalution.results.store import FileStore
 from evalution.review.findings import REPORT_INSTRUCTIONS, RUN_INSTRUCTIONS, TRY_INSTRUCTIONS
 from evalution.runs.runner import Runs
 from evalution.suite import library
@@ -901,8 +900,7 @@ class Rig:
         self.config = load_config(self.config_file)
         self.targets = Targets(self.config)
         self.judge = judge or StubJudge(self.faults)
-        self.files = FileStore(self.config.data_dir)
-        self.runs = Runs(self.targets, self.files, StubLLM(self.judge))  # type: ignore[arg-type]
+        self.runs = Runs(self.targets, StubLLM(self.judge))  # type: ignore[arg-type]
         self.set_root = self.targets.sets(TARGET)
         (self.set_root / SET).mkdir(parents=True)
         (self.set_root / SET / "set.json").write_text(json.dumps({"name": "Proof"}))

@@ -49,7 +49,7 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         caller = runs.caller("strong")
         if caller is None:
             raise invalid("Planning needs a model. Set one up in Settings.")
-        if runs.busy() or not runs.files.lock.acquire():
+        if runs.busy() or not runs.lock.acquire():
             raise busy("A run is going. Plan again when it ends.")
         try:
             return await planning.plan_for(
@@ -60,7 +60,7 @@ def benchmarks_router(runs: Runs) -> APIRouter:
         except (httpx.HTTPError, OSError) as exc:
             raise invalid(f"Couldn't try the plan on this app: {exc}") from exc
         finally:
-            runs.files.lock.release()
+            runs.lock.release()
 
     @router.post("/benchmarks/plan/approve")
     async def approve_plan(body: dict[str, Any]) -> dict[str, Any]:

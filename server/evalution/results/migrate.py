@@ -1,8 +1,8 @@
 """Stored runs of older shapes, read as today's (docs/judging.md, "Old runs").
 
-:func:`upcast` is pure and runs on every read, so a file from any version reads as schema
-:data:`~evalution.results.record.SCHEMA`. :func:`migrate_dir` rewrites the files on disk, keeping
-each original beside it as ``.bak``; running it again changes nothing.
+:func:`upcast` is pure and runs on every read, so a run from any version reads as schema
+:data:`~evalution.results.record.SCHEMA`. :meth:`~evalution.results.store.RunStore.upcast_all`
+rewrites the stored ones; running it again changes nothing.
 
 Schema 0 kept a ``passed`` boolean, an error string and step statuses. Here they become the checks
 they were, judged under today's rules with ``rules_from: 0``; ``passed`` stays as ``legacy_passed``.
@@ -13,11 +13,7 @@ Their judge is on record by key only, so they are comparable with nothing.
 from __future__ import annotations
 
 import copy
-import json
-import logging
-import shutil
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 from evalution.core.case import DEFAULT_PASS_MARKS
@@ -37,7 +33,6 @@ from evalution.core.rules import judgement, line_outcome, rubric_outcome, tools_
 from evalution.results.record import SCHEMA
 from evalution.results.views import totals
 
-_logger = logging.getLogger(__name__)
 #: What reading something that isn't a run raises, whichever part of it is off.
 UNREADABLE = (ValueError, KeyError, TypeError, AttributeError)
 _NO_TRACES = "No traces arrived, so this try could not be judged"
@@ -421,38 +416,3 @@ def _zero_to_one(old: Mapping[str, Any]) -> dict[str, Any]:
 def upcast(doc: dict[str, Any]) -> dict[str, Any]:
     """*doc* as today's schema: the same object when it already is."""
     return doc if int(doc.get("schema") or 0) >= SCHEMA else _zero_to_one(doc)
-
-
-def keep_original(path: Path) -> None:
-    """Keep the run file at *path* as ``<run>.json.bak`` if it's of an older schema, before
-    something writes it as today's. An earlier copy is never overwritten."""
-    if int(json.loads(path.read_text(encoding="utf-8")).get("schema") or 0) >= SCHEMA:
-        return
-    bak = path.with_name(f"{path.name}.bak")
-    if not bak.exists():
-        shutil.copy2(path, bak)
-
-
-def migrate_dir(runs: Path, unreadable: list[str] | None = None) -> list[str]:
-    """Rewrite every run file of an older schema in *runs*, each original kept beside it as
-    ``<run>.json.bak``, which a later run of this never overwrites. The runs it changed; a file that
-    doesn't read as a run is left as it is, for the others' sake, and named in *unreadable*."""
-    changed = []
-    for path in sorted(runs.glob("*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-            new = upcast(doc)
-        except (OSError, *UNREADABLE) as exc:
-            _logger.warning("evals: run file %s unreadable: %s", path, type(exc).__name__)
-            if unreadable is not None:
-                unreadable.append(path.stem)
-            continue
-        if new is doc:
-            continue
-        keep_original(path)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(new, ensure_ascii=False), encoding="utf-8")
-        shutil.copymode(path, tmp)
-        tmp.replace(path)
-        changed.append(path.stem)
-    return changed

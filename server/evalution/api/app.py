@@ -35,7 +35,7 @@ from evalution.config import Config
 from evalution.connect import discover
 from evalution.llm import LLM
 from evalution.project import drift, impact, knowledge
-from evalution.results.store import FileStore, FolderUse
+from evalution.results.store import FolderUse
 from evalution.runs.runner import Runs
 from evalution.targets import Targets
 from evalution.traces.managed import Supervisor
@@ -113,8 +113,7 @@ def create_app(
     if targets.store is not None:
         targets.managed_url = url
     llm = LLM(config.model, spend_file=config.spend_file)
-    files = FileStore(config.data_dir)
-    runs = Runs(targets, files, llm)
+    runs = Runs(targets, llm)
     agent = Agent(runs, SessionStore(targets.docs), llm)
     found = discover.Discoveries(
         config.root,

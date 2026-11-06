@@ -1,6 +1,6 @@
 """``evalution backup | upgrade | restore``: tests and past reports survive new code, the copy stays
-private, and a restore puts back exactly what was there. Over the old run files of
-``fixtures/runs``."""
+private, and a restore puts back exactly what was there. Over the old runs of ``fixtures/runs``,
+stored as they were written."""
 
 import json
 import os
@@ -9,7 +9,9 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -18,10 +20,13 @@ from fastapi.testclient import TestClient
 from evalution.api.app import create_app
 from evalution.cli import main
 from evalution.config import load
+from evalution.results.evidence import EVIDENCE
 from evalution.results.migrate import upcast
 from evalution.results.record import SCHEMA
-from evalution.results.store import FolderUse, RunLock
+from evalution.results.store import RUN, FolderUse, RunLock, RunStore
 from evalution.results.views import summary
+from evalution.storage import Database, Docs
+from evalution.storage.database import URL_ENV
 
 RUNS = Path(__file__).parent / "fixtures" / "runs"
 REPO = Path(__file__).parents[2]
@@ -38,13 +43,12 @@ CASE = {
 def home(tmp_path) -> Path:
     """A folder as an install leaves it: old runs, a test, what it learned, settings, a secret."""
     root = tmp_path / "home"
-    runs = root / "data" / "runs"
-    runs.mkdir(parents=True)
+    docs = _docs(root)
     for name in OLD_RUNS:
-        shutil.copy(RUNS / f"{name}.json", runs / f"{name}.json")
+        docs.put(RUN, name, json.loads((RUNS / f"{name}.json").read_text()))
     current = upcast(json.loads((RUNS / "v0-first.json").read_text()))
-    (runs / "current.json").write_text(json.dumps({**current, "run": "current"}))
-    (runs / "current.evidence.jsonl.gz").write_bytes(b"not read here")
+    docs.put(RUN, "current", {**current, "run": "current"})
+    docs.append(EVIDENCE, "current", {"not": "read here"})
     tests = root / "sets" / "my-app" / "main"
     tests.mkdir(parents=True)
     (tests / "set.json").write_text(json.dumps({"name": "Main"}))
@@ -58,13 +62,41 @@ def home(tmp_path) -> Path:
     return root
 
 
+def _docs(root: Path) -> Docs:
+    return Database.open(root / "data").docs()
+
+
+def _run_in(database: Path, run: str) -> dict[str, Any]:
+    """*run* as the database file at *database* holds it, read without changing the file."""
+    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as db:
+        (body,) = db.execute(
+            "SELECT body FROM documents WHERE kind = ? AND key = ?", (RUN, run)
+        ).fetchone()
+    return json.loads(body)
+
+
 def everything(root: Path) -> dict[str, bytes]:
-    """Every file under *root*, but the backups and the lock."""
-    return {
+    """Every file under *root*, but the backups and the lock; the database as what it holds, which
+    SQLite's own copy keeps where it may not keep the bytes."""
+    found = {
         p.relative_to(root).as_posix(): p.read_bytes()
         for p in root.rglob("*")
-        if p.is_file() and "backups" not in p.parts and p.name != "run.lock"
+        if p.is_file()
+        and "backups" not in p.parts
+        and p.name != "run.lock"
+        and not p.name.startswith("evalution.db")
     }
+    database = root / "data" / "evalution.db"
+    if database.is_file():
+        with closing(sqlite3.connect(database)) as db:
+            held = [
+                db.execute(
+                    f"SELECT workspace, kind, key, body FROM {table} ORDER BY 1, 2, 3"
+                ).fetchall()
+                for table in ("documents", "entries")
+            ]
+        found["data/evalution.db"] = repr(held).encode()
+    return found
 
 
 def said(capsys) -> tuple[str, str]:
@@ -85,13 +117,13 @@ def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> N
     assert SECRET not in out
 
     # The old runs are today's shape now, and say what they said under the old one.
-    runs = home / "data" / "runs"
+    docs = _docs(home)
     for name, doc in old.items():
-        stored = json.loads((runs / f"{name}.json").read_text())
+        stored = docs.get(RUN, name)
         assert stored["schema"] == SCHEMA
         assert summary(stored) == summary(upcast(doc))
-        assert (runs / f"{name}.json.bak").read_bytes() == (RUNS / f"{name}.json").read_bytes()
-    assert (runs / "current.json").read_bytes() == before["data/runs/current.json"]
+    current = upcast(json.loads((RUNS / "v0-first.json").read_text()))
+    assert docs.get(RUN, "current") == {**current, "run": "current"}
     assert (home / "sets" / "my-app" / "main" / "fake-greeting.case.json").is_file()
 
     # The server starts over all of it.
@@ -106,6 +138,7 @@ def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> N
     assert SECRET in (backup / "data" / "secrets.json").read_text()
     assert (backup / "settings" / "targets.yaml").is_file()
     assert not (backup / "data" / "run.lock").exists()
+    assert _run_in(backup / "data" / "evalution.db", "v0-edge") == old["v0-edge"]
     manifest = (backup / "manifest.json").read_text()
     assert SECRET not in manifest
 
@@ -118,22 +151,23 @@ def test_an_upgrade_keeps_tests_and_reports_and_can_be_undone(home, capsys) -> N
     assert everything(home) == before
     assert stat.S_IMODE((home / "data" / "secrets.json").stat().st_mode) == 0o600
     assert "4 of 4 runs read" in out and SECRET not in out
-    assert not (home / "data" / "runs" / "v0-edge.json.bak").exists()
+    assert _docs(home).get(RUN, "v0-edge") == old["v0-edge"]
 
     # And a restore backs up what it replaces.
     made = sorted(p for p in (home / "backups").iterdir() if p != backup)
     assert len(made) == 1
-    assert (made[0] / "data" / "runs" / "v0-edge.json.bak").is_file()
+    assert _run_in(made[0] / "data" / "evalution.db", "v0-edge")["schema"] == SCHEMA
 
 
 def test_a_run_that_doesnt_read_is_said_and_stops_nothing_else(home, capsys) -> None:
-    (home / "data" / "runs" / "broken.json").write_text("{ not json")
-    (home / "data" / "runs" / "not-a-run.json").write_text("[1, 2]")
+    docs = _docs(home)
+    docs.put(RUN, "broken", "{ not json")
+    docs.put(RUN, "not-a-run", [1, 2])
     assert main(["--config", str(home / "evalution.yaml"), "upgrade"]) == 1
     out, _ = said(capsys)
     assert "these didn't read before it either: broken, not-a-run" in out
     assert "3 of 6 runs rewritten" in out and "4 of 6 runs read" in out
-    assert (home / "data" / "runs" / "broken.json").read_text() == "{ not json"
+    assert docs.get(RUN, "broken") == "{ not json"
 
 
 @pytest.mark.parametrize("command", ["backup", "upgrade", "restore"])
@@ -144,7 +178,7 @@ def test_nothing_happens_while_a_run_is_going(home, capsys, command) -> None:
     said(capsys)
     before = everything(home)
     args = [command, str(backup)] if command == "restore" else [command]
-    lock = RunLock(home / "data" / "run.lock")
+    lock = RunLock(home / "data")
     assert lock.acquire()
     try:
         assert main(["--config", config, *args]) == 2
@@ -185,7 +219,7 @@ def test_restore_refuses_a_backup_it_cant_trust(home, capsys, damage) -> None:
     if damage == "changed":
         (backup / "data" / "secrets.json").write_text("{}")
     elif damage == "removed":
-        (backup / "data" / "runs" / "v0-first.json").unlink()
+        (backup / "data" / "evalution.db").unlink()
     elif damage == "no manifest":
         manifest.unlink()
     else:
@@ -198,30 +232,24 @@ def test_restore_refuses_a_backup_it_cant_trust(home, capsys, damage) -> None:
     assert everything(home) == before
 
 
-def test_a_database_in_data_is_copied_whole(home) -> None:
-    """A store a live server may be writing through its journal: the copy holds what is committed,
-    and no journal beside it."""
-    traces = home / "data" / "traces"
-    traces.mkdir()
-    db = sqlite3.connect(traces / "spans.db")
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("CREATE TABLE spans (id TEXT)")
-    db.execute("INSERT INTO spans VALUES ('kept')")
-    db.commit()
-    try:
-        assert (traces / "spans.db-wal").exists()
-        assert main(["--config", str(home / "evalution.yaml"), "backup"]) == 0
-    finally:
-        db.close()
+def test_the_database_is_copied_whole_or_said_to_be_elsewhere(home, capsys, monkeypatch) -> None:
+    """The database a live server may be writing through its journal: the copy holds what is
+    committed, and no journal beside it. One that isn't SQLite isn't in it, and that is said."""
+    _docs(home).put(RUN, "late", {"run": "late"})
+    assert (home / "data" / "evalution.db-wal").exists()
+    config = str(home / "evalution.yaml")
+    assert main(["--config", config, "backup"]) == 0
+    assert "its own tools" not in said(capsys)[0]
     (backup,) = (home / "backups").iterdir()
-    copy = backup / "data" / "traces" / "spans.db"
-    assert not copy.with_name("spans.db-wal").exists()
+    copy = backup / "data" / "evalution.db"
+    assert not copy.with_name("evalution.db-wal").exists()
     assert stat.S_IMODE(copy.stat().st_mode) == 0o600
-    copied = sqlite3.connect(copy)
-    try:
-        assert copied.execute("SELECT id FROM spans").fetchall() == [("kept",)]
-    finally:
-        copied.close()
+    assert _run_in(copy, "late") == {"run": "late"}
+
+    monkeypatch.setenv(URL_ENV, "postgresql://user:placeholder@db.invalid/evalution")
+    assert main(["--config", config, "backup"]) == 0
+    out = said(capsys)[0]
+    assert f"${URL_ENV} names is not in it" in out and "placeholder" not in out
 
 
 def test_a_backup_cant_go_inside_what_it_backs_up(home, capsys) -> None:
@@ -287,15 +315,15 @@ def test_install_again_leaves_your_settings_and_data_alone(tmp_path, existing) -
 def test_an_upgrade_that_loses_or_changes_a_run_says_so(home, capsys, monkeypatch) -> None:
     """The check after it is a real one: a rewrite gone wrong, and what to do then."""
 
-    def goes_wrong(runs: Path) -> list[str]:
-        (runs / "v0-edge.json").write_text("{ cut off")
-        doc = json.loads((runs / "current.json").read_text())
+    def goes_wrong(store: RunStore) -> tuple[list[str], list[str]]:
+        store.docs.put(RUN, "v0-edge", "{ cut off")
+        doc = store.docs.get(RUN, "current")
         doc["totals"] = None
         doc["cases"] = {}
-        (runs / "current.json").write_text(json.dumps(doc))
-        return ["v0-edge", "current"]
+        store.docs.put(RUN, "current", doc)
+        return ["v0-edge", "current"], []
 
-    monkeypatch.setattr("evalution.upgrade.migrate_dir", goes_wrong)
+    monkeypatch.setattr(RunStore, "upcast_all", goes_wrong)
     assert main(["--config", str(home / "evalution.yaml"), "upgrade"]) == 1
     out, _ = said(capsys)
     assert "PROBLEM: these no longer read: v0-edge" in out
@@ -352,23 +380,19 @@ def test_migrate_says_what_it_couldnt_read(home, capsys) -> None:
     config = str(home / "evalution.yaml")
     assert main(["--config", config, "migrate"]) == 0  # the control: all of them read
     assert "3 runs rewritten" in said(capsys)[0]
-    (home / "data" / "runs" / "broken.json").write_text("{ not json")
+    _docs(home).put(RUN, "broken", "{ not json")
     assert main(["--config", config, "migrate"]) == 1
     out, err = said(capsys)
     assert "0 runs rewritten" in out and "broken" in err
 
 
-def test_regrading_an_old_file_by_the_rules_keeps_it(home, capsys) -> None:
+def test_regrading_an_old_run_by_the_rules_stores_it_as_today(home, capsys) -> None:
     config = str(home / "evalution.yaml")
-    runs = home / "data" / "runs"
+    docs = _docs(home)
     doc = json.loads((RUNS / "v0-first.json").read_text())
-    (runs / "v0-first.json").write_text(json.dumps({**doc, "run": "v0-first"}))
-    old = (runs / "v0-first.json").read_bytes()
+    docs.put(RUN, "v0-first", {**doc, "run": "v0-first"})
     assert main(["--config", config, "regrade", "v0-first", "--rules"]) == 0
-    assert (runs / "v0-first.json.bak").read_bytes() == old
-    assert (runs / "v0-first.json").read_bytes() != old
-    # Control: today's shape has nothing to keep, and a later regrade doesn't replace the copy.
-    assert main(["--config", config, "regrade", "current", "--rules"]) == 0
-    assert not (runs / "current.json.bak").exists()
-    assert main(["--config", config, "regrade", "v0-first", "--rules"]) == 0
-    assert (runs / "v0-first.json.bak").read_bytes() == old
+    assert docs.get(RUN, "v0-first")["schema"] == SCHEMA
+    # Control: an unknown run is said, and changes nothing.
+    assert main(["--config", config, "regrade", "nope", "--rules"]) == 2
+    assert "no run nope" in said(capsys)[1]

@@ -9,7 +9,7 @@ adapter`` (docs/architecture.md, "Layout").
   estimate and asks before anything spends, unless ``--yes``; then one row per case, the
   totals and each failed try's analysis. Ctrl-C stops the run. Exits 1 when a case did not pass,
   which a test no one could judge didn't.
-* ``migrate``: rewrite the stored runs as today's schema, keeping each original as ``.bak``.
+* ``migrate``: rewrite the stored runs as today's schema.
 * ``backup``, ``upgrade``, ``restore BACKUP``: a private copy of what is kept; that copy, then the
   stored runs rewritten and shown to still read; and putting a copy back (:mod:`evalution.upgrade`).
 * ``adapter test NAME --target T [--yes]``: an adapter's contract over a real target: says how many
@@ -55,9 +55,9 @@ from evalution.connect.connect import check as check_parts
 from evalution.llm import LLM
 from evalution.project import hooks as git_hooks
 from evalution.results.compare import comparison, default_base
-from evalution.results.migrate import keep_original, migrate_dir, upcast
+from evalution.results.migrate import upcast
 from evalution.results.record import pass_marks, regrade_rules
-from evalution.results.store import FileStore
+from evalution.results.store import RunLock, RunStore
 from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
 from evalution.runs.runner import RunBusyError, Runs
@@ -148,7 +148,7 @@ def _targets(config: Config) -> Targets:
 async def run(config: Config, args: argparse.Namespace) -> int:
     targets = _targets(config)
     llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
-    runs = Runs(targets, FileStore(config.data_dir), llm)
+    runs = Runs(targets, llm)
     intake = await _take_traces(targets, args.traces_port) if config.traces.builtin else None
     try:
         await runs.recover()
@@ -215,26 +215,25 @@ async def _take_traces(targets: Targets, port: int) -> tuple[uvicorn.Server, asy
 
 
 async def regrade(config: Config, args: argparse.Namespace) -> int:
-    store = FileStore(config.data_dir)
+    targets = _targets(config)
     if args.rules:
-        if not store.lock.acquire():
+        runs = Runs(targets, None)
+        if not runs.lock.acquire():
             print("evalution: a run is going", file=sys.stderr)
             return 2
         try:
-            doc = store.load(args.run)
+            doc = runs.store.load(args.run)
             if doc is None:
                 print(f"evalution: no run {args.run}", file=sys.stderr)
                 return 2
             added = regrade_rules(doc)
-            keep_original(store.runs / f"{args.run}.json")
-            store.write(doc)
+            runs.store.write(doc)
         finally:
-            store.lock.release()
+            runs.lock.release()
         print(f"evalution: {added} tries judged again under today's rules")
         return 0
-    targets = _targets(config)
     llm = LLM(config.model, spend_file=config.spend_file) if config.model else None
-    runs = Runs(targets, store, llm)
+    runs = Runs(targets, llm)
     try:
         try:
             estimate = runs.estimate_regrade(args.run)
@@ -262,7 +261,7 @@ async def regrade(config: Config, args: argparse.Namespace) -> int:
 
 def compare_runs(config: Config, args: argparse.Namespace) -> int:
     """Print *args.run* against its base; 1 when a test got worse, 2 when it can't be told."""
-    store = FileStore(config.data_dir)
+    store = RunStore(_targets(config).docs)
     found = store.all(args.target, args.set)
     doc = found[0] if args.run == "latest" and found else store.load(args.run)
     if doc is None:
@@ -344,8 +343,7 @@ async def check_target(config: Config, name: str, isolation: bool = False) -> in
 
 
 def migrate(config: Config) -> int:
-    unreadable: list[str] = []
-    changed = migrate_dir(FileStore(config.data_dir).runs, unreadable)
+    changed, unreadable = RunStore(_targets(config).docs).upcast_all()
     print(f"evalution: {len(changed)} runs rewritten")
     if unreadable:
         print(
@@ -398,7 +396,7 @@ def benchmark(config: Config, args: argparse.Namespace) -> int:
         print(f"evalution: {slug} has {count} questions, for target {args.target}")
         print(f"evalution: run it with: evalution run --target {args.target} --set {slug}")
         return 0
-    doc = FileStore(config.data_dir).load(args.run)
+    doc = RunStore(_targets(config).docs).load(args.run)
     if doc is None:
         print(f"evalution: no run {args.run}", file=sys.stderr)
         return 1
@@ -434,13 +432,13 @@ async def adapter_test(config: Config, args: argparse.Namespace) -> int:
     """The contract kit over target ``args.target``: the free setup check, then, once asked, the
     messages. 0 when the adapter keeps its contract."""
     targets = _targets(config)
-    store = FileStore(config.data_dir)
+    lock = RunLock(config.data_dir)
     try:
         conf = targets.conf(args.target)
         if conf.adapter != args.name:
             print(f"evalution: {args.target} uses the {conf.adapter} adapter", file=sys.stderr)
             return 2
-        if not store.lock.acquire():
+        if not lock.acquire():
             print("evalution: a run is going on this data folder", file=sys.stderr)
             return 2
         try:
@@ -481,7 +479,7 @@ async def adapter_test(config: Config, args: argparse.Namespace) -> int:
         print(f"evalution: {report.messages} messages sent. {words}")
         return 1 if failed else 0
     finally:
-        store.lock.release()
+        lock.release()
         await targets.close()
 
 
@@ -616,7 +614,7 @@ def main(argv: list[str] | None = None) -> int:
     service_cmd = sub.add_parser("service", help="keep the page running, from login on")
     service_cmd.add_argument("action", choices=("install", "uninstall", "status"))
     service_cmd.add_argument("--port", type=int, default=8080)
-    sub.add_parser("migrate", help="rewrite stored runs as today's schema, keeping a .bak")
+    sub.add_parser("migrate", help="rewrite stored runs as today's schema")
     keep = sub.add_parser("backup", help="a private copy of data, tests and settings")
     keep.add_argument("--to", type=Path, help="the folder to put it in (default backups/)")
     move = sub.add_parser("upgrade", help="back up, rewrite stored runs, check they all still read")

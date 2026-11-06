@@ -1,42 +1,41 @@
-"""The sidecar of a run: every try's :class:`TryEvidence`, one JSON line each, gzipped, in
-``runs/<run>.evidence.jsonl.gz`` next to the run file. It holds prompts and tool outputs, so it is
-owner-only. Read only by what regrades a try, what checks a claim and what shows or looks into a
-try's traces; the list views never touch it, and
-:meth:`evalution.results.store.FileStore.all` doesn't see it.
+"""A run's evidence: every try's :class:`TryEvidence`, one entry each under the run's id
+(kind :data:`EVIDENCE`). It holds prompts and tool outputs. Read only by what regrades a try, what
+checks a claim and what shows or looks into a try's traces, through
+:meth:`evalution.results.store.RunStore.evidence`; the list views never touch it.
 """
 
 from __future__ import annotations
 
-import gzip
 import logging
-import os
 from collections import Counter
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from evalution.core.evidence import TryEvidence
+from evalution.storage import Docs
 
 _logger = logging.getLogger(__name__)
-SUFFIX = ".evidence.jsonl.gz"
+EVIDENCE = "evidence"
 #: What :func:`look_into` shows of each place: how many, and how much text around the match.
 _HITS = 30
 _AROUND = 160
 
 
-def path_of(runs: Path, run: str) -> Path:
-    return runs / f"{run}{SUFFIX}"
+def keep(docs: Docs, run: str, evidence: TryEvidence) -> None:
+    """Add one try, as soon as it was played, so a run cut short keeps what it played."""
+    docs.append(EVIDENCE, run, evidence.capped().model_dump(mode="json"))
 
 
-def append(runs: Path, run: str, evidence: TryEvidence) -> None:
-    """Add one try. Each try is its own gzip member, so a run cut short keeps what it played."""
-    runs.mkdir(parents=True, exist_ok=True)
-    line = evidence.capped().model_dump_json() + "\n"
-    descriptor = os.open(path_of(runs, run), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(descriptor, "ab") as raw:
-        raw.write(gzip.compress(line.encode()))
+def read(docs: Docs, run: str) -> Iterator[TryEvidence]:
+    """Every try kept for *run*, in the order played; one that no longer reads is left out and
+    logged."""
+    for entry in docs.entries(EVIDENCE, run):
+        try:
+            yield TryEvidence.model_validate(entry.body)
+        except ValidationError:
+            _logger.warning("evals: a try kept for run %s doesn't read", run)
 
 
 def look_into(kept: TryEvidence, find: str | None = None) -> dict[str, Any]:
@@ -74,17 +73,3 @@ def look_into(kept: TryEvidence, find: str | None = None) -> dict[str, Any]:
     found["appears"] = len(hits)
     found["first"] = hits[:_HITS]
     return found
-
-
-def read(runs: Path, run: str) -> Iterator[TryEvidence]:
-    """Every try kept for *run*; none when it has no sidecar. A line that no longer reads is left
-    out and logged."""
-    path = path_of(runs, run)
-    if not path.is_file():
-        return
-    with gzip.open(path, "rt", encoding="utf-8") as lines:
-        for line in lines:
-            try:
-                yield TryEvidence.model_validate_json(line)
-            except ValidationError:
-                _logger.warning("evals: a try in %s doesn't read", path)

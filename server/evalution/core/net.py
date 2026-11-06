@@ -120,7 +120,7 @@ def no_login(text: str) -> str:
 
 
 def said(exc: Exception) -> str:
-    """*exc* in words fit to keep in a run file and show a model: the status and the path of a call
+    """*exc* in words fit to keep with a run and show a model: the status and the path of a call
     that answered, why one that didn't, never the URL as it was called."""
     kind = type(exc).__name__
     if isinstance(exc, httpx.HTTPStatusError):
