@@ -1,5 +1,5 @@
 import { ExternalLink, FileCode, Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { api } from "../../lib/api";
 import type { CaseFileView, Finding } from "../../lib/schema";
@@ -76,11 +76,14 @@ export function TestView({
   const [focus, setFocus] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const key = `${id}:${run}`;
+  // A try asked for in another run, shown once that run's result is.
+  const jump = useRef<{ key: string; n: number; span: string | null } | null>(null);
   useEffect(() => {
-    void key;
-    setTryN(null);
+    const to = jump.current?.key === key ? jump.current : null;
+    jump.current = null;
+    setTryN(to?.n ?? null);
     setMode(null);
-    setFocus(null);
+    setFocus(to?.span ?? null);
   }, [key]);
   const [result, reloadResult] = useLoad(run ? `compare:${run}:${id}:${tryN ?? ""}` : null, () =>
     api.compare(run ?? "", id, tryN),
@@ -184,7 +187,21 @@ export function TestView({
           {view === "result" && shown?.try ? (
             <>
               {shown.explain ? <HowDecided explain={shown.explain} /> : null}
-              {shown.trajectory ? <Trajectory shown={shown} /> : null}
+              {shown.trajectory ? (
+                <Trajectory
+                  shown={shown}
+                  runLabel={runLabel}
+                  onPassing={(other, n, at) => {
+                    if (other === run) {
+                      setTryN(n);
+                      setFocus(at);
+                    } else {
+                      jump.current = { key: `${id}:${other}`, n, span: at };
+                      onRunResult(other);
+                    }
+                  }}
+                />
+              ) : null}
               {shown.output &&
               (shown.output.reply || shown.output.reference || shown.output.must.length) ? (
                 <Output shown={shown} />

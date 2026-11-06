@@ -443,6 +443,8 @@ def case_detail(run: Mapping[str, Any], stem: str) -> dict[str, Any] | None:
         "expected": entry["expected"],
         "reply_rubric": entry["reply_rubric"],
         "finding": finding(entry["tries"]),
+        # Where a failing try first went another way than a passing one (review/divergence.py).
+        "divergence": entry.get("divergence"),
         "tries": tries,
     }
 

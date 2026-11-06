@@ -3,6 +3,9 @@ a stored try laid over it."""
 
 import json
 
+import pytest
+
+from evalution.core.evidence import Clipped, ModelCallRecord, ToolRecord, TryEvidence
 from evalution.core.judgement import (
     CheckKind,
     CheckResult,
@@ -16,6 +19,7 @@ from evalution.core.judgement import (
 from evalution.judging.rubric import parse_grade
 from evalution.results.migrate import upcast
 from evalution.results.views import case_row
+from evalution.review.divergence import Tried, divergence, of_run, steps_of
 from evalution.review.testplan import case_plan, compare, explain, peek, trace_words
 from evalution.storage import Database
 from evalution.suite.cases import parse_case
@@ -320,6 +324,8 @@ async def test_a_stored_try_laid_over_the_plan(tmp_path) -> None:
         ("Reply", "wrong"),
     ]
     assert [s["status"] for s in lanes[1]] == ["ok", "ok"]
+    # A call made carries its span, which a first difference names.
+    assert [s.get("span") for s in lanes[2]] == [None, "c1", "c2", None]
     assert shown["output"]["highlights"] == [
         {"text": "4,828.10", "good": False, "item": "rubric-0"}
     ]
@@ -333,3 +339,107 @@ async def test_a_stored_try_laid_over_the_plan(tmp_path) -> None:
         (None, "never"),
         (None, "extra"),
     ]
+
+
+# Where a failing try first went another way than a passing one
+
+
+def _played(n, calls, sent=(), case="c"):
+    """A try's evidence: *calls* as ``(name, args)``, one a second; *sent* what the model was sent
+    before each, then before the reply."""
+    tools = tuple(
+        ToolRecord(
+            id=f"t{n}-{i}",
+            name=name,
+            args=Clipped(text=json.dumps(args)),
+            result=Clipped(),
+            start=float(i + 1),
+        )
+        for i, (name, args) in enumerate(calls)
+    )
+    models = tuple(
+        ModelCallRecord(
+            n=i + 1, span=f"m{n}-{i}", t=i + 0.5, model="m", sent=Clipped(text=t), said=Clipped()
+        )
+        for i, t in enumerate(sent)
+    )
+    return TryEvidence(case=case, n=n, t0=0.0, seconds=9.0, tools=tools, model_calls=models)
+
+
+SEARCH = ("search", {"query": "north total", "request_id": "9f8e7d6c5b4a3f2e1d0c"})
+RAN = ("run_code", {"code": "sum(north)"})
+ASK = "Total for the North region? Orders file attached."
+REFUNDS = f"{ASK} Refunds within 30 days, from 2026-11-04T09:00:00Z."
+
+
+@pytest.mark.parametrize(
+    ("failing", "sent", "step", "kind", "detail"),
+    [
+        ([SEARCH, ("files_read", {})], (), 1, "tool", "files_read instead of run_code"),
+        (
+            [("search", {"query": "south total", "request_id": "0a1b2c3d4e5f6a7b8c9d"}), RAN],
+            (),
+            0,
+            "args",
+            "search query: “south total” instead of “north total”",
+        ),
+        ([SEARCH], (), 1, "missing", "run_code not called"),
+        (
+            [SEARCH, RAN],
+            (f"{ASK} at 10:42", ASK, f"{ASK} Refunds close 2026-11-05T10:00:00Z."),
+            2,
+            "context",
+            "not sent: “within”, “days”",
+        ),
+        # Only ids and times differ: nothing does.
+        ([SEARCH, RAN], (f"{ASK} at 10:42", ASK, REFUNDS), None, None, None),
+    ],
+)
+def test_a_failing_try_first_differs_from_a_passing_one(failing, sent, step, kind, detail) -> None:
+    passing = _played(1, [SEARCH, RAN], (f"{ASK} at 09:15", ASK, REFUNDS))
+    found = divergence(
+        [Tried("r1", 1, steps_of(passing))],
+        [Tried("r1", 2, steps_of(_played(2, failing, sent or (ASK, ASK, ASK))))],
+    )
+    if step is None:
+        assert found is None
+        return
+    assert found is not None
+    assert (found["step"], found["kind"], found["detail"]) == (step, kind, detail)
+    assert found["pass"] == {"run": "r1", "n": 1, "span": steps_of(passing)[step].span}
+    assert found["fail"]["n"] == 2
+
+
+TRIED = {"tools": 0.0, "reply": 1.0, "seconds": 1.0, "tokens": 1, "usd": 0.0, "automatic": ["auto"]}
+
+
+def test_a_first_difference_from_the_comparison_run_when_none_passed_here() -> None:
+    """A test that passed in the run it is compared with and fails in every try now got worse: its
+    passing try is that run's. Of two failing tries, the one alike the longest is shown."""
+
+    def run(id_, passed):
+        tries = [
+            {"n": n, "passed": p, **TRIED, "error": None if p else "boom"}
+            for n, p in enumerate(passed, 1)
+        ]
+        found = upcast({"run": id_, "cases": {"c": {"tries": tries}}})
+        return {**found, "case_versions": {"c": "v1"}}
+
+    now, before = run("r2", [False, False]), run("r1", [True])
+    hooked = _played(1, [SEARCH, RAN])
+    hooked = hooked.model_copy(
+        update={"tools": (*hooked.tools, hooked.tools[0].model_copy(update={"id": "auto"}))}
+    )
+    kept = [_played(1, [("files_read", {})]), _played(2, [SEARCH, ("files_read", {})])]
+    assert of_run(now, kept)["c"] is None, "nothing passed here, and no run to compare with"
+    found = of_run(now, kept, before, [hooked])["c"]
+    assert found == {
+        "pass": {"run": "r1", "n": 1, "span": "t1-1"},
+        "fail": {"run": "r2", "n": 2, "span": "t2-1"},
+        "step": 1,
+        "kind": "tool",
+        "detail": "files_read instead of run_code",
+    }
+    # Another version of the test is another test: its passes say nothing about this one.
+    before["case_versions"]["c"] = "v0"
+    assert of_run(now, kept, before, [hooked])["c"] is None

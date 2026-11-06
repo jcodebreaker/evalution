@@ -213,6 +213,7 @@ def runs_router() -> APIRouter:
             **shown,
             "run": run,
             "verdict": verdict_kind(entry),
+            "divergence": entry.get("divergence"),
             "tries": [
                 {
                     "n": t["n"],

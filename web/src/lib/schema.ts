@@ -647,6 +647,8 @@ export type TestPlan = z.infer<typeof TestPlanSchema>;
 export const LaneStepSchema = z.object({
   label: z.string(),
   status: z.enum(["ok", "missing", "extra", "wrong", "unjudged", "automatic"]),
+  /** The call's span, when it was made. */
+  span: z.string().optional(),
 });
 export type LaneStep = z.infer<typeof LaneStepSchema>;
 
@@ -688,6 +690,19 @@ export const ToolRowSchema = z.object({
 });
 export type ToolRow = z.infer<typeof ToolRowSchema>;
 
+const DivergedTrySchema = z.object({ run: z.string(), n: z.number(), span: z.string().nullable() });
+
+/** Where a failing try first went another way than a passing one; found by code. */
+export const DivergenceSchema = z.object({
+  pass: DivergedTrySchema,
+  fail: DivergedTrySchema,
+  /** Of the try's tool calls in order, then its reply. */
+  step: z.number(),
+  kind: z.enum(["missing", "tool", "args", "context"]),
+  detail: z.string(),
+});
+export type Divergence = z.infer<typeof DivergenceSchema>;
+
 /** The plan with one try of a run laid over it. */
 const ComparedSideSchema = z
   .object({ verdict: z.string(), passed: z.number(), judged: z.number() })
@@ -720,6 +735,7 @@ export type Comparison = z.infer<typeof ComparisonSchema>;
 export const CompareSchema = TestPlanSchema.extend({
   run: z.string(),
   verdict: VerdictSchema.nullable().default(null),
+  divergence: DivergenceSchema.nullable().catch(null).default(null),
   tries: z
     .array(
       z.object({

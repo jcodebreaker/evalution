@@ -4,6 +4,7 @@
    "about": "Fake about 1.",
    "basis": "model_only",
    "case": "different-route",
+   "divergence": null,
    "expected": {
     "expected": [],
     "extras": true,
@@ -458,6 +459,7 @@
    "about": "Fake about 2.",
    "basis": "model_only",
    "case": "flaky",
+   "divergence": null,
    "expected": {
     "expected": [
      {
@@ -1093,6 +1095,7 @@
    "about": "Fake about 2.",
    "basis": "none",
    "case": "no-traces",
+   "divergence": null,
    "expected": {
     "expected": [
      {
@@ -1792,6 +1795,7 @@
    "about": "Fake about 1.",
    "basis": "none",
    "case": "not-played",
+   "divergence": null,
    "expected": {
     "expected": [],
     "extras": true,
@@ -1827,6 +1831,7 @@
    "about": "Fake about 2.",
    "basis": "model_only",
    "case": "some-no-traces",
+   "divergence": null,
    "expected": {
     "expected": [
      {

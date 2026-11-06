@@ -13,7 +13,14 @@ const NODE: Record<LaneStep["status"] | "plan", string> = {
   automatic: "text-ink-3 ring-1 ring-inset ring-separator",
 };
 
-function Lane({ steps }: { steps: { label: string; status: LaneStep["status"] | "plan" }[] }) {
+function Lane({
+  steps,
+  marked = -1,
+}: {
+  steps: { label: string; status: LaneStep["status"] | "plan" }[];
+  /** The step where this try first differs from a passing one. */
+  marked?: number;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {steps.map((step, index) => (
@@ -23,13 +30,16 @@ function Lane({ steps }: { steps: { label: string; status: LaneStep["status"] | 
             className={cn(
               "inline-flex h-7 items-center rounded-lg px-2.5 text-[12.5px]",
               NODE[step.status],
+              index === marked && "outline-2 outline-offset-1 outline-foreground",
             )}
             title={
-              step.status === "automatic"
-                ? "Ran by itself, not scored"
-                : step.status === "plan" || step.status === "ok"
-                  ? undefined
-                  : step.status
+              index === marked
+                ? DIFFERS
+                : step.status === "automatic"
+                  ? "Ran by itself, not scored"
+                  : step.status === "plan" || step.status === "ok"
+                    ? undefined
+                    : step.status
             }
           >
             {step.label}
@@ -85,13 +95,34 @@ function Call({ label, text }: { label: string; text: string | null }) {
   );
 }
 
-/** What it should do against what each try did: the shown try first. */
-export function Trajectory({ shown }: { shown: Compare }) {
+const DIFFERS = "Differs from passing try";
+
+/** The node of *steps* where the failing try first differs: its call, else its reply (the last). */
+function divergedAt(steps: LaneStep[], span: string | null): number {
+  const found = span ? steps.findIndex((step) => step.span === span) : -1;
+  return found >= 0 ? found : steps.length - 1;
+}
+
+/**
+ * What it should do against what each try did: the shown try first. Where a failing try first
+ * differs from a passing one is marked, with a way to that passing try.
+ */
+export function Trajectory({
+  shown,
+  runLabel,
+  onPassing,
+}: {
+  shown: Compare;
+  runLabel: (run: string) => string;
+  /** Shows the passing try, at the step where they differ. */
+  onPassing: (run: string, n: number, span: string | null) => void;
+}) {
   const trajectory = shown.trajectory;
   if (!trajectory) return null;
   const lanes = [...trajectory.tries].sort(
     (a, b) => Number(b.n === shown.try) - Number(a.n === shown.try) || a.n - b.n,
   );
+  const diverged = shown.divergence?.fail.run === shown.run ? shown.divergence : null;
   return (
     <section className="flex flex-col gap-2">
       <SectionHead title="Trajectory" sub="what it should do vs what it did" />
@@ -113,10 +144,30 @@ export function Trajectory({ shown }: { shown: Compare }) {
             >
               Try {lane.n}
             </span>
-            <Lane steps={lane.steps} />
+            <Lane
+              steps={lane.steps}
+              marked={
+                diverged && lane.n === diverged.fail.n
+                  ? divergedAt(lane.steps, diverged.fail.span)
+                  : -1
+              }
+            />
           </span>
         ))}
       </div>
+      {diverged ? (
+        <p className="m-0 px-1 text-[12px] text-ink-3">
+          <button
+            type="button"
+            className="underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => onPassing(diverged.pass.run, diverged.pass.n, diverged.pass.span)}
+          >
+            {DIFFERS} {diverged.pass.n}
+            {diverged.pass.run === shown.run ? "" : ` (${runLabel(diverged.pass.run)})`}
+          </button>
+          : {diverged.detail}
+        </p>
+      ) : null}
       {lanes.some((lane) => lane.steps.some((step) => step.status === "automatic")) ? (
         <p className="m-0 px-1 text-[12px] text-ink-3">Automatic: ran by itself, not scored</p>
       ) : null}

@@ -32,7 +32,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py the session store, draft.py a case from a try or a conversation
     connect/       connecting a target: connect.py by its settings, discover.py by its project folder
     runs/          play.py one try, collect.py reading its spans back, estimate.py what a run costs, runner.py the one running task
-    review/        findings.py a run's analysis and report, health.py the Home page, testplan.py what a plan will do
+    review/        findings.py a run's analysis and report, health.py the Home page, testplan.py what a plan will do, divergence.py where a failing try first parted from a passing one
     project/       what is known about one target
       drift.py impact.py   noticing a change; what a code change means for the tests
       understanding/       what it understood about the app
