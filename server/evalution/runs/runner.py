@@ -71,7 +71,13 @@ from evalution.judging.steps import Step, check_line, chosen_calls, grade_tools
 from evalution.llm import LLM, Caller, cut, fenced
 from evalution.project import drift, impact
 from evalution.results.compare import default_base
-from evalution.results.record import SCHEMA, add_judgement, pass_marks, verdict_of
+from evalution.results.record import (
+    SCHEMA,
+    add_judgement,
+    environment,
+    pass_marks,
+    verdict_of,
+)
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review.findings import analyze_run, write_report
@@ -381,15 +387,21 @@ class Runs:
         """Whether a run is playing on *target* now; its analysis, after, needs nothing of it."""
         return self.busy() and self._playing == target
 
-    async def start(self, token: str, base: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    async def start(
+        self, token: str, base: Mapping[str, Any] | None = None, env: str | None = None
+    ) -> dict[str, Any]:
         """Start the run an estimate's *token* describes, graded with its set's pass marks; the
         token is spent. *base* is the run it will be compared with, which a case that moved from
-        it plays on against; without one, the run a comparison would choose by default.
+        it plays on against; without one, the run a comparison would choose by default. *env*
+        names where the app played (``staging``); the run is ``hosted`` when no folder of this
+        computer is read, which is how a hosted server plays, else ``local``.
 
         :raises RunBusyError: A run or an analysis is going.
         :raises KeyError: An unknown or expired token.
         :raises CaseError: A case file that no longer reads.
+        :raises ValueError: *env* isn't a name (:func:`~evalution.results.record.environment`).
         """
+        place = environment("local" if self.targets.folders else "hosted", env)
         if self.busy() or self.probing or not self.lock.acquire():
             raise RunBusyError
         plan = self._plans.pop(token, None)
@@ -414,6 +426,7 @@ class Runs:
             "run": f"{stamp}-{secrets.token_hex(2)}",
             "target": plan.target,
             "set": plan.set,
+            "environment": place,
             "scope": plan.scope,
             "started_at": started,
             # How a benchmark was chosen to play, when a plan chose it.

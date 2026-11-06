@@ -12,6 +12,9 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   ``--tries`` plays exactly N of each case; without it each plays until its tries say something
   (:mod:`evalution.runs.sampling`), against ``--against`` when given. Ctrl-C stops the run.
   Exits 1 when a case did not pass, which a test no one could judge didn't.
+* ``run ... --server URL [--token TOKEN] [--env NAME]``: play an app where it runs, on the tests
+  of the workspace at URL, and upload the run there after (:mod:`evalution.remote`). The token is
+  a workspace API token, else ``$EVALUTION_TOKEN``; ``--env`` names where the app runs.
 * ``run ... --against FILE [--summary MD] [--page URL]``: compare with a baseline (``run --save``)
   instead; ``--summary`` also writes that comparison as markdown, for a pull request, each test
   linked to the run on the page at URL when there is one (:mod:`evalution.results.markdown`).
@@ -42,6 +45,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import pkgutil
 import socket
 import sys
@@ -51,7 +55,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
-from evalution import adapters, doctor, service, upgrade
+from evalution import adapters, doctor, remote, service, upgrade
 from evalution import config as config_file
 from evalution.adapters import contract
 from evalution.adapters.base import Session
@@ -68,7 +72,7 @@ from evalution.project import hooks as git_hooks
 from evalution.results import baseline
 from evalution.results.compare import comparison, default_base
 from evalution.results.markdown import comparison_markdown
-from evalution.results.record import pass_marks, regrade_rules
+from evalution.results.record import environment, pass_marks, regrade_rules
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import detail
 from evalution.runs.preflight import check_adapter, check_isolation, remember_setup, setup_key
@@ -162,6 +166,23 @@ def _targets(config: Config) -> Targets:
 
 
 async def run(config: Config, args: argparse.Namespace) -> int:
+    """Play the run; with ``--server``, on that workspace's tests, and upload it there after,
+    however it came out. An upload that fails is exit 2: CI must not pass on a run no one sees."""
+    if not args.server:
+        return (await _play(config, args))[0]
+    docs = Database.open(config.data_dir).docs()
+    with remote.connect(args.server, args.token or os.environ.get(remote.TOKEN_ENV)) as server:
+        found = await asyncio.to_thread(remote.fetch_sets, server, docs, args.target, args.set)
+        print(f"evalution: took {len(found)} set(s) from {args.server}")
+        code, played = await _play(config, args)
+        if played is not None:
+            await asyncio.to_thread(remote.upload, server, RunStore(docs), played)
+            print(f"evalution: uploaded run {played} to {args.server}")
+    return code
+
+
+async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | None]:
+    """The exit code, and the run when one started."""
     targets = _targets(config)
     if args.sets is not None:
         folder = Path(args.sets) if args.sets else config.sets_dir
@@ -188,12 +209,12 @@ async def run(config: Config, args: argparse.Namespace) -> int:
             print(f"evalution: left out {test['case']}: {test['why']}", file=sys.stderr)
         if not estimate["cases"]:
             print("evalution: nothing to run", file=sys.stderr)
-            return 1
+            return 1, None
         if not args.yes and not await _confirmed():
             print("evalution: not started")
-            return 0
+            return 0, None
         base = baseline.read(args.against) if args.against else None
-        started = await runs.start(estimate["token"], base)
+        started = await runs.start(estimate["token"], base, args.env)
         print(f"evalution: run {started['run']}")
         try:
             await runs.wait()
@@ -212,8 +233,9 @@ async def run(config: Config, args: argparse.Namespace) -> int:
             _print_comparison(said)
             if args.summary:
                 args.summary.write_text(comparison_markdown(said, doc, args.page))
-            return 1 if said["answer"] in ("worse", "mixed") else 0
-        return 0 if not refused and all(c["verdict"] == "pass" for c in found["cases"]) else 1
+            return (1 if said["answer"] in ("worse", "mixed") else 0), started["run"]
+        passed = not refused and all(c["verdict"] == "pass" for c in found["cases"])
+        return (0 if passed else 1), started["run"]
     finally:
         if intake is not None:
             server, task = intake
@@ -642,13 +664,23 @@ def main(argv: list[str] | None = None) -> int:
         "--summary", type=Path, help="with --against, also write the comparison here as markdown"
     )
     play.add_argument("--page", help="with --summary, where the page is, to link each test")
-    play.add_argument(
+    tests_from = play.add_mutually_exclusive_group()
+    tests_from.add_argument(
         "--sets",
         nargs="?",
         const="",
         metavar="DIR",
         help="import the target's tests from this folder first (default: the config's sets_dir)",
     )
+    tests_from.add_argument(
+        "--server",
+        metavar="URL",
+        help="take the tests from this evalution's workspace, and upload the run to it after",
+    )
+    play.add_argument(
+        "--token", help=f"with --server, a workspace API token (default ${remote.TOKEN_ENV})"
+    )
+    play.add_argument("--env", metavar="NAME", help="where the app runs, e.g. staging")
     play.add_argument(
         "--traces-port",
         type=int,
@@ -726,11 +758,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run" and args.summary and not args.against:
         parser.error("--summary needs --against")
+    if args.command == "run" and args.token and not args.server:
+        parser.error("--token needs --server")
+    if args.command == "run":
+        try:
+            environment("local", args.env)
+        except ValueError as exc:
+            parser.error(f"--env: {exc}")
     try:
         config = config_file.load(args.config)
         if args.command == "serve":
-            remote = args.host not in LOCAL_HOSTS
-            if remote:
+            open_to_others = args.host not in LOCAL_HOSTS
+            if open_to_others:
                 names = ", ".join(sorted(answers_to(args.host, config.allowed_hosts)))
                 print(
                     f"evalution: warning: listening on {args.host} with no login. Anyone who can "
@@ -743,7 +782,7 @@ def main(argv: list[str] | None = None) -> int:
             reached = "127.0.0.1" if args.host == "0.0.0.0" else args.host  # noqa: S104
             app = create_app(
                 config,
-                remote=remote,
+                remote=open_to_others,
                 phoenix=_supervisor(config),
                 url=f"http://{reached}:{args.port}",
                 bind=args.host,
@@ -784,7 +823,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "adapter":
             return asyncio.run(adapter_test(config, args))
         return asyncio.run(profile(config, args))
-    except (ConfigError, CaseError, LookupError, upgrade.UpgradeError) as exc:
+    except (ConfigError, CaseError, LookupError, upgrade.UpgradeError, remote.RemoteError) as exc:
         print(f"evalution: {exc}", file=sys.stderr)
         return 2
     except RunBusyError:

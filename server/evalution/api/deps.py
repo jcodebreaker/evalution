@@ -3,6 +3,7 @@ request runs in, and the lookups of a route's target and set."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Annotated, Any
 from urllib.parse import urlsplit
@@ -132,11 +133,28 @@ def known_set(targets: Targets, target: str, set_name: str) -> None:
         raise not_found("Test set")
 
 
-async def read_body(request: Request) -> dict[str, Any]:
+async def _at_most(request: Request, most: int) -> bytes:
+    """:raises HTTPException: 413, the body is over *most* bytes, said or found while reading."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdecimal() and int(declared) > most:
+        raise HTTPException(413, f"the body is over {most // 2**20} MiB")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > most:
+            raise HTTPException(413, f"the body is over {most // 2**20} MiB")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def read_body(request: Request, most: int | None = None) -> dict[str, Any]:
     """The JSON body, read here so a malformed one is never echoed back (it holds
-    secrets)."""
+    secrets); with *most*, refused past that many bytes before it is all read.
+
+    :raises HTTPException: 400, not a JSON object; 413, over *most*.
+    """
     try:
-        body = await request.json()
+        body = json.loads(await _at_most(request, most)) if most else await request.json()
     except ValueError:
         body = None
     if not isinstance(body, dict):

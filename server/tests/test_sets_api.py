@@ -27,12 +27,13 @@ from evalution.results.store import RunStore
 from evalution.results.views import case_detail, summary
 from evalution.runs.runner import Runs
 from evalution.storage import Database
-from evalution.suite.cases import is_benchmark, meaning_changes
+from evalution.suite.cases import CaseError, is_benchmark, meaning_changes
 from evalution.suite.store import (
     case_text,
     export_sets,
     import_sets,
     own_sets,
+    put_bundle,
     put_case,
     save_set,
     write_case_text,
@@ -80,6 +81,22 @@ def test_pass_marks_round_trip_and_read_the_old_key(client, tmp_path) -> None:
     assert "pass_scores" not in written and written["pass_marks"]["reply"] == 0.9
     case = "greets.case.json"
     assert (out / "bot/main" / case).read_text() == (tmp_path / "sets/bot/main" / case).read_text()
+    # The same files over the API, for a run played where the app runs; they go back in whole.
+    url_export = "/v1/evals/sets/export"
+    bundle = client.get(url_export, params={"target": "bot", "set": "main"}).json()
+    assert (
+        bundle["target"] == "bot"
+        and bundle["sets"]["main"][case] == (out / "bot/main" / case).read_text()
+    )
+    assert json.loads(bundle["sets"]["main"]["set.json"]) == written
+    elsewhere = Database.open(tmp_path / "elsewhere").docs()
+    put_bundle(
+        elsewhere, "bot", "main", bundle["sets"]["main"] | {"fixtures/a.bin": {"base64": "AP8="}}
+    )
+    assert case_text(elsewhere, "bot", "main", "greets") == (out / "bot/main" / case).read_text()
+    with pytest.raises(CaseError):
+        put_bundle(elsewhere, "bot", "main", {"set.json": "{}", "../out.txt": "x"})
+    assert client.get(url_export, params={"target": "bot", "set": "nope"}).status_code == 404
     assert client.put(url, json={"tools": 2}).status_code == 400
     assert client.put(url, json={"speed": 1}).status_code == 400
     assert client.get("/v1/evals/sets").json()["data"][0]["pass_marks"]["reply"] == 0.9
@@ -187,10 +204,11 @@ def test_a_failed_run_records_what_kind_of_failure(
     # As in CI: a database with no tests yet, and the repo's folder imported as the run starts.
     config, kept = str(tmp_path / "evalution.yaml"), tmp_path / ".evalution" / "baseline.json"
     play = ["run", "--target", "bot", "--set", "main", "--tries", "1", "--yes", "--sets"]
-    assert cli.main(["--config", config, *play, "--save", str(kept)]) == 1
+    assert cli.main(["--config", config, *play, "--save", str(kept), "--env", "ci"]) == 1
     assert "imported 1 set(s)" in capsys.readouterr().out
     [run] = RunStore(_docs(tmp_path)).all()
     assert json.loads(kept.read_text())["run"] == run["run"]
+    assert run["environment"] == {"where": "local", "name": "ci"}
     # Against that baseline, the comparison is also written as markdown, for a pull request.
     said = tmp_path / "summary.md"
     assert (
@@ -273,8 +291,9 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     estimate = runs.estimate("bot", "main", None, tries)
     assert (estimate["tries"], estimate["tries_high"]) == ((6, 6) if tries else (18, 120))
     assert estimate["usd_high"] == estimate["usd"] if tries else estimate["usd_high"] > 6
-    made = await runs.start(estimate["token"])
+    made = await runs.start(estimate["token"], env="staging")
     assert runs.load(made["run"])["status"] == "running", "stored before start answers"
+    assert runs.load(made["run"])["environment"] == {"where": "local", "name": "staging"}
     await runs.wait()
     run = runs.load(made["run"])
     assert (run["status"], target.asked) == (status, asked)

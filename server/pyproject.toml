@@ -72,7 +72,7 @@ containers = ["evalution"]
 exhaustive = true
 layers = [
     "cli",
-    "api | doctor | service | upgrade",
+    "api | doctor | remote | service | upgrade",
     "writer | connect",
     "benchmarks",
     "runs",

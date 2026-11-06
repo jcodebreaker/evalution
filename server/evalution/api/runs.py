@@ -5,20 +5,33 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from evalution.api.deps import Current, busy, invalid, known_set, not_found, target_name
+from evalution.api.deps import (
+    Current,
+    busy,
+    invalid,
+    known_set,
+    not_found,
+    read_body,
+    target_name,
+)
 from evalution.core.case import MOST_TRIES, Case
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
 from evalution.results.compare import comparison, default_base
 from evalution.results.record import pass_marks, verdict_kind
 from evalution.results.store import RunStore
+from evalution.results.upload import UploadError, read_upload
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs.runner import RunBusyError
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import load_case, sent_files
+
+#: The most an uploaded run and its evidence may weigh: each try's texts are capped at 64 kB an
+#: item, so this holds a few hundred long tries.
+UPLOAD_BYTES = 32 * 2**20
 
 
 def _replies(store: RunStore, run: str, case: str, n: int) -> list[str]:
@@ -69,20 +82,44 @@ def runs_router() -> APIRouter:
     @router.post("/evals/runs", status_code=202)
     async def start_run(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Start the run an estimate described, graded with its set's pass marks (pass marks
-        sent here are ignored). Refused without its token, or while another run is going."""
+        sent here are ignored), on the app where ``environment`` names, if it says. Refused
+        without its token, or while another run is going."""
         runs = ws.runs
         await runs.recover()
         token = body.get("token")
         if not isinstance(token, str) or not token:
             raise invalid("token: ask for an estimate first")
         try:
-            return await runs.start(token)
+            return await runs.start(token, env=body.get("environment"))
         except RunBusyError as exc:
             raise busy("A run is already going") from exc
         except KeyError as exc:
             raise invalid("token: unknown or expired; ask for a new estimate") from exc
-        except CaseError as exc:
+        except (CaseError, ValueError) as exc:
             raise invalid(str(exc)) from exc
+
+    @router.post("/evals/runs/import")
+    async def import_run(ws: Current, request: Request) -> dict[str, Any]:
+        """A run played elsewhere, with its evidence (:mod:`evalution.results.upload`), stored
+        as this workspace's; sent again, it replaces itself. Its app and set must be here."""
+        targets, runs = ws.targets, ws.runs
+        body = await read_body(request, UPLOAD_BYTES)
+        try:
+            doc, kept = read_upload(body)
+        except UploadError as exc:
+            raise invalid(str(exc)) from exc
+        try:
+            targets.conf(doc["target"])
+        except LookupError as exc:
+            raise HTTPException(
+                404, "App not found: create the app in the workspace first"
+            ) from exc
+        known_set(targets, doc["target"], doc["set"])
+        before = await asyncio.to_thread(runs.load, doc["run"])
+        if before is not None and before["environment"]["where"] != "local":
+            raise busy("A run played here has that id")
+        await asyncio.to_thread(runs.store.replace, doc, kept)
+        return summary(doc)
 
     @router.get("/evals/runs/{run}")
     async def get_run(ws: Current, run: str, base: str | None = None) -> dict[str, Any]:

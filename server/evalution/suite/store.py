@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import base64
 import shutil
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -304,33 +304,50 @@ def unpack_files(docs: Docs, target: str, slug: str, into: Path) -> Path:
 # To and from folders
 
 
-def _read_text(path: Path, where: str) -> str:
+def _text(data: bytes, where: str) -> str:
     try:
-        return path.read_bytes().decode("utf-8")
+        return data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise CaseError(f"{where}: must be UTF-8 text") from exc
 
 
-def _import_set(docs: Docs, target: str, folder: Path) -> None:
-    slug = folder.name
+def _put_set(docs: Docs, target: str, slug: str, files: Mapping[str, bytes]) -> None:
+    """Set *slug* of *target* replaced whole by *files* (:func:`set_files`). A case file whose name
+    isn't an id is left out, as a folder's is.
+
+    :raises CaseError: An unsafe set id or path, no ``set.json``, or a file that is not UTF-8 text
+        where text is wanted; nothing of the set is changed.
+    """
     where = f"{target}/{slug}"
-    texts = {SET_FILE: _read_text(folder / SET_FILE, f"{where}/{SET_FILE}")}
-    files: dict[str, bytes] = {}
-    for path in sorted(folder.rglob("*")):
-        rel = path.relative_to(folder).as_posix()
-        if path.is_symlink() or not path.is_file() or rel == SET_FILE:
+    if not SLUG.match(slug):
+        raise CaseError(f"{slug}: not a set id")
+    if SET_FILE not in files:
+        raise CaseError(f"{where}: no {SET_FILE}")
+    texts = {SET_FILE: _text(files[SET_FILE], f"{where}/{SET_FILE}")}
+    others: dict[str, bytes] = {}
+    for rel, data in files.items():
+        if rel == SET_FILE:
             continue
-        if path.parent == folder and rel.endswith(CASE_SUFFIX):
+        if "/" not in rel and rel.endswith(CASE_SUFFIX):
             if SLUG.match(rel[: -len(CASE_SUFFIX)]):
-                texts[rel] = _read_text(path, f"{where}/{rel}")
+                texts[rel] = _text(data, f"{where}/{rel}")
         else:
-            files[rel] = path.read_bytes()
+            others[_file_name(rel)] = data
     delete_set(docs, target, slug)
     docs.put(SET, _key(target, slug), texts.pop(SET_FILE))
     for rel, text in texts.items():
         docs.put(CASE, _key(target, slug, rel[: -len(CASE_SUFFIX)]), text)
-    for rel, data in files.items():
+    for rel, data in others.items():
         docs.put(FILE, _key(target, slug, rel), _file_body(data))
+
+
+def _import_set(docs: Docs, target: str, folder: Path) -> None:
+    files = {
+        path.relative_to(folder).as_posix(): path.read_bytes()
+        for path in sorted(folder.rglob("*"))
+        if not path.is_symlink() and path.is_file()
+    }
+    _put_set(docs, target, folder.name, files)
 
 
 def _set_folders(folder: Path, targets: Iterable[str] | None) -> list[tuple[str, Path]]:
@@ -364,6 +381,45 @@ def import_sets(docs: Docs, folder: Path, targets: Iterable[str] | None = None) 
     return done
 
 
+def set_files(docs: Docs, target: str, slug: str) -> dict[str, bytes]:
+    """Set *slug* of *target* as files, by path in its folder: ``set.json``, each
+    ``<case>.case.json`` and the set's other files.
+
+    :raises CaseError: An unsafe id or no such set.
+    """
+    found = {SET_FILE: _set_text(docs, target, slug).encode()}
+    for stem in case_stems(docs, target, slug):
+        found[f"{stem}{CASE_SUFFIX}"] = case_text(docs, target, slug, stem).encode()
+    found.update(_files(docs, target, slug))
+    return found
+
+
+def set_bundle(docs: Docs, target: str, slug: str) -> dict[str, Any]:
+    """:func:`set_files` as JSON: a text file as its text, other bytes as ``{"base64": ...}``.
+
+    :raises CaseError: An unsafe id or no such set.
+    """
+    return {path: _file_body(data) for path, data in set_files(docs, target, slug).items()}
+
+
+def put_bundle(docs: Docs, target: str, slug: str, bundle: Any) -> None:
+    """Set *slug* of *target* replaced whole by a :func:`set_bundle`, which may have come from
+    another server: every path is checked as a folder's would be.
+
+    :raises CaseError: Not a bundle, an unsafe id or path, or no ``set.json``; nothing changed.
+    """
+    if not isinstance(bundle, dict) or not all(
+        isinstance(k, str) and (isinstance(v, str) or (isinstance(v, dict) and "base64" in v))
+        for k, v in bundle.items()
+    ):
+        raise CaseError(f"{target}/{slug}: not a set's files")
+    try:
+        files = {path: _file_bytes(body) for path, body in bundle.items()}
+    except (ValueError, TypeError) as exc:
+        raise CaseError(f"{target}/{slug}: a file isn't base64") from exc
+    _put_set(docs, target, slug, files)
+
+
 def export_sets(docs: Docs, folder: Path, targets: Iterable[str] | None = None) -> list[str]:
     """Every set of the workspace (of *targets* only when given) written into *folder* as
     :func:`import_sets` reads it, each set's folder replaced whole; ``<target>/<set>`` of each."""
@@ -374,11 +430,7 @@ def export_sets(docs: Docs, folder: Path, targets: Iterable[str] | None = None) 
             if out.is_dir() and not out.is_symlink():
                 shutil.rmtree(out)
             out.mkdir(parents=True, exist_ok=True)
-            (out / SET_FILE).write_bytes(_set_text(docs, target, slug).encode())
-            for stem in case_stems(docs, target, slug):
-                text = case_text(docs, target, slug, stem)
-                (out / f"{stem}{CASE_SUFFIX}").write_bytes(text.encode())
-            for path, data in _files(docs, target, slug):
+            for path, data in set_files(docs, target, slug).items():
                 (out / path).parent.mkdir(parents=True, exist_ok=True)
                 (out / path).write_bytes(data)
             done.append(f"{target}/{slug}")

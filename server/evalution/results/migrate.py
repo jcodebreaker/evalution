@@ -8,6 +8,9 @@ Schema 0 kept a ``passed`` boolean, an error string and step statuses. Here they
 they were, judged under today's rules with ``rules_from: 0``; ``passed`` stays as ``legacy_passed``.
 The strings runs of that age used for why a try stopped are read in this file and nowhere else.
 Their judge is on record by key only, so they are comparable with nothing.
+
+Schema 1 didn't say where a run played: every run then played on the computer that kept it, so it
+reads as ``local``, with no name.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from evalution.core.judgement import (
     WhyUnjudged,
 )
 from evalution.core.rules import judgement, line_outcome, rubric_outcome, tools_bind
-from evalution.results.record import SCHEMA
+from evalution.results.record import SCHEMA, environment
 from evalution.results.views import totals
 
 #: What reading something that isn't a run raises, whichever part of it is off.
@@ -392,7 +395,7 @@ def _zero_to_one(old: Mapping[str, Any]) -> dict[str, Any]:
     marks = doc.pop("pass_scores", None) or doc.get("pass_marks") or dict(DEFAULT_PASS_MARKS)
     judge = JudgeStamp(key=str(doc.pop("grader", None) or "strong"))
     doc.update(
-        schema=SCHEMA,
+        schema=1,
         rules=1,
         pass_marks=marks,
         judge=judge.model_dump(mode="json"),
@@ -413,6 +416,14 @@ def _zero_to_one(old: Mapping[str, Any]) -> dict[str, Any]:
     return doc
 
 
+def _one_to_two(old: Mapping[str, Any]) -> dict[str, Any]:
+    return {**old, "schema": 2, "environment": environment("local")}
+
+
 def upcast(doc: dict[str, Any]) -> dict[str, Any]:
     """*doc* as today's schema: the same object when it already is."""
-    return doc if int(doc.get("schema") or 0) >= SCHEMA else _zero_to_one(doc)
+    schema = int(doc.get("schema") or 0)
+    if schema >= SCHEMA:
+        return doc
+    found = _zero_to_one(doc) if schema < 1 else doc
+    return _one_to_two(found)

@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
@@ -28,6 +28,10 @@ RUN = "run"
 #: A request, from another process, to stop the run under the same key.
 STOP = "run-stop"
 _RUN_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def is_run_id(value: str) -> bool:
+    return bool(_RUN_ID.match(value))
 
 
 class ResultStore(Protocol):
@@ -134,7 +138,7 @@ class RunStore:
 
     def write(self, run: Mapping[str, Any]) -> None:
         """:raises ValueError: Not a run id."""
-        if not _RUN_ID.match(str(run["run"])):
+        if not is_run_id(str(run["run"])):
             raise ValueError(f"not a run id: {run['run']}")
         self.docs.put(RUN, str(run["run"]), run)
 
@@ -152,6 +156,19 @@ class RunStore:
         """Write *run* as it is now (copied here, so tries played side by side may go on
         changing it) and one save at a time."""
         await self._in_turn(self.write, copy.deepcopy(dict(run)))
+
+    def replace(self, run: Mapping[str, Any], evidence: Iterable[TryEvidence]) -> None:
+        """*run* and its evidence as given, whatever was kept under its id before: an uploaded
+        run (:mod:`evalution.results.upload`) sent again replaces itself.
+
+        :raises ValueError: Not a run id.
+        """
+        if not is_run_id(str(run["run"])):
+            raise ValueError(f"not a run id: {run['run']}")
+        self.docs.clear_entries(evidence_log.EVIDENCE, str(run["run"]))
+        for kept in evidence:
+            evidence_log.keep(self.docs, str(run["run"]), kept)
+        self.write(run)
 
     async def keep_evidence(self, run: str, evidence: TryEvidence) -> None:
         """Add one try to the run's evidence, in turn with its saves."""
@@ -173,7 +190,7 @@ class RunStore:
 
     def load(self, run: str) -> dict[str, Any] | None:
         """*run* as today's schema; ``None`` for no such run, or one that doesn't read."""
-        if not _RUN_ID.match(run):
+        if not is_run_id(run):
             return None
         found = self.docs.get(RUN, run)
         return None if found is None else _read(run, found)

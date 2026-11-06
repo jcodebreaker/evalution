@@ -22,6 +22,15 @@ inputs:
   token:
     description: "Keeps one comment on the pull request up to date: needs `pull-requests: write`"
     default: ${{ github.token }}
+  server:
+    description: A hosted evalution. Given, the run plays its workspace's tests and is uploaded there; left out, it plays the repo's `sets/`.
+    default: ""
+  server-token:
+    description: "With `server`: a workspace API token (`evt_...`), from a secret"
+    default: ""
+  env:
+    description: Where the app runs, e.g. `ci`, to tell its runs apart from the app's elsewhere
+    default: ""
 runs:
   using: composite
   steps:
@@ -34,6 +43,9 @@ runs:
         EVALUTION_BASELINE: ${{ inputs.baseline }}
         EVALUTION_TRIES: ${{ inputs.tries }}
         EVALUTION_PAGE: ${{ inputs.page }}
+        EVALUTION_SERVER: ${{ inputs.server }}
+        EVALUTION_TOKEN: ${{ inputs.server-token }}
+        EVALUTION_ENV: ${{ inputs.env }}
         EVALUTION_SOURCE: ${{ github.action_path }}/server
         EVENT: ${{ github.event_name }}
         PR: ${{ github.event.pull_request.number }}
@@ -43,8 +55,15 @@ runs:
         set -euo pipefail
         summary="$RUNNER_TEMP/evalution-summary.md"
         rm -f "$summary"
-        # --sets: the repo's tests (the config's sets_dir) into the job's fresh database first.
-        args=(--config "$EVALUTION_CONFIG" run --target "$EVALUTION_TARGET" --set "$EVALUTION_SET" --sets --yes)
+        args=(--config "$EVALUTION_CONFIG" run --target "$EVALUTION_TARGET" --set "$EVALUTION_SET" --yes)
+        if [ -n "$EVALUTION_SERVER" ]; then
+          # The workspace's tests, and the run uploaded there; the token is read from the env.
+          args+=(--server "$EVALUTION_SERVER")
+        else
+          # The repo's tests (the config's sets_dir) into the job's fresh database first.
+          args+=(--sets)
+        fi
+        if [ -n "$EVALUTION_ENV" ]; then args+=(--env "$EVALUTION_ENV"); fi
         if [ -n "$EVALUTION_BASELINE" ]; then
           args+=(--against "$EVALUTION_BASELINE" --summary "$summary")
           if [ -n "$EVALUTION_PAGE" ]; then args+=(--page "$EVALUTION_PAGE"); fi

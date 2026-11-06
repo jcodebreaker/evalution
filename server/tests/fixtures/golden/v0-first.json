@@ -718,6 +718,10 @@
   "commit": null,
   "delta": null,
   "ended_at": 1793573033.552806,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": null,
   "history": [
    {
@@ -833,6 +837,10 @@
   ],
   "commit": null,
   "ended_at": 1793573033.552806,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": null,
   "interrupted": false,
   "judge": {

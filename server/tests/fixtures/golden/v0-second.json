@@ -1770,6 +1770,10 @@
    ],
    "commit": null,
    "ended_at": 1793573033.552806,
+   "environment": {
+    "name": null,
+    "where": "local"
+   },
    "error": null,
    "interrupted": false,
    "judge": {
@@ -1925,6 +1929,10 @@
    "worse": 0
   },
   "ended_at": 1793583239.476345,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": null,
   "history": [
    {
@@ -2108,6 +2116,10 @@
   ],
   "commit": "aa603b5d862cfe4816fe2e944efb477592b791b0",
   "ended_at": 1793583239.476345,
+  "environment": {
+   "name": null,
+   "where": "local"
+  },
   "error": null,
   "interrupted": false,
   "judge": {
