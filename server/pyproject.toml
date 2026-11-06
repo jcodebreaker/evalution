@@ -80,6 +80,7 @@ layers = [
     "adapters",
     "llm",
     "config",
+    "accounts",
     "storage",
     "core",
 ]
