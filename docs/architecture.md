@@ -64,6 +64,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     settings.py    the model set from the page: model.yaml, its key, the model list, Test model
     llm.py         one model client: OpenAI-compatible or Anthropic messages API, tool calls, spend
     config.py      evalution.yaml: model connection, targets, data dir
+    storage/       the database: documents, entries and encrypted secrets, by workspace (see "Storage")
     core/          case.py trace.py evidence.py judgement.py rules.py: what the rest shares, and the one place the rules live (docs/judging.md); imports nothing else of evalution
 web/               React + Vite + Tailwind; the admin page. src/features/ has a folder per screen (home, learned, tests, test, runs, connect, settings), writer for the test writer, shell for the page around them, shared for what several use
 sets/<target>/<set>/set.json, *.case.json, fixtures/
@@ -117,6 +118,16 @@ targets:
     store_namespace: ["memories", "{user}"]   # must contain {user}
     trace_attribute: session.id          # valued with the thread id
 ```
+
+## Storage (`storage/`)
+
+One database holds what evalution learns and writes: SQLite in `<data_dir>/evalution.db` by default, any SQLAlchemy URL in `$DATABASE_URL` (Postgres when hosted). Every row belongs to a **workspace**; this server's own is `local`, the only one until people sign in.
+
+- **Documents**: a JSON value under `(workspace, kind, key)`, written whole. Keys are paths (`<target>/profile.md`, `<set>/<case>`), so a kind lists by prefix. Text stays text.
+- **Entries**: an ordered log under one key, only added to (a run's evidence).
+- **Secrets**: kind `secret`, encrypted with `$EVALUTION_SECRET_KEY` (a Fernet key) or `<data_dir>/secret.key`, made on first use and readable by its owner only. The page only ever sees the last four characters.
+
+`Database.open` gives one pool per database per process; `Targets.docs` is the workspace's view, which every store above reads and writes through. Calls block, so async code runs slow ones in a thread. A database made by a newer evalution is refused. Files in the data folder from before the database are left as they are and not read.
 
 ## Traces
 

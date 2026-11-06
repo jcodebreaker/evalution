@@ -767,12 +767,14 @@ name = "evalution"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "opentelemetry-proto" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "sqlalchemy" },
     { name = "uvicorn" },
     { name = "websockets" },
 ]
@@ -796,12 +798,14 @@ traces = [
 [package.metadata]
 requires-dist = [
     { name = "arize-phoenix", marker = "extra == 'traces'", specifier = "==21.0.0" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "opentelemetry-proto", specifier = ">=1.30" },
     { name = "protobuf", specifier = ">=5" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.30" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "websockets", specifier = ">=14" },
 ]

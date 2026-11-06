@@ -1,7 +1,8 @@
 """The configured targets and what each one comes with: its adapter (built on first use), where
 its traces are read (:func:`evalution.traces.managed.reader`), its code folder, its sets folder
 ``<sets>/<target>/`` and its profile folder ``<targets>/<target>/``, whose contents
-:mod:`evalution.project.profile` reads and writes.
+:mod:`evalution.project.profile` reads and writes. :attr:`Targets.docs` is the workspace's
+storage (:mod:`evalution.storage`), which everything above reads and writes through.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from evalution.code import Code, Digests
 from evalution.config import Config, TargetConfig, load
 from evalution.core.case import SLUG
 from evalution.results.store import RunSink
+from evalution.storage import Database, Docs
 from evalution.traces.base import TraceSource
 from evalution.traces.builtin import SpanStore
 from evalution.traces.managed import reader
@@ -38,8 +40,12 @@ class Guards:
 
 
 class Targets:
-    def __init__(self, config: Config, managed_url: str | None = None) -> None:
+    def __init__(
+        self, config: Config, managed_url: str | None = None, docs: Docs | None = None
+    ) -> None:
         self.config = config
+        #: This workspace's storage; by default this server's own, in its data folder.
+        self.docs = docs or Database.open(config.data_dir).docs()
         add_folder(config.adapters_dir or config.data_dir / "adapters")
         #: Where apps send traces to evalution, when it keeps them (its own Phoenix, or this
         #: server for the built-in source; docs/architecture.md, "Traces").
