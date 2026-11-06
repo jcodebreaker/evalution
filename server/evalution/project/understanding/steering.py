@@ -1,4 +1,4 @@
-"""What the admin steers: stored in ``steers.json`` and laid over the understanding on read."""
+"""What the admin steers: kept in :data:`STEERS_DOC` and laid over the understanding on read."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from evalution.project.profile import read_json
+from evalution.project.profile import read_doc
 from evalution.project.understanding.document import clean_text
 from evalution.targets import Targets
 
-STEERS_FILE = "steers.json"
+STEERS_DOC = "steers.json"
 #: What each claim rests on and whether it may be out of date (:mod:`evalution.project.knowledge`).
-KNOWLEDGE_FILE = "knowledge.json"
+KNOWLEDGE_DOC = "knowledge.json"
 STEERS_KEPT = 500
 
 
 def steers(targets: Targets, name: str) -> list[dict[str, Any]]:
-    found = read_json(targets, name, STEERS_FILE)
+    found = read_doc(targets, name, STEERS_DOC)
     return found if isinstance(found, list) else []
 
 
@@ -118,7 +118,7 @@ def marks(
 ) -> dict[str, dict[str, Any]]:
     """``claim:<id>`` or ``node:<id>`` -> how a code change touched it: ``stale`` (``direct`` or
     ``indirect``) and ``flagged``. A flag goes once the owner steered that claim after it."""
-    found = read_json(targets, name, KNOWLEDGE_FILE)
+    found = read_doc(targets, name, KNOWLEDGE_DOC)
     state = found if isinstance(found, dict) else {}
     out: dict[str, dict[str, Any]] = {
         key: {"stale": entry["level"]} for key, entry in (state.get("stale") or {}).items()

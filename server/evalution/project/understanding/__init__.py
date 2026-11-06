@@ -1,7 +1,7 @@
 """What evalution understood of a target (docs/architecture.md, "The understanding").
 
-``targets/<name>/understanding.json`` is the source of truth; ``profile.md`` is rendered from
-it (:func:`render_profile`), for people and for the agent's prompt.
+The target's ``understanding.json`` document is the source of truth; its profile is rendered
+from it (:func:`render_profile`), for people and for the agent's prompt.
 
 * **The agent writes** the one line, the diagram's nodes (each with the tools it stands for),
   the claims with their evidence, the priorities and starters, a ``tool -> step`` mapping and
@@ -35,7 +35,7 @@ from evalution.project.understanding.document import (
 )
 from evalution.project.understanding.rendering import card_md, render_profile
 from evalution.project.understanding.steering import (
-    KNOWLEDGE_FILE,
+    KNOWLEDGE_DOC,
     admin_priorities,
     marks,
     overlay,
@@ -45,7 +45,7 @@ from evalution.project.understanding.store import load, save, steer, versions, w
 
 __all__ = [
     "EVIDENCE_KINDS",
-    "KNOWLEDGE_FILE",
+    "KNOWLEDGE_DOC",
     "NODE_KINDS",
     "NO_TOOLS",
     "SECTION_IDS",

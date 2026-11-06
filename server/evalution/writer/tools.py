@@ -400,11 +400,7 @@ class Tools:
         )
         if problems:
             return "Refused, nothing saved. Fix these and save again:\n" + "\n".join(problems[:20])
-        # As drift.baseline does, from the digest already taken.
-        profile.write_json(self.targets, target, "fingerprint.json", taken)
-        profile.write_json(
-            self.targets, target, "drift.json", {"checked_at": time.time(), "changes": []}
-        )
+        drift.keep_baseline(self.targets, target, taken)
         understanding.save(self.targets, target, understanding.build(written, found))
         if code is not None:
             await asyncio.to_thread(knowledge.written, self.targets, target, code, turn.code_read)

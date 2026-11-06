@@ -42,7 +42,7 @@ from evalution.suite.library import (
 )
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
 
 LIBRARY = Path(__file__).resolve().parents[2] / "library"
@@ -170,9 +170,8 @@ async def test_the_agent_adapts_only_what_fits(tmp_path) -> None:
     (tmp_path / "sets" / "bot" / "main").mkdir(parents=True)
     (tmp_path / "sets" / "bot" / "main" / "set.json").write_text(json.dumps({"name": "Main"}))
     config = load(tmp_path / "evalution.yaml")
-    agent = Agent(
-        Runs(Targets(config), FileStore(config.data_dir), None), SessionFiles(tmp_path), None
-    )
+    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    agent = Agent(runs, SessionStore(runs.targets.docs), None)
     opened = await agent.create("bot", "main")
     turn = AgentTurn(await agent._session(opened["id"]))
     rows = {r["id"]: r["fit"]["label"] for r in await agent.tools.list_library(turn, {})}

@@ -1,8 +1,8 @@
 """The configured targets and what each one comes with: its adapter (built on first use), where
-its traces are read (:func:`evalution.traces.managed.reader`), its code folder, its sets folder
-``<sets>/<target>/`` and its profile folder ``<targets>/<target>/``, whose contents
-:mod:`evalution.project.profile` reads and writes. :attr:`Targets.docs` is the workspace's
-storage (:mod:`evalution.storage`), which everything above reads and writes through.
+its traces are read (:func:`evalution.traces.managed.reader`), its code folder and its sets folder
+``<sets>/<target>/``. :attr:`Targets.docs` is the workspace's storage (:mod:`evalution.storage`),
+which everything above reads and writes through; what is kept on each target is
+:mod:`evalution.project.profile`'s.
 """
 
 from __future__ import annotations
@@ -26,14 +26,15 @@ from evalution.traces.view import Pricer
 
 
 class Guards:
-    """What keeps this process's work on the profile folders in step. Only this process's:
-    ``evalution run`` and ``serve`` are separate ones."""
+    """What keeps this process's work on each target's documents in step: each guards a read and
+    the write that follows it. Only this process's: ``evalution run`` and ``serve`` are separate
+    ones."""
 
     def __init__(self) -> None:
         #: One knowledge refresh at a time per app; what comes meanwhile is covered by the next
         #: check.
         self.refreshing: set[str] = set()
-        #: Reading and writing the knowledge file is one step.
+        #: Reading and writing the knowledge document is one step.
         self.knowledge = threading.RLock()
         #: A background check and a run's start both write the tested state.
         self.tested = threading.Lock()
@@ -115,10 +116,6 @@ class Targets:
     def sets(self, name: str) -> Path:
         self.conf(name)
         return self.config.sets_dir / name
-
-    def folder(self, name: str) -> Path:
-        self.conf(name)
-        return self.config.targets_dir / name
 
     @property
     def price(self) -> Pricer | None:

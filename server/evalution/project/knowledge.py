@@ -1,7 +1,7 @@
 """Keeping what evalution knows current as the code moves (docs/architecture.md, "Keeping what it
 knows current").
 
-``targets/<name>/knowledge.json`` holds, beside the understanding:
+The target's :data:`DOC` holds, beside the understanding:
 
 * **links**: for each claim and node, the files its evidence names, each with its hash when
   written. Traces and admin evidence link nothing, so such a claim is never stale from code.
@@ -33,14 +33,15 @@ from evalution.code import Code
 from evalution.llm import fenced, json_answer
 from evalution.project import impact, imports, understanding
 from evalution.project.history import History
-from evalution.project.profile import PROFILE_CAP, read_json, set_updates, updates, write_json
+from evalution.project.profile import PROFILE_CAP, read_doc, set_updates, updates, write_doc
 from evalution.suite.cases import slugify
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
 
-FILE = understanding.KNOWLEDGE_FILE
-IMPORTS_FILE = "imports.json"
+DOC = understanding.KNOWLEDGE_DOC
+#: The import graph of the code, kept between checks (:func:`imports.graph`).
+IMPORTS_DOC = "imports.json"
 VERDICTS = ("still_true", "rewrite", "removed")
 #: Evidence kinds that rest on a file; a rewrite cites one of these.
 FILE_KINDS = ("code", "docs", "prompt")
@@ -126,12 +127,12 @@ def links(
 
 
 def load(targets: Targets, name: str) -> dict[str, Any]:
-    found = read_json(targets, name, FILE)
+    found = read_doc(targets, name, DOC)
     return found if isinstance(found, dict) else {}
 
 
 def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -> dict[str, Any]:
-    """Start again from the understanding on file, as of now: no model call. For a doc just written
+    """Start again from the understanding kept, as of now: no model call. For a doc just written
     (*read*: the files the agent read while writing), and on first sight of one from before."""
     doc = understanding.load(targets, name) or {}
     files = code.hashes()
@@ -150,7 +151,7 @@ def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -
             "seen": old.get("seen") or {},
             "seen_at": old.get("seen_at") or 0.0,
         }
-        write_json(targets, name, FILE, state)
+        write_doc(targets, name, DOC, state)
     return state
 
 
@@ -160,11 +161,11 @@ def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -
 def _reached(
     code: Code, targets: Targets, name: str, files: Mapping[str, str], removed: Iterable[str]
 ) -> dict[str, list[str]]:
-    cached = read_json(targets, name, IMPORTS_FILE)
+    cached = read_doc(targets, name, IMPORTS_DOC)
     edges, keep = imports.graph(
         code.root, files, cached if isinstance(cached, dict) else {}, removed
     )
-    write_json(targets, name, IMPORTS_FILE, keep)
+    write_doc(targets, name, IMPORTS_DOC, keep)
     return edges
 
 
@@ -240,7 +241,7 @@ def _detect(targets: Targets, name: str, code: Code, doc: Mapping[str, Any]) -> 
                 state["backlog_since"] = checked
             state["checked"] = head
         state["chars"] = _size(targets, name, code, doc, state, head)
-        write_json(targets, name, FILE, state)
+        write_doc(targets, name, DOC, state)
     return {"head": head, "fresh": fresh}
 
 
@@ -400,7 +401,7 @@ def _apply(
     head: str,
     since: str | None,
 ) -> str:
-    """Lay an answer over the understanding on file, and say what came of it. A claim the owner
+    """Lay an answer over the understanding kept, and say what came of it. A claim the owner
     steered, or one that only rests indirectly and is said to be gone, or a node said to be gone
     (the diagram hangs on it), is flagged instead of changed.
 
@@ -495,7 +496,7 @@ def _apply(
             state.pop("backlog_since", None)
         if changed or flagged:
             state["last"] = {"commit": head, "at": now, "changed": changed, "flagged": flagged}
-        write_json(targets, name, FILE, state)
+        write_doc(targets, name, DOC, state)
     return "updated" if changed or flagged else "checked"
 
 
@@ -503,7 +504,7 @@ def _fail(targets: Targets, name: str, fingerprint: str) -> None:
     with targets.guards.knowledge:
         state = load(targets, name)
         state["failed"] = {"fingerprint": fingerprint, "at": time.time()}
-        write_json(targets, name, FILE, state)
+        write_doc(targets, name, DOC, state)
 
 
 async def _refresh(runs: History, name: str, asked: bool) -> str:
@@ -558,7 +559,7 @@ async def _refresh(runs: History, name: str, asked: bool) -> str:
             kept = load(targets, name)
             seen = {**(kept.get("seen") or {}), fingerprint: answer}
             kept["seen"] = dict(list(seen.items())[-SEEN:])
-            write_json(targets, name, FILE, kept)
+            write_doc(targets, name, DOC, kept)
     try:
         return await asyncio.to_thread(
             _apply, targets, name, code, doc["version"], answer, head, since
@@ -612,7 +613,7 @@ async def choose(runs: History, name: str, mode: str) -> None:
                 if state.get("stale"):
                     state.setdefault("backlog_since", state.get("checked"))
                 state["checked"] = state["detected"] = head
-                write_json(targets, name, FILE, state)
+                write_doc(targets, name, DOC, state)
     set_updates(targets, name, mode)
 
 
@@ -620,7 +621,7 @@ async def choose(runs: History, name: str, mode: str) -> None:
 
 
 def _changes(targets: Targets, name: str) -> list[dict[str, Any]]:
-    """What differs between the last two versions, in words, from the versions on file."""
+    """What differs between the last two versions, in words, from the versions kept."""
     kept = understanding.versions(targets, name)
     if len(kept) < 2:
         return []
@@ -678,7 +679,7 @@ def saw(targets: Targets, name: str) -> None:
         state = load(targets, name)
         if state:
             state["seen_at"] = time.time()
-            write_json(targets, name, FILE, state)
+            write_doc(targets, name, DOC, state)
 
 
 def undo(targets: Targets, name: str) -> None:

@@ -9,7 +9,7 @@ import yaml
 
 from evalution.config import load
 from evalution.project import impact
-from evalution.project.profile import read_json, set_updates
+from evalution.project.profile import read_doc, set_updates
 from evalution.results.store import FileStore
 from evalution.review.health import for_target
 from evalution.runs.runner import Runs
@@ -86,7 +86,7 @@ def _ran(runs, n, stamp, tests, scope="some"):
 
 def _stamp(runs):
     found = impact.record_run(runs.targets, "bot")
-    doc = read_json(runs.targets, "bot", impact.TESTED_FILE)
+    doc = read_doc(runs.targets, "bot", impact.TESTED_DOC)
     return {**found, "at": doc["runs"][found["code"]]["at"] - 1}
 
 
@@ -133,9 +133,9 @@ def test_a_change_lives_from_the_tested_state_until_its_tests_ran(app, monkeypat
     _ran(runs, 2, second, ["a"])
     assert _card(runs) is None
     asyncio.run(impact.refresh(runs, "bot"))
-    tested = read_json(runs.targets, "bot", impact.TESTED_FILE)["tested"]
+    tested = read_doc(runs.targets, "bot", impact.TESTED_DOC)["tested"]
     assert tested["code"] == second["code"]
-    assert read_json(runs.targets, "bot", impact.IMPACT_FILE)["current"] is None
+    assert read_doc(runs.targets, "bot", impact.IMPACT_DOC)["current"] is None
 
     # Told it touches nothing: no card, but only a run moves the state, so it is not forgotten.
     async def nothing(*, instructions, input_text):
@@ -146,7 +146,7 @@ def test_a_change_lives_from_the_tested_state_until_its_tests_ran(app, monkeypat
     _edit(runs, "a = 3")
     asyncio.run(impact.refresh(runs, "bot"))
     assert _card(runs) is None
-    tested = read_json(runs.targets, "bot", impact.TESTED_FILE)["tested"]
+    tested = read_doc(runs.targets, "bot", impact.TESTED_DOC)["tested"]
     assert tested["code"] == second["code"]
 
 
@@ -159,7 +159,7 @@ def test_without_a_model_every_test_is_affected(app) -> None:
     assert card["areas"] == [] and [t["case"] for t in card["tests"]] == ["a", "b"]
     assert for_target(runs.targets, runs, "bot", "7d")["code_change"] == card
     # Not remembered: a model set up later still reads this change.
-    assert read_json(runs.targets, "bot", impact.IMPACT_FILE)["seen"] == {}
+    assert read_doc(runs.targets, "bot", impact.IMPACT_DOC)["seen"] == {}
 
 
 def test_manual_shows_the_files_and_all_tests_until_asked(app, monkeypatch) -> None:

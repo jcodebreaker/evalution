@@ -84,7 +84,7 @@ from evalution.suite.cases import parse_case
 from evalution.traces.base import Span, SpanRead, nest
 from evalution.traces.view import answered_at
 from evalution.writer.agent import Agent
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
 
 
@@ -635,7 +635,7 @@ async def test_11_control_without_the_leak_try_2_fails(make_rig) -> None:
 
 async def test_12_a_case_other_than_the_approved_one_is_refused(make_rig) -> None:
     rig = make_rig()
-    agent = Agent(rig.runs, SessionFiles(rig.config.data_dir), None)
+    agent = Agent(rig.runs, SessionStore(rig.targets.docs), None)
     opened = await agent.create(TARGET, SET)
     session = await agent._session(opened["id"])
     plan = {
@@ -658,7 +658,7 @@ async def test_12_a_case_other_than_the_approved_one_is_refused(make_rig) -> Non
 
 async def test_12_control_the_approved_case_saves(make_rig) -> None:
     rig = make_rig()
-    agent = Agent(rig.runs, SessionFiles(rig.config.data_dir), None)
+    agent = Agent(rig.runs, SessionStore(rig.targets.docs), None)
     opened = await agent.create(TARGET, SET)
     session = await agent._session(opened["id"])
     case = {"name": "Greets", "turns": [{"message": "hi"}]}

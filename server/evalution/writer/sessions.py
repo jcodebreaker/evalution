@@ -1,58 +1,44 @@
-"""Where the test writer keeps its sessions: JSON files next to the runs."""
+"""Where the test writer keeps its sessions: one document of kind :data:`KIND` each, keyed by the
+session's id."""
 
 from __future__ import annotations
 
-import json
-import logging
 import re
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
-_logger = logging.getLogger(__name__)
+from evalution.storage import Docs
+
+KIND = "session"
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
-class SessionFiles:
-    """Evals agent sessions as JSON files, ``<dir>/agent/<session>.json``, next to the runs."""
+class SessionStore:
+    """The Ask AI sessions of one workspace."""
 
-    def __init__(self, root: Path) -> None:
-        self.dir = root / "agent"
-
-    def _path(self, session: str) -> Path | None:
-        return self.dir / f"{session}.json" if _SESSION_ID.match(session) else None
+    def __init__(self, docs: Docs) -> None:
+        self.docs = docs
 
     def write(self, session: Mapping[str, Any]) -> None:
-        path = self._path(str(session["id"]))
-        if path is None:
+        """:raises ValueError: Not a session id."""
+        if not _SESSION_ID.match(str(session["id"])):
             raise ValueError(f"not a session id: {session['id']}")
-        self.dir.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(session, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
+        self.docs.put(KIND, str(session["id"]), dict(session))
 
     def chats(self, target: str) -> list[dict[str, Any]]:
         """Every session of *target* with something said in it, latest first, for going back to."""
         found = []
-        files = sorted(self.dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for path in files:
-            session = self.load(path.stem)
-            if not session or session.get("target") != target:
+        for _key, session, at in self.docs.items(KIND):
+            if session.get("target") != target:
                 continue
             asked = next(
                 (m.get("text") for m in session.get("messages") or [] if m.get("role") == "admin"),
                 None,
             )
             if asked:
-                found.append({"id": session["id"], "asked": asked, "at": path.stat().st_mtime})
-        return found
+                found.append({"id": session["id"], "asked": asked, "at": at})
+        return sorted(found, key=lambda chat: chat["at"], reverse=True)
 
     def load(self, session: str) -> dict[str, Any] | None:
-        path = self._path(session)
-        if path is None or not path.is_file():
-            return None
-        try:
-            return dict(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            _logger.warning("evals: session file %s unreadable", path, exc_info=True)
-            return None
+        found = self.docs.get(KIND, session) if _SESSION_ID.match(session) else None
+        return found if isinstance(found, dict) else None

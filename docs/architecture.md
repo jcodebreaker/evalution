@@ -29,7 +29,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
       traces.py targets.py settings.py connect.py   the /v1 routes by area, in the order they match
       understanding.py health.py sets.py tests.py runs.py writer.py
       plans.py     a test's plan, for the tests and runs routes
-    writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py session files, draft.py a case from a try or a conversation
+    writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py the session store, draft.py a case from a try or a conversation
     connect/       connecting a target: connect.py by its settings, discover.py by its project folder
     runs/          play.py one try, collect.py reading its spans back, estimate.py what a run costs, runner.py the one running task
     review/        findings.py a run's analysis and report, health.py the Home page, testplan.py what a plan will do
@@ -40,8 +40,8 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
         steering.py rendering.py store.py   steers and the overlay; profile and card as text; the writes
       knowledge.py imports.py hooks.py   keeping that current: links, the import graph, git hooks
       history.py library_fit.py   what they need of the runs; the library as it applies to a target
-      profile.py           the profile folder: its JSON files, the updates setting, the profile and its versions
-    targets.py     the configured targets: adapter, trace source, code, sets and profile folders
+      profile.py           what is kept on each target (kind `profile`), the updates setting, the profile and its versions
+    targets.py     the configured targets: adapter, trace source, code, sets folders, storage
     judging/       steps.py the tool-call grade, checks.py what code decides of a try, render.py what the Grader reads, rubric.py the Grader, claims.py a model's claims against the evidence
     results/       store.py run files and the run lock, evidence.py the evidence sidecars, record.py what readers ask of a run, migrate.py older runs as today's, views.py what the routes return of them
     suite/         cases.py sets and cases as files, library.py the stateful test library
@@ -307,7 +307,7 @@ No login and no admin identity model: `evalution serve` listens on 127.0.0.1 and
 
 ## Knowing a target: the profile
 
-When a target is added, or on "refresh", the agent builds `targets/<name>/profile.md`. It is a plain file the admin can read and edit, and the agent reads it every time it writes a test for that target.
+When a target is added, or on "refresh", the agent builds the profile, `<name>/profile.md`: like everything kept on a target, a document of kind `profile` keyed `<name>/<doc>` (see Storage). It is plain text the admin can read and edit, and the agent reads it every time it writes a test for that target.
 
 **Sources:**
 
@@ -325,7 +325,7 @@ When a target is added, or on "refresh", the agent builds `targets/<name>/profil
 
 **Evidence.** Every line but headings ends with where it comes from: `[trace]` (the trace digest), `[code: path]` (that file) or `[admin]`. The profile is rendered from the understanding (see "The understanding"): `write_understanding` refuses, saving nothing, a node or claim without evidence, or a node tool that is neither in the traces' tools (the tools offered to the model, else those called) nor in a code file the node cites. What the agent did not see stays out.
 
-**Versions.** Every write (the agent's, or the admin's edit) is kept in `targets/<name>/profile_versions.json`, the newest 10, each with who wrote it, when, and the hash of the fingerprint on file. `GET` / `PUT /v1/targets/{target}/profile` return `{text, version: {version, at, by, fingerprint} | null, changes: [{kind: "added"|"removed", text}], drift}`, `changes` being the lines changed since the version before. The page shows the profile with its tags set apart quietly, and "Changes since last version" folded under it.
+**Versions.** Every write (the agent's, or the admin's edit) is kept in `<name>/profile_versions.json`, the newest 10, each with who wrote it, when, and the hash of the fingerprint kept. `GET` / `PUT /v1/targets/{target}/profile` return `{text, version: {version, at, by, fingerprint} | null, changes: [{kind: "added"|"removed", text}], drift}`, `changes` being the lines changed since the version before. The page shows the profile with its tags set apart quietly, and "Changes since last version" folded under it.
 
 **Agent tools:**
 
@@ -353,7 +353,7 @@ A trace difference counts only once two checks in a row see it (`drift.json` kee
 
 **Drift found:**
 
-- `targets/<name>/drift.json` lists each change (`tool_added`, `tool_removed`, `args_changed`, `prompt_changed`, `shape_changed`, `code_changed` with the files).
+- `<name>/drift.json` lists each change (`tool_added`, `tool_removed`, `args_changed`, `prompt_changed`, `shape_changed`, `code_changed` with the files).
 - The profile shows "out of date".
 - Tests whose expectations name a changed or removed tool, argument or prompt fact are marked `stale: <reason>`, and `CaseRow.stale` returns it.
 - For code changes, the agent reads the diff of the watched files (scoped like `read_code`) and writes a short behaviour summary into the drift entry.
@@ -367,7 +367,7 @@ A fingerprint taken under other watching rules (from before everything was watch
 
 **Agent tools:** `read_drift(target)`, `diff_code(target, since)` (watched files only) and `note_drift(change, summary)` for the behaviour summary.
 
-The fingerprint is `targets/<name>/fingerprint.json`, taken whenever the agent writes the profile (which also clears the drift list); an admin's own edit of the profile leaves it as it was.
+The fingerprint is `<name>/fingerprint.json`, taken whenever the agent writes the profile (which also clears the drift list); an admin's own edit of the profile leaves it as it was.
 
 **Page:**
 - "Changed since learned · 3" on the project card, and "May be stale" on each test it touches. Learn again catches up.
@@ -378,9 +378,9 @@ The fingerprint is `targets/<name>/fingerprint.json`, taken whenever the agent w
 
 Drift compares with what the profile was written from. The change card on Home compares with what was **last tested**.
 
-- **The tested state.** When a run starts, the code's commit and hash map are kept in `targets/<name>/tested.json` (`runs`: the last 3 starts), and the run document gets `commit` and `code` (the hash of the map). The first run's state is the first `tested`; an app with runs from before this starts from the code at its first check.
+- **The tested state.** When a run starts, the code's commit and hash map are kept in `<name>/tested.json` (`runs`: the last 3 starts), and the run document gets `commit` and `code` (the hash of the map). The first run's state is the first `tested`; an app with runs from before this starts from the code at its first check.
 - **Looking.** `GET /v1/targets/{t}/health` starts a background check, at most every 5 minutes or when a run has ended, and answers without waiting; `checking` says one is going, and the page asks again until it ends. The check is the code part of drift (no traces read), then the comparison with `tested`.
-- **Interpreting.** Follows the app's updates setting (ADR 0005): in `manual`, the default, no call is made and the card is the changed files and all the tests until the owner presses *Read this change* (`POST /v1/targets/{t}/change/read`); `health.code_change.read` says whether the model read it. In `auto`, one call to the light model per distinct change: the diff of the changed files (secrets files never; new untracked files from their start; capped at 60,000 characters, or just the file list when the folder is not a checkout or the commit is gone), the profile and the tests. It answers `{summary, areas, tests, uncovered}`; test ids are `<set>/<case>` and only real ones are kept. Answers are kept in `targets/<name>/impact.json` by fingerprint: the changed files with their hashes, and the test ids, so a new test gets the change read again. No model, or a call that fails or does not read, gives the changed files and all the tests; only the no-model case is asked again later.
+- **Interpreting.** Follows the app's updates setting (ADR 0005): in `manual`, the default, no call is made and the card is the changed files and all the tests until the owner presses *Read this change* (`POST /v1/targets/{t}/change/read`); `health.code_change.read` says whether the model read it. In `auto`, one call to the light model per distinct change: the diff of the changed files (secrets files never; new untracked files from their start; capped at 60,000 characters, or just the file list when the folder is not a checkout or the commit is gone), the profile and the tests. It answers `{summary, areas, tests, uncovered}`; test ids are `<set>/<case>` and only real ones are kept. Answers are kept in `<name>/impact.json` by fingerprint: the changed files with their hashes, and the test ids, so a new test gets the change read again. No model, or a call that fails or does not read, gives the changed files and all the tests; only the no-model case is asked again later.
 - **Clearing.** A test leaves the card once a finished run judged it on the code as it stands now (a failure counts; it shows in the attention list). When no test is left and no area without a test waits, the card goes and `tested` moves to the current code. A full run that finished moves `tested` to the code it started on, by itself. A change the model says touches no test and no area clears at once. An area with no test keeps the card until any run is made on that code.
 - **Nothing runs by itself.** The card's button goes through the estimate and its token with `cases`, then the usual confirm. An area with no test opens the test writer with an ask in its reply field, not sent.
 
@@ -390,11 +390,11 @@ Drift compares with what the profile was written from. The change card on Home c
 
 ### Keeping what it knows current (`knowledge.py`, `imports.py`, `hooks.py`)
 
-The understanding names its evidence; `targets/<name>/knowledge.json` keeps it honest as commits land (ADR 0005).
+The understanding names its evidence; `<name>/knowledge.json` keeps it honest as commits land (ADR 0005).
 
 - **Links.** `claim:<id>` or `node:<id>` -> `{file: hash}`, from evidence of kind code, docs or prompt. Only files in `Code.hashes()` link, so a ref cannot name a secret or leave the folder; what does not resolve stays as written, unlinked. A partial ref (`a.py`) links when it ends exactly one file `read_code` read in that turn. Reads link nothing else: tying every read to every claim would mark all of them on any commit. Made when the agent writes, and on first sight of an older doc, with no model call.
-- **Detecting (free).** `checked` is the commit last checked. Only `git diff checked HEAD` counts, never the working tree, and not during a rebase. A file whose hash is still the linked one is not a change for that claim. `stale` records `direct` or `indirect` with the files. Indirect uses `imports.graph`: Python through `ast`; JS/TS, Go and Markdown links by careful patterns resolved against files that exist; no edges for anything else or a file that does not parse. What a file imports is cached by hash in `imports.json`. A claim's files reach a change within `imports.HOPS` (2).
-- **The setting.** `targets/<name>/settings.json` `updates`: `manual` (default) or `auto`. `PUT /v1/targets/{t}/updates`.
+- **Detecting (free).** `checked` is the commit last checked. Only `git diff checked HEAD` counts, never the working tree, and not during a rebase. A file whose hash is still the linked one is not a change for that claim. `stale` records `direct` or `indirect` with the files. Indirect uses `imports.graph`: Python through `ast`; JS/TS, Go and Markdown links by careful patterns resolved against files that exist; no edges for anything else or a file that does not parse. What a file imports is cached by hash in `<name>/imports.json`. A claim's files reach a change within `imports.HOPS` (2).
+- **The setting.** `<name>/settings.json` `updates`: `manual` (default) or `auto`. `PUT /v1/targets/{t}/updates`.
 - **Refreshing.** `knowledge.refresh` is the one path. Detection always runs; a call follows when asked (`POST /v1/targets/{t}/understanding/update`, everything marked), or in `auto` for the marks a new commit range gave. One light call, cached by fingerprint (the commits and the claims' words). It gets up to 60 marked claims, the capped diff of the changed watched files, and those claims' files as of HEAD (blobs, so a repo's filters do not run). Answers per claim are `still_true`, `rewrite` (text, evidence) or `removed`, plus at most 3 `new`.
 - **Validation.** A rewrite must cite a watched file: a direct claim's own files or a changed one; an indirect claim's only a changed one. Otherwise it is dropped and the claim stays marked. New claims must cite a changed file. Sections go through `understanding.check`. Saved with `by: "refresh"`, which renders the profile; rewritten items carry `updated_from` (the commit).
 - **The owner wins.** A claim or node with a fix or verdict is never changed: a `rewrite` or `removed` puts it in `flags`, shown as may be out of date until the owner steers it again. So are an indirect `removed`, and a node `removed` (the diagram hangs on nodes). A node's `rewrite` replaces its `sub`, never its title.
@@ -443,7 +443,7 @@ The ten: compaction keeps an early decision; memory recalls a fact after many me
 
 ## The understanding (project card, diagram, paths, claims)
 
-The profile becomes structured: `targets/<name>/understanding.json` is the source of truth. `profile.md` is rendered from it, for people and for the agent's prompt. Design: mock-up `understood.html`.
+The profile becomes structured: `<name>/understanding.json` is the source of truth. `<name>/profile.md` is rendered from it, for people and for the agent's prompt. Design: mock-up `understood.html`.
 
 ```ts
 interface Understanding {
@@ -495,6 +495,6 @@ interface Evidence { kind: "prompt" | "code" | "traces" | "docs" | "admin"; ref:
 **Suggested tests.** The starters are the page's Suggested tests, the only place the library shows. A starter is `exists: true`, and never `selected`, when the target already has a test made from its library test (`source: library: <id>`) or with its name (or the file name its name gives).
 - `GET /v1/targets/{t}/card.md` returns the card as Markdown.
 
-Steers are kept in `targets/<name>/steers.json` and laid over the understanding on read. A verdict or fix holds while the agent leaves that claim's text (a node's title) as it was; once the agent rewrites it, it counts as honoured. Nodes carry the tools they stand for (`tools`, written by the agent, not returned); `step_labels` (tool → plain step name, `(no tools)` for an ask without tools) and `expected_paths` name the paths. The plan route takes an optional `session` (else it opens one on `set`, else the first set) and returns the agent session.
+Steers are kept in `<name>/steers.json` and laid over the understanding on read. A verdict or fix holds while the agent leaves that claim's text (a node's title) as it was; once the agent rewrites it, it counts as honoured. Nodes carry the tools they stand for (`tools`, written by the agent, not returned); `step_labels` (tool → plain step name, `(no tools)` for an ask without tools) and `expected_paths` name the paths. The plan route takes an optional `session` (else it opens one on `set`, else the first set) and returns the agent session.
 
 **Agent message after learning:** one line ("I've learned X. Check what I understood."). No profile dump in chat; the page shows What it learned.

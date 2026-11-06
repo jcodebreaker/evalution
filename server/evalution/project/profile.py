@@ -1,5 +1,8 @@
-"""A target's profile folder ``<targets>/<target>/``: ``profile.md``, ``profile_versions.json``,
-``fingerprint.json``, ``drift.json`` and the rest of what evalution keeps on it as JSON.
+"""What evalution keeps on each target: documents of kind :data:`KIND` keyed
+``<target>/<doc>`` (``bot/profile.md``, ``bot/drift.json``...), read and written through
+:func:`read_doc` and :func:`write_doc`. This module owns the profile itself, its versions, the
+owner's settings and what was chosen while connecting; the modules that own the other documents
+name them.
 
 Every write of the profile is kept as a version (who wrote it, when, and the hash of the
 fingerprint it stands for), the newest :data:`PROFILE_VERSIONS` of them, so the page can show
@@ -16,10 +19,15 @@ from typing import Any
 
 from evalution.targets import Targets
 
+KIND = "profile"
+PROFILE_DOC = "profile.md"
+VERSIONS_DOC = "profile_versions.json"
+SETTINGS_DOC = "settings.json"
+CONNECTION_DOC = "connection.json"
+#: What the profile stands for (:mod:`evalution.project.drift` takes it).
+FINGERPRINT_DOC = "fingerprint.json"
 PROFILE_CAP = 60_000
 PROFILE_VERSIONS = 10
-SETTINGS_FILE = "settings.json"
-CONNECTION_FILE = "connection.json"
 #: How what it knows is kept current: ``manual`` until the owner chooses, as ``auto`` spends.
 UPDATES = ("auto", "manual")
 
@@ -32,43 +40,42 @@ def fingerprint_hash(taken: Any) -> str | None:
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def read_json(targets: Targets, name: str, file: str) -> Any:
-    path = targets.folder(name) / file
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+def _key(targets: Targets, name: str, doc: str) -> str:
+    """:raises LookupError: No such target."""
+    targets.conf(name)
+    return f"{name}/{doc}"
 
 
-def write_json(targets: Targets, name: str, file: str, data: Any) -> None:
-    folder = targets.folder(name)
-    folder.mkdir(parents=True, exist_ok=True)
-    tmp = folder / f".{file}.tmp"
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(folder / file)
+def read_doc(targets: Targets, name: str, doc: str) -> Any:
+    """Document *doc* of target *name*; ``None`` when there is none."""
+    return targets.docs.get(KIND, _key(targets, name, doc))
+
+
+def write_doc(targets: Targets, name: str, doc: str, body: Any) -> None:
+    targets.docs.put(KIND, _key(targets, name, doc), body)
 
 
 def updates(targets: Targets, name: str) -> str:
     """Whether model calls on a code change happen by themselves (``auto``) or on a click."""
-    found = read_json(targets, name, SETTINGS_FILE)
+    found = read_doc(targets, name, SETTINGS_DOC)
     mode = found.get("updates") if isinstance(found, dict) else None
     return mode if mode in UPDATES else "manual"
 
 
 def set_updates(targets: Targets, name: str, mode: str) -> None:
-    found = read_json(targets, name, SETTINGS_FILE)
+    found = read_doc(targets, name, SETTINGS_DOC)
     kept = found if isinstance(found, dict) else {}
-    write_json(targets, name, SETTINGS_FILE, {**kept, "updates": mode})
+    write_doc(targets, name, SETTINGS_DOC, {**kept, "updates": mode})
 
 
 def connection(targets: Targets, name: str) -> dict[str, Any]:
     """What the owner chose while connecting *name*, and the last change of its adapter."""
-    found = read_json(targets, name, CONNECTION_FILE)
+    found = read_doc(targets, name, CONNECTION_DOC)
     return found if isinstance(found, dict) else {}
 
 
 def update_connection(targets: Targets, name: str, **changes: Any) -> None:
-    write_json(targets, name, CONNECTION_FILE, {**connection(targets, name), **changes})
+    write_doc(targets, name, CONNECTION_DOC, {**connection(targets, name), **changes})
 
 
 def required_clean(targets: Targets, name: str) -> list[str]:
@@ -77,34 +84,32 @@ def required_clean(targets: Targets, name: str) -> list[str]:
 
 
 def read_profile(targets: Targets, name: str) -> str:
-    path = targets.folder(name) / "profile.md"
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
+    found = read_doc(targets, name, PROFILE_DOC)
+    return found if isinstance(found, str) else ""
 
 
 def write_profile(targets: Targets, name: str, text: str, *, by: str = "admin") -> None:
     """Write the profile and keep it as a new version, with the hash of the fingerprint
-    on file (the agent writes the fingerprint first; an admin's edit keeps it)."""
+    kept (the agent writes the fingerprint first; an admin's edit keeps it)."""
     if len(text) > PROFILE_CAP:
         raise ValueError(f"profile: at most {PROFILE_CAP} characters")
-    folder = targets.folder(name)
-    folder.mkdir(parents=True, exist_ok=True)
     text = text.rstrip() + "\n"
-    (folder / "profile.md").write_text(text, encoding="utf-8")
+    write_doc(targets, name, PROFILE_DOC, text)
     versions = profile_versions(targets, name)
     versions.append(
         {
             "version": (versions[-1]["version"] + 1) if versions else 1,
             "at": time.time(),
             "by": by,
-            "fingerprint": fingerprint_hash(read_json(targets, name, "fingerprint.json")),
+            "fingerprint": fingerprint_hash(read_doc(targets, name, FINGERPRINT_DOC)),
             "text": text,
         }
     )
-    write_json(targets, name, "profile_versions.json", versions[-PROFILE_VERSIONS:])
+    write_doc(targets, name, VERSIONS_DOC, versions[-PROFILE_VERSIONS:])
 
 
 def profile_versions(targets: Targets, name: str) -> list[dict[str, Any]]:
-    found = read_json(targets, name, "profile_versions.json")
+    found = read_doc(targets, name, VERSIONS_DOC)
     return found if isinstance(found, list) else []
 
 

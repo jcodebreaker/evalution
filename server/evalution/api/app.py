@@ -40,7 +40,7 @@ from evalution.runs.runner import Runs
 from evalution.targets import Targets
 from evalution.traces.managed import Supervisor
 from evalution.writer.agent import Agent
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 
 DAY = 24 * 3600
 
@@ -115,7 +115,7 @@ def create_app(
     llm = LLM(config.model, spend_file=config.spend_file)
     files = FileStore(config.data_dir)
     runs = Runs(targets, files, llm)
-    agent = Agent(runs, SessionFiles(config.data_dir), llm)
+    agent = Agent(runs, SessionStore(targets.docs), llm)
     found = discover.Discoveries(
         config.root,
         lambda: list(targets.config.targets),

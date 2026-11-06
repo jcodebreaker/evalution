@@ -1,14 +1,14 @@
 """Noticing when a target changes (docs/architecture.md, "Drift").
 
-The fingerprint (``targets/<name>/fingerprint.json``) is taken when the profile is written:
-tool names with argument key sets, the system prompt's hash and section hashes, trajectory
-shape counts, and for a connected repo its last commit and the hashes of the watched files.
-:func:`check` takes a fresh one (a digest of the last few sessions, plus ``git rev-parse``) and
-writes the differences to ``targets/<name>/drift.json``; it runs before every run and once a day,
-and ``POST /v1/targets/{target}/changed`` runs its code part in the background. A trace
-difference counts only once two checks in a row see it (a small sample can miss a tool or a
-prompt variant); a code change counts at once; :func:`check_code` is that part alone, reading no
-traces, for the Home page. A case whose expectations name a changed or removed tool, argument or
+The fingerprint (:data:`~evalution.project.profile.FINGERPRINT_DOC`) is taken when the profile
+is written: tool names with argument key sets, the system prompt's hash and section hashes,
+trajectory shape counts, and for a connected repo its last commit and the hashes of the watched
+files. :func:`check` takes a fresh one (a digest of the last few sessions, plus ``git rev-parse``)
+and writes the differences to :data:`DOC`; it runs before every run and once a day, and
+``POST /v1/targets/{target}/changed`` runs its code part in the background. A trace difference
+counts only once two checks in a row see it (a small sample can miss a tool or a prompt variant);
+a code change counts at once; :func:`check_code` is that part alone, reading no traces, for the
+Home page. A case whose expectations name a changed or removed tool, argument or
 prompt fact is stale (:func:`stale`).
 """
 
@@ -22,12 +22,13 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from evalution.core.case import CONTEXT_CHECKS, Case
-from evalution.project.profile import read_json, write_json
+from evalution.project.profile import FINGERPRINT_DOC, read_doc, write_doc
 from evalution.targets import Targets
 from evalution.traces.profile import digest, fingerprint, recent_sessions
 
 _logger = logging.getLogger(__name__)
 
+DOC = "drift.json"
 #: Sessions a drift check reads: few, so it stays cheap.
 CHECK_SESSIONS = 10
 #: Sessions a profile refresh reads.
@@ -139,17 +140,22 @@ def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, An
 async def baseline(targets: Targets, name: str) -> dict[str, Any]:
     """Take the fingerprint the profile now stands for, and clear the drift."""
     _found, taken = await take(targets, name, PROFILE_SESSIONS)
-    write_json(targets, name, "fingerprint.json", taken)
-    write_json(targets, name, "drift.json", {"checked_at": time.time(), "changes": []})
+    keep_baseline(targets, name, taken)
     return taken
 
 
+def keep_baseline(targets: Targets, name: str, taken: Mapping[str, Any]) -> None:
+    """Keep *taken* as the fingerprint the profile stands for, and clear the drift."""
+    write_doc(targets, name, FINGERPRINT_DOC, taken)
+    write_doc(targets, name, DOC, {"checked_at": time.time(), "changes": []})
+
+
 def _same_watch(targets: Targets, name: str, old: dict, code: Mapping[str, Any] | None) -> dict:
-    """The fingerprint on file, its code part taken again when what is watched changed (one from
+    """The fingerprint kept, its code part taken again when what is watched changed (one from
     before everything was watched, or ``code.ignore`` moved): every file would read as changed."""
     if code and (old.get("code") or {}).get("watch") != code.get("watch"):
         old = {**old, "code": code}
-        write_json(targets, name, "fingerprint.json", old)
+        write_doc(targets, name, FINGERPRINT_DOC, old)
     return old
 
 
@@ -174,7 +180,7 @@ async def check_code(targets: Targets, name: str) -> None:
     """The code part of :func:`check`: quick, and no traces read. The trace changes stay as
     they are; nothing happens before the first fingerprint."""
     code = targets.code(name)
-    old = read_json(targets, name, "fingerprint.json")
+    old = read_doc(targets, name, FINGERPRINT_DOC)
     if code is None or old is None:
         return
     state = await asyncio.to_thread(code.state)
@@ -190,14 +196,14 @@ async def check_code(targets: Targets, name: str) -> None:
             *_counted(fresh, {c["id"]: c for c in changes}, now),
         ],
     }
-    write_json(targets, name, "drift.json", doc)
+    write_doc(targets, name, DOC, doc)
 
 
 async def check(targets: Targets, name: str) -> dict[str, Any]:
-    """Compare *name* now with its fingerprint and write ``drift.json``; the first check takes
+    """Compare *name* now with its fingerprint and write the drift; the first check takes
     the fingerprint. A summary the agent wrote on a change, and when it was first counted
     (``seen_at``), are kept while the change stays."""
-    old = read_json(targets, name, "fingerprint.json")
+    old = read_doc(targets, name, FINGERPRINT_DOC)
     if old is None:
         await baseline(targets, name)
         return read(targets, name)
@@ -219,7 +225,7 @@ async def check(targets: Targets, name: str) -> dict[str, Any]:
         # Seen once: a change only once the next check sees it too.
         "pending": sorted(c["id"] for c in found if c not in confirmed),
     }
-    write_json(targets, name, "drift.json", doc)
+    write_doc(targets, name, DOC, doc)
     return doc
 
 
@@ -231,7 +237,7 @@ async def check_quietly(targets: Targets, name: str) -> None:
 
 
 def read(targets: Targets, name: str) -> dict[str, Any]:
-    return read_json(targets, name, "drift.json") or {"checked_at": None, "changes": []}
+    return read_doc(targets, name, DOC) or {"checked_at": None, "changes": []}
 
 
 def note(targets: Targets, name: str, change: str, summary: str) -> dict[str, Any]:
@@ -243,7 +249,7 @@ def note(targets: Targets, name: str, change: str, summary: str) -> dict[str, An
     for entry in doc.get("changes") or []:
         if entry["id"] == change:
             entry["summary"] = " ".join(summary.split())[:1_000]
-            write_json(targets, name, "drift.json", doc)
+            write_doc(targets, name, DOC, doc)
             return entry
     raise LookupError(f"no drift entry {change}")
 
