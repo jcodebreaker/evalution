@@ -189,10 +189,11 @@ class World:
                 process.kill()
                 process.wait()
 
-    def begin(self, cases: list[str]) -> str:
-        found = self.client.post(
-            "/v1/evals/runs/estimate", json={"target": "bot", "set": "main", "cases": cases}
-        ).json()
+    def begin(self, cases: list[str], tries: int | None = None) -> str:
+        asked = {"target": "bot", "set": "main", "cases": cases}
+        if tries is not None:
+            asked["tries"] = tries
+        found = self.client.post("/v1/evals/runs/estimate", json=asked).json()
         return self.client.post("/v1/evals/runs", json={"token": found["token"]}).json()["run"]
 
     def wait(self, run: str, seconds: float = 180) -> dict:
@@ -339,7 +340,8 @@ def test_it_says_what_a_change_did_and_whether_it_could_be_chance(world) -> None
         f"http://127.0.0.1:{world.app_port}/admin/setup",
         json={"model": "cheaper-model", "answer": "It's about 40."},
     )
-    after = world.begin(["exact-answer"])
+    # Two tries, fixed: too few to rule out an agent varying.
+    after = world.begin(["exact-answer"], tries=2)
     assert world.wait(after)["status"] == "done"
 
     found = world.client.get(f"/v1/evals/runs/{after}/comparison").json()
