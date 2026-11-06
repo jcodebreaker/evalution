@@ -36,6 +36,10 @@ holds the two together.
   are its ``state_checks``, which the library's fit verdicts read. ``StateResult.observed`` is
   false when it could not really read what it answers about: then nothing was learned, whatever
   ``ok`` says. An exception from a read means the same.
+* ``probe(session, {key: value})`` reads the same check as the session stands, once and without
+  waiting, before a try's first message: an adapter that declares ``probe`` lets a try that starts
+  already holding what it should only come to hold (a reset that leaked) go unjudged rather than
+  pass (:mod:`evalution.runs.leftover`).
 * ``sections(request)`` names the parts of one model request, as read from an LLM span: the
   provider request body when the span's ``input.value`` holds one (a dict with ``messages``),
   else ``{"messages": [{"role", "content"}], "tools": [...]}`` built from
@@ -94,6 +98,7 @@ class Capabilities:
     :param isolation_note: What its isolation means here, in one plain sentence.
     :param parallel: Sessions may play at once, so a run may use the target's ``max_parallel``.
     :param state_checks: The ``expect_state`` keys it answers; none means no state checks.
+    :param probe: It can read those keys before a try's first message (:meth:`Target.probe`).
     :param background: The app may answer before its work is done ("Queued!"), and ``send`` waits
         on past that answer for the work to end. So an adapter still waiting after an answer has
         missed nothing, and only the deadline ends the wait.
@@ -112,6 +117,7 @@ class Capabilities:
     stop: bool = False
     parallel: bool = False
     state_checks: frozenset[str] = frozenset()
+    probe: bool = False
     background: bool = False
     cancel: bool = False
     blocks: bool = False
@@ -285,6 +291,11 @@ class Target(ABC):
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
         return StateResult(False, None, "this target has no state checks", observed=False)
+
+    async def probe(self, session: Session, check: dict[str, Any]) -> StateResult:
+        """:meth:`state` as the session stands, read once without waiting for background work: what
+        a try starts from."""
+        raise NotImplementedError(f"{self.name} can't read its state before a try")
 
     def sections(self, request: dict[str, Any]) -> list[Section]:
         return []

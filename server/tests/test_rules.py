@@ -102,6 +102,7 @@ TIMED = _code(F, CheckKind.TIMEOUT, "timed out: the turn did not finish in time"
         ([_no(WhyUnjudged.NOT_SUPPORTED)], "Setup blocked"),
         ([_no(WhyUnjudged.BLOCKED)], "Setup blocked"),
         ([_no(WhyUnjudged.NEVER_STARTED)], "Setup blocked"),
+        ([_no(WhyUnjudged.LEFTOVER_STATE)], "Setup blocked"),
         ([_no(WhyUnjudged.JUDGE_FAILED)], "Grader unavailable"),
         ([_no(WhyUnjudged.JUDGE_UNSURE)], "Grader unavailable"),
         ([_no(WhyUnjudged.NO_TRACES)], "Missing evidence"),

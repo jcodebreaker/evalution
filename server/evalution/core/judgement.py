@@ -44,6 +44,7 @@ class WhyUnjudged(StrEnum):
     NEVER_STARTED = "never_started"
     CREDENTIALS_REFUSED = "credentials_refused"
     APP_BUSY = "app_busy"
+    LEFTOVER_STATE = "leftover_state"
 
 
 class CheckKind(StrEnum):

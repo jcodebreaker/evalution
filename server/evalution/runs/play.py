@@ -11,6 +11,10 @@ are decided later from the model calls after it; any other key is the adapter's 
 the same person (``conversation_break``). What comes of it all is a
 :class:`~evalution.core.evidence.TryEvidence`.
 
+Before the first message, an adapter that declares ``probe`` reads the case's ``*_contains`` state
+checks. One that already holds was left by an earlier try: this one isn't played, and can't be
+judged (:mod:`evalution.runs.leftover`).
+
 Work a try leaves going (a turn given up on, out of time, or stopped to wait) is cancelled when the
 adapter can, so the next try doesn't start on top of it. :func:`play_with_retry` gives a try that
 couldn't reach the app at its very first message, or found it busy, one more go, when what it met
@@ -64,6 +68,7 @@ from evalution.core.rules import NO_TRACES
 from evalution.judging.rubric import FillerWriter
 from evalution.judging.steps import EXTRA_OK, Step
 from evalution.runs.collect import Wanted, collect, read_spans
+from evalution.runs.leftover import leftover
 from evalution.traces.base import Span, TraceSource
 from evalution.traces.view import Pricer, TraceView, answered_at, build
 
@@ -196,6 +201,7 @@ async def play_try(
     is ``Played.failure``). *reused* holds the trace values earlier tries of the run played on, and
     gets this one's. *stuck* is how long after the agent's answer the adapter may go on waiting.
     *second_go*: what started before this go is the go before's, whatever marks it carries."""
+    left_over = await leftover(target, session, case)
     played = Played(t0=time.time())
     limit = float(case.limits.get("seconds") or DEFAULT_SECONDS)
     deadline = played.t0 + limit
@@ -208,6 +214,9 @@ async def play_try(
     if any(turn.fresh for turn in case.turns):
         session.extra["fresh"] = secrets.token_hex(4)
     try:
+        if left_over:
+            _ended(played, Failure.LEFTOVER_STATE, left_over)
+            raise _TryEnded
         if case.fold_at_tokens:
             await asyncio.wait_for(target.fold_at(session, case.fold_at_tokens), ADAPTER_SECONDS)
         for turn in case.turns:
@@ -600,7 +609,9 @@ async def _read_traces(
         _marks(session),
         played.t0 if second_go else float("-inf"),
     )
-    found = await collect(source, wanted, settle, once=played.gone, wait=trace_wait)
+    # Nothing sent, nothing to wait for.
+    once = played.gone or not played.turns_sent
+    found = await collect(source, wanted, settle, once=once, wait=trace_wait)
     reused.update(values)
     _check_the_adapter(played, found.spans, stuck)
     if found.status in (TraceStatus.EMPTY, TraceStatus.UNREAD):

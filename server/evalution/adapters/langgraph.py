@@ -39,7 +39,7 @@ item in the user's store namespace contains the text, or none does; waits up to
 summary: ``summary``, ``running_summary`` or ``context.running_summary``),
 ``messages_trimmed`` (the thread holds fewer user messages than were sent on it) and
 ``state_contains`` (``"<json path> <text>"``, or just text: the thread values, at that path,
-contain the text).
+contain the text). :meth:`LangGraphTarget.probe` reads the same, once, without waiting.
 
 **At the end** (:meth:`LangGraphTarget.close`): what the run made stays. With ``cleanup: true`` on
 the target, the user's threads and store items are deleted, and no one else's.
@@ -117,6 +117,7 @@ class LangGraphTarget(Target):
         state_checks=frozenset(
             {"memory_contains", "memory_lacks", "checkpoint", "messages_trimmed", "state_contains"}
         ),
+        probe=True,
     )
 
     def __init__(self, target: TargetConfig, transport: httpx.AsyncBaseTransport | None = None):
@@ -284,10 +285,17 @@ class LangGraphTarget(Target):
         return MemoryRead("\n\n".join(_text(item.get("value")) for item in items))
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
+        return await self._read(session, check, STATE_WAIT_SECONDS)
+
+    async def probe(self, session: Session, check: dict[str, Any]) -> StateResult:
+        return await self._read(session, check, 0.0)
+
+    async def _read(self, session: Session, check: dict[str, Any], wait: float) -> StateResult:
+        """One state check, waiting up to *wait* seconds for a memory check to come true."""
         ((key, value),) = check.items()
         if key in ("memory_contains", "memory_lacks"):
             needle, want = str(value), key == "memory_contains"
-            stop = time.time() + STATE_WAIT_SECONDS
+            stop = time.time() + wait
             while True:
                 items = await self._items(session.extra["user"])
                 found = [i for i in items if needle.casefold() in _text(i.get("value")).casefold()]

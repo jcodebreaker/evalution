@@ -40,6 +40,9 @@ class Failure(StrEnum):
     REFUSED = "refused"
     #: The app or a gateway in front of it was busy or down for now (429, 502, 503, 504).
     TRANSIENT = "transient"
+    #: Before its first message the app already held what the try was to show it come to hold:
+    #: what an earlier try left, so the try wasn't played (:mod:`evalution.runs.leftover`).
+    LEFTOVER_STATE = "leftover_state"
 
 
 class TurnEnd(StrEnum):

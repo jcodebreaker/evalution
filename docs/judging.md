@@ -57,6 +57,7 @@ Steps are a guide when the test has a state or context check or a rubric, so ano
 | `app_unreachable` | The app couldn't be reached mid-try. The run ends there. |
 | `credentials_refused` | The app answered 401 or 403. The run ends there, and the next run checks the setup again even if it passed before. |
 | `app_busy` | The app, or a gateway in front of it, answered 429, 502, 503 or 504. The run goes on. |
+| `leftover_state` | Before the first message, a `*_contains` state check of the test already held: what an earlier try left, so the try wasn't played. Only on an adapter that declares `probe`. A probe that fails plays the try as before. |
 | `not_supported` | The target doesn't answer this check, or says it couldn't read what it answers about. |
 | `blocked` | The app stopped to wait on something, an approval, say, and the test didn't expect it. A test that does sets `"blocked": true` on the turn: then not stopping fails the try. |
 | `never_started` | Out of time, with no sign of the agent working: the target has traces, and none arrived. It may have hung before any span ended. |

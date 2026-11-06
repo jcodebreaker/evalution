@@ -41,6 +41,8 @@ NO_TRACES = "No traces arrived"
 TARGET_GONE = "The app's session went away mid-try"
 #: A run the server restarted under: interrupted, which says nothing of the app.
 SERVER_RESTARTED = "The server restarted during the run"
+#: A try that started already holding what it was to show: an earlier try's, left by a reset.
+LEFTOVER_STATE = "Started with leftover state"
 #: A failed run's ``failure``: the app was not there to play on, or something else stopped it.
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
 
@@ -54,6 +56,7 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.NEVER_STARTED: Label.SETUP_BLOCKED,
     WhyUnjudged.CREDENTIALS_REFUSED: Label.SETUP_BLOCKED,
     WhyUnjudged.APP_BUSY: Label.SETUP_BLOCKED,
+    WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.NO_TRACE_SOURCE: Label.MISSING_EVIDENCE,

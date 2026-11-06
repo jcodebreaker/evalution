@@ -239,6 +239,8 @@ class Target(ABC):
     # With honest defaults; an adapter replaces what it declares.
     async def reset(self, session: Session) -> None: ...                 # between tries of a case
     async def state(self, session: Session, check: dict) -> StateResult: ...
+    async def probe(self, session: Session, check: dict) -> StateResult: ...
+        # the same check, read once without waiting, before a try's first message
     def sections(self, request: dict) -> list[Section]: ...
     async def break_conversation(self, session: Session) -> None: ...
         # a new conversation for the same person, keeping their memory and files
@@ -252,7 +254,7 @@ class Capabilities:
     reset: bool; conversation_break: bool; sections: bool
     files: bool; stop: bool; parallel: bool
     cancel: bool; blocks: bool; deletes: bool
-    state_checks: frozenset[str]
+    state_checks: frozenset[str]; probe: bool
 
 @dataclass
 class Session:  id: str; trace_attribute: str; trace_value: str; extra: dict
@@ -263,6 +265,7 @@ class Turn:     reply: str; started: float; ended: float; trace_ids: list[str]; 
 
 - The **trajectory** is never asked of the adapter. `traces/phoenix.py` reads every span whose `trace_attribute` equals `trace_value` (default `session.id`) between the try's start and end. From those spans it builds the calls and timeline, and the context of each LLM span (sections from `adapter.sections(request)` when declared, else one `turns` section).
 - An `expect_state` key the target doesn't answer can't be judged (`not_supported`), and nor can one its adapter says it could not read (`StateResult.observed`). Its `state_checks` are the `expect_state` keys it answers (langgraph: below); the library's fit verdicts use them. Without `reset`, each try opens a new session. Without `conversation_break`, a case's `{"break": "conversation"}` turn fails the try, saying so. Without `files` or `stop`, a turn asking for them errors.
+- **A try that starts with leftover state.** With `probe` declared, before a try's first message `runs/leftover.py` reads each of the case's `*_contains` state checks the adapter answers, once and without waiting. One that already holds can only be what an earlier try left, since a clean start holds nothing: the try isn't played, and reads as unjudged, `leftover_state`. `*_lacks` checks hold at any clean start and aren't read. A probe that fails is logged and the try plays as before. langgraph and letta declare it.
 - **Side by side.** A target's `max_parallel` (1 to 16, default 1) lets a run play that many cases at once, when its adapter declares `parallel`, which isolation no longer implies: http and langgraph both do. Each slot opens its own session, `open("<run>-<slot>")`, and plays whole cases from the queue, a case's tries in order. With `max_parallel: 1` the run plays as before, one case after another in `open("<run>")`. Still one run at a time.
 - `GET /v1/targets` and the test writer say capabilities as a sorted list of strings (`Capabilities.names()`): `reset`, `state` (it has `state_checks`), `sections`, `isolation` (anything but `NONE`), `parallel`, `conversation_break`, `cancel`, `blocks` (it can tell when work is waiting, so a test may expect that).
 - **What an adapter may touch.** `cancel`, `close` and any cleanup act only on what this run's sessions made. Session ids and the identities they play as are unique to a run or a try (http: `evalution-<run>-t<try>-<random>`; langgraph: an eval user per run or slot), and no adapter searches more widely. By default nothing is deleted: http's `close` does nothing, and langgraph keeps its threads and store items unless the target sets `cleanup: true`, which it then declares as `deletes`. `reset`, where declared, is what clears a session between tries. `cancel` and `close` are also called for sessions an earlier process left open, rebuilt from `Session` fields, so neither relies on memory.
@@ -289,7 +292,7 @@ Phoenix is a trace source, not an adapter: `traces/` and the `phoenix:` config k
 
 ### The langgraph adapter
 
-Plain HTTP against the LangGraph Server API (`langgraph dev`, `langgraph up`, LangGraph Platform), no SDK. Capabilities: isolation `IDENTITY`, `reset`, `state_checks`, `conversation_break` (a new thread for the same user, store kept; `session.id` and `trace_value` move to it), `stop`, `parallel`.
+Plain HTTP against the LangGraph Server API (`langgraph dev`, `langgraph up`, LangGraph Platform), no SDK. Capabilities: isolation `IDENTITY`, `reset`, `state_checks`, `probe`, `conversation_break` (a new thread for the same user, store kept; `session.id` and `trace_value` move to it), `stop`, `parallel`.
 
 - **open(run)**: user `eval-<run>`; `POST /threads {metadata: {evalution_user}}`. The session is the thread; spans are found by `trace_attribute` (default `session.id`) = the thread id. OpenInference's LangChain instrumentation sets `session.id` from the `thread_id` LangGraph puts in the run metadata; an app traced otherwise sets it itself (`using_session(thread_id)`).
 - **send**: `POST /threads/{id}/runs {assistant_id, input: {messages: [{role: user, content}]}, config: {configurable: {user_id}}, metadata}`, then `GET /threads/{id}/runs/{run}/join` (capped at the deadline); Stop is `POST /threads/{id}/runs/{run}/cancel?action=interrupt`. The reply is the last AI message's text in the returned values; `__error__` and `__interrupt__` become `Turn.error`. No files.

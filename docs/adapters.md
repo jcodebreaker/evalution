@@ -24,6 +24,7 @@ The starter works as it stands against an app with the routes it names, and each
 
 - **`open(run)`** gives a new session. Every session needs its own `id` and `trace_value`, or tries read each other's spans. With `reset` declared the runner keeps one session per slot and resets it before every try. Without it, it opens one per try **under the same `run`**, so the same `run` must still give a new session. Use a random part, and a prefix your `INFO.own_traffic` names, so eval traffic stays out of digests of real use.
 - **`reset(session)`** clears what the next try would otherwise find.
+- **`probe(session, check)`**, with `probe` declared, reads a state check as the session stands, once and without waiting. It's called before a try's first message: a `*_contains` check that already holds leaves the try unjudged, as leftover state from an earlier one.
 - **`break_conversation(session)`** starts a new conversation for the same person, keeping what the app keeps across conversations. It may change `session.trace_value`; a try reads the spans of every value it had.
 - **`close(session)`** ends it. It's also called for sessions an earlier server process left open, rebuilt from `Session`'s fields, so it can't rely on anything in memory, and `Session.extra` must survive JSON.
 - **Never delete by default.** Leaving a session behind costs little and losing someone's data can't be undone. Delete only what the adapter can prove it made, like a namespace holding the eval user's own name. Never act on a real person's data, and never reuse a real session id.
@@ -57,6 +58,7 @@ It looks at the adapter, never the agent: what your app answers isn't judged, on
 | `send` returns a reply and ends | It raises, ends on an error, or reads an empty reply |
 | The trace value finds spans | No AI spans carry the session's value. Skipped with no trace source |
 | Each state check declared | It raises, or says it couldn't read (`observed=False`). What it finds isn't judged |
+| Each `probe` if declared | The same, on a session that hasn't sent anything yet |
 | `sections`, `files`, `stop`, `reset`, `conversation_break` if declared | It raises or refuses, or the session doesn't work after |
 | The deadline holds | `send` is still out 30 s past a 5 s deadline, or returns late with no `Turn.error` |
 | `close` doesn't raise | Called with a `Session` rebuilt from its fields, for every session opened |
@@ -93,11 +95,11 @@ INFO = AdapterInfo(..., check=_check, supports=">=1.2,<2")
 Generated from each adapter's `Capabilities` and `INFO`; a test fails when this table drifts. To update it: `UPDATE_DOCS=1 uv run --all-groups pytest tests/test_adapter_conformance.py`.
 
 <!-- matrix:start -->
-| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `background` | `cancel` | `blocks` | `deletes` | State checks | App versions |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | none | any |
-| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | any |
-| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | any |
+| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `probe` | `background` | `cancel` | `blocks` | `deletes` | State checks | App versions |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | no | none | any |
+| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | any |
+| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | any |
 <!-- matrix:end -->
 
 What each one does to deliver those: [architecture](architecture.md), and each module's opening comment.

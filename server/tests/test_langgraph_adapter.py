@@ -5,6 +5,7 @@ import asyncio
 import json
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -14,7 +15,11 @@ from evalution.adapters import langgraph
 from evalution.adapters.base import Session, TargetGone
 from evalution.adapters.langgraph import LangGraphTarget
 from evalution.config import ConfigError, TargetConfig
+from evalution.core.case import DEFAULT_PASS_MARKS
 from evalution.core.evidence import Failure, TurnEnd
+from evalution.core.judgement import Label, Outcome
+from evalution.core.rules import LEFTOVER_STATE, first_reason, judgement, label_of
+from evalution.judging.checks import code_checks
 from evalution.runs.play import play_try
 from evalution.suite.cases import parse_case
 
@@ -182,11 +187,13 @@ async def test_a_session_from_open_to_close(monkeypatch) -> None:
     assert session.id != first and session.trace_value == session.id
     assert stub.threads[session.id]["metadata"] == {"evalution_user": "eval-run1"}
     assert (await target.state(session, {"memory_contains": "tea"})).ok
+    assert (await target.probe(session, {"memory_contains": "tea"})).ok
     assert (await target.state(session, {"checkpoint": False})).ok
 
     # A reset: a new thread and an empty store.
     await target.reset(session)
     assert not (await target.state(session, {"memory_contains": "tea"})).ok
+    assert not (await target.probe(session, {"memory_contains": "tea"})).ok
     assert len(stub.threads) == 3
 
     # Ending a session keeps what it made; only a target that asks has it removed, and only its own.
@@ -216,9 +223,23 @@ async def test_eval_users_are_isolated() -> None:
     assert (await target.state(two, {"memory_contains": "chess"})).ok
 
 
-async def test_a_case_with_a_break_plays_through() -> None:
+async def _probe_fails(session, check):
+    raise RuntimeError("the store is down")
+
+
+@pytest.mark.parametrize("start", ["clean", "leftover", "leftover, no probe", "probe fails"])
+async def test_a_case_with_a_break_plays_through(start, monkeypatch, caplog) -> None:
+    """Unless the store already holds what the case is to show: a reset that leaked. Only a
+    ``*_contains`` check is probed; ``messages_trimmed: false`` holds at any start."""
     stub = Stub()
     target = _target(stub)
+    if start.startswith("leftover"):
+        item = {"namespace": ["memories", "eval-run1"], "key": "tea", "value": {"text": "tea"}}
+        stub.store[("memories", "eval-run1", "tea")] = item
+    if start.endswith("no probe"):
+        target.capabilities = replace(target.capabilities, probe=False)
+    if start == "probe fails":
+        monkeypatch.setattr(target, "probe", _probe_fails)
     case = parse_case(
         {
             "name": "n",
@@ -234,8 +255,18 @@ async def test_a_case_with_a_break_plays_through() -> None:
     session = await target.open("run1")
     first = session.id
     played = await play_try(target, session, case, Path("."), filler=None, source=None)
+    if start == "leftover":
+        assert played.failure is Failure.LEFTOVER_STATE and not stub.bodies, "nothing was sent"
+        assert played.error.startswith(f"{LEFTOVER_STATE}: memory_contains 'tea'")
+        assert played.evidence is not None
+        code = code_checks(case, played.evidence, [], 1.0, DEFAULT_PASS_MARKS)
+        found = judgement(code.checks, None, code.route)
+        assert found.outcome is Outcome.UNJUDGED and label_of([found]) is Label.SETUP_BLOCKED
+        assert first_reason(found).startswith(LEFTOVER_STATE)
+        return
     assert played.error is None, played.error
     assert session.id != first and [s.ok for s in played.states] == [True, True]
+    assert ("not probed" in caplog.text) == (start == "probe fails")
 
 
 async def test_stop_cancels_the_run() -> None:

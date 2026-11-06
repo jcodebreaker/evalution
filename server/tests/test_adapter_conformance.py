@@ -70,6 +70,8 @@ def test_a_method_is_replaced_exactly_when_declared(target: Target) -> None:
     )
     assert (type(target).sections is not Target.sections) == declared.sections
     assert (type(target).state is not Target.state) == bool(declared.state_checks)
+    assert (type(target).probe is not Target.probe) == declared.probe
+    assert not declared.probe or declared.state_checks, "a probe reads state checks"
 
 
 async def test_files_and_stop_are_refused_exactly_when_not_declared(
@@ -90,6 +92,8 @@ async def test_state_checks_are_answered_exactly_when_declared(
     for key in target.capabilities.state_checks:
         with pytest.raises(httpx.HTTPError):  # it went to the app
             await target.state(session, {key: "x"})
+        with pytest.raises(httpx.HTTPError if target.capabilities.probe else NotImplementedError):
+            await target.probe(session, {key: "x"})
     found = await target.state(session, {"no_such_check": "x"})
     assert not found.ok and "has no" in found.reason and not found.observed
 
@@ -239,12 +243,14 @@ class Scripted(Target):
         stop=True,
         parallel=True,
         state_checks=frozenset({"memory_contains"}),
+        probe=True,
     )
 
     def __init__(self) -> None:
         self.name = "scripted"
         self.sent: list[str] = []
         self.closed: list[Session] = []
+        self.spoken: set[str] = set()
         self.count = 0
 
     async def open(self, run: str) -> Session:
@@ -253,6 +259,7 @@ class Scripted(Target):
 
     async def send(self, session, message, *, files=(), stop_after=None, deadline) -> Turn:
         self.sent.append(message)
+        self.spoken.add(session.id)
         return Turn("OK", 1.0, 2.0)
 
     async def close(self, session) -> None:
@@ -265,6 +272,10 @@ class Scripted(Target):
         session.trace_value += "-next"
 
     async def state(self, session, check) -> StateResult:
+        return StateResult(False, "none", "nothing holds it")
+
+    async def probe(self, session, check) -> StateResult:
+        assert session.id not in self.spoken, "a probe reads a session yet to send anything"
         return StateResult(False, "none", "nothing holds it")
 
     def sections(self, request) -> list[Section]:
@@ -357,6 +368,7 @@ BROKEN = {
         "not supported by this app",
     ),
     "state not read": ("state", _unobserved, "state check memory_contains", "couldn't read it"),
+    "probe not read": ("probe", _unobserved, "probe memory_contains", "couldn't read it"),
     "files refused": ("send", _refuses_files, "files", "NO_FILES"),
     "no sections": ("sections", lambda self, request: [], "sections", "no sections"),
 }
