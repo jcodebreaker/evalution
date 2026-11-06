@@ -498,9 +498,11 @@ async def adapter_test(config: Config, args: argparse.Namespace) -> int:
         try:
             target = targets.adapter(args.target)
         except Exception as exc:  # someone's own module can fail in any way at all
-            kind = type(exc).__name__
+            # The module's own error, not the ConfigError that already wraps it.
+            cause = exc.__cause__ if isinstance(exc, ConfigError) and exc.__cause__ else exc
             print(
-                f"evalution: the {args.name} adapter doesn't load: {kind}: {exc}", file=sys.stderr
+                f"evalution: the {args.name} adapter doesn't load: {type(cause).__name__}: {cause}",
+                file=sys.stderr,
             )
             return 2
         said = (await check_parts(conf, {}, targets.store))["adapter"]
