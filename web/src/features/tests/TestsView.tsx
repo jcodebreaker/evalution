@@ -18,7 +18,6 @@ export function TestsView({
   scope,
   rows,
   passMarks,
-  stamp,
   going,
   onAsk,
   onPassMarks,
@@ -30,8 +29,6 @@ export function TestsView({
   scope: Scope;
   rows: CaseRow[];
   passMarks: PassMarks;
-  /** Re-estimate Run all when this changes. */
-  stamp: string;
   going: boolean;
   onAsk: (text: string) => Promise<void>;
   onPassMarks: () => Promise<unknown>;
@@ -58,14 +55,7 @@ export function TestsView({
               <h2 className="m-0 min-w-0 flex-1 text-[17px] font-semibold tracking-[-0.2px]">
                 {count(rows.length, "test")}
               </h2>
-              <RunAll
-                scope={scope}
-                tests={rows.length}
-                stamp={stamp}
-                going={going}
-                onGoing={onGoing}
-                onRun={onRunAll}
-              />
+              <RunAll going={going} onGoing={onGoing} onRun={onRunAll} />
             </div>
             <Group>
               {rows.map((row) => (

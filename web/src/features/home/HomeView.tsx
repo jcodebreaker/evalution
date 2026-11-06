@@ -63,16 +63,7 @@ export function HomeView({
   const health = load.status === "ready" ? load.data : null;
   useVisiblePoll(reload, POLL_MS, health?.checking === true || health?.report_pending === true);
   const empty = !lastRunAt || health?.recent.length === 0;
-  const runAll = tests ? (
-    <RunAll
-      scope={scope}
-      tests={tests}
-      stamp={stamp}
-      going={going}
-      onGoing={onGoing}
-      onRun={onRunAll}
-    />
-  ) : null;
+  const runAll = tests ? <RunAll going={going} onGoing={onGoing} onRun={onRunAll} /> : null;
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
@@ -157,7 +148,6 @@ export function HomeView({
                 readUsd={health.knowledge.read_usd}
                 onRead={() => void reload()}
                 scope={scope}
-                stamp={stamp}
                 going={going}
                 onRun={onRunSome}
                 onWrite={onWrite}

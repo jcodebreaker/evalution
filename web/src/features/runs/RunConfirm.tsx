@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { ApiError, api, errorText } from "../../lib/api";
-import { count, usd } from "../../lib/format";
+import { count } from "../../lib/format";
 import type { Estimate, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { ConfirmDialog } from "../../ui/dialog";
@@ -87,13 +87,7 @@ export function RunConfirm({
         if (!busy) onClose();
       }}
       title={title}
-      description={
-        estimate
-          ? `About ${usd(estimate.usd)}${estimate.first_run ? ", a rough guess until it has run" : ""}`
-          : error
-            ? null
-            : "…"
-      }
+      description={estimate || error ? null : "…"}
       footer={
         <>
           <Button variant="secondary" disabled={busy} onClick={onClose}>

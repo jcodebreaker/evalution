@@ -258,16 +258,7 @@ export function Screen({
         onOpen={(id, test) => go({ run: id, case: test })}
         {...benchmarks}
         empty={
-          rows.length ? (
-            <RunAll
-              scope={scope}
-              tests={rows.length}
-              stamp=""
-              going={going !== null}
-              onGoing={showGoing}
-              onRun={runAll}
-            />
-          ) : null
+          rows.length ? <RunAll going={going !== null} onGoing={showGoing} onRun={runAll} /> : null
         }
       />
     );
@@ -277,7 +268,6 @@ export function Screen({
       scope={scope}
       rows={rows}
       passMarks={passMarks}
-      stamp={runs[0]?.run ?? ""}
       going={going !== null}
       onAsk={ask}
       onPassMarks={reloadSets}

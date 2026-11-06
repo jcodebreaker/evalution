@@ -18,7 +18,6 @@ export function ChangeCard({
   readUsd,
   onRead,
   scope,
-  stamp,
   going,
   onRun,
   onWrite,
@@ -29,7 +28,6 @@ export function ChangeCard({
   readUsd: number | null;
   onRead: () => void;
   scope: Scope;
-  stamp: string;
   going: boolean;
   onRun: (set: string, cases: readonly string[]) => void;
   onWrite: (text: string) => void;
@@ -79,11 +77,7 @@ export function ChangeCard({
       ) : null}
       {set && cases.length ? (
         <RunAll
-          scope={{ target: scope.target, set }}
-          tests={cases.length}
-          cases={cases}
           label={cases.length === tests.length ? "Run them" : `Run ${count(cases.length, "test")}`}
-          stamp={stamp}
           going={going}
           onGoing={onGoing}
           onRun={() => onRun(set, cases)}
