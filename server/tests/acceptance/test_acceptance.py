@@ -16,6 +16,9 @@ import httpx
 import pytest
 import yaml
 
+from evalution.results.store import RunStore
+from evalution.storage import Database
+
 HERE = Path(__file__).parent
 DEAD_PROXY = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9"}
 
@@ -202,7 +205,10 @@ class World:
         raise AssertionError(f"{run} still running")
 
     def stored(self, run: str) -> dict:
-        return json.loads((self.root / "data" / "runs" / f"{run}.json").read_text())
+        """The run as the database holds it, read beside the server, as another process would."""
+        found = RunStore(Database.open(self.root / "data").docs()).load(run)
+        assert found is not None, f"no run {run} stored"
+        return found
 
     def admin(self) -> dict:
         return self.direct.get(f"http://127.0.0.1:{self.app_port}/admin").json()
@@ -359,7 +365,7 @@ def test_it_says_what_a_change_did_and_whether_it_could_be_chance(world) -> None
 
     # On a pull request: a saved run is the baseline, and only getting worse than it fails.
     kept = world.root / "baseline.json"
-    kept.write_text((world.root / "data" / "runs" / f"{before}.json").read_text())
+    kept.write_text(json.dumps(world.stored(before)))
 
     def in_ci(*extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(
