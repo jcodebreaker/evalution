@@ -11,7 +11,6 @@ stale.
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
 import sys
 import time
@@ -23,9 +22,10 @@ from evalution.adapters.base import Target
 from evalution.benchmarks import longmemeval as benchmarks
 from evalution.llm import Caller, ask_json, fenced, json_answer
 from evalution.project import understanding
+from evalution.project.profile import read_doc, write_doc
 from evalution.targets import Targets
 
-PLAN_FILE = "benchmark_plan.json"
+PLAN_DOC = "benchmark_plan.json"
 _TURN_SECONDS = 180
 _SHORT = ("quick", "oracle")
 
@@ -222,19 +222,13 @@ async def plan_for(
     return plan
 
 
-def _path(targets: Targets, name: str) -> Path:
-    return targets.config.targets_dir / name / PLAN_FILE
-
-
 def save(targets: Targets, name: str, plan: Mapping[str, Any]) -> None:
-    path = _path(targets, name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plan, indent=1))
+    write_doc(targets, name, PLAN_DOC, plan)
 
 
 def load(targets: Targets, name: str) -> dict[str, Any] | None:
-    path = _path(targets, name)
-    return json.loads(path.read_text()) if path.is_file() else None
+    found = read_doc(targets, name, PLAN_DOC)
+    return found if isinstance(found, dict) else None
 
 
 def current(targets: Targets, name: str, target: Target) -> dict[str, Any] | None:

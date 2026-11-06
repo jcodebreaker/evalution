@@ -20,7 +20,7 @@ steps the page shows as they go. In order:
 
 What it could not tell becomes at most a couple of plain questions. ``.env`` is only ever read
 for the keys named here and by the adapters; a secret found there stays in this process until the
-target is saved into ``data/secrets.json``, and is never returned, logged or sent to the model.
+target is saved as a stored secret, and is never returned, logged or sent to the model.
 """
 
 from __future__ import annotations

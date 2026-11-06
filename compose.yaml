@@ -17,8 +17,6 @@ services:
     env_file:
       - {path: .env, required: false}
     environment:
-      # Connecting an app and choosing a model on the page write here, so they outlive the container.
-      EVALUTION_SETTINGS_DIR: /app/data/settings
       EVALUTION_ALLOWED_HOSTS: localhost,127.0.0.1
     volumes:
       - {type: bind, source: ./evalution.yaml, target: /app/evalution.yaml, read_only: true, bind: {create_host_path: false}}

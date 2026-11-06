@@ -1,22 +1,22 @@
 """``evalution.yaml`` (docs/architecture.md, "Config"): the model connection, the targets and
 where data lives. No secrets in the file: every secret is named by a ``*_env`` key, read only
-when used, from the env var of that name, else from ``<data_dir>/secrets.json`` (the secrets
-of targets connected from the page, written only by :func:`write_secrets`).
+when used, through the config's :class:`KeyRing`: the env var of that name, else the secret
+stored under that name in the data folder's database (the secrets of what the page set).
 
 The file is ``$EVALUTION_CONFIG``, else ``./evalution.yaml``. Relative paths are resolved
 against the file's folder (the repo root): ``sets/`` (the tests as files, which ``evalution sets
 import`` and ``export`` use), ``targets/`` (profiles), ``library/`` and ``web/dist`` live there
-unless the file says otherwise. ``traces:`` says where evalution keeps
-traces itself, if it does (:class:`TracesConfig`). Targets connected from the page live in
-``targets.yaml`` next to it (``targets:`` only), merged in; a name in both is the hand-edited
-one. ``model.yaml`` next to it holds the model set from the page (``model:`` only); a ``model:``
-in the config itself wins over it. ``$EVALUTION_SETTINGS_DIR`` moves those two files elsewhere,
-for a config folder that can't be written (a container's).
+unless the file says otherwise. ``traces:`` says where evalution keeps traces itself, if it does
+(:class:`TracesConfig`).
+
+What the page sets lives in the database, kind :data:`SETTINGS`, owned here: the targets
+connected from the page under ``targets/<name>`` (each its block), merged in, a name in both
+being the hand-edited one; and the model set from the page under ``model`` (its ``model:``
+block), which a ``model:`` in the file wins over whole. The file itself is never written.
 """
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,14 +24,19 @@ from typing import Any
 
 import yaml
 
+from evalution.storage import Database, Docs
+from evalution.storage.secrets import SecretKeyError, Secrets
+
 MODEL_KINDS = ("anthropic", "openai")
 MODEL_KEYS = ("strong", "light")
-TARGETS_FILE = "targets.yaml"
-MODEL_FILE = "model.yaml"
+#: What the page sets (a document kind): :data:`MODEL_DOC` and ``targets/<name>``.
+SETTINGS = "settings"
+MODEL_DOC = "model"
+_TARGETS = "targets/"
 #: ``traces.managed``: evalution keeps traces itself, with no Phoenix.
 BUILTIN_TRACES = "builtin"
 #: The stored secret that holds the model's API key, when it was set from the page.
-MODEL_SECRET = "model.api_key"  # noqa: S105 (a name, not a value)
+MODEL_SECRET = "model/api_key"  # noqa: S105 (a name, not a value)
 #: USD per million tokens of well-known models, for models the config does not price.
 BUILTIN_PRICES: dict[str, dict[str, float]] = {
     "claude-fable-5-1": {"input": 10, "output": 50},
@@ -47,53 +52,44 @@ BUILTIN_PRICES: dict[str, dict[str, float]] = {
     "claude-haiku-5-5": {"input": 0.1, "output": 0.5},
     "claude-haiku-4-5": {"input": 1, "output": 5},
 }
-SECRETS_FILE = "secrets.json"
 #: The names a server open to other computers answers under: wins over ``allowed_hosts``.
 ALLOWED_HOSTS_ENV = "EVALUTION_ALLOWED_HOSTS"
-#: Where :func:`secret` looks after the environment; set by :func:`load`.
-_secrets_path: Path | None = None
 
 
 class ConfigError(ValueError):
     """The config file does not follow the shape; the message names the field."""
 
 
-def read_secrets() -> dict[str, str]:
-    """The stored secrets, ``key -> value``; empty when there are none."""
-    if _secrets_path is None:
-        return {}
-    try:
-        data = json.loads(_secrets_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+class KeyRing:
+    """What a ``*_env`` name stands for: the env var of that name, else the secret stored under
+    that name. ``KeyRing()``, with no store, reads the environment only."""
 
+    def __init__(self, store: Secrets | None = None) -> None:
+        self._store = store
 
-def write_secrets(changes: dict[str, str | None]) -> None:
-    """Set (a value) or remove (``None``) stored secrets. The file is only ever owner-readable."""
-    if _secrets_path is None:
-        raise ConfigError("no data folder to keep secrets in")
-    found = read_secrets()
-    for key, value in changes.items():
-        if value is None:
-            found.pop(key, None)
-        else:
-            found[key] = value
-    _secrets_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _secrets_path.with_name(f".{SECRETS_FILE}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(found, handle, indent=2)
-    os.chmod(tmp, 0o600)
-    tmp.replace(_secrets_path)
+    @property
+    def store(self) -> Secrets:
+        """Where the page's secrets are kept, for setting them.
 
+        :raises ConfigError: There is none (a config not read from a data folder).
+        """
+        if self._store is None:
+            raise ConfigError("no data folder to keep secrets in")
+        return self._store
 
-def secret(env: str | None) -> str | None:
-    """The value of env var *env*, else of the stored secret *env*; ``None`` when unnamed or
-    unset."""
-    if not env:
-        return None
-    return os.environ.get(env, "").strip() or read_secrets().get(env, "").strip() or None
+    @staticmethod
+    def env(name: str | None) -> str | None:
+        return (os.environ.get(name, "").strip() or None) if name else None
+
+    def stored(self, name: str) -> str | None:
+        """:raises SecretKeyError: Stored under another key."""
+        found = self._store.get(name) if self._store else None
+        return (found or "").strip() or None
+
+    def get(self, name: str | None) -> str | None:
+        """The value of env var *name*, else of the stored secret *name*; ``None`` when unnamed or
+        unset."""
+        return self.env(name) or (self.stored(name) if name else None)
 
 
 @dataclass(frozen=True)
@@ -114,6 +110,7 @@ class ModelConfig:
     #: The form moved to another host: a key stored by a form stays behind. One in the environment
     #: is the owner's own and may go wherever they point it, as it does once this is saved.
     no_stored_key: bool = False
+    keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
 
     def rate(self, model: str) -> dict[str, float] | None:
         """*model*'s price per million tokens: the config's table, else the built-in one."""
@@ -125,8 +122,8 @@ class ModelConfig:
         if self.key:
             return self.key
         if self.no_stored_key:
-            return os.environ.get(self.api_key_env or "", "").strip() or None
-        return secret(self.api_key_env) or read_secrets().get(MODEL_SECRET, "").strip() or None
+            return self.keys.env(self.api_key_env)
+        return self.keys.get(self.api_key_env) or self.keys.stored(MODEL_SECRET)
 
     def price(self, model: str, tokens_in: int, tokens_out: int) -> float:
         """What *model* costs for these tokens; 0 when it is in neither table."""
@@ -150,6 +147,7 @@ class PhoenixConfig:
     api_key_env: str | None = None
     public_url: str | None = None
     mirror: bool = False
+    keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -170,6 +168,7 @@ class TargetConfig:
     phoenix: PhoenixConfig | None
     code: CodeConfig | None
     options: dict[str, Any]
+    keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
 
     @property
     def trace_attribute(self) -> str:
@@ -225,11 +224,11 @@ class Config:
     web_dir: Path
     model: ModelConfig | None
     targets: dict[str, TargetConfig]
-    #: Where the model comes from: ``config`` (this file), ``page`` (``model.yaml``) or none.
+    #: Where the model comes from: ``config`` (this file), ``page`` (the database) or none.
     model_source: str | None = None
     #: Cost of one generated (filler) message on a warm conversation, for estimates.
     filler_usd: float = 0.04
-    #: The targets from ``targets.yaml`` (connected from the page), which the page may edit.
+    #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
     #: The ready-made test library (``library/stateful/*.json``).
@@ -238,23 +237,10 @@ class Config:
     check_adapters: bool = True
     #: Your own adapters, one module each. ``None``: ``<data_dir>/adapters``.
     adapters_dir: Path | None = None
-    #: Where ``targets.yaml`` and ``model.yaml`` live. ``None``: next to the config.
-    settings_dir: Path | None = None
     #: The names a server open to other computers answers under, beyond what its bind implies.
     allowed_hosts: tuple[str, ...] = ()
-
-    @property
-    def targets_file(self) -> Path:
-        return (self.settings_dir or self.root) / TARGETS_FILE
-
-    @property
-    def spend_file(self) -> Path:
-        """What evalution's own model calls have cost so far."""
-        return self.data_dir / "spend.json"
-
-    @property
-    def model_file(self) -> Path:
-        return (self.settings_dir or self.root) / MODEL_FILE
+    #: Where every ``*_env`` secret is read, and the page's are kept.
+    keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
 
 
 def _dict(value: Any, where: str) -> dict[str, Any]:
@@ -272,7 +258,7 @@ def _str(block: dict[str, Any], key: str, where: str, default: str | None = None
     return value.strip()
 
 
-def _model(block: dict[str, Any]) -> ModelConfig | None:
+def _model(block: dict[str, Any], keys: KeyRing) -> ModelConfig | None:
     if not block:
         return None
     kind = block.get("kind", "anthropic")
@@ -293,6 +279,7 @@ def _model(block: dict[str, Any]) -> ModelConfig | None:
         api_key_env=block.get("api_key_env"),
         models={k: str(v) for k, v in models.items()},
         prices=prices,
+        keys=keys,
     )
 
 
@@ -326,8 +313,13 @@ def _check_adapters(raw: dict[str, Any]) -> bool:
     return found
 
 
-def target_config(name: str, block: dict[str, Any], root: Path) -> TargetConfig:
-    """:raises ConfigError: A field that does not follow the shape."""
+def target_config(
+    name: str, block: dict[str, Any], root: Path, keys: KeyRing | None = None
+) -> TargetConfig:
+    """*keys*: where its secrets are read (default: the environment only).
+
+    :raises ConfigError: A field that does not follow the shape."""
+    keys = keys or KeyRing()
     where = f"targets.{name}"
     adapter = _str(block, "adapter", where)
     phoenix = None
@@ -339,6 +331,7 @@ def target_config(name: str, block: dict[str, Any], root: Path) -> TargetConfig:
             api_key_env=p.get("api_key_env"),
             public_url=(str(p["public_url"]).rstrip("/") if p.get("public_url") else None),
             mirror=bool(p.get("mirror", False)),
+            keys=keys,
         )
     code = None
     if block.get("code") is not None:
@@ -353,37 +346,63 @@ def target_config(name: str, block: dict[str, Any], root: Path) -> TargetConfig:
     parallel = block.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or not 1 <= parallel <= 16:
         raise ConfigError(f"{where}.max_parallel: must be a whole number from 1 to 16")
-    return TargetConfig(name=name, adapter=adapter, phoenix=phoenix, code=code, options=block)
+    return TargetConfig(
+        name=name, adapter=adapter, phoenix=phoenix, code=code, options=block, keys=keys
+    )
 
 
-def load(path: Path | None = None) -> Config:
-    """The config at *path*, ``$EVALUTION_CONFIG`` or ``./evalution.yaml``. A missing file
-    gives an empty config (no model, no targets) rooted at the working folder.
+# What the page sets
 
-    :raises ConfigError: A field that does not follow the shape.
+
+def page_targets(docs: Docs) -> dict[str, Any]:
+    """The blocks of the targets connected from the page, by name."""
+    return {key.removeprefix(_TARGETS): body for key, body, _ in docs.items(SETTINGS, _TARGETS)}
+
+
+def save_page_target(docs: Docs, name: str, block: dict[str, Any] | None) -> None:
+    """Write *name*'s block; ``None`` removes it."""
+    if block is None:
+        docs.delete(SETTINGS, f"{_TARGETS}{name}")
+    else:
+        docs.put(SETTINGS, f"{_TARGETS}{name}", block)
+
+
+def page_model(docs: Docs) -> dict[str, Any]:
+    """The ``model:`` block set from the page; empty when there is none."""
+    found = docs.get(SETTINGS, MODEL_DOC)
+    return found if isinstance(found, dict) else {}
+
+
+def save_page_model(docs: Docs, block: dict[str, Any]) -> None:
+    docs.put(SETTINGS, MODEL_DOC, block)
+
+
+def load(path: Path | None = None, docs: Docs | None = None) -> Config:
+    """The config at *path*, ``$EVALUTION_CONFIG`` or ``./evalution.yaml``, with what the page set
+    from *docs*, by default the workspace of this server in its data folder's database. A missing
+    file gives an empty config (no model, no targets) rooted at the working folder.
+
+    :raises ConfigError: A field that does not follow the shape, or a secret key that isn't one.
     """
     path = path or Path(os.environ.get("EVALUTION_CONFIG") or "evalution.yaml")
     data: dict[str, Any] = {}
     if path.is_file():
         data = _dict(yaml.safe_load(path.read_text(encoding="utf-8")), str(path))
     root = path.resolve().parent
-    moved = os.environ.get("EVALUTION_SETTINGS_DIR")
-    settings_dir = Path(moved).resolve() if moved else None
-    if settings_dir is not None:
-        settings_dir.mkdir(parents=True, exist_ok=True)
-    settings = settings_dir or root
-    managed: dict[str, Any] = {}
-    if (settings / TARGETS_FILE).is_file():
-        text = (settings / TARGETS_FILE).read_text(encoding="utf-8")
-        managed = _dict(_dict(yaml.safe_load(text), TARGETS_FILE).get("targets"), TARGETS_FILE)
-    model_block, model_source = _dict(data.get("model"), "model"), "config"
-    if not model_block and (settings / MODEL_FILE).is_file():
-        text = (settings / MODEL_FILE).read_text(encoding="utf-8")
-        model_block = _dict(_dict(yaml.safe_load(text), MODEL_FILE).get("model"), MODEL_FILE)
-        model_source = "page"
 
     def where(key: str, default: str) -> Path:
         return (root / str(data.get(key) or default)).resolve()
+
+    data_dir = where("data_dir", "data")
+    docs = docs or Database.open(data_dir).docs()
+    try:
+        keys = KeyRing(Secrets(docs, data_dir))
+    except SecretKeyError as exc:
+        raise ConfigError(str(exc)) from exc
+    managed = page_targets(docs)
+    model_block, model_source = _dict(data.get("model"), "model"), "config"
+    if not model_block:
+        model_block, model_source = page_model(docs), "page"
 
     own = _dict(data.get("targets"), "targets")
     targets = {**managed, **own}
@@ -397,24 +416,24 @@ def load(path: Path | None = None) -> Config:
     filler = data.get("filler_usd", 0.04)
     if isinstance(filler, bool) or not isinstance(filler, (int, float)) or filler < 0:
         raise ConfigError("filler_usd: must be a number of at least 0")
-    global _secrets_path
-    _secrets_path = where("data_dir", "data") / SECRETS_FILE
     return Config(
         file=path.resolve(),
         root=root,
-        data_dir=where("data_dir", "data"),
+        data_dir=data_dir,
         sets_dir=where("sets_dir", "sets"),
         targets_dir=where("targets_dir", "targets"),
         web_dir=where("web_dir", "web/dist"),
-        model=_model(model_block),
+        model=_model(model_block, keys),
         model_source=model_source if model_block else None,
-        targets={n: target_config(n, _dict(b, f"targets.{n}"), root) for n, b in targets.items()},
+        targets={
+            n: target_config(n, _dict(b, f"targets.{n}"), root, keys) for n, b in targets.items()
+        },
         filler_usd=float(filler),
         managed=frozenset(n for n in managed if n not in own),
         traces=_traces(_dict(data.get("traces"), "traces")),
         library_dir=where("library_dir", "library"),
         check_adapters=_check_adapters(data),
         adapters_dir=where("adapters_dir", "data/adapters") if "adapters_dir" in data else None,
-        settings_dir=settings_dir,
         allowed_hosts=tuple(h.strip() for h in hosts if h.strip()),
+        keys=keys,
     )

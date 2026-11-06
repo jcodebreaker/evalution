@@ -68,7 +68,7 @@ def _graded_alone(rig, stem: str) -> None:
 async def _play(make_rig, llm, template: str, fault: str | None) -> dict:
     rig = make_rig([fault] if fault else [])
     grader = GraderOnly(llm)
-    rig.runs = Runs(rig.targets, rig.files, grader)
+    rig.runs = Runs(rig.targets, grader)
     stem = rig.fill(template)
     _graded_alone(rig, stem)
     doc = await rig.run(tries=TRIES)

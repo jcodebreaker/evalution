@@ -159,7 +159,7 @@ TOOLS = [
         {"run": _RUN, "case": _STR, "try": {"type": "integer"}, "find": _STR},
         ["run", "case", "try"],
     ),
-    _tool("read_profile", "The target's profile (targets/<target>/profile.md).", {}, []),
+    _tool("read_profile", "The target's profile.", {}, []),
     _tool(
         "read_understanding",
         "What you last saved with write_understanding, with the admin's marks on it "

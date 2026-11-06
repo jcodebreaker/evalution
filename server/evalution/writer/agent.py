@@ -2,9 +2,10 @@
 "Drift"): a tool loop that proposes cases for a target, adds them once the admin approves, keeps
 the target's profile, reads drift and reviews runs. It never runs anything: the admin does.
 
-* **Sessions** are JSON files next to the runs (:class:`evalution.writer.sessions.SessionFiles`),
-  one per target and set. Besides the contract's fields, a session keeps the model transcript, the
-  cases it wrote, and when it last showed a plan.
+* **Sessions** are documents in the workspace's storage
+  (:class:`evalution.writer.sessions.SessionStore`), one per target and set. Besides the
+  contract's fields, a session keeps the model transcript, the cases it wrote, and when it last
+  showed a plan.
 * **The loop** runs in a background task on the strong model of evalution's own connection
   (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
   :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
@@ -43,7 +44,7 @@ from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, case_stems, list_sets, load_case
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import HANDLERS, OUTPUT_CHARS, AgentTurn, Tools, activity_line, say
 
 _logger = logging.getLogger(__name__)
@@ -166,10 +167,10 @@ def _doing(session: dict[str, Any], text: str) -> None:
 class Agent:
     """The agent sessions of this server, and their running loops."""
 
-    def __init__(self, runs: Runs, files: SessionFiles, llm: LLM | None) -> None:
+    def __init__(self, runs: Runs, sessions: SessionStore, llm: LLM | None) -> None:
         self.runs = runs
         self.targets = runs.targets
-        self.files = files
+        self.sessions = sessions
         self.llm = llm
         self.tools = Tools(runs, self._save)
         self._live: dict[str, dict[str, Any]] = {}
@@ -181,7 +182,7 @@ class Agent:
     async def _save(self, session: dict[str, Any]) -> None:
         snapshot = copy.deepcopy(session)
         async with self._lock:
-            await asyncio.to_thread(self.files.write, snapshot)
+            await asyncio.to_thread(self.sessions.write, snapshot)
 
     async def create(self, target: str, set_name: str) -> dict:
         """Open a session on *set_name* of *target*.
@@ -206,7 +207,9 @@ class Agent:
 
     async def _session(self, session_id: str) -> dict[str, Any]:
         """:raises LookupError: No such session."""
-        session = self._live.get(session_id) or await asyncio.to_thread(self.files.load, session_id)
+        session = self._live.get(session_id) or await asyncio.to_thread(
+            self.sessions.load, session_id
+        )
         if session is None:
             raise LookupError(session_id)
         # Its loop went with an earlier server process, or stopped on a spending limit, now gone.

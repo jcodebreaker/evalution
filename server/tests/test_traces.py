@@ -22,11 +22,11 @@ from evalution.adapters import own_traffic
 from evalution.api.app import create_app
 from evalution.config import PhoenixConfig, load
 from evalution.core.evidence import TraceStatus
-from evalution.project import drift
-from evalution.results.store import FileStore
+from evalution.project import drift, profile
 from evalution.runs import collect as collect_module
 from evalution.runs.collect import Wanted, collect, own_spans
 from evalution.runs.runner import Runs
+from evalution.storage import Database
 from evalution.targets import Targets
 from evalution.traces import setup
 from evalution.traces.base import Span, SpanRead, SpanReader, nest
@@ -232,19 +232,18 @@ def test_the_digest_is_per_ask_and_leaves_out_eval_traffic() -> None:
 
 
 async def test_drift_needs_two_checks_in_a_row(monkeypatch, tmp_path) -> None:
-    class Folder:
-        def folder(self, name):
-            return tmp_path
+    class Kept:
+        docs = Database.open(tmp_path).docs()
 
-    (tmp_path / "fingerprint.json").write_text(
-        json.dumps(
-            {
-                "sessions": 5,
-                "tools_offered_known": True,
-                "tools": {"search": ["q"]},
-                "prompt": {},
-            }
-        )
+        def conf(self, name):
+            return None
+
+    kept = Kept()
+    profile.write_doc(
+        kept,
+        "bot",
+        profile.FINGERPRINT_DOC,
+        {"sessions": 5, "tools_offered_known": True, "tools": {"search": ["q"]}, "prompt": {}},
     )
 
     new = {
@@ -258,10 +257,9 @@ async def test_drift_needs_two_checks_in_a_row(monkeypatch, tmp_path) -> None:
         return {}, new
 
     monkeypatch.setattr(drift, "take", take)
-    folder = Folder()
-    first = await drift.check(folder, "bot")
+    first = await drift.check(kept, "bot")
     assert first["changes"] == [] and len(first["pending"]) == 1
-    second = await drift.check(folder, "bot")
+    second = await drift.check(kept, "bot")
     assert [c["kind"] for c in second["changes"]] == ["args_changed"]
 
 
@@ -706,7 +704,7 @@ async def test_a_mirror_is_one_client_closed_with_its_target(tmp_path, monkeypat
         saved.append(run["status"])
 
     monkeypatch.setattr(sink, "save", save)
-    runs = Runs(targets, FileStore(config.data_dir), None)
+    runs = Runs(targets, None)
     run = {"run": "r1", "target": "bot", "set": "main", "started_at": 1.0, "cases": {}}
     await runs._save({**run, "status": "running"})
     await runs._save({**run, "status": "done"})

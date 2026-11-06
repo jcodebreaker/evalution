@@ -160,7 +160,7 @@ A score from 0 to 1 is shown and never decides, unless a reference is all a test
 
 ## Evidence
 
-Each try is kept in `data/runs/<run>.evidence.jsonl.gz`, owner-only: the whole transcript including generated messages, tool arguments and results, what each model call was sent and said, and every state check. An item over 64 KB keeps its head and tail, how much was left out, and a hash of the whole.
+Each try is kept in the database as an entry of its run's evidence: the whole transcript including generated messages, tool arguments and results, what each model call was sent and said, and every state check. An item over 64 KB keeps its head and tail, how much was left out, and a hash of the whole.
 
 The grader reads it through one function with a budget of about 24,000 characters. State and check lines, the reference and the rubric are never cut. Other items keep their head and tail with a visible `[3,200 chars cut]`, and how much was cut is recorded on the check.
 
@@ -184,4 +184,4 @@ A try keeps a list of judgements, only ever added to; the newest is current. Eve
 
 ## Old runs
 
-Runs from before this are read as today's on load, and `evalution migrate` rewrites them, keeping each original as `.bak`. Their `passed` stays as `legacy_passed`, and their judge is on record by key only, so they compare with nothing. Where today's rules read one differently it says so ("Originally failed; rules changed") with a marker on the trend. It never reads as an improvement.
+Runs from before this are read as today's on load, and `evalution migrate` rewrites them (`evalution backup` first keeps a copy). Their `passed` stays as `legacy_passed`, and their judge is on record by key only, so they compare with nothing. Where today's rules read one differently it says so ("Originally failed; rules changed") with a marker on the trend. It never reads as an improvement.

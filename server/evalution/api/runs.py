@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -13,18 +12,18 @@ from evalution.api.plans import CasePlans
 from evalution.core.case import Case
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
-from evalution.results import evidence as sidecar
 from evalution.results.compare import comparison, default_base
 from evalution.results.record import pass_marks, verdict_kind
+from evalution.results.store import RunStore
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs.runner import RunBusyError, Runs
 from evalution.suite.cases import CaseError, load_case, parse_case, sent_files
 
 
-def _replies(folder: Path, run: str, case: str, n: int) -> list[str]:
+def _replies(store: RunStore, run: str, case: str, n: int) -> list[str]:
     """What came back to each message of one try, from what was kept of it."""
-    for kept in sidecar.read(folder, run):
+    for kept in store.evidence(run):
         if kept.case == case and kept.n == n:
             return [turn.reply.text for turn in kept.turns]
     return []
@@ -161,7 +160,7 @@ def runs_router(runs: Runs, plans: CasePlans) -> APIRouter:
         try:
             held = (t["n"] for t in tries if current(t).outcome is not Outcome.PASSED)
             wanted = n or next(held, tries[0]["n"])
-            said = await asyncio.to_thread(_replies, runs.files.runs, run, case, wanted)
+            said = await asyncio.to_thread(_replies, runs.store, run, case, wanted)
             shown = testplan.compare(plan, entry, n, reasons, pass_marks(doc), said)
         except LookupError as exc:
             raise not_found("Try") from exc

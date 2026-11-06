@@ -64,7 +64,7 @@ from evalution.adapters.base import (
     may_have_heard,
     part,
 )
-from evalution.config import ConfigError, TargetConfig, secret
+from evalution.config import ConfigError, TargetConfig
 from evalution.core import net
 from evalution.core.evidence import Failure, TurnEnd
 
@@ -226,6 +226,7 @@ class HttpTarget(Target):
         self.trace_attribute = str(conf.get("trace_attribute") or "session.id")
         self.trace_id_path = conf.get("trace_id")
         self.headers_env = dict(conf.get("headers_env") or {})
+        self.keys = target.keys
         self._client = net.client(timeout=60.0, transport=transport)
         self._tries: dict[str, int] = {}
         self._answers: deque[dict[str, Any]] = deque(maxlen=ANSWERS_KEPT)
@@ -236,7 +237,7 @@ class HttpTarget(Target):
     def _headers(self, extra: Any, fields: dict[str, str]) -> dict[str, str]:
         headers = {str(k): str(v) for k, v in _fill(dict(extra or {}), fields).items()}
         for header, env in self.headers_env.items():
-            if value := secret(env):
+            if value := self.keys.get(env):
                 headers[str(header)] = value
         if self.session_header:
             headers[str(self.session_header)] = fields["session"]

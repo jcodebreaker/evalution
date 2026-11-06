@@ -1,6 +1,6 @@
 """What one try left behind, as data: everything a judgement can rest on (docs/judging.md,
-"Evidence"). ``runs/`` captures it, ``judging/`` reads it, and it is kept beside the run file in
-``runs/<run>.evidence.jsonl.gz`` (:mod:`evalution.results.evidence`).
+"Evidence"). ``runs/`` captures it, ``judging/`` reads it, and it is kept with its run
+(:mod:`evalution.results.evidence`).
 
 Texts are whole in memory, where checks read them, and capped when stored (:meth:`TryEvidence.
 capped`): an item over :data:`ITEM_BYTES` keeps its head and tail, how much was left out and a hash

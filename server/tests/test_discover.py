@@ -14,9 +14,10 @@ from fastapi.testclient import TestClient
 from evalution import adapters
 from evalution.adapters.http import HttpTarget
 from evalution.api.app import create_app
-from evalution.config import load
+from evalution.config import load, page_targets
 from evalution.connect import discover, probe
 from evalution.llm import Reply
+from evalution.storage import Database
 from evalution.targets import Targets
 
 PHOENIX_KEY = "phoenix-value-012"
@@ -120,7 +121,7 @@ def test_langgraph_project(client, tmp_path) -> None:
     assert any(t.startswith("It sends traces to Phoenix") for t in texts)
     saved = client.post(f"/v1/targets/discover/{found['id']}/accept", json={})
     assert saved.status_code == 201, saved.text
-    block = yaml.safe_load((tmp_path / "targets.yaml").read_text())["targets"]["memory-agent"]
+    block = page_targets(Database.open(tmp_path / "data").docs())["memory-agent"]
     assert block["adapter"] == "langgraph" and block["assistant_id"] == "memory_agent"
 
 
@@ -241,14 +242,14 @@ def connected(tmp_path, monkeypatch):
             return HttpTarget(conf, transport=httpx.MockTransport(app))
 
         monkeypatch.setitem(adapters._built, "odd", build(targets.conf("odd")))
-        yield SimpleNamespace(targets=targets, app=app, build=build, file=tmp_path / "targets.yaml")
+        yield SimpleNamespace(targets=targets, app=app, build=build)
 
 
 async def test_a_failed_message_gets_a_corrected_config(connected) -> None:
     targets, app = connected.targets, connected.app
     probes = probe.Probes()
     model = _ScriptedModel(_MISSES, _READS)
-    before = connected.file.read_text()
+    before = page_targets(targets.docs)
 
     failed = await probe.probe(targets, "odd", model, probes)
     assert not failed["ok"] and failed["can_redraft"] and len(app.calls) == 1
@@ -272,7 +273,7 @@ async def test_a_failed_message_gets_a_corrected_config(connected) -> None:
     for said in model.heard:
         assert APP_SECRET not in said and APP_VALUE not in said and BEARER not in said
     # Nothing is saved until its owner says so.
-    assert connected.file.read_text() == before
+    assert page_targets(targets.docs) == before
 
 
 async def test_redrafting_stops_after_two_rounds_and_shows_what_it_tried(connected) -> None:

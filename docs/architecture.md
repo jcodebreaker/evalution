@@ -29,7 +29,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
       traces.py targets.py settings.py connect.py   the /v1 routes by area, in the order they match
       understanding.py health.py sets.py tests.py runs.py writer.py
       plans.py     a test's plan, for the tests and runs routes
-    writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py session files, draft.py a case from a try or a conversation
+    writer/        the test writer: agent.py its sessions and loop, prompts.py its instructions, schemas.py what the model is told of its tools, tools.py what they do, sessions.py the session store, draft.py a case from a try or a conversation
     connect/       connecting a target: connect.py by its settings, discover.py by its project folder
     runs/          play.py one try, collect.py reading its spans back, estimate.py what a run costs, runner.py the one running task
     review/        findings.py a run's analysis and report, health.py the Home page, testplan.py what a plan will do
@@ -40,11 +40,11 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
         steering.py rendering.py store.py   steers and the overlay; profile and card as text; the writes
       knowledge.py imports.py hooks.py   keeping that current: links, the import graph, git hooks
       history.py library_fit.py   what they need of the runs; the library as it applies to a target
-      profile.py           the profile folder: its JSON files, the updates setting, the profile and its versions
-    targets.py     the configured targets: adapter, trace source, code, profile folder, storage
+      profile.py           what is kept on each target (kind `profile`), the updates setting, the profile and its versions
+    targets.py     the configured targets: adapter, trace source, code, storage
     judging/       steps.py the tool-call grade, checks.py what code decides of a try, render.py what the Grader reads, rubric.py the Grader, claims.py a model's claims against the evidence
-    results/       store.py run files and the run lock, evidence.py the evidence sidecars, record.py what readers ask of a run, migrate.py older runs as today's, views.py what the routes return of them
-    suite/         cases.py sets, cases and their files as documents (kinds set, case, set-file), and import and export as folders; library.py the stateful test library
+    results/       store.py stored runs, stop requests and the run lock, evidence.py each try's evidence, record.py what readers ask of a run, migrate.py older runs as today's, views.py what the routes return of them
+    suite/         cases.py what a set and a case may say, checked; store.py sets, cases and their files as documents (kinds set, case, set-file), and import and export as folders; library.py the stateful test library
     benchmarks/    public benchmarks: longmemeval.py the dataset, its sizes and report, planning.py how a run of one fits an app; longmemeval_data/ the bundled questions
     traces/base.py      the neutral Span, the TraceSource interface, what kind a span is
     traces/view.py      what spans say, in either convention: the TraceView a try records
@@ -61,7 +61,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
     adapters/http.py    generic chat endpoint, configured in YAML
     adapters/langgraph.py   a LangGraph graph through the LangGraph Server API
     code.py        a target's source: what is watched and read, hashes, diffs
-    settings.py    the model set from the page: model.yaml, its key, the model list, Test model
+    settings.py    the model set from the page: its block, its key, the model list, Test model
     llm.py         one model client: OpenAI-compatible or Anthropic messages API, tool calls, spend
     config.py      evalution.yaml: model connection, targets, data dir
     storage/       the database: documents, entries and encrypted secrets, by workspace (see "Storage")
@@ -76,9 +76,9 @@ compose.yaml       evalution alone, with what it keeps in bind mounts; it points
 
 ## Config (`evalution.yaml`, no secrets in it)
 
-Every `*_env` key names a secret: the env var of that name, else the value stored under that key in `data/secrets.json` (targets connected from the page). Targets connected from the page live in `targets.yaml` next to the config and are merged in; a name in both is the hand-edited one. `$EVALUTION_SETTINGS_DIR` moves `targets.yaml` and `model.yaml` elsewhere, for a config that can't be written (the container's: `compose.yaml`).
+`evalution.yaml` is the operator's and is never written. What the page sets lives in the database ("Storage"), kind `settings`, owned by `config.py`: each target connected from the page under `targets/<name>` (its block, the same shape as one in the file), merged in, a name in both being the hand-edited one; and the page's model under `model`. Every `*_env` key names a secret, resolved by the config's `KeyRing`: the env var of that name, else the stored secret of that name (the page's: `targets/<target>/<key>`, `model/api_key`).
 
-**The model** can be set by hand (`model:` below) or from the page (Settings, Model), which writes `model.yaml` next to the config (`model:` only, same shape) and the key into `data/secrets.json` as `model.api_key`. A `model:` in `evalution.yaml` wins whole, and the page says so and stays read-only. The key is the env var `api_key_env` (`EVALUTION_MODEL_KEY` for the page's model) first, then `model.api_key`; it is never returned or logged. A save swaps the model in the running server's one client, so the agent, Grader, analysis and filler use it from their next call. Prices (USD per million tokens) come from `model.prices`, else a small built-in table of Claude models; an unpriced model counts as 0. Every call's cost is added to `data/spend.json` ("Spent so far" on the page).
+**The model** can be set by hand (`model:` below) or from the page (Settings, Model), which stores its `model:` block (same shape) and the key as the secret `model/api_key`. A `model:` in `evalution.yaml` wins whole, and the page says so and stays read-only. The key is the env var `api_key_env` (`EVALUTION_MODEL_KEY` for the page's model) first, then `model/api_key`; it is never returned or logged. A save swaps the model in the running server's one client, so the agent, Grader, analysis and filler use it from their next call. Prices (USD per million tokens) come from `model.prices`, else a small built-in table of Claude models; an unpriced model counts as 0. Every call's cost is added to the document `spend`/`model` (`llm.py`; "Spent so far" on the page).
 
 - `GET /v1/settings/model`: `{provider: anthropic|openai|compatible, base_url, strong, light, key_set, source: page|config|env, spent_usd}` (`env`: the key comes from the environment).
 - `PUT /v1/settings/model {provider, base_url?, strong, light, key?}`: `base_url` only for `compatible`; a `key` sets, `null` removes, absent keeps. 409 when `source` is `config`.
@@ -202,11 +202,11 @@ The page connects a target without touching `evalution.yaml`. The usual way is b
 - **Send traces here**, when evalution keeps traces itself: the step "Send traces to evalution" and `traces: {traced, text, lines, command, arriving}` on the discovery (see "Traces"). `POST /v1/targets/discover/{id}/traces` checks again whether AI spans arrived in the last hour (in `evalution-<target>`). The page connects on its own once they arrive, or on Connect. In this mode the proposed target has a `phoenix` block only when the project names an existing Phoenix; `GET /v1/traces` returns `{managed, url}` (`url`: where apps send traces, evalution's own server with the built-in source).
 - What it could not tell becomes at most two questions: "Which port does it run on?" (asked when the app doesn't answer on a guessed port) and "Which address takes chat messages?".
 - `.env` is read only for the keys named above (`PORT`, `PHOENIX_*` for other apps). A secret found there (`phoenix_api_key`) stays in memory until the target is saved; it is never returned, logged or sent to the model.
-- `POST /v1/targets/discover/{id}/accept` `{answers?, name?}` saves the target like `POST /v1/targets` (secrets into `data/secrets.json`) and returns it; with `{target}` it saves that body instead (the page's Details), keeping the secrets found unless the body gives its own.
+- `POST /v1/targets/discover/{id}/accept` `{answers?, name?}` saves the target like `POST /v1/targets` (secrets stored, encrypted) and returns it; with `{target}` it saves that body instead (the page's Details), keeping the secrets found unless the body gives its own.
 
 The technical way (`connect.py`), used by the page's Details and Settings:
 
-- `POST /v1/targets` `{name, adapter: "http"|"langgraph", options, phoenix: {url, project, public_url?} | null, code?: {path, ignore?}, secrets: {key: value}}` validates the body (a slug name; http needs `send`, `reply`, `done`; langgraph needs `url`, `assistant_id`) and writes the block into `targets.yaml`. Secret values (`phoenix_api_key`, `api_key` for langgraph, `authorization` for http) go into `data/secrets.json` (0600, under the gitignored `data/`) as `<target>.<key>`, and the block names them through the usual `*_env` keys. A new target with no set gets an empty `main` set.
+- `POST /v1/targets` `{name, adapter: "http"|"langgraph", options, phoenix: {url, project, public_url?} | null, code?: {path, ignore?}, secrets: {key: value}}` validates the body (a slug name; http needs `send`, `reply`, `done`; langgraph needs `url`, `assistant_id`) and stores the block. Secret values (`phoenix_api_key`, `api_key` for langgraph, `authorization` for http) are stored secrets named `targets/<target>/<key>`, and the block names them through the usual `*_env` keys. A new target with no set gets an empty `main` set.
 - `PUT /v1/targets/{name}` takes the same body; a secret left out is kept, `null` removes it. `DELETE /v1/targets/{name}` removes the block and its secrets; its sets, runs and profile stay on disk. Both refuse a target set in `evalution.yaml`.
 - `GET /v1/targets/{name}` returns the editable target with the keys of its stored secrets, never their values. No route returns a secret, and none is logged.
 - `POST /v1/targets/{name}/reach` tries each part without playing anything, and returns `{adapter: {ok, detail}, phoenix: {ok, detail, sessions_seen, has_llm_spans}, code: {ok, detail, files_matched}}`. Adapter: http `GET`s its `health` URL when set, else sends `OPTIONS` to the send URL; langgraph `GET`s `/ok`, then looks for the assistant (by id or graph name) in `POST /assistants/search`. Phoenix: the project exists, and how many recent conversations it holds. Code: the folder exists and how many source files it has. With a target body, it checks the unsaved form (its secrets are used for that check only).
@@ -307,7 +307,7 @@ No login and no admin identity model: `evalution serve` listens on 127.0.0.1 and
 
 ## Knowing a target: the profile
 
-When a target is added, or on "refresh", the agent builds `targets/<name>/profile.md`. It is a plain file the admin can read and edit, and the agent reads it every time it writes a test for that target.
+When a target is added, or on "refresh", the agent builds the profile, `<name>/profile.md`: like everything kept on a target, a document of kind `profile` keyed `<name>/<doc>` (see Storage). It is plain text the admin can read and edit, and the agent reads it every time it writes a test for that target.
 
 **Sources:**
 
@@ -325,7 +325,7 @@ When a target is added, or on "refresh", the agent builds `targets/<name>/profil
 
 **Evidence.** Every line but headings ends with where it comes from: `[trace]` (the trace digest), `[code: path]` (that file) or `[admin]`. The profile is rendered from the understanding (see "The understanding"): `write_understanding` refuses, saving nothing, a node or claim without evidence, or a node tool that is neither in the traces' tools (the tools offered to the model, else those called) nor in a code file the node cites. What the agent did not see stays out.
 
-**Versions.** Every write (the agent's, or the admin's edit) is kept in `targets/<name>/profile_versions.json`, the newest 10, each with who wrote it, when, and the hash of the fingerprint on file. `GET` / `PUT /v1/targets/{target}/profile` return `{text, version: {version, at, by, fingerprint} | null, changes: [{kind: "added"|"removed", text}], drift}`, `changes` being the lines changed since the version before. The page shows the profile with its tags set apart quietly, and "Changes since last version" folded under it.
+**Versions.** Every write (the agent's, or the admin's edit) is kept in `<name>/profile_versions.json`, the newest 10, each with who wrote it, when, and the hash of the fingerprint kept. `GET` / `PUT /v1/targets/{target}/profile` return `{text, version: {version, at, by, fingerprint} | null, changes: [{kind: "added"|"removed", text}], drift}`, `changes` being the lines changed since the version before. The page shows the profile with its tags set apart quietly, and "Changes since last version" folded under it.
 
 **Agent tools:**
 
@@ -353,7 +353,7 @@ A trace difference counts only once two checks in a row see it (`drift.json` kee
 
 **Drift found:**
 
-- `targets/<name>/drift.json` lists each change (`tool_added`, `tool_removed`, `args_changed`, `prompt_changed`, `shape_changed`, `code_changed` with the files).
+- `<name>/drift.json` lists each change (`tool_added`, `tool_removed`, `args_changed`, `prompt_changed`, `shape_changed`, `code_changed` with the files).
 - The profile shows "out of date".
 - Tests whose expectations name a changed or removed tool, argument or prompt fact are marked `stale: <reason>`, and `CaseRow.stale` returns it.
 - For code changes, the agent reads the diff of the watched files (scoped like `read_code`) and writes a short behaviour summary into the drift entry.
@@ -367,7 +367,7 @@ A fingerprint taken under other watching rules (from before everything was watch
 
 **Agent tools:** `read_drift(target)`, `diff_code(target, since)` (watched files only) and `note_drift(change, summary)` for the behaviour summary.
 
-The fingerprint is `targets/<name>/fingerprint.json`, taken whenever the agent writes the profile (which also clears the drift list); an admin's own edit of the profile leaves it as it was.
+The fingerprint is `<name>/fingerprint.json`, taken whenever the agent writes the profile (which also clears the drift list); an admin's own edit of the profile leaves it as it was.
 
 **Page:**
 - "Changed since learned · 3" on the project card, and "May be stale" on each test it touches. Learn again catches up.
@@ -378,9 +378,9 @@ The fingerprint is `targets/<name>/fingerprint.json`, taken whenever the agent w
 
 Drift compares with what the profile was written from. The change card on Home compares with what was **last tested**.
 
-- **The tested state.** When a run starts, the code's commit and hash map are kept in `targets/<name>/tested.json` (`runs`: the last 3 starts), and the run document gets `commit` and `code` (the hash of the map). The first run's state is the first `tested`; an app with runs from before this starts from the code at its first check.
+- **The tested state.** When a run starts, the code's commit and hash map are kept in `<name>/tested.json` (`runs`: the last 3 starts), and the run document gets `commit` and `code` (the hash of the map). The first run's state is the first `tested`; an app with runs from before this starts from the code at its first check.
 - **Looking.** `GET /v1/targets/{t}/health` starts a background check, at most every 5 minutes or when a run has ended, and answers without waiting; `checking` says one is going, and the page asks again until it ends. The check is the code part of drift (no traces read), then the comparison with `tested`.
-- **Interpreting.** Follows the app's updates setting (ADR 0005): in `manual`, the default, no call is made and the card is the changed files and all the tests until the owner presses *Read this change* (`POST /v1/targets/{t}/change/read`); `health.code_change.read` says whether the model read it. In `auto`, one call to the light model per distinct change: the diff of the changed files (secrets files never; new untracked files from their start; capped at 60,000 characters, or just the file list when the folder is not a checkout or the commit is gone), the profile and the tests. It answers `{summary, areas, tests, uncovered}`; test ids are `<set>/<case>` and only real ones are kept. Answers are kept in `targets/<name>/impact.json` by fingerprint: the changed files with their hashes, and the test ids, so a new test gets the change read again. No model, or a call that fails or does not read, gives the changed files and all the tests; only the no-model case is asked again later.
+- **Interpreting.** Follows the app's updates setting (ADR 0005): in `manual`, the default, no call is made and the card is the changed files and all the tests until the owner presses *Read this change* (`POST /v1/targets/{t}/change/read`); `health.code_change.read` says whether the model read it. In `auto`, one call to the light model per distinct change: the diff of the changed files (secrets files never; new untracked files from their start; capped at 60,000 characters, or just the file list when the folder is not a checkout or the commit is gone), the profile and the tests. It answers `{summary, areas, tests, uncovered}`; test ids are `<set>/<case>` and only real ones are kept. Answers are kept in `<name>/impact.json` by fingerprint: the changed files with their hashes, and the test ids, so a new test gets the change read again. No model, or a call that fails or does not read, gives the changed files and all the tests; only the no-model case is asked again later.
 - **Clearing.** A test leaves the card once a finished run judged it on the code as it stands now (a failure counts; it shows in the attention list). When no test is left and no area without a test waits, the card goes and `tested` moves to the current code. A full run that finished moves `tested` to the code it started on, by itself. A change the model says touches no test and no area clears at once. An area with no test keeps the card until any run is made on that code.
 - **Nothing runs by itself.** The card's button goes through the estimate and its token with `cases`, then the usual confirm. An area with no test opens the test writer with an ask in its reply field, not sent.
 
@@ -390,11 +390,11 @@ Drift compares with what the profile was written from. The change card on Home c
 
 ### Keeping what it knows current (`knowledge.py`, `imports.py`, `hooks.py`)
 
-The understanding names its evidence; `targets/<name>/knowledge.json` keeps it honest as commits land (ADR 0005).
+The understanding names its evidence; `<name>/knowledge.json` keeps it honest as commits land (ADR 0005).
 
 - **Links.** `claim:<id>` or `node:<id>` -> `{file: hash}`, from evidence of kind code, docs or prompt. Only files in `Code.hashes()` link, so a ref cannot name a secret or leave the folder; what does not resolve stays as written, unlinked. A partial ref (`a.py`) links when it ends exactly one file `read_code` read in that turn. Reads link nothing else: tying every read to every claim would mark all of them on any commit. Made when the agent writes, and on first sight of an older doc, with no model call.
-- **Detecting (free).** `checked` is the commit last checked. Only `git diff checked HEAD` counts, never the working tree, and not during a rebase. A file whose hash is still the linked one is not a change for that claim. `stale` records `direct` or `indirect` with the files. Indirect uses `imports.graph`: Python through `ast`; JS/TS, Go and Markdown links by careful patterns resolved against files that exist; no edges for anything else or a file that does not parse. What a file imports is cached by hash in `imports.json`. A claim's files reach a change within `imports.HOPS` (2).
-- **The setting.** `targets/<name>/settings.json` `updates`: `manual` (default) or `auto`. `PUT /v1/targets/{t}/updates`.
+- **Detecting (free).** `checked` is the commit last checked. Only `git diff checked HEAD` counts, never the working tree, and not during a rebase. A file whose hash is still the linked one is not a change for that claim. `stale` records `direct` or `indirect` with the files. Indirect uses `imports.graph`: Python through `ast`; JS/TS, Go and Markdown links by careful patterns resolved against files that exist; no edges for anything else or a file that does not parse. What a file imports is cached by hash in `<name>/imports.json`. A claim's files reach a change within `imports.HOPS` (2).
+- **The setting.** `<name>/settings.json` `updates`: `manual` (default) or `auto`. `PUT /v1/targets/{t}/updates`.
 - **Refreshing.** `knowledge.refresh` is the one path. Detection always runs; a call follows when asked (`POST /v1/targets/{t}/understanding/update`, everything marked), or in `auto` for the marks a new commit range gave. One light call, cached by fingerprint (the commits and the claims' words). It gets up to 60 marked claims, the capped diff of the changed watched files, and those claims' files as of HEAD (blobs, so a repo's filters do not run). Answers per claim are `still_true`, `rewrite` (text, evidence) or `removed`, plus at most 3 `new`.
 - **Validation.** A rewrite must cite a watched file: a direct claim's own files or a changed one; an indirect claim's only a changed one. Otherwise it is dropped and the claim stays marked. New claims must cite a changed file. Sections go through `understanding.check`. Saved with `by: "refresh"`, which renders the profile; rewritten items carry `updated_from` (the commit).
 - **The owner wins.** A claim or node with a fix or verdict is never changed: a `rewrite` or `removed` puts it in `flags`, shown as may be out of date until the owner steers it again. So are an indirect `removed`, and a node `removed` (the diagram hangs on nodes). A node's `rewrite` replaces its `sub`, never its title.
@@ -443,7 +443,7 @@ The ten: compaction keeps an early decision; memory recalls a fact after many me
 
 ## The understanding (project card, diagram, paths, claims)
 
-The profile becomes structured: `targets/<name>/understanding.json` is the source of truth. `profile.md` is rendered from it, for people and for the agent's prompt. Design: mock-up `understood.html`.
+The profile becomes structured: `<name>/understanding.json` is the source of truth. `<name>/profile.md` is rendered from it, for people and for the agent's prompt. Design: mock-up `understood.html`.
 
 ```ts
 interface Understanding {
@@ -495,6 +495,6 @@ interface Evidence { kind: "prompt" | "code" | "traces" | "docs" | "admin"; ref:
 **Suggested tests.** The starters are the page's Suggested tests, the only place the library shows. A starter is `exists: true`, and never `selected`, when the target already has a test made from its library test (`source: library: <id>`) or with its name (or the file name its name gives).
 - `GET /v1/targets/{t}/card.md` returns the card as Markdown.
 
-Steers are kept in `targets/<name>/steers.json` and laid over the understanding on read. A verdict or fix holds while the agent leaves that claim's text (a node's title) as it was; once the agent rewrites it, it counts as honoured. Nodes carry the tools they stand for (`tools`, written by the agent, not returned); `step_labels` (tool → plain step name, `(no tools)` for an ask without tools) and `expected_paths` name the paths. The plan route takes an optional `session` (else it opens one on `set`, else the first set) and returns the agent session.
+Steers are kept in `<name>/steers.json` and laid over the understanding on read. A verdict or fix holds while the agent leaves that claim's text (a node's title) as it was; once the agent rewrites it, it counts as honoured. Nodes carry the tools they stand for (`tools`, written by the agent, not returned); `step_labels` (tool → plain step name, `(no tools)` for an ask without tools) and `expected_paths` name the paths. The plan route takes an optional `session` (else it opens one on `set`, else the first set) and returns the agent session.
 
 **Agent message after learning:** one line ("I've learned X. Check what I understood."). No profile dump in chat; the page shows What it learned.

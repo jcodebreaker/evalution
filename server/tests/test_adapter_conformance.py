@@ -34,7 +34,7 @@ from evalution.adapters.base import (
 )
 from evalution.api.app import create_app
 from evalution.cli import main
-from evalution.config import TargetConfig, load
+from evalution.config import TargetConfig, load, page_targets
 from evalution.core.case import CLEAN_KINDS
 from evalution.core.trace import Section
 from evalution.project.understanding.computed import stack
@@ -42,7 +42,7 @@ from evalution.targets import Targets
 from evalution.traces.base import Span
 from evalution.traces.profile import is_eval
 from evalution.writer.agent import Agent
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 
 #: What every adapter's config and session need, side by side.
 APP = "http://127.0.0.1:1"
@@ -201,14 +201,16 @@ def test_a_fourth_adapter_is_one_module(fourth_adapter, tmp_path) -> None:
         assert checked["adapter"] == {"ok": True, "detail": "It echoes"}
         body = {"adapter": "echo", "options": {"url": "u"}, "secrets": {"api_key": "k"}}
         assert client.put("/v1/targets/app", json=body).status_code == 200
-        assert "api_key_env: app.api_key" in (tmp_path / "targets.yaml").read_text()
+        saved = page_targets(client.app.state.runs.targets.docs)["app"]
+        assert saved["api_key_env"] == "targets/app/api_key"
         bad = client.put("/v1/targets/app", json={"adapter": "echo", "options": {"x": "u"}})
         assert bad.json()["detail"] == "options.x: not an option of the echo adapter"
 
         # The list and the test writer see what it can do.
         rows = client.get("/v1/targets").json()["data"]
         assert rows[0]["capabilities"] == ["isolation", "parallel"] and not rows[0]["error"]
-        writer = Agent(client.app.state.runs, SessionFiles(tmp_path), None)
+        runs = client.app.state.runs
+        writer = Agent(runs, SessionStore(runs.targets.docs), None)
         session = {"target": "app", "set": "main", "model_usd": 0.0}
         said = writer._instructions(session)
         assert "adapter 'echo', capabilities: isolation, parallel" in said

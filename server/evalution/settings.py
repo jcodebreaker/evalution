@@ -1,24 +1,29 @@
-"""The model set from the page (docs/architecture.md, "Config"): ``model.yaml`` next to the
-config, written only here, and its key in ``<data_dir>/secrets.json`` as ``model.api_key``.
-A ``model:`` in ``evalution.yaml`` wins and is never written. The key is never sent back.
+"""The model set from the page (docs/architecture.md, "Config"): its block in the database
+(:func:`evalution.config.save_page_model`) and its key the stored secret
+:data:`~evalution.config.MODEL_SECRET`. A ``model:`` in ``evalution.yaml`` wins and is never
+written. The key is never sent back.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-import yaml
 
-from evalution.config import MODEL_SECRET, Config, ModelConfig, read_secrets, write_secrets
+from evalution.config import (
+    MODEL_SECRET,
+    Config,
+    ModelConfig,
+    page_model,
+    save_page_model,
+)
 from evalution.core import net
 from evalution.llm import LLM, LLMError, endpoint
+from evalution.storage import Docs
 
 PROVIDERS = ("anthropic", "openai", "compatible")
 URLS = {"anthropic": "https://api.anthropic.com", "openai": "https://api.openai.com/v1"}
@@ -47,14 +52,14 @@ def view(config: Config, spent_usd: float) -> dict[str, Any]:
     """The model as the page shows it: no key, only whether one is set."""
     model = config.model
     env = model.api_key_env if model else KEY_ENV
-    from_env = bool(env and os.environ.get(env, "").strip())
+    from_env = bool(config.keys.env(env))
     source = "config" if config.model_source == "config" else "env" if from_env else "page"
     return {
         "provider": provider(model) if model else "anthropic",
         "base_url": model.base_url if model else URLS["anthropic"],
         "strong": model.models.get("strong", "") if model else "",
         "light": model.models.get("light", "") if model else "",
-        "key_set": bool(model.api_key()) if model else bool(read_secrets().get(MODEL_SECRET)),
+        "key_set": bool(model.api_key() if model else config.keys.stored(MODEL_SECRET)),
         "source": source,
         "spent_usd": round(spent_usd, 4),
         "addresses": URLS,
@@ -105,23 +110,15 @@ def parse(body: dict[str, Any], prices: dict[str, dict[str, float]]) -> ModelCon
     )
 
 
-def _file_prices(file: Path) -> dict[str, dict[str, float]]:
-    if not file.is_file():
-        return {}
-    data = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
-    model = data.get("model") if isinstance(data, dict) else None
-    prices = model.get("prices") if isinstance(model, dict) else None
-    return prices if isinstance(prices, dict) else {}
-
-
-def save(config: Config, body: dict[str, Any]) -> bool:
-    """Write the body's model to ``model.yaml`` and its key (a value sets, ``null`` removes,
-    absent or empty keeps). Whether a stored key stayed behind: one in the environment goes where
-    it is pointed, but one a form stored goes only where it was given for.
+def save(config: Config, docs: Docs, body: dict[str, Any]) -> bool:
+    """Write the body's model into *docs* and its key (a value sets, ``null`` removes, absent or
+    empty keeps). Whether a stored key stayed behind: one in the environment goes where it is
+    pointed, but one a form stored goes only where it was given for.
 
     :raises SettingsError: A field that does not follow the shape.
     """
-    model = parse(body, _file_prices(config.model_file))
+    kept = page_model(docs).get("prices")
+    model = parse(body, kept if isinstance(kept, dict) else {})
     block: dict[str, Any] = {
         "kind": model.kind,
         "base_url": model.base_url,
@@ -130,27 +127,24 @@ def save(config: Config, body: dict[str, Any]) -> bool:
     }
     if model.prices:
         block["prices"] = model.prices
+    secrets = config.keys.store
     key = body.get("key")
     dropped = False
     if key is None and "key" in body:
-        write_secrets({MODEL_SECRET: None})
+        secrets.set(MODEL_SECRET, None)
     elif isinstance(key, str) and key.strip():
-        write_secrets({MODEL_SECRET: key.strip()})
+        secrets.set(MODEL_SECRET, key.strip())
     elif _moved(config, model.base_url):
-        dropped = bool(read_secrets().get(MODEL_SECRET))
-        write_secrets({MODEL_SECRET: None})
-    file = config.model_file
-    tmp = file.with_name(f".{file.name}.tmp")
-    head = "# evalution's model, set from the page. The key is not here.\n"
-    tmp.write_text(head + yaml.safe_dump({"model": block}, sort_keys=False), encoding="utf-8")
-    tmp.replace(file)
+        dropped = bool(config.keys.stored(MODEL_SECRET))
+        secrets.set(MODEL_SECRET, None)
+    save_page_model(docs, block)
     return dropped
 
 
 def draft(config: Config, body: dict[str, Any]) -> ModelConfig:
     """The model a form asks for, not saved; the key it will have once saved: a typed one, else one
     in the environment, else the stored one, but only on the host it was stored for."""
-    model = parse(body, config.model.prices if config.model else {})
+    model = replace(parse(body, config.model.prices if config.model else {}), keys=config.keys)
     key = body.get("key")
     if isinstance(key, str) and key.strip():
         return replace(model, key=key.strip())
@@ -246,10 +240,11 @@ def _failure(message: str) -> str:
 
 
 async def test(
-    model: ModelConfig, spend_file: Path | None, transport: httpx.AsyncBaseTransport | None = None
+    model: ModelConfig, docs: Docs | None, transport: httpx.AsyncBaseTransport | None = None
 ) -> dict[str, Any]:
-    """One tiny call on each of the strong and light models: ``{key: {ok, detail, ms}}``."""
-    llm = LLM(model, transport=transport, spend_file=spend_file)
+    """One tiny call on each of the strong and light models: ``{key: {ok, detail, ms}}``; what
+    they cost adds to the spend kept in *docs*."""
+    llm = LLM(model, transport=transport, docs=docs)
 
     async def one(key: str) -> dict[str, Any]:
         started = time.monotonic()

@@ -14,6 +14,7 @@ def test_documents_entries_and_workspaces_keep_apart(tmp_path) -> None:
     docs = database.docs()
     assert docs.workspace == LOCAL and (tmp_path / "evalution.db").is_file()
     assert Database.open(tmp_path) is database, "one pool per database in a process"
+    assert (tmp_path / "evalution.db").stat().st_mode & 0o777 == 0o600, "it holds prompts"
 
     docs.put("run", "r1", {"run": "r1", "score": 0.5})
     docs.put("run", "r1", {"run": "r1", "score": 1})

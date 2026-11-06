@@ -1,4 +1,4 @@
-"""Connecting a target from the page. Secret values go into data/secrets.json and are never
+"""Connecting a target from the page. Secret values are kept as stored secrets and never
 returned or logged.
 """
 
@@ -26,7 +26,7 @@ def _parse(
 ) -> tuple[dict, dict]:
     try:
         block, changes = connect.parse(name, body, stored)
-        connect.draft(name, block, targets.config.root)
+        connect.draft(name, block, targets.config.root, targets.config.keys)
     except connect.TargetError as exc:
         raise invalid(str(exc)) from exc
     return block, changes
@@ -62,8 +62,7 @@ def _adapter_row(name: str) -> dict[str, Any]:
 
 
 async def _create(targets: Targets, lock: asyncio.Lock, body: dict[str, Any]) -> dict[str, Any]:
-    """Save a new target: its block into targets.yaml, its secrets into data/secrets.json,
-    and a first set when it has none."""
+    """Save a new target: its block, its secrets, and a first set when it has none."""
     name = body.get("name")
     if not isinstance(name, str):
         raise invalid("name: required")
@@ -71,7 +70,9 @@ async def _create(targets: Targets, lock: asyncio.Lock, body: dict[str, Any]) ->
         if name in targets.config.targets:
             raise busy(f"An app named {name} already exists")
         block, changes = _parse(targets, name, body, set())
-        await asyncio.to_thread(connect.save, targets.config.targets_file, name, block, changes)
+        await asyncio.to_thread(
+            connect.save, targets.docs, targets.config.keys, name, block, changes
+        )
         await targets.reload(name)
         await asyncio.to_thread(connect.starter_set, targets.docs, name)
     return _view(targets, name)
@@ -92,7 +93,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
     def claim(name: str) -> None:
         """One message at a time per app, and none while a run plays, in this process or another;
         no run starts while it's on its way. :func:`let_go` when it has ended."""
-        if runs.busy() or (name not in probes.busy and not runs.files.lock.acquire()):
+        if runs.busy() or (name not in probes.busy and not runs.lock.acquire()):
             raise busy("A run is going. Try again when it ends.")
         if name in probes.busy:
             raise busy("A test message is already on its way.")
@@ -100,7 +101,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
 
     def let_go(name: str) -> None:
         probes.busy.discard(name)
-        runs.files.lock.release()
+        runs.lock.release()
 
     @contextlib.contextmanager
     def changing(name: str) -> Iterator[None]:
@@ -192,7 +193,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
         async with lock:
             name = _managed(targets, target)
             with changing(name):
-                stored = connect.stored_keys(name)
+                stored = connect.stored_keys(targets.config.keys, name)
                 moved = connect.moved_secrets(targets.conf(name), body, stored)
                 block, changes = _parse(targets, name, body, stored - moved)
                 dropped = connect.left_behind(name, moved, changes)
@@ -200,7 +201,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
                 was = targets.conf(name).adapter
                 probes.failed.pop(name, None)
                 await asyncio.to_thread(
-                    connect.save, targets.config.targets_file, name, block, changes
+                    connect.save, targets.docs, targets.config.keys, name, block, changes
                 )
                 await targets.reload(name)
                 if was != block["adapter"]:
@@ -214,7 +215,7 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
         async with lock:
             name = _managed(targets, target)
             with changing(name):
-                await asyncio.to_thread(connect.remove, targets.config.targets_file, name)
+                await asyncio.to_thread(connect.remove, targets.docs, targets.config.keys, name)
                 await targets.reload(name)
         return {"name": name, "removed": True, "kept": "Its sets, runs and profile stay on disk."}
 
@@ -252,11 +253,12 @@ def connect_router(runs: Runs, found: discover.Discoveries, lock: asyncio.Lock) 
         if "adapter" in body:
             if not SLUG.match(target):
                 raise invalid("name: lowercase letters, digits, - and _")
-            stored = connect.stored_keys(target) if target in targets.config.managed else set()
+            managed = target in targets.config.managed
+            stored = connect.stored_keys(targets.config.keys, target) if managed else set()
             if stored:
                 stored -= connect.moved_secrets(targets.conf(target), body, stored)
             block, changes = _parse(targets, target, body, stored)
-            conf = connect.draft(target, block, targets.config.root)
+            conf = connect.draft(target, block, targets.config.root, targets.config.keys)
             overlay = {k: v for k, v in changes.items() if v}
         else:
             conf, overlay = targets.conf(target_name(targets, target)), {}

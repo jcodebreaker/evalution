@@ -7,7 +7,6 @@ import yaml
 
 from evalution.config import load
 from evalution.project.profile import update_connection
-from evalution.results.store import FileStore
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
 from evalution.suite.cases import (
@@ -20,7 +19,7 @@ from evalution.suite.cases import (
 )
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
 
 CASE = {"name": "Greets", "turns": [{"message": "hi"}]}
@@ -39,9 +38,9 @@ async def agent(tmp_path):
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
     )
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), FileStore(config.data_dir), None)
+    runs = Runs(Targets(config), None)
     save_set(runs.targets.docs, "bot", "main", {"name": "Main"})
-    made = Agent(runs, SessionFiles(config.data_dir), None)
+    made = Agent(runs, SessionStore(runs.targets.docs), None)
     yield made
     for task in list(made._tasks.values()):
         await task
@@ -65,9 +64,14 @@ async def test_a_question_never_unlocks_saving(agent) -> None:
     saved = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": CASE})
     assert saved.startswith("Refused: that plan is not approved")
 
-    chats = agent.files.chats("bot")
+    chats = agent.sessions.chats("bot")
     assert chats and chats[0]["asked"], "a chat with something said in it can be gone back to"
-    assert agent.files.chats("someone-else") == []
+    assert agent.sessions.chats("someone-else") == []
+    for older_first in ("older", "newer"):
+        said = [{"role": "admin", "text": f"The {older_first} one?"}]
+        agent.sessions.write({"id": older_first, "target": "bot", "messages": said})
+    order = [c["id"] for c in agent.sessions.chats("bot")]
+    assert order.index("newer") < order.index("older"), "latest first"
 
 
 async def test_add_to_tests_approves_one_case(agent) -> None:

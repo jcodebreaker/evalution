@@ -27,7 +27,7 @@ def writer_router(targets: Targets, agent: Agent) -> APIRouter:
     @router.get("/evals/agent/sessions")
     async def list_agent(target: str) -> list[dict[str, Any]]:
         """The app's past chats, latest first."""
-        return await asyncio.to_thread(agent.files.chats, target_name(targets, target))
+        return await asyncio.to_thread(agent.sessions.chats, target_name(targets, target))
 
     @router.get("/evals/agent/sessions/{session_id}")
     async def get_agent(session_id: str) -> dict[str, Any]:

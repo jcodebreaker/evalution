@@ -74,7 +74,7 @@ from evalution.adapters.base import (
     part,
     text_options,
 )
-from evalution.config import ConfigError, TargetConfig, secret
+from evalution.config import ConfigError, TargetConfig
 from evalution.core import net
 from evalution.core.evidence import Failure, TurnEnd
 
@@ -138,6 +138,7 @@ class LettaTarget(Target):
         self.model = options.get("model")
         self.cwd = options.get("cwd")
         self.key_env = options.get("api_key_env")
+        self.keys = target.keys
         if options.get("cleanup"):
             self.capabilities = replace(self.capabilities, deletes=True)
 
@@ -149,7 +150,8 @@ class LettaTarget(Target):
         knows, so an app that isn't there or refuses the key ends a run the same way on any
         adapter."""
         address = _ws_url(self.url)
-        headers = {"Authorization": f"Bearer {key}"} if (key := secret(self.key_env)) else None
+        key = self.keys.get(self.key_env)
+        headers = {"Authorization": f"Bearer {key}"} if key else None
         request = httpx.Request("GET", _http_url(self.url))
         try:
             socket = await connect(

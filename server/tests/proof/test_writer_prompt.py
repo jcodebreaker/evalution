@@ -7,11 +7,12 @@ import asyncio
 from scripted_agent import SET, TARGET
 
 from evalution.llm import LLMError, Reply
-from evalution.project.profile import update_connection, write_json, write_profile
+from evalution.project import drift
+from evalution.project.profile import update_connection, write_doc, write_profile
 from evalution.suite.cases import CASE
 from evalution.writer import agent as writer
 from evalution.writer.prompts import INSTRUCTIONS
-from evalution.writer.sessions import SessionFiles
+from evalution.writer.sessions import SessionStore
 
 
 class WriterModel:
@@ -30,10 +31,10 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
     rig.add({"name": "Greets", "turns": [{"message": "hi"}]})
     rig.docs.put(CASE, f"{TARGET}/{SET}/broken", "{not a case")
     write_profile(rig.targets, TARGET, "Plans trips for families [admin]")
-    write_json(rig.targets, TARGET, "drift.json", {"changes": [{"id": "c1"}]})
+    write_doc(rig.targets, TARGET, drift.DOC, {"changes": [{"id": "c1"}]})
 
     model = WriterModel()
-    agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), model)
+    agent = writer.Agent(rig.runs, SessionStore(rig.targets.docs), model)
     opened = await agent.create(TARGET, SET)
     shown = await agent.message(opened["id"], "What can you test?")
     for task in list(agent._tasks.values()):
@@ -68,7 +69,7 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
 async def test_a_turn_always_stops_and_a_plain_question_is_heard(make_rig, monkeypatch) -> None:
     rig = make_rig()
     model = WriterModel()
-    agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), model)
+    agent = writer.Agent(rig.runs, SessionStore(rig.targets.docs), model)
     opened = await agent.create(TARGET, SET)
     shown = await agent.message(opened["id"], "About Run 2: why?", "20261102-013042-c33e")
     for task in list(agent._tasks.values()):
@@ -87,7 +88,7 @@ async def test_a_turn_always_stops_and_a_plain_question_is_heard(make_rig, monke
             return await self.answer()
 
     async def played(answer) -> dict:
-        agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), Replies(answer))
+        agent = writer.Agent(rig.runs, SessionStore(rig.targets.docs), Replies(answer))
         opened = await agent.create(TARGET, SET)
         await agent.message(opened["id"], "Go")
         await asyncio.wait_for(asyncio.gather(*agent._tasks.values()), 5)
@@ -191,7 +192,7 @@ async def test_a_long_chat_is_summarized_or_else_loses_its_oldest_exchanges(
         ]
 
     async def played(model, history=None) -> dict:
-        agent = writer.Agent(rig.runs, SessionFiles(rig.config.data_dir), model)
+        agent = writer.Agent(rig.runs, SessionStore(rig.targets.docs), model)
         opened = await agent.create(TARGET, SET)
         session = await agent._session(opened["id"])
         session["history"] = old_chat() if history is None else history

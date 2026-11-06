@@ -1,13 +1,13 @@
 """What a code change means for an app's tests (docs/architecture.md, "Drift", the change card).
 
-The change is measured from the **last tested state** (``targets/<name>/tested.json``), not from
+The change is measured from the **last tested state** (:data:`TESTED_DOC`), not from
 the profile: the code's commit and hash map when a run started. :func:`record_run` keeps that
 state at every run's start, and stamps the run with ``commit`` and ``code`` (the hash of the map).
 
 :class:`Watcher` looks in the background when Home is viewed, at most every
 :data:`CHECK_EVERY` seconds or when a run has ended: a code-only drift check, then
 :func:`refresh`, which asks the light model once per distinct change what it touches (cached in
-``targets/<name>/impact.json``). No model, or a failed call, gives the changed files and all the
+:data:`IMPACT_DOC`). No model, or a failed call, gives the changed files and all the
 tests. So does an app whose updates are ``manual``, until the owner asks for the reading. Nothing
 here starts a run; the owner presses the button.
 
@@ -31,7 +31,14 @@ from evalution.core.rules import judged_tries
 from evalution.llm import Caller, LLMError, cut, fenced, json_answer
 from evalution.project import drift
 from evalution.project.history import History
-from evalution.project.profile import fingerprint_hash, read_json, read_profile, updates, write_json
+from evalution.project.profile import (
+    FINGERPRINT_DOC,
+    fingerprint_hash,
+    read_doc,
+    read_profile,
+    updates,
+    write_doc,
+)
 from evalution.suite.cases import CaseError, is_benchmark, load_cases, own_sets
 from evalution.targets import Targets
 
@@ -39,8 +46,8 @@ _logger = logging.getLogger(__name__)
 
 #: Seconds between checks of one app when Home is viewed.
 CHECK_EVERY = 300.0
-TESTED_FILE = "tested.json"
-IMPACT_FILE = "impact.json"
+TESTED_DOC = "tested.json"
+IMPACT_DOC = "impact.json"
 #: Run start states kept, for a full run that ends after the code moved on.
 RUN_STATES = 3
 #: Interpretations kept, so going back to an earlier state costs nothing.
@@ -154,14 +161,14 @@ def record_run(targets: Targets, name: str) -> dict[str, Any]:
     try:
         taken = _snapshot(code)
         with targets.guards.tested:
-            doc = read_json(targets, name, TESTED_FILE) or {}
+            doc = read_doc(targets, name, TESTED_DOC) or {}
             states = doc.get("runs") or {}
             states.pop(taken["code"], None)
             states[taken["code"]] = taken
             doc["runs"] = dict(list(states.items())[-RUN_STATES:])
             if (doc.get("tested") or {}).get("watch") != taken["watch"]:
                 doc["tested"] = taken
-            write_json(targets, name, TESTED_FILE, doc)
+            write_doc(targets, name, TESTED_DOC, doc)
     except Exception:
         _logger.warning("impact: code state of %s not recorded", name, exc_info=True)
         return {}
@@ -227,7 +234,7 @@ def _look(runs: History, name: str) -> dict[str, Any] | None:
     now = _snapshot(code)
     history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
     with targets.guards.tested:
-        doc = read_json(targets, name, TESTED_FILE) or {}
+        doc = read_doc(targets, name, TESTED_DOC) or {}
         tested = doc.get("tested")
         if tested is None and not history:
             return None
@@ -236,8 +243,8 @@ def _look(runs: History, name: str) -> dict[str, Any] | None:
         tested = moved if moved.get("watch") == now["watch"] else now
         if tested is not doc.get("tested"):
             doc["tested"] = tested
-            write_json(targets, name, TESTED_FILE, doc)
-        stored = read_json(targets, name, IMPACT_FILE) or {}
+            write_doc(targets, name, TESTED_DOC, doc)
+        stored = read_doc(targets, name, IMPACT_DOC) or {}
     before, after = tested["files"], now["files"]
     files = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
     tests = {
@@ -283,17 +290,17 @@ def _settle(runs: History, name: str, look: Mapping[str, Any], result: Mapping[s
             current, forward = None, played
     with targets.guards.tested:
         if forward:
-            doc = read_json(targets, name, TESTED_FILE) or {}
+            doc = read_doc(targets, name, TESTED_DOC) or {}
             doc["tested"] = now
-            write_json(targets, name, TESTED_FILE, doc)
+            write_doc(targets, name, TESTED_DOC, doc)
         seen = dict(look["seen"])
         if look["files"] and result.get("cache", True):
             seen.pop(look["fingerprint"], None)
             seen[look["fingerprint"]] = dict(result)
-        write_json(
+        write_doc(
             targets,
             name,
-            IMPACT_FILE,
+            IMPACT_DOC,
             {"current": current, "seen": dict(list(seen.items())[-SEEN:])},
         )
 
@@ -322,17 +329,17 @@ def hold(targets: Targets, name: str) -> None:
     """Keep the change on the card from being read by itself once updates turn ``auto``: it stays
     as it is, behind its button, and the next change is the first one read."""
     with targets.guards.tested:
-        doc = read_json(targets, name, IMPACT_FILE) or {}
+        doc = read_doc(targets, name, IMPACT_DOC) or {}
         current = doc.get("current")
         if current and current["fingerprint"] not in (doc.get("seen") or {}):
             kept = {k: current[k] for k in ("summary", "areas", "tests", "uncovered", "by")}
             doc["seen"] = {**(doc.get("seen") or {}), current["fingerprint"]: kept}
-            write_json(targets, name, IMPACT_FILE, doc)
+            write_doc(targets, name, IMPACT_DOC, doc)
 
 
 def read_size(targets: Targets, name: str) -> int:
     """About what reading the change on the card would send."""
-    current = (read_json(targets, name, IMPACT_FILE) or {}).get("current") or {}
+    current = (read_doc(targets, name, IMPACT_DOC) or {}).get("current") or {}
     return int(current.get("chars") or 0)
 
 
@@ -345,7 +352,7 @@ def card(
     """The change card as of the last check, ``None`` when there is none. Reads files only."""
     if targets.conf(name).code is None:
         return None
-    change = (read_json(targets, name, IMPACT_FILE) or {}).get("current")
+    change = (read_doc(targets, name, IMPACT_DOC) or {}).get("current")
     if not change:
         return None
     named = {f"{s}/{c.case}": (s, c) for s, found in cases.items() for c in found}
@@ -432,7 +439,7 @@ class Watcher:
     async def _check(self, name: str) -> None:
         targets = self.runs.targets
         try:
-            if targets.code(name) is None or read_json(targets, name, "fingerprint.json") is None:
+            if targets.code(name) is None or read_doc(targets, name, FINGERPRINT_DOC) is None:
                 await drift.check(targets, name)
             else:
                 await drift.check_code(targets, name)

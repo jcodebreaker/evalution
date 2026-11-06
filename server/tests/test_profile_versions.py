@@ -12,8 +12,15 @@ from fastapi.testclient import TestClient
 from evalution.api.app import create_app
 from evalution.config import load
 from evalution.project import library_fit, understanding
-from evalution.project.profile import profile_versions, profile_view, write_json, write_profile
-from evalution.results.store import FileStore
+from evalution.project.profile import (
+    FINGERPRINT_DOC,
+    profile_versions,
+    profile_view,
+    read_profile,
+    write_doc,
+    write_profile,
+)
+from evalution.results.store import RunStore
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.suite.cases import import_sets
@@ -136,7 +143,7 @@ def target(tmp_path) -> Path:
         (main / f"{stem}.case.json").write_text(json.dumps({**case, "source": source}))
     config = load(tmp_path / "evalution.yaml")
     import_sets(Database.open(config.data_dir).docs(), tmp_path / "sets")
-    FileStore(config.data_dir).write(
+    RunStore(Targets(config).docs).write(
         {
             "run": "r1",
             "target": "bot",
@@ -153,7 +160,7 @@ def target(tmp_path) -> Path:
 def test_numbers_come_from_the_digest_runs_and_library(target) -> None:
     config = load(target / "evalution.yaml")
     targets = Targets(config)
-    found = understanding.view(targets, Runs(targets, FileStore(config.data_dir), None), "bot")
+    found = understanding.view(targets, Runs(targets, None), "bot")
     rows = library_fit.for_target(targets, "bot")
     assert found["card"]["numbers"] == {
         "tools": 3,
@@ -194,7 +201,7 @@ def test_steers_round_trip_into_the_profile_and_card(target) -> None:
             "picked": True,
             "source": "admin",
         }
-        profile = (target / "targets" / "bot" / "profile.md").read_text()
+        profile = read_profile(client.app.state.runs.targets, "bot")
         assert "- Keeps shoe sizes. [admin]" in profile
         assert "- Not true, says the admin: **Helper** (worker). [admin]" in profile
         card = client.get("/v1/targets/bot/card.md").text
@@ -215,7 +222,7 @@ def test_each_write_is_a_version_with_its_changes(tmp_path) -> None:
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
     )
     targets = Targets(load(tmp_path / "evalution.yaml"))
-    write_json(targets, "bot", "fingerprint.json", {"taken_at": 1, "tools": {"search": []}})
+    write_doc(targets, "bot", FINGERPRINT_DOC, {"taken_at": 1, "tools": {"search": []}})
     write_profile(targets, "bot", "Sells shoes. [admin]\n- `search` [trace]", by="agent")
     write_profile(targets, "bot", "Sells shoes. [admin]\n- `find` [trace]", by="agent")
     view = profile_view(targets, "bot")
