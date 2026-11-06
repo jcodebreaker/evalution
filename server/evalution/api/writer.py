@@ -62,6 +62,21 @@ def writer_router() -> APIRouter:
         except LookupError as exc:
             raise not_found("Plan") from exc
 
+    @router.post("/evals/agent/sessions/{session_id}/plans/{plan_id}/use")
+    async def use_line(
+        ws: Current, session_id: str, plan_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Take the suggestion flagged on one rubric line of a plan not approved yet."""
+        line = body.get("line")
+        if not isinstance(line, str) or not line:
+            raise invalid("line: required")
+        try:
+            return await ws.agent.use_line(session_id, plan_id, line)
+        except LookupError as exc:
+            raise not_found("Plan line") from exc
+        except ValueError as exc:
+            raise invalid(str(exc)) from exc
+
     @router.post("/evals/agent/sessions/{session_id}/stop")
     async def stop_agent(ws: Current, session_id: str) -> dict[str, Any]:
         agent = ws.agent

@@ -1,4 +1,4 @@
-import { Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
 import { count, usd } from "../../lib/format";
 import type { AgentMessage, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
@@ -7,6 +7,22 @@ import { Fold, Group, TextLink } from "../shared/group";
 import { MeaningChanges } from "../shared/MeaningChanges";
 import { SuspectTag } from "../shared/marks";
 import { ROW_LINK, RunLink } from "./RunLink";
+
+type WeakLine = NonNullable<NonNullable<AgentMessage["plan"]>["weak_lines"]>[number];
+
+/** Why a rubric line was flagged, in the fewest words. */
+const WHY: Record<WeakLine["why"], string> = {
+  good_failed: "Fails a good reply",
+  bad_passed: "Passes a bad reply",
+  unsure: "Grader unsure",
+};
+
+/** What a flagged line's suggestion puts in its place, as the test file says it. */
+function suggested(use: NonNullable<WeakLine["use"]>): string {
+  if ("line" in use) return use.line;
+  const [key, words] = "contains" in use ? ["contains", use.contains] : ["lacks", use.lacks];
+  return `reply.${key} ${words.map((word) => `“${word}”`).join(", ")}`;
+}
 
 /** The writer's one line after it learns an app ("I've learned X. Check what I understood."). */
 const LEARNED = /^I['’]ve learned\b|Check what I understood/;
@@ -21,6 +37,7 @@ export function WriterReply({
   going,
   onReply,
   onApprove,
+  onSwapLine,
   onRun,
   onRunTest,
   onTest,
@@ -35,6 +52,8 @@ export function WriterReply({
   going: boolean;
   onReply: (text: string) => void;
   onApprove: (planId: string) => void;
+  /** Puts a flagged rubric line's suggestion in its place, in the latest plan. */
+  onSwapLine: (line: string) => void;
   onRun: (run: string) => void;
   onRunTest: (id: string) => void;
   onTest: (id: string, run?: string) => void;
@@ -99,6 +118,30 @@ export function WriterReply({
               <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0">{flag}</span>
             </p>
+          ))}
+          {plan.weak_lines?.map(({ line, why, use }) => (
+            <div
+              key={line}
+              className="flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[13px]"
+            >
+              <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="m-0">
+                  {line} <span className="text-ink-3">· {WHY[why]}</span>
+                </p>
+                {use ? (
+                  <p className="m-0 flex items-start gap-1 text-[12px] text-ink-2">
+                    <ArrowRight className="mt-1 size-3 shrink-0" aria-hidden />
+                    <span className="min-w-0">{suggested(use)}</span>
+                  </p>
+                ) : null}
+              </div>
+              {latest && use ? (
+                <Button size="xs" variant="outline" onClick={() => onSwapLine(line)}>
+                  Use this
+                </Button>
+              ) : null}
+            </div>
           ))}
           {changed && plan.changes ? (
             <div className="border-t border-separator px-3.5 py-2.5">

@@ -121,7 +121,9 @@ export function WriterPanel({
   const lastAgent = session
     ? [...session.messages].reverse().find((message) => message.role === "agent")
     : undefined;
-  const canAct = !working && !busy && !approval.busy;
+  // "Use this" acts only on the latest plan, the one still waiting for approval.
+  const swap = useAsk((line) => agent.swapLine(lastAgent?.plan?.id ?? "", line));
+  const canAct = !working && !busy && !approval.busy && !swap.busy;
 
   return (
     <aside
@@ -208,6 +210,7 @@ export function WriterPanel({
                 going={going}
                 onReply={(words) => void send(words)}
                 onApprove={(planId) => void approval.send(planId)}
+                onSwapLine={(line) => void swap.send(line)}
                 onRun={onRun}
                 onRunTest={onRunTest}
                 onTest={onTest}
@@ -250,8 +253,10 @@ export function WriterPanel({
             This chat has cost {usd(session.spent_usd)}
           </p>
         ) : null}
-        {error || approval.error ? (
-          <p className="m-0 pt-2 text-[12px] text-destructive">{error ?? approval.error}</p>
+        {error || approval.error || swap.error ? (
+          <p className="m-0 pt-2 text-[12px] text-destructive">
+            {error ?? approval.error ?? swap.error}
+          </p>
         ) : null}
       </div>
     </aside>

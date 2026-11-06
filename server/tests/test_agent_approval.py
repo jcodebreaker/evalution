@@ -1,11 +1,15 @@
 """Saving a case takes an approved plan: "Add to tests", or approve() after the admin said so."""
 
 import json
+import re
 
+import httpx
 import pytest
 import yaml
 
-from evalution.config import load
+from evalution import llm
+from evalution.config import ModelConfig, load
+from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -13,6 +17,7 @@ from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import case_text, load_case, save_set, write_case_text
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
+from evalution.writer.prompts import LINE_DRAFT_INSTRUCTIONS
 from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
 
@@ -26,15 +31,19 @@ PLAN = {
 }
 
 
-@pytest.fixture
-async def agent(tmp_path):
+def _agent(tmp_path, model: llm.LLM | None = None) -> Agent:
     (tmp_path / "evalution.yaml").write_text(
         yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
     )
     config = load(tmp_path / "evalution.yaml")
-    runs = Runs(Targets(config), None)
+    runs = Runs(Targets(config), model)
     save_set(runs.targets.docs, "bot", "main", {"name": "Main"})
-    made = Agent(runs, SessionStore(runs.targets.docs), None)
+    return Agent(runs, SessionStore(runs.targets.docs), model)
+
+
+@pytest.fixture
+async def agent(tmp_path):
+    made = _agent(tmp_path)
     yield made
     for task in list(made._tasks.values()):
         await task
@@ -213,6 +222,7 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     new = {**CASE, "reply": {"rubric": ["Says hi back"]}, "needs_clean": ["conversation"]}
     plan = await shown(new, replaces="greets")
     assert [c["what"] for c in plan["changes"]] == ["Rubric", "Clean start"]
+    assert "weak_lines" not in plan, "no model: its lines aren't tried, and nothing says so"
     assert plan["changes"][0] == {"what": "Rubric", "before": None, "after": ["Says hi back"]}
 
     # Saved under another replace than the plan named, or over a test that moved on: refused.
@@ -232,3 +242,102 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     assert done["case"] == "greets"
     written = load_case(docs, "bot", "main", "greets").raw
     assert written["reply"] == new["reply"] and written["needs_clean"] == ["conversation"]
+
+
+#: A plan's lines, how the Grader reads each against the reply meant to meet it and the one meant
+#: to miss it, as ``(pass, sure)``, and what the drafting call said of it.
+GOOD = "We moved to Lisbon in March. Your code is ZX-42. Thanks!"
+LINES = {
+    "Says the office moved to Lisbon": ((False, True), (False, True), {"rewrite": "Says Lisbon"}),
+    "Is helpful": ((True, True), (True, True), {"rewrite": "Names the new city"}),
+    "Says when": ((True, True), (True, False), {"rewrite": "Says March"}),
+    "Gives the code ZX-42": ((True, False), (False, True), {"contains": ["ZX-42"]}),
+    "Says thanks": ((True, True), (False, True), {}),
+    "Saved the new address": (None, None, {"acts": True}),
+}
+RUBRIC = list(LINES)
+
+
+def _bad(n: int) -> str:
+    return f"We moved. Your code is coming ({n})."
+
+
+def _model(calls: list[str]) -> llm.LLM:
+    """A model that drafts the replies above and grades them by the table, a cent a call."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)["messages"]
+        system, text = sent[0]["content"], sent[1]["content"]
+        calls.append(system)
+        if system == LINE_DRAFT_INSTRUCTIONS:
+            lines = [
+                {"id": n, "bad": _bad(n), **LINES[line][2]} for n, line in enumerate(RUBRIC, 1)
+            ]
+            said = {"good": GOOD, "lines": lines}
+        else:
+            assert system in (INSTRUCTIONS, SCEPTIC_INSTRUCTIONS)
+            reply = re.search(r"the final reply\..*?\]\n(.*?)\n\[End of data\]", text, re.S)[1]
+            asked = re.search(r"the rubric\..*?\]\n(.*?)\n\[End of data\]", text, re.S)[1]
+            said = {"lines": []}
+            for row in asked.splitlines():
+                n, line = row.split(". ", 1)
+                assert not LINES[line][2].get("acts"), "a line about what was done isn't tried"
+                ok, sure = LINES[line][0 if reply == GOOD else 1]
+                said["lines"].append({"id": int(n), "pass": ok, "sure": sure, "reason": "r"})
+        body = {
+            "choices": [{"message": {"content": json.dumps(said)}}],
+            "usage": {"prompt_tokens": 10_000, "completion_tokens": 0},
+        }
+        return httpx.Response(200, json=body)
+
+    config = ModelConfig(
+        kind="openai",
+        base_url="http://model",
+        api_key_env=None,
+        models={"strong": "m", "light": "m"},
+        prices={"m": {"input": 1.0, "output": 0.0}},
+    )
+    return llm.LLM(config, transport=httpx.MockTransport(answer))
+
+
+async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) -> None:
+    calls: list[str] = []
+    agent = _agent(tmp_path, _model(calls))
+    opened = await agent.create("bot", "main")
+    session = await agent._session(opened["id"])
+    file = {**CASE, "reply": {"rubric": RUBRIC, "pass": 6}}
+    await agent.tools.reply(AgentTurn(session), {"text": "Plan", "plan": {**PLAN, "file": file}})
+    plan = session["messages"][-1]["plan"]
+
+    assert plan["weak_lines"] == [
+        {"line": RUBRIC[0], "why": "good_failed", "use": {"line": "Says Lisbon"}},
+        {"line": RUBRIC[1], "why": "bad_passed", "use": {"line": "Names the new city"}},
+        {"line": RUBRIC[2], "why": "unsure", "use": {"line": "Says March"}},
+        {"line": RUBRIC[3], "why": "unsure", "use": {"contains": ["ZX-42"]}},
+    ], "a line read right both ways, and one about what was done, aren't flagged"
+    # One drafting call, the good reply on every line, each bad reply on its own line, and a
+    # second grading for each of the two gradings with a line it wasn't sure of.
+    assert calls.count(LINE_DRAFT_INSTRUCTIONS) == 1
+    assert calls.count(INSTRUCTIONS) == 1 + 5 and calls.count(SCEPTIC_INSTRUCTIONS) == 2
+    assert session["model_usd"] == pytest.approx(len(calls) * 0.01), "counted in the session"
+
+    with pytest.raises(LookupError):
+        await agent.use_line(session["id"], plan["id"], "Says thanks")
+    await agent.use_line(session["id"], plan["id"], RUBRIC[0])
+    shown = await agent.use_line(session["id"], plan["id"], RUBRIC[3])
+    left = shown["messages"][-1]["plan"]["weak_lines"]
+    assert [f["line"] for f in left] == RUBRIC[1:3]
+
+    await agent.approve(session["id"], plan["id"])
+    with pytest.raises(ValueError, match="approved already"):
+        await agent.use_line(session["id"], plan["id"], RUBRIC[1])
+    turn = AgentTurn(await agent._session(session["id"]))
+    saved = await agent.tools.save_case(turn, {"plan_id": plan["id"], "case": file})
+    reply = load_case(agent.targets.docs, "bot", "main", saved["case"]).raw["reply"]
+    assert reply == {
+        "rubric": ["Says Lisbon", *RUBRIC[1:3], *RUBRIC[4:]],
+        "pass": 5,
+        "contains": ["ZX-42"],
+    }
+    for task in list(agent._tasks.values()):
+        task.cancel()

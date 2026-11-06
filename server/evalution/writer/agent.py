@@ -41,8 +41,9 @@ from evalution.llm import LLM, LLMError, cut, fenced
 from evalution.project import drift
 from evalution.project.profile import read_profile, required_clean
 from evalution.runs.runner import Runs
-from evalution.suite.cases import CaseError
+from evalution.suite.cases import CaseError, meaning_changes, parse_case
 from evalution.suite.store import case_stems, list_sets, load_case
+from evalution.writer.linecheck import swapped
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionStore
@@ -243,12 +244,52 @@ class Agent:
         if plan is None:
             raise LookupError(plan_id)
         plan["approved"] = "admin"
+        edited = (
+            " The admin swapped rubric lines on the page first: save_case(plan_id) alone saves the "
+            "test as it is now; read_case shows it after."
+            if plan.get("edited")
+            else ""
+        )
         await self._ask(
             session,
             "Add it to the tests",
-            f"The admin approved plan {plan_id}. Add its case with save_case(plan_id={plan_id!r}).",
+            f"The admin approved plan {plan_id}. Add its case with save_case(plan_id={plan_id!r})."
+            + edited,
             approves=plan_id,
         )
+        return public(session)
+
+    async def use_line(self, session_id: str, plan_id: str, line: str) -> dict[str, Any]:
+        """The admin takes the suggestion flagged on rubric *line* of plan *plan_id* (the page's
+        "Use this"): the plan's test changes in place, before anyone approved it, so approval still
+        covers exactly what the admin saw.
+
+        :raises LookupError: No such session, plan or flagged line.
+        :raises ValueError: The plan was approved already.
+        """
+        session = await self._session(session_id)
+        plan = (session.get("plans") or {}).get(plan_id)
+        if plan is None:
+            raise LookupError(plan_id)
+        if plan.get("approved") or plan.get("saved"):
+            raise ValueError("that plan was approved already")
+        weak = plan.get("weak_lines") or []
+        flag = next((f for f in weak if f["line"] == line and f.get("use")), None)
+        if flag is None:
+            raise LookupError(line)
+        file = swapped(plan["file"], line, flag["use"])
+        parse_case(file, "plan.file")
+        plan["file"], plan["edited"] = file, True
+        plan["weak_lines"] = [f for f in weak if f is not flag]
+        said = (m.get("plan") or {} for m in session["messages"])
+        shown = next((p for p in said if p.get("id") == plan_id), {})
+        shown["weak_lines"] = plan["weak_lines"]
+        if plan.get("replaces") and shown:
+            old = await asyncio.to_thread(
+                load_case, self.targets.docs, session["target"], session["set"], plan["replaces"]
+            )
+            shown["changes"] = meaning_changes(old.raw, file)
+        await self._save(session)
         return public(session)
 
     async def _ask(self, session: dict[str, Any], shown: str, text: str, **extra: Any) -> None:

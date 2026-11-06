@@ -113,6 +113,16 @@ export function useAgent(scope: Scope | null) {
     });
   }, [working, queued, sendNow]);
 
+  /** The admin takes the suggestion on a flagged rubric line of a plan, before approving it. */
+  const swapLine = useCallback(
+    async (planId: string, line: string) => {
+      if (!session) return;
+      const next = await api.agent.swapLine(session.id, planId, line);
+      if (current.current === key) setSession(next);
+    },
+    [session, key],
+  );
+
   /** The admin approves a plan: the agent adds its test. */
   const approve = useCallback(
     async (planId: string) => {
@@ -140,7 +150,7 @@ export function useAgent(scope: Scope | null) {
     setSession(await api.agent.stop(session.id));
   }, [session]);
 
-  return { session, queued, ask, approve, adopt, refresh, stop, newChat, openChat };
+  return { session, queued, ask, approve, swapLine, adopt, refresh, stop, newChat, openChat };
 }
 
 export type Agent = ReturnType<typeof useAgent>;

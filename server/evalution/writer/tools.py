@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from evalution.code import CodeError
+from evalution.core.case import Case
 from evalution.llm import cut, fenced
 from evalution.project import drift, knowledge, library_fit, profile, understanding
 from evalution.results.evidence import look_into
@@ -27,6 +28,7 @@ from evalution.runs.runner import Runs
 from evalution.suite import cases, library, store
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
+from evalution.writer import linecheck
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
@@ -563,6 +565,7 @@ class Tools:
                 "asked": args["plan"].get("file"),
                 "replaces": plan.get("replaces"),
                 "base": base,
+                "weak_lines": plan.get("weak_lines") or [],
             }
         turn.read, turn.saved, turn.replied = [], None, True
         await self._save(session)
@@ -611,6 +614,8 @@ class Tools:
             flags.append(f"You asked every test to start clean of {', '.join(missing)}; not this.")
         if flags:
             plan["flags"] = flags
+        if weak := await self._weak_lines(session, case):
+            plan["weak_lines"] = weak
 
         replaces = given.get("replaces")
         if not isinstance(replaces, str) or not replaces:
@@ -624,6 +629,27 @@ class Tools:
         plan["replaces"] = replaces
         plan["changes"] = cases.meaning_changes(old.raw, file)
         return file, old.version
+
+    async def _weak_lines(self, session: dict[str, Any], case: Case) -> list[dict[str, Any]]:
+        """The rubric lines of *case* its replies show a grader could misread
+        (:mod:`evalution.writer.linecheck`), their calls added to the session's spend. None
+        without a model to draft on and grade with."""
+        llm = self.runs.llm
+        if not llm or not case.rubric:
+            return []
+        eval_set = await asyncio.to_thread(
+            store.load_set, self.targets.docs, str(session["target"]), str(session["set"])
+        )
+        drafting = "light" if llm.model_id("light") else "strong"
+        if not llm.model_id(drafting) or not llm.model_id(eval_set.grader):
+            return []
+
+        def spent(usd: float) -> None:
+            session["model_usd"] = float(session["model_usd"]) + usd
+
+        return await linecheck.weak_lines(
+            case, llm.caller(drafting, spent), llm.caller(eval_set.grader, spent)
+        )
 
 
 #: Every tool the model can call, by the name in :data:`evalution.writer.schemas.TOOLS`.

@@ -406,6 +406,13 @@ export const api = {
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/messages`, { text, run }),
     approve: (id: string, plan_id: string) =>
       post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/approve`, { plan_id }),
+    /** Puts the suggestion flagged on rubric `line` in its place, in a plan not approved yet. */
+    swapLine: (id: string, plan_id: string, line: string) =>
+      post(
+        one(AgentSessionSchema),
+        `/v1/evals/agent/sessions/${enc(id)}/plans/${enc(plan_id)}/use`,
+        { line },
+      ),
     stop: (id: string) => post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/stop`),
   },
 };

@@ -230,6 +230,11 @@ def _words(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def says(reply: str, word: str) -> bool:
+    """Whether *reply* has *word* as ``reply.contains`` reads it: whatever the case and spacing."""
+    return _words(word) in _words(reply)
+
+
 def _reply_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
     """The last reply's words. A try cut short has none to read: its turn check decides it. An empty
     reply fails both ways, since lacking a word says nothing when nothing was said."""
@@ -244,7 +249,7 @@ def _reply_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
         (False, case.reply_lacks, CheckKind.REPLY_LACKS, "lacks"),
     ):
         for i, word in enumerate(words):
-            present = _words(word) in reply
+            present = says(reply, word)
             why = (
                 f"the reply {'contains' if present else 'lacks'} {word!r}"
                 if reply

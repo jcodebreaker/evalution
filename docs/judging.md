@@ -163,6 +163,10 @@ One model call per try, with the rubric lines and the evidence. Answers are matc
 
 A score from 0 to 1 is shown and never decides, unless a reference is all a test has.
 
+### Lines tried before they run
+
+When the test writer shows a plan, its rubric lines are tried first, so a line the grader can read two ways shows up before it costs tries. One call on the light model writes a reply that meets every line and, for each line, one that misses only it. The set's grader then grades them the way a run does: the good reply on every line, each bad reply on its own line. A plan of N lines costs 2 + N calls, plus a second grading for a line it wasn't sure of; they count in the chat's cost. A line is flagged when its good reply fails it, its bad reply passes it, or the grader stays unsure. The plan shows the flag with a sharper line, or a `reply.contains` / `reply.lacks` check when the line only asks for exact words that tell the two replies apart, and "Use this" puts it in the plan before you approve it. Lines about what the assistant did, rather than said, aren't tried: a written reply has no tool calls. With no model set up, nothing is tried. The code is `server/evalution/writer/linecheck.py`.
+
 ## The scores
 
 **Steps score** (stored as `tools`): the share of expected calls done, less 0.25 for each call to a `never` tool and, with `extras` off, 0.1 for each extra call, 0 at the least. It only decides when steps bind. **Reply score** (stored as `reply`): lines that held / lines judged. The grader says yes or no to each rubric line, and to the reference as one more line. Lines it wasn't sure of on both gradings don't count. The grader gives no number of its own. A test with nothing to score shows neither, rather than 1.00. Tools a target lists as `automatic_tools` aren't in the steps score, and show as "automatic" on the test page, unless the test names them.

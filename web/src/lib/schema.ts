@@ -846,6 +846,23 @@ export const AgentMessageSchema = z.object({
       timeout: z.object({ seconds: z.number(), from: z.string() }).optional(),
       /** What this app can't serve of it, or what was asked of every test and it lacks. */
       flags: z.array(z.string()).optional(),
+      /** Rubric lines a grader misread on replies written to meet and to miss them, each with
+       * what to put in its place: a sharper line, or words for a code check. */
+      weak_lines: z
+        .array(
+          z.object({
+            line: z.string(),
+            why: z.enum(["good_failed", "bad_passed", "unsure"]),
+            use: z
+              .union([
+                z.object({ line: z.string() }),
+                z.object({ contains: z.array(z.string()) }),
+                z.object({ lacks: z.array(z.string()) }),
+              ])
+              .optional(),
+          }),
+        )
+        .optional(),
       /** The test it would replace, and what that changes in what it checks. */
       replaces: z.string().optional(),
       changes: z.array(MeaningChangeSchema).optional(),

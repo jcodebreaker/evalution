@@ -119,11 +119,14 @@ class LLM:
             raise LLMError(f"no model for {key!r} in the config")
         return found
 
-    def caller(self, key: str) -> Caller:
-        """A plain-text call on model *key*, the shape the Grader and analysis take."""
+    def caller(self, key: str, spent: Callable[[float], None] | None = None) -> Caller:
+        """A plain-text call on model *key*, the shape the Grader and analysis take. *spent* is
+        told what each call cost, for a tally of its own (a writer session's)."""
 
         async def call(*, instructions: str, input_text: str) -> str:
             reply = await self.chat(key, instructions, [{"role": "user", "content": input_text}])
+            if spent is not None:
+                spent(reply.usd)
             return reply.text
 
         return call
