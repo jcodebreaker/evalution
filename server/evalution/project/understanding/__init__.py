@@ -26,6 +26,7 @@ the card as text, :mod:`.store` the writes (each one renders the profile again).
 
 from evalution.project.understanding.computed import NO_TOOLS, build, existing, paths, view
 from evalution.project.understanding.document import (
+    AREA_PREFIX,
     DETAILS,
     EVIDENCE_KINDS,
     NODE_KINDS,
@@ -56,6 +57,7 @@ from evalution.project.understanding.store import (
 )
 
 __all__ = [
+    "AREA_PREFIX",
     "DETAILS",
     "EVIDENCE_KINDS",
     "KNOWLEDGE_DOC",

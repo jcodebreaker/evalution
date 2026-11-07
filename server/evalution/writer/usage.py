@@ -48,8 +48,15 @@ class TurnUsage:
     #: how many facts the code map read off the code with no model.
     slice_files: int = 0
     static_facts: int = 0
+    #: A learn's areas: how many the code was split into and how many were understood again, and
+    #: the overview's calls.
+    areas_total: int = 0
+    areas_run: int = 0
+    overview_calls: int = 0
     #: The tools called, in order.
     tools: list[str] = field(default_factory=list)
+    #: A learn's areas: each run's area, outcome, calls, tokens and seconds.
+    areas: list[dict[str, Any]] = field(default_factory=list)
     _started: float = field(default_factory=time.monotonic, repr=False)
 
     def add(self, sent: int, reply: Reply, light: bool = False) -> None:

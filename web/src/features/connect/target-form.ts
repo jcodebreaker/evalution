@@ -30,6 +30,7 @@ export type Form = {
   include: string[];
   /** Set in the config file only, like `include`. */
   summarize: number | null;
+  area_model: string | null;
 };
 
 export type TextKey = { [K in keyof Form]: Form[K] extends string ? K : never }[keyof Form];
@@ -53,6 +54,7 @@ export const BLANK: Form = {
   ignore: "",
   include: [],
   summarize: null,
+  area_model: null,
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -101,6 +103,7 @@ export function formOf(target: TargetDetail): Form {
     ignore: target.code?.ignore.join(", ") ?? "",
     include: target.code?.include ?? [],
     summarize: target.code?.summarize ?? null,
+    area_model: target.code?.area_model ?? null,
   };
 }
 
@@ -149,6 +152,7 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
           ignore,
           ...(form.include.length ? { include: form.include } : {}),
           ...(form.summarize !== null ? { summarize: form.summarize } : {}),
+          ...(form.area_model !== null ? { area_model: form.area_model } : {}),
         }
       : null,
     secrets,

@@ -159,6 +159,8 @@ class CodeConfig:
     include: tuple[str, ...] = ()
     #: The share of the watched files the light model reads on a learn; ``None``: the default.
     summarize: float | None = None
+    #: The model a learn's areas are understood with: ``strong`` (``None``) or ``light``.
+    area_model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -352,9 +354,13 @@ def target_config(
             or not 0 < summarize <= 1
         ):
             raise ConfigError(f"{where}.code.summarize: a share above 0, at most 1")
+        area_model = c.get("area_model")
+        if area_model not in (None, "strong", "light"):
+            raise ConfigError(f"{where}.code.area_model: strong or light")
         code = CodeConfig(
             path=(root / _str(c, "path", f"{where}.code")).resolve(),
             summarize=float(summarize) if summarize is not None else None,
+            area_model=area_model,
             **globs,
         )
     parallel = block.get("max_parallel", 1)

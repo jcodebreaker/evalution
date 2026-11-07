@@ -17,15 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from evalution.code import CodeError
 from evalution.core.case import Case
 from evalution.llm import cut, fenced
 from evalution.project import (
     codemap,
-    details,
     drift,
     filememory,
-    knowledge,
     library_fit,
     profile,
     understanding,
@@ -41,7 +38,7 @@ from evalution.suite import cases, library, store
 from evalution.targets import Targets
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
-from evalution.writer import linecheck
+from evalution.writer import linecheck, saving
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
@@ -70,22 +67,13 @@ class AgentTurn:
     #: The traces and code as this turn took them (:func:`drift.take`): read once, however many
     #: times write_understanding is tried.
     taken: tuple[dict[str, Any], dict[str, Any]] | None = None
-    #: It saved an understanding; a learn's reminder of what that left out was given.
+    #: It saved an understanding.
     understood: bool = False
-    reminded: bool = False
-    #: In a learn of a small change, the definitions it rests on (touched, and one step out), and
-    #: the parts of the understanding citing the moved files: the understanding is patched.
-    patch: list[str] | None = None
-    cited: list[str] = field(default_factory=list)
     #: In a learn, the files whose facts make the understanding's Details; else ``None``, and a
     #: save keeps the Details it had.
     details: list[str] | None = None
-    #: The patch's line for the admin, which ends that learn.
-    note: str | None = None
-    #: The code map, once made this turn (walk_code, a learn's reminder).
+    #: The code map, once made this turn (walk_code, a learn).
     map: CodeMap | None = None
-    #: A learn was told to save now.
-    nudged: bool = False
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -166,23 +154,6 @@ def _plan(value: Any) -> dict[str, Any]:
         "tries": tries,
         "case": _text(value.get("case"), "plan.case"),
     }
-
-
-#: More than this rewritten outside what cites a small change is worth a look in the log.
-SCOPE_CHARS = 3_000
-
-
-def _scope(target: str, before: dict, after: dict, cited: set[str]) -> None:
-    """Log a patch that rewrote much outside the parts citing its change: not refused (it may be
-    right), but a patch should stay where the change is."""
-    old, new = understanding.parts(before), understanding.parts(after)
-    moved = sum(
-        len(json.dumps(new.get(k) or old.get(k), ensure_ascii=False))
-        for k in set(old) | set(new)
-        if k not in cited and old.get(k) != new.get(k)
-    )
-    if moved > SCOPE_CHARS:
-        _logger.warning("learn %s: a patch rewrote %d characters outside its change", target, moved)
 
 
 def _same_test(a: Any, b: Any) -> bool:
@@ -442,53 +413,14 @@ class Tools:
 
     async def write_understanding(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
-        found, taken = await turn.take(self.targets)
-        known = found["tools_offered_known"]
-        traced = {n for n, t in found["tools"].items() if t["offered"] or not known}
-        code = self.targets.code(target)
-
-        def in_code(path: str, name: str) -> bool:
-            """Whether the file or folder *path* names (a full path, its end, or a folder) holds
-            *name*: as a definition in the code map, else in its text."""
-            if turn.map is not None:
-                rel = path.strip("/")
-                for d in turn.map.defs.values():
-                    near = (
-                        d.path == rel or d.path.endswith(f"/{rel}") or d.path.startswith(f"{rel}/")
-                    )
-                    if d.name == name and near:
-                        return True
-            try:
-                return code is not None and name in code.read(path)
-            except (CodeError, OSError):
-                return False
-
-        try:
-            templates = library.load_templates(self.targets.config.library_dir)
-        except library.LibraryError:
-            templates = []
-        written, problems = await asyncio.to_thread(
-            understanding.check,
-            args,
-            traced,
-            in_code,
-            {t.id for t in templates},
-            understanding.admin_priorities(self.targets, target),
-        )
+        taken = await turn.take(self.targets)
+        written, problems = await saving.check(self.targets, target, args, taken[0], turn.map)
         if problems:
             return "Refused, nothing saved. Fix these and save again:\n" + "\n".join(problems[:20])
-        if turn.details is not None and turn.map is not None:
-            memory = await asyncio.to_thread(filememory.load, self.targets, target)
-            claims = details.assemble(turn.map, memory, turn.details)
-        else:
-            claims = understanding.details_of(understanding.load(self.targets, target))
-        written = understanding.with_details(written, claims)
-        drift.keep_baseline(self.targets, target, taken)
         turn.understood = True
-        understanding.save(self.targets, target, understanding.build(written, found))
-        if code is not None:
-            await asyncio.to_thread(knowledge.written, self.targets, target, code, turn.code_read)
-            await asyncio.to_thread(filememory.learned, self.targets, target, code)
+        await saving.keep(
+            self.targets, target, written, taken, turn.map, turn.details, turn.code_read
+        )
         return (
             "Saved as a new version; the fingerprint is new and the drift list is clear. "
             "Now say one line to the admin and end your turn."
@@ -499,13 +431,7 @@ class Tools:
         before = await asyncio.to_thread(understanding.written, self.targets, self._target(turn))
         if before is None:
             return "Refused: nothing is saved yet. Write it whole with write_understanding."
-        after = understanding.patched(before, args)
-        said = await self.write_understanding(turn, after)
-        if turn.understood and turn.patch is not None:
-            _scope(self._target(turn), before, after, set(turn.cited))
-        if turn.understood and isinstance(args.get("note"), str) and args["note"].strip():
-            turn.note = args["note"].strip()
-        return said
+        return await self.write_understanding(turn, understanding.patched(before, args))
 
     async def read_trace_digest(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)
