@@ -1,30 +1,30 @@
-"""How a learn starts (the page's "Learn", and "Learn again"): from the whole app, drawn without a
-model as a code map and summarized by the light model, and from what changed, rather than from
-whatever few files the writer chooses to open.
+"""How a learn starts (the page's "Learn", and "Learn again"): from the whole app read with no model
+(the code map, its facts and a card per file), a slice of it read by the light model, and what
+changed, rather than from whatever few files the writer chooses to open.
 
 Before the writer's first step, with no choice of its own involved:
 
 1. Whether anything moved, said for free when it can be: the traces by the drift check, which
    reads them on its own schedule (:mod:`evalution.project.drift`), the code by the commit and a
-   clean tree the last learn saw, else by the file hashes, cached by file time
-   (:mod:`evalution.project.filememory`). Learned before and nothing moved: no model call and no
-   trace read, since the same inputs would give the same understanding.
-2. Otherwise the recent sessions are read once (the turn keeps them for write_understanding);
-   every watched file with no summary for what it is now is summarized by the light model
-   (:func:`filememory.index`); and the code map is brought up to date, a file parsed again only
-   when it moved (:mod:`evalution.project.codemap`).
-3. A few files moved (:data:`PATCH_FILES`, :data:`PATCH_SHARE`) and the traces did not: the writer
-   gets the parts of the understanding that cite them and an outline of the rest, the files'
-   summaries then and now, the definitions the change touched with their code and one step out
-   (what they use, what uses them), and the diff. It edits just those parts
-   (patch_understanding); the rest stays as it was.
-4. Else the folders' summaries are brought up to date (:mod:`evalution.project.modules`), and the
-   first message carries what the writer understood last time, what changed, the modules, the
-   code map ranked and cut to :data:`MAP_CHARS`, and the summaries of the :data:`TOP_FILES` files
-   that rank highest. It writes the understanding again from them, the old one giving only its ids
-   and what code cannot say, and follows a definition with walk_code rather than reading files.
-5. Once it saved, the prompts, tools, agents, routes and state of the map that the understanding
-   never names are said back to it, once (:func:`left_out`).
+   clean tree the last learn saw, else by the file hashes. Learned before and nothing moved: no
+   model call and no trace read.
+2. Otherwise the recent sessions are read once (the turn keeps them for write_understanding) and
+   the code map is brought up to date, a file parsed again only when it moved
+   (:mod:`evalution.project.codemap`).
+3. A few files moved (:data:`PATCH_FILES`, :data:`PATCH_SHARE`) and the traces did not: the light
+   model reads a changed file again only when it is in the slice and its facts or definitions'
+   lines moved; the writer gets the parts of the understanding that cite the files and an outline
+   of the rest, the files' summaries or cards, the definitions the change touched with one step
+   out, the diff, and the names around the change it does not cover yet, and patches in one call.
+4. Else the slice is chosen (:mod:`evalution.project.slicing`) and read where it moved, the
+   folders and the app are summarized bottom up where they moved (:mod:`evalution.project.modules`),
+   and the first message carries what the writer understood last time, what changed, the app and
+   its modules, the code map ranked and cut to :data:`MAP_CHARS`, the key limits, the slice's
+   summaries and the other files' cards. It writes the understanding again and follows a
+   definition with walk_code rather than reading files.
+5. The understanding's Details is assembled by the engine from the facts (:mod:`.details`), never
+   sent to the writer. After a full learn's save, what the map holds that the understanding never
+   names is said back once (:func:`left_out`).
 """
 
 from __future__ import annotations
@@ -39,7 +39,15 @@ from dataclasses import dataclass, field
 
 from evalution.code import NOTHING_CHANGED, Code, CodeError
 from evalution.llm import fenced
-from evalution.project import codemap, drift, filememory, knowledge, modules, understanding
+from evalution.project import (
+    codemap,
+    drift,
+    filememory,
+    knowledge,
+    modules,
+    slicing,
+    understanding,
+)
 from evalution.project.codemap import CodeMap, Definition
 from evalution.project.profile import FINGERPRINT_DOC, read_doc
 from evalution.targets import Targets
@@ -87,9 +95,9 @@ DEFINITION_CHARS = 1_500
 DEFINITIONS_CHARS = 6_000
 CITED_CHARS = 8_000
 OUTLINE_CHARS_ALL = 6_000
-#: What a full learn gets of the code map, and how many files' summaries.
+#: What a full learn gets of the code map, and of the cards of the files outside the slice.
 MAP_CHARS = 40_000
-TOP_FILES = 25
+CARDS_CHARS = 12_000
 #: Names said back after a save, or put up front in a patch, at most.
 NAMES_SENT = 25
 #: Key limits a full learn is given.
@@ -190,17 +198,6 @@ def _touched(cmap: CodeMap, diff: str, paths: list[str]) -> list[str]:
     return [k for path in paths for k in cmap.overlapping(path, spans.get(path))]
 
 
-def _patch_details(before: dict, moved: filememory.Changes) -> list[str]:
-    """The files a patch's Details holds: those it held, less the removed ones, and the changed
-    and added ones; only theirs are made again, the rest stay as they were."""
-    held = {
-        re.sub(r":\d+$", "", e["ref"])
-        for c in understanding.details_of(before)
-        for e in c.get("evidence") or []
-    }
-    return sorted((held - set(moved.removed)) | set(moved.changed) | set(moved.added))
-
-
 def _by_module(cmap: CodeMap, paths: Iterable[str]) -> list[str]:
     """*paths* grouped by folder, the folders in name order and the files in rank order within."""
     rank = {p: n for n, p in enumerate(cmap.ranked_files())}
@@ -257,7 +254,7 @@ def _patch_brief(
     ):
         for path in paths:
             then = was.get(path, "(no summary)") if kind != "added" else "(new)"
-            after = now.get(path, "(not summarized)") if kind != "removed" else "(gone)"
+            after = now.get(path) or cmap.card(path) if kind != "removed" else "(gone)"
             lines.append(f"{path} ({kind})\n  then: {then}\n  now: {after}")
     touched = set(moved.changed) | set(moved.removed)
     links = knowledge.load(targets, name).get("links") or {}
@@ -338,8 +335,6 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
     if code is not None:
         files = taken["code"]["files"]
         moved = filememory.changes(memory, files)
-        await filememory.index(targets, name, code, ask)
-        clock("summaries")
         made = await asyncio.to_thread(codemap.build, targets, name, code)
         turn.map = cmap = made.map
         stats = {
@@ -347,30 +342,46 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
             "map_files_parsed": made.parsed,
             "map_defs": len(cmap.defs),
             "map_refs": cmap.refs,
+            "static_facts": sum(len(cmap.facts(p)) for p in cmap.files),
         }
         clock("code map")
+        turn.details = _by_module(cmap, cmap.files)
         if before is not None and not traces and _small(moved, len(files)):
+            # The light model reads a changed file again only when it is in the slice and what it
+            # offers moved (its facts, its definitions' lines); never another file.
+            sliced = set(memory.get("slice") or ())
+            due = [p for p in [*moved.changed, *moved.added] if p in sliced & made.reshaped]
+            if due:
+                await filememory.index(targets, name, code, ask, due)
             patch = await asyncio.to_thread(
                 _patch_brief, targets, name, code, cmap, before, moved, memory
             )
             turn.patch, turn.cited = patch.keys, patch.cited
-            held = understanding.load(targets, name)
-            turn.details = _by_module(cmap, _patch_details(held or {}, moved))
-            return Begun(text=patch.text, stats={**stats, "patch_chars": patch.definitions})
+            stats |= {"patch_chars": patch.definitions, "slice_files": len(due)}
+            return Begun(text=patch.text, stats=stats)
+        share = targets.conf(name).code.summarize or slicing.SHARE  # type: ignore[union-attr]
+        churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
+        chosen = slicing.choose(cmap, churn, share)
+        await asyncio.to_thread(filememory.keep_slice, targets, name, chosen)
+        await filememory.index(targets, name, code, ask, chosen)
+        stats["slice_files"] = len(chosen)
+        clock("slice")
         await modules.index(targets, name, cmap, ask)
         clock("modules")
         kept = filememory.load(targets, name)
-        turn.details = _by_module(cmap, filememory.facts(kept))
-        shown = cmap.ranked_files()[:TOP_FILES]
         drawn = cmap.repo_map(MAP_CHARS)
         limits = "\n".join(f"{d.path}:{d.line} {d.sig}" for d in key_limits(cmap))
         stats["map_chars"] = len(drawn) + len(limits)
         folders = "\n\n".join(f"{f}/: {said}" for f, said in modules.summaries(kept).items())
+        rest = [p for p in cmap.ranked_files() if p not in set(chosen)]
+        cards = _cut("\n".join(cmap.card(p) for p in rest), CARDS_CHARS)
         parts += [
+            fenced("the app", modules.app_summary(kept) or "(not summarized)"),
             fenced("the app's modules", folders or "(none summarized)"),
             fenced("the code map: its most used definitions, by file", drawn or "(empty)"),
             fenced("key limits and settings", limits or "(none found)"),
-            filememory.brief(kept, files, moved, shown),
+            filememory.brief(kept, files, moved, chosen),
+            fenced("the other files, by rank: role, names, facts", cards or "(none)"),
         ]
     if traces:
         lines = "\n".join(c["detail"] for c in traces)
@@ -423,10 +434,9 @@ def uncovered(
     files the code map holds (of the definitions *keys*, when given), and the definitions *also*
     (the key limits), that the understanding never mentions, ignoring case; private and generic
     ones left out, at most :data:`NAMES_SENT`."""
-    # Details' evidence is file paths the engine wrote, which name nothing the writer covered.
-    texts = [c["text"] for c in understanding.details_of(doc)]
+    # Details is the engine's: what counts is what the writer itself said.
     rest = understanding.with_details(doc, []) if doc.get("sections") else doc
-    said = json.dumps([rest, texts], ensure_ascii=False).casefold()
+    said = json.dumps(rest, ensure_ascii=False).casefold()
     out: dict[str, list[str]] = {}
     count = 0
     every = [*cmap.behaviour(keys), *also]

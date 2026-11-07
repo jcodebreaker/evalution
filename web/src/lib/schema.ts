@@ -62,6 +62,7 @@ export const TargetDetailSchema = z.object({
       path: z.string(),
       ignore: z.array(z.string()).default([]),
       include: z.array(z.string()).default([]),
+      summarize: z.number().nullable().default(null),
     })
     .nullable()
     .default(null),
@@ -296,7 +297,7 @@ export type TargetBody = {
   options: Record<string, unknown>;
   /** The app's own Phoenix, read too; `null` when evalution's own traces are all it has. */
   phoenix: { url: string; project: string } | null;
-  code: { path: string; ignore: string[]; include?: string[] } | null;
+  code: { path: string; ignore: string[]; include?: string[]; summarize?: number | null } | null;
   secrets: Record<string, string>;
 };
 

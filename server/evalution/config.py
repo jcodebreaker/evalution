@@ -157,6 +157,8 @@ class CodeConfig:
     path: Path
     ignore: tuple[str, ...] = ()
     include: tuple[str, ...] = ()
+    #: The share of the watched files the light model reads on a learn; ``None``: the default.
+    summarize: float | None = None
 
 
 @dataclass(frozen=True)
@@ -343,7 +345,18 @@ def target_config(
             if not isinstance(found, list) or not all(isinstance(g, str) for g in found):
                 raise ConfigError(f"{where}.code.{key}: must be a list of globs")
             globs[key] = tuple(found)
-        code = CodeConfig(path=(root / _str(c, "path", f"{where}.code")).resolve(), **globs)
+        summarize = c.get("summarize")
+        if summarize is not None and (
+            isinstance(summarize, bool)
+            or not isinstance(summarize, int | float)
+            or not 0 < summarize <= 1
+        ):
+            raise ConfigError(f"{where}.code.summarize: a share above 0, at most 1")
+        code = CodeConfig(
+            path=(root / _str(c, "path", f"{where}.code")).resolve(),
+            summarize=float(summarize) if summarize is not None else None,
+            **globs,
+        )
     parallel = block.get("max_parallel", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or not 1 <= parallel <= 16:
         raise ConfigError(f"{where}.max_parallel: must be a whole number from 1 to 16")

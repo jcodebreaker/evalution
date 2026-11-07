@@ -121,6 +121,11 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
                 raise TargetError(f"code.{key}: a list of globs")
             if globs:
                 block["code"][key] = globs
+        summarize = code.get("summarize")
+        if summarize is not None:
+            if isinstance(summarize, bool) or not isinstance(summarize, int | float):
+                raise TargetError("code.summarize: a share above 0, at most 1")
+            block["code"]["summarize"] = summarize
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
@@ -223,6 +228,7 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
             "path": str(raw_code["path"]),
             "ignore": list(conf.code.ignore),
             "include": list(conf.code.include),
+            "summarize": conf.code.summarize,
         }
         if raw_code
         else None

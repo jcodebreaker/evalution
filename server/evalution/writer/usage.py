@@ -31,6 +31,9 @@ class TurnUsage:
     light_calls: int = 0
     light_chars_in: int = 0
     light_chars_out: int = 0
+    #: Of ``tokens_in`` and ``tokens_out``, the light model's: the rest is the strong one's.
+    light_tokens_in: int = 0
+    light_tokens_out: int = 0
     #: A learn's code map: how long making it took, the files parsed for it (the rest were kept,
     #: parsed by whoever made the map first: a learn, walk_code or the change card), its
     #: definitions and references, how much of it a full learn sent (the map and the key limits),
@@ -41,6 +44,10 @@ class TurnUsage:
     map_refs: int = 0
     map_chars: int = 0
     patch_chars: int = 0
+    #: How many files the light model was asked to read (the slice, or a patch's due ones), and
+    #: how many facts the code map read off the code with no model.
+    slice_files: int = 0
+    static_facts: int = 0
     _started: float = field(default_factory=time.monotonic, repr=False)
 
     def add(self, sent: int, reply: Reply, light: bool = False) -> None:
@@ -56,6 +63,8 @@ class TurnUsage:
             self.light_calls += 1
             self.light_chars_in += sent
             self.light_chars_out += out
+            self.light_tokens_in += reply.tokens_in
+            self.light_tokens_out += reply.tokens_out
         self.tokens_in += reply.tokens_in
         self.tokens_out += reply.tokens_out
         self.cache_read += reply.cache_read

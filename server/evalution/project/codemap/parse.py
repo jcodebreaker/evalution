@@ -30,7 +30,7 @@ import tree_sitter_python
 import tree_sitter_typescript
 
 #: Bumped when what a parse gives changes, so cached maps are made again.
-VERSION = 2
+VERSION = 3
 SIG_CHARS = 160
 REFS_PER_FILE = 3_000
 #: A string this long, held in a module-level name, is taken for a prompt whatever its name.

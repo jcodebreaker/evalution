@@ -292,6 +292,18 @@ class Code:
             return False
         return not any(self.allowed(n) for n in (changed + new).split("\0") if n)
 
+    def churn(self, months: int) -> dict[str, int]:
+        """How many commits of the last *months* touched each watched file; nothing when this is
+        not a checkout. One ``git log``, names only."""
+        found = self._git(
+            "log", f"--since={months}.months", "--name-only", "--relative", "--format=", "--", "."
+        )
+        counts: dict[str, int] = {}
+        for name in (found or "").splitlines():
+            if name and self.allowed(name):
+                counts[name] = counts.get(name, 0) + 1
+        return counts
+
     def rewriting(self) -> bool:
         """Whether a rebase is under way: HEAD is passing through states nobody asked to keep."""
         for name in ("rebase-merge", "rebase-apply"):

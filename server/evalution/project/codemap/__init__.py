@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from evalution.code import Code, CodeError
 from evalution.project import imports
+from evalution.project.codemap.facts import static_facts
 from evalution.project.codemap.graph import CodeMap, Definition
 from evalution.project.codemap.parse import BEHAVIOUR, VERSION, parse
 from evalution.targets import Targets
@@ -32,6 +33,9 @@ class Made:
     map: CodeMap
     seconds: float
     parsed: int
+    #: The files parsed again whose facts or definitions' signatures moved: what a summary of
+    #: them could have to say differently.
+    reshaped: frozenset[str] = frozenset()
 
 
 def build(targets: Targets, name: str, code: Code) -> Made:
@@ -42,6 +46,7 @@ def build(targets: Targets, name: str, code: Code) -> Made:
     files = code.hashes()
     kept = {key.removeprefix(prefix): body for key, body, _ in docs.items(KIND, prefix)}
     parsed = 0
+    reshaped: set[str] = set()
     out = {}
     for path, fingerprint in files.items():
         entry = kept.get(path)
@@ -50,14 +55,33 @@ def build(targets: Targets, name: str, code: Code) -> Made:
                 text = code.read(path)
             except (CodeError, OSError):
                 continue
-            entry = {"fingerprint": fingerprint, "version": VERSION, **parse(path, text)}
+            parsed_now = parse(path, text)
+            fresh = {
+                "fingerprint": fingerprint,
+                "version": VERSION,
+                **parsed_now,
+                "facts": static_facts(path, text, parsed_now),
+            }
+            if _shape(fresh) != _shape(entry):
+                reshaped.add(path)
+            entry = fresh
             docs.put(KIND, prefix + path, entry)
             parsed += 1
         out[path] = entry
     for gone in set(kept) - set(files):
         docs.delete(KIND, prefix + gone)
     edges = imports.kept_graph(targets, name, code.root, files)
-    return Made(CodeMap(out, edges), round(time.perf_counter() - begun, 3), parsed)
+    return Made(
+        CodeMap(out, edges), round(time.perf_counter() - begun, 3), parsed, frozenset(reshaped)
+    )
+
+
+def _shape(entry: dict | None) -> tuple:
+    """What a file offers to read without its bodies: its facts and its definitions' lines."""
+    if not entry:
+        return ()
+    facts = tuple(f["text"] for f in entry.get("facts") or [])
+    return facts, tuple(sorted((d["name"], d["sig"]) for d in entry.get("defs") or []))
 
 
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)

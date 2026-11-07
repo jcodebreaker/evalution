@@ -22,6 +22,7 @@ from evalution.core.case import Case
 from evalution.llm import cut, fenced
 from evalution.project import (
     codemap,
+    details,
     drift,
     filememory,
     knowledge,
@@ -126,6 +127,7 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "list_code": "Looking at the code",
         "read_code": f"Reading {args.get('path')}",
         "walk_code": f"Reading {args.get('name')}",
+        "note_file": None,
         "read_drift": "Checking what changed",
         "diff_code": "Reading the code changes",
         "note_drift": "Noting a change",
@@ -463,9 +465,9 @@ class Tools:
         )
         if problems:
             return "Refused, nothing saved. Fix these and save again:\n" + "\n".join(problems[:20])
-        if turn.details is not None:
+        if turn.details is not None and turn.map is not None:
             memory = await asyncio.to_thread(filememory.load, self.targets, target)
-            claims = filememory.details(memory, turn.details)
+            claims = details.assemble(turn.map, memory, turn.details)
         else:
             claims = understanding.details_of(understanding.load(self.targets, target))
         written = understanding.with_details(written, claims)
@@ -548,6 +550,23 @@ class Tools:
         found = turn.map.find(target)
         turn.code_read.update(turn.map.defs[k].path for k in found)
         return fenced(f"the code of {target}", turn.map.walk(target, depth, code.read))
+
+    async def note_file(self, turn: AgentTurn, args: dict) -> Any:
+        """Facts of a file the writer read, kept with the file's fingerprint for the Details: the
+        long tail is learned when it is read, not by a pass over every file."""
+        path = _text(args.get("path"), "path").lstrip("/")
+        if path not in turn.code_read:
+            return "Refused: note only a file you read this turn (read_code or walk_code)."
+        said = args.get("facts")
+        if not isinstance(said, list) or not all(isinstance(f, str) for f in said):
+            raise ValueError("facts: a list of short sentences")
+        fingerprint = (await asyncio.to_thread(self._code(turn).hashes)).get(path)
+        if fingerprint is None:
+            raise LookupError(f"{path}: not a watched file")
+        kept = await asyncio.to_thread(
+            filememory.note, self.targets, self._target(turn), path, fingerprint, said
+        )
+        return f"Kept {len(kept)} facts of {path}."
 
     async def read_drift(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the drift")
@@ -772,6 +791,7 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "list_code": Tools.list_code,
     "read_code": Tools.read_code,
     "walk_code": Tools.walk_code,
+    "note_file": Tools.note_file,
     "read_drift": Tools.read_drift,
     "diff_code": Tools.diff_code,
     "note_drift": Tools.note_drift,

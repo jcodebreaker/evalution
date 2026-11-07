@@ -36,6 +36,18 @@ FOCUS = 20.0
 AMBIGUOUS = 6
 DAMPING = 0.85
 ROUNDS = 40
+#: A file's role on its card, by the first kind it holds of each.
+_ROLES = (
+    ("routes", {"route"}),
+    ("tools", {"tool"}),
+    ("agent", {"agent"}),
+    ("prompts", {"prompt", "prompt-builder"}),
+    ("state", {"state"}),
+    ("settings", {"config", "env"}),
+    ("docs", {"section"}),
+)
+#: Names a card shows.
+CARD_NAMES = 8
 #: The most of one definition's code :meth:`CodeMap.walk` shows, and of the whole walk.
 CODE_CHARS = 4_000
 WALK_CHARS = 16_000
@@ -246,6 +258,26 @@ class CodeMap:
                 parts.append("two steps away:\n" + self.render(sorted(further)))
         text = "\n\n".join(parts)
         return text[:WALK_CHARS] + ("\n… (cut)" if len(text) > WALK_CHARS else "")
+
+    def card(self, path: str) -> str:
+        """A file in one line, with no model: its role, guessed from what it defines and holds,
+        the names that matter most there (behaviour first, then constants, in line order), and how
+        many facts it gives. Stable while the file is: no rank in it."""
+        defs = sorted(
+            (d for d in self.defs.values() if d.path == path),
+            key=lambda d: (d.kind not in BEHAVIOUR, d.kind != "constant", d.line),
+        )
+        kinds = {d.kind for d in defs} | {f["kind"] for f in self.facts(path)}
+        role = next((r for r, wanted in _ROLES if kinds & wanted), "code" if defs else "other")
+        names = ", ".join(d.name for d in defs[:CARD_NAMES])
+        facts = len(self.facts(path))
+        return f"{path} ({role}): {names or '(nothing defined)'}" + (
+            f"; {facts} facts" if facts else ""
+        )
+
+    def facts(self, path: str) -> list[dict[str, Any]]:
+        """The facts read off *path* with no model (:mod:`.facts`)."""
+        return list((self.files.get(path) or {}).get("facts") or [])
 
     def behaviour(self, keys: Iterable[str] | None = None) -> list[Definition]:
         """The prompts, tools, agents, routes and state the map holds (of *keys*, when given)."""

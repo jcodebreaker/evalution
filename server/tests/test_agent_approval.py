@@ -13,7 +13,16 @@ from evalution import llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
-from evalution.project import codemap, drift, filememory, knowledge, modules, understanding
+from evalution.project import (
+    codemap,
+    details,
+    drift,
+    filememory,
+    knowledge,
+    modules,
+    slicing,
+    understanding,
+)
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -405,8 +414,10 @@ APP = {
     "web/chat.ts": (
         "export function sendChat(text: string) {\n  return fetchReply(text);\n}\n"
         "function fetchReply(text: string) {\n  return text;\n}\n"
+        'const MODE = process.env.CHAT_MODE ?? "local";\n'
     ),
     "agents/planner.md": "# Planner\nPlans the day.\n",
+    "agents/worker.yaml": "model: small\nmax_steps: 4\ntools:\n  - search\n",
     "notes.txt": "x\n",
 }
 
@@ -420,9 +431,11 @@ def _git(folder, *args) -> None:
     )
 
 
-def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
-    """:data:`APP` in a repo, and a model: the light one summarizes the files and modules it is
-    sent (never a path in *skip*), the strong one plays the script, ``(tool, arguments)`` or a
+def _learning(
+    tmp_path, kind: str = "anthropic", skip: frozenset = frozenset(), summarize: float | None = None
+):
+    """:data:`APP` in a repo, and a model: the light one summarizes the files, modules and app it
+    is sent (never a path in *skip*), the strong one plays the script, ``(tool, arguments)`` or a
     closing text per call."""
     repo = tmp_path / "app"
     for rel, text in APP.items():
@@ -431,12 +444,11 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
     _git(repo, "init", "-q")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "first")
-    block = {
-        "adapter": "http",
-        "http": {"send": {"url": "x"}},
-        "code": {"path": "app", "include": ["**/*.py", "**/*.ts", "agents/**"]},
-    }
-    sent: dict[str, list] = {"light": [], "modules": [], "writer": []}
+    code = {"path": "app", "include": ["**/*.py", "**/*.ts", "agents/**"]}
+    if summarize is not None:
+        code["summarize"] = summarize
+    block = {"adapter": "http", "http": {"send": {"url": "x"}}, "code": code}
+    sent: dict[str, list] = {"light": [], "modules": [], "app": [], "writer": []}
     script: list = []
 
     def answer(request: httpx.Request) -> httpx.Response:
@@ -454,9 +466,7 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
                 {
                     "path": p,
                     "summary": f"Is: {p}, {len(t)} characters.",
-                    "facts": [
-                        {"fact": f"It holds {len(t)} characters.", "kind": "limit", "line": 1}
-                    ],
+                    "facts": [{"fact": f"It holds {len(t)} characters.", "line": 1}],
                 }
                 for p, t in shown
                 if p not in skip
@@ -468,6 +478,9 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
             said = json.dumps(
                 {"modules": [{"folder": f, "summary": f"{f} does."} for f in folders]}
             )
+        elif system == modules.APP_INSTRUCTIONS:
+            sent["app"].append(body)
+            said = json.dumps({"summary": "The app greets."})
         else:
             sent["writer"].append(body)
             said = script.pop(0)
@@ -509,55 +522,63 @@ def _first_text(body: dict) -> str:
     return body["messages"][0]["content"][-1]["text"]
 
 
+def _facts_of(targets: Targets) -> dict[str, list[str]]:
+    """The Details' texts by the file they cite."""
+    out: dict[str, list[str]] = {}
+    for c in understanding.details_of(understanding.load(targets, "bot")):
+        out.setdefault(c["evidence"][0]["ref"].split(":")[0], []).append(c["text"])
+    return out
+
+
 async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> None:
     agent, repo, sent, script = _learning(tmp_path)
     targets = agent.targets
     opened = await agent.create("bot", "main")
     sid = opened["id"]
 
-    # The first learn: every included file summarized in one light call, the folders in another,
-    # and the writer given the modules, the ranked code map and the top files. What the map holds
-    # and the understanding does not name is said back once.
+    # The first learn: the code map reads every file with no model; the light model reads only
+    # the slice (a fifth: here app.py, which holds the prompt, the tool and the route), then the
+    # folders from their cards, then the app. The writer gets the app, the modules, the map, the
+    # key limits, the slice's summaries and the other files' cards. What the map holds and the
+    # understanding does not name is said back once.
     script += [("write_understanding", UNDERSTOOD), "Learned.", "The rest is plumbing."]
     shown = await _learn(agent, sid)
-    assert len(sent["light"]) == 1 and len(sent["modules"]) == 1
+    assert len(sent["light"]) == 1 and len(sent["modules"]) == 1 and len(sent["app"]) == 1
+    assert re.findall(r"\[Data: (\S+)\. Material", json.dumps(sent["light"][0])) == ["app.py"]
     memory = filememory.load(targets, "bot")
-    files = targets.code("bot").hashes()
-    assert set(files) == {"app.py", "lib/memory.py", "web/chat.ts", "agents/planner.md"}
-    assert {p: e["fingerprint"] for p, e in memory["summaries"].items()} == files
-    assert all(e["facts_version"] == filememory.FACTS_VERSION for e in memory["summaries"].values())
-    # The Details section is assembled from the facts, not written by the model, each citing its
-    # file and line, so the knowledge links follow it.
-    details = understanding.details_of(understanding.load(targets, "bot"))
-    cites = {c["evidence"][0]["ref"]: c["text"] for c in details}
-    assert cites["lib/memory.py:1"].startswith("It holds") and len(details) == 4
-    links = knowledge.load(targets, "bot")["links"]
-    assert {f for c in details for f in links[f"claim:{c['id']}"]} == set(files)
+    assert memory["slice"] == ["app.py"] and set(memory["summaries"]) == {"app.py"}
     assert set(modules.summaries(memory)) == {".", "lib", "web", "agents"}
     first = sent["writer"][0]
     said = _first_text(first)
-    assert "walk_code" in said and "lib/: lib does." in said
-    assert 'SYSTEM_PROMPT = "You greet people."  [prompt]' in said and "- memory.py: Is:" in said
+    assert "walk_code" in said and "lib/: lib does." in said and "The app greets." in said
+    assert "- app.py: Is: app.py" in said and "lib/memory.py (state): MemoryStore, remember" in said
+    assert 'SYSTEM_PROMPT = "You greet people."  [prompt]' in said
+    assert "[Data: key limits and settings" in said and "PREFIX_BUDGET_SECONDS = 30" in said
     reminded = _first_text({"messages": [sent["writer"][2]["messages"][-1]]})
     assert reminded.startswith(learn.LEFT_OUT)
     assert "app.py: SYSTEM_PROMPT, greet_people, chat" in reminded and "_wrap" not in reminded
-    assert "PREFIX_BUDGET_SECONDS" in reminded, "a key limit is checked for too"
-    assert "Planner" not in reminded, "a heading of an agent's instructions is no name to remind of"
-    assert "[Data: key limits and settings" in said and "PREFIX_BUDGET_SECONDS = 30" in said
+    assert "Planner" not in reminded
     assert len(sent["writer"]) == 3 and shown["messages"][-1]["text"] == "The rest is plumbing."
+    # Details: the static facts of every file, and the model's facts of the slice, each cited.
+    facts = _facts_of(targets)
+    assert facts["app.py"][:1] == ['SYSTEM_PROMPT = "You greet people."']
+    assert "It holds" in facts["app.py"][-1] and "PREFIX_BUDGET_SECONDS = 30" in facts["app.py"]
+    assert 'reads the environment variable CHAT_MODE, default "local"' in facts["web/chat.ts"]
+    assert facts["agents/worker.yaml"] == ["model = small", "max_steps = 4"]
+    assert "It holds" not in json.dumps(sent["writer"]), "Details is never sent to the writer"
+    links = knowledge.load(targets, "bot")["links"]
+    details = understanding.details_of(understanding.load(targets, "bot"))
+    assert all(f"claim:{c['id']}" in links for c in details)
     # The writer's prefix is marked cacheable; the light calls are not.
     assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
-    assert first["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
-    assert "cache_control" not in json.dumps([*sent["light"], *sent["modules"]])
+    assert "cache_control" not in json.dumps([*sent["light"], *sent["modules"], *sent["app"]])
     usage = shown["usage"][-1]
-    assert usage["learn"] and usage["calls"] == 5 and usage["light_calls"] == 2
-    assert usage["cache_read"] == 500 and usage["chars_in"] > len(said)
-    assert usage["map_files_parsed"] == 4 and usage["map_defs"] >= 8
-    assert 0 < usage["map_chars"] <= learn.MAP_CHARS + 4_000 and usage["map_refs"] > 0
-    assert usage["patch_chars"] == 0
+    assert usage["calls"] == 6 and usage["light_calls"] == 3 and usage["slice_files"] == 1
+    assert usage["light_tokens_in"] == 330 and usage["tokens_in"] == 660
+    assert usage["static_facts"] == sum(len(v) for k, v in facts.items()) - 1
+    assert usage["map_files_parsed"] == 5 and usage["map_chars"] > 0 and usage["patch_chars"] == 0
 
-    # Nothing moved: the drift check, the commit and a clean tree say so, with no file hashed,
-    # no session read and no model.
+    # Nothing moved: no file hashed, no session read and no model.
     def never(*_args, **_kwargs):
         raise AssertionError("read")
 
@@ -569,11 +590,9 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
     assert shown["usage"][-1]["calls"] == 0 and len(sent["writer"]) == 3
 
-    # One file changed: the writer gets the part citing it in full, an outline of the rest, the
-    # definition the change touched with its code and one step out, and the diff, and patches in
-    # one step, which ends the learn. The map parses that file alone again.
+    # A file outside the slice changed: parsed again for free, no light call at all; the patch
+    # brief carries the touched definition, its card and the names to cover; one strong call.
     kept = understanding.load(targets, "bot")
-    facts_before = {c["evidence"][0]["ref"]: c for c in understanding.details_of(kept)}
     (repo / "lib/memory.py").write_text(
         "class MemoryStore:\n    def remember(self, name):\n        return name.strip()\n"
     )
@@ -587,71 +606,107 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     note = "It now trims what it keeps."
     script += [("patch_understanding", {"claims": [keeps], "note": note})]
     shown = await _learn(agent, sid)
-    assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
-    assert "app.py" not in json.dumps(sent["light"][1])
-    assert len(sent["writer"]) == 4, "one strong call"
-    assert shown["messages"][-1]["text"] == note and shown["usage"][-1]["calls"] == 2
-    assert shown["usage"][-1]["map_files_parsed"] == 1
-    assert shown["usage"][-1]["patch_chars"] > 0 and shown["usage"][-1]["map_chars"] == 0
-    started = sent["writer"][3]
-    assert len(started["messages"]) == 1 and "Learned." not in json.dumps(started["messages"])
-    assert "[Data: the target's profile" not in started["system"][0]["text"]
-    said = _first_text(started)
-    assert learn.PATCH in said and '"claim:keeps"' in said and "It keeps a store." in said
-    assert "claim:greets: It greets." in said and '"claim:greets"' not in said, "in outline"
-    assert "lib/memory.py:2 def remember(self, name):" in said and "name.strip()" in said
-    assert "used by: \n  app.py:6 def greet_people(name):" in said, "one step out"
+    assert len(sent["light"]) == 1 and len(sent["writer"]) == 4, "no light call, one strong"
+    assert shown["messages"][-1]["text"] == note and shown["usage"][-1]["light_calls"] == 0
+    assert shown["usage"][-1]["map_files_parsed"] == 1 and shown["usage"][-1]["patch_chars"] > 0
+    said = _first_text(sent["writer"][3])
+    assert learn.PATCH in said and "now: lib/memory.py (state): MemoryStore, remember" in said
     assert "+        return name.strip()" in said and "the code map" not in said
-    assert len(said) < 6_000, "a short brief: the change, not the app"
-    # What the change's neighbourhood names and the understanding does not, said up front: the
-    # save then ends the learn, with no reminder round.
     assert f"[Data: {learn.COVER}" in said and "app.py: greet_people" in said
     patched = understanding.load(targets, "bot")
     claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
     assert claims["keeps"]["text"] == "Its MemoryStore keeps names, trimmed."
     assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
-    assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
-    # Only the changed file's facts were made again, and only its Details replaced.
-    facts_after = {c["evidence"][0]["ref"]: c for c in understanding.details_of(patched)}
-    assert facts_after["app.py:1"] == facts_before["app.py:1"]
-    assert facts_after["lib/memory.py:1"]["text"] != facts_before["lib/memory.py:1"]["text"]
-    assert set(facts_after) == set(facts_before)
-    thread = (await agent._session(sid))["history"]
-    assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
-    assert thread[-1]["content"] == note
+    assert understanding.details_of(patched) == understanding.details_of(kept)
 
-    # Past the threshold, the understanding is written again; only the folders whose files'
-    # summaries moved since theirs were written are summarized again, and a file read twice is
-    # not sent twice.
+    # A slice file whose body alone changed: no light call either.
+    (repo / "app.py").write_text(APP["app.py"].replace("return x", "return x or None"))
+    _git(repo, "commit", "-qam", "body")
+    script += [("patch_understanding", {"note": "Nothing to change."})]
+    await _learn(agent, sid)
+    assert len(sent["light"]) == 1
+    # A slice file whose facts moved: the light model reads it, and it alone, again; its Details
+    # follow.
+    (repo / "app.py").write_text(APP["app.py"].replace("= 30", "= 45"))
+    _git(repo, "commit", "-qam", "budget")
+    script += [("patch_understanding", {"note": "The budget is 45 s."})]
+    shown = await _learn(agent, sid)
+    assert len(sent["light"]) == 2 and shown["usage"][-1]["slice_files"] == 1
+    assert re.findall(r"\[Data: (\S+)\. Material", json.dumps(sent["light"][1])) == ["app.py"]
+    assert "PREFIX_BUDGET_SECONDS = 45" in _facts_of(targets)["app.py"]
+
+    # Past the threshold, a full learn: the folders whose files' cards or summaries moved are
+    # summarized again (the app's root, not lib, whose card stayed); a file the writer reads
+    # outside the slice can be noted, and its facts join the Details.
     monkeypatch.setattr(learn, "PATCH_FILES", 0)
     monkeypatch.setattr(learn, "PATCH_SHARE", 0.0)
     (repo / "app.py").write_text(APP["app.py"] + "\nMAX_TRIES = 3\n")
     _git(repo, "commit", "-qam", "tries")
     script += [
-        ("read_code", {"path": "app.py"}),
-        ("read_code", {"path": "app.py"}),
+        ("read_code", {"path": "lib/memory.py"}),
+        ("read_code", {"path": "lib/memory.py"}),
+        ("note_file", {"path": "lib/memory.py", "facts": ["remember trims the name first."]}),
         ("write_understanding", UNDERSTOOD),
         "Learned.",
         "Covered.",
     ]
     await _learn(agent, sid)
     redone = re.findall(r"\[Data: module (.+?)\. Material", json.dumps(sent["modules"][-1]))
-    assert len(sent["modules"]) == 2 and sorted(redone) == [".", "lib"]
-    said = _first_text(sent["writer"][4])
+    assert len(sent["modules"]) == 2 and redone == ["."]
+    assert len(sent["app"]) == 1, "no module summary moved, so the app's stands"
+    first = len(sent["writer"]) - 6
+    said = _first_text(sent["writer"][first])
     assert said.startswith("Learn bot again.\n\n" + learn.AGAIN) and "It greets." in said
-    # Details is the engine's: never sent to the writer, whose cost does not grow with it, yet it
-    # covers every file with facts.
-    assert "It holds" not in json.dumps(sent["writer"][4:])
-    held = understanding.details_of(understanding.load(targets, "bot"))
-    assert {c["evidence"][0]["ref"].split(":")[0] for c in held} == set(
-        targets.code("bot").hashes()
-    )
     results = [
         b["content"]
-        for b in sent["writer"][6]["messages"][-1]["content"]
+        for b in sent["writer"][first + 2]["messages"][-1]["content"]
         if b["type"] == "tool_result"
     ]
-    assert results[-1].startswith("app.py is unchanged since you read it at step")
+    assert results[-1].startswith("lib/memory.py is unchanged since you read it at step")
+    assert _facts_of(targets)["lib/memory.py"] == ["remember trims the name first."]
+    assert "It holds" not in json.dumps(sent["writer"])
+
+
+def test_the_slice_takes_what_matters_and_what_moves(tmp_path) -> None:
+    targets, code = _mapped(tmp_path)
+    cmap = codemap.build(targets, "bot", code).map
+    chosen = slicing.choose(cmap, {}, 0.2)
+    assert len(chosen) == 2 and chosen[0] == "app.py" and "notes.txt" not in chosen
+    assert len(slicing.choose(cmap, {}, 1.0)) == len(cmap.files)
+    assert "lib/memory.py" not in slicing.choose(cmap, {}, 0.4)
+    churned = slicing.choose(cmap, {"lib/memory.py": 40}, 0.4)
+    assert churned[0] == "app.py" and "lib/memory.py" in churned, "what changes often is read"
+
+
+def test_the_code_wins_over_what_the_docs_say() -> None:
+    cmap = codemap.CodeMap(
+        {
+            "a.py": {
+                "fingerprint": "f1",
+                "defs": [],
+                "refs": [],
+                "facts": [
+                    {
+                        "kind": "constant",
+                        "text": "MAX_NEEDS = 5",
+                        "symbols": ["MAX_NEEDS"],
+                        "line": 3,
+                    }
+                ],
+            },
+            "docs/adr/0001.md": {"fingerprint": "f2", "defs": [], "refs": [], "facts": []},
+        }
+    )
+    drawn = [
+        {"fact": "MAX_NEEDS is 3.", "symbols": ["MAX_NEEDS"], "line": 4},
+        {"fact": "Replies stay short.", "symbols": [], "line": 9},
+    ]
+    memory = {"summaries": {"docs/adr/0001.md": {"fingerprint": "f2", "facts": drawn}}}
+    claims = details.assemble(cmap, memory, ["a.py", "docs/adr/0001.md"])
+    assert [c["text"] for c in claims] == ["MAX_NEEDS = 5", "The docs say: Replies stay short."]
+    assert claims[1]["evidence"] == [{"kind": "docs", "ref": "docs/adr/0001.md:9"}]
+    stale = {"summaries": {"docs/adr/0001.md": {"fingerprint": "old", "facts": drawn}}}
+    assert len(details.assemble(cmap, stale, ["docs/adr/0001.md"])) == 0, "read of another text"
 
 
 def _mapped(tmp_path) -> tuple[Targets, Code]:
@@ -674,7 +729,12 @@ def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
     assert kinds["sendChat"] == "function" and kinds["Planner"] == "prompt"
     assert kinds["PREFIX_BUDGET_SECONDS"] == "constant"
     assert kinds["build_instructions"] == "prompt-builder"
-    assert made.parsed == 5
+    assert made.parsed == 6
+    facts = {p: [f["kind"] for f in made.map.facts(p)] for p in made.map.files}
+    assert facts["app.py"] == ["prompt", "tool", "route", "constant"]
+    assert facts["web/chat.ts"] == ["constant", "env"]
+    assert facts["agents/worker.yaml"] == ["config", "config"]
+    assert made.map.card("app.py").startswith("app.py (routes): SYSTEM_PROMPT, greet_people")
     # Kept by fingerprint: nothing parsed again until a file moves, and then that one alone.
     assert codemap.build(targets, "bot", code).parsed == 0
     (tmp_path / "app/web/chat.ts").write_text(APP["web/chat.ts"] + "export const X = 1;\n")
@@ -705,16 +765,17 @@ def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
 
 
 async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> None:
-    agent, _repo, sent, script = _learning(tmp_path, skip=frozenset({"lib/memory.py"}))
+    agent, _repo, sent, script = _learning(tmp_path, skip=frozenset({"app.py"}), summarize=0.4)
     opened = await agent.create("bot", "main")
     script += ["Nothing to save."]
     await _learn(agent, opened["id"])
-    # The batch, then what it left out on its own: two calls, and the file kept as failed.
-    assert len(sent["light"]) == 2 and "app.py" not in json.dumps(sent["light"][1]["messages"])
+    # The slice's batch, then what it left out on its own: two calls, the file kept as failed.
+    assert len(sent["light"]) == 2
+    assert re.findall(r"\[Data: (\S+)\. Material", json.dumps(sent["light"][1])) == ["app.py"]
     failed = filememory.load(agent.targets, "bot")["failed"]
-    assert failed["lib/memory.py"]["why"] == "left out of the answer"
+    assert failed["app.py"]["why"] == "left out of the answer"
     said = _first_text(sent["writer"][0])
-    assert "- memory.py (not summarized: left out of the answer)" in said
+    assert "- app.py (not summarized: left out of the answer)" in said
 
 
 async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:

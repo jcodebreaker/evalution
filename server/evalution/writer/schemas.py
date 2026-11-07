@@ -308,6 +308,14 @@ TOOLS = [
         {"name": _STR, "depth": {"type": "integer"}},
         ["name"],
     ),
+    _tool(
+        "note_file",
+        "Keep up to 6 exact facts of a file you read this turn (read_code, walk_code) that the "
+        "Details of what you understood should hold: conditions, order, refusals, prompt rules "
+        "quoted. Only when the file is not summarized already; kept until the file changes.",
+        {"path": _STR, "facts": {"type": "array", "items": _STR}},
+        ["path", "facts"],
+    ),
     _tool("read_drift", "What changed in the target since its profile was written.", {}, []),
     _tool(
         "diff_code",

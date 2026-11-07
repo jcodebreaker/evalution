@@ -11,10 +11,13 @@ _TAG = {"traces": "[trace]", "admin": "[admin]"}
 
 
 def _tags(evidence: Sequence[Mapping[str, str]]) -> str:
-    """Evidence as profile tags: ``[trace]``, ``[admin]`` or ``[code: ref]``."""
+    """Evidence as profile tags: ``[trace]``, ``[admin]``, ``[docs: ref]`` (what docs say, which
+    the code may contradict) or ``[code: ref]``."""
     tags = []
     for item in evidence:
-        tag = _TAG.get(item["kind"]) or f"[code: {item['ref']}]"
+        tag = _TAG.get(item["kind"]) or (
+            f"[docs: {item['ref']}]" if item["kind"] == "docs" else f"[code: {item['ref']}]"
+        )
         if tag not in tags:
             tags.append(tag)
     return " ".join(tags)

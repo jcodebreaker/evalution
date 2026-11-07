@@ -28,6 +28,8 @@ export type Form = {
   ignore: string;
   /** Set in the config file only; kept as it is so a save from the page doesn't drop it. */
   include: string[];
+  /** Set in the config file only, like `include`. */
+  summarize: number | null;
 };
 
 export type TextKey = { [K in keyof Form]: Form[K] extends string ? K : never }[keyof Form];
@@ -50,6 +52,7 @@ export const BLANK: Form = {
   codePath: "",
   ignore: "",
   include: [],
+  summarize: null,
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -97,6 +100,7 @@ export function formOf(target: TargetDetail): Form {
     codePath: target.code?.path ?? "",
     ignore: target.code?.ignore.join(", ") ?? "",
     include: target.code?.include ?? [],
+    summarize: target.code?.summarize ?? null,
   };
 }
 
@@ -144,6 +148,7 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
           path: form.codePath.trim(),
           ignore,
           ...(form.include.length ? { include: form.include } : {}),
+          ...(form.summarize !== null ? { summarize: form.summarize } : {}),
         }
       : null,
     secrets,
