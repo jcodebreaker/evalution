@@ -57,14 +57,16 @@ from evalution.writer.tools import AgentTurn
 _logger = logging.getLogger(__name__)
 
 FIRST = """\
-Below: the app's code as its modules, a map of its most used definitions (prompts, tools, agents, \
-routes and state marked), its key limits and settings, and the files that matter most, \
-summarized. Write the understanding from them, covering the whole app: every prompt, prompt \
-builder, tool, agent, route and kind of state belongs in it, by its exact name, and so do the key \
-limits and settings that shape its behaviour, with their values. For a definition's detail and \
-how it connects, use walk_code(name) (its code, what it uses and what uses it) rather than \
-reading whole files. A Details section of exact facts from the code is added to it by itself: \
-write the rest, and leave Details out."""
+Below: the app as a whole and as its modules, a map of its most used definitions (prompts, tools, \
+agents, routes and state marked), its key limits and settings, the files that shape its \
+behaviour, summarized, and a card for each other file (its role, names and facts). Write the \
+understanding from them, covering the whole app: every prompt, prompt builder, tool, agent, route \
+and kind of state belongs in it, by its exact name, and so do the key limits and settings that \
+shape its behaviour, with their values. For a definition's detail and how it connects, use \
+walk_code(name) (its code, what it uses and what uses it) rather than reading whole files, and \
+only when the brief lacks what you need: then write it all in one write_understanding call. A \
+Details section of exact facts from the code is added to it by itself: write the rest, and leave \
+Details out."""
 
 AGAIN = """\
 Write the understanding again from what is below (the app's modules, a map of its most used \
@@ -74,8 +76,8 @@ by its exact name, and so do the key limits and settings that shape its behaviou
 values, whatever the last one said. Take from what you understood last time only its ids, for \
 what stays, and what the code cannot say (what the traces showed, the admin's marks). For detail, \
 use walk_code(name) rather than reading whole files, the changed and added ones first. A Details \
-section of exact facts from the code is added by itself: leave it out. Save with \
-write_understanding."""
+section of exact facts from the code is added by itself: leave it out. Save it all in one \
+write_understanding call."""
 
 PATCH = """\
 You learned this app before, and only a few files moved since. Change only the claims and nodes \
@@ -96,8 +98,8 @@ DEFINITIONS_CHARS = 6_000
 CITED_CHARS = 8_000
 OUTLINE_CHARS_ALL = 6_000
 #: What a full learn gets of the code map, and of the cards of the files outside the slice.
-MAP_CHARS = 40_000
-CARDS_CHARS = 12_000
+MAP_CHARS = 25_000
+CARDS_CHARS = 16_000
 #: Names said back after a save, or put up front in a patch, at most.
 NAMES_SENT = 25
 #: Key limits a full learn is given.
@@ -359,9 +361,9 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
             turn.patch, turn.cited = patch.keys, patch.cited
             stats |= {"patch_chars": patch.definitions, "slice_files": len(due)}
             return Begun(text=patch.text, stats=stats)
-        share = targets.conf(name).code.summarize or slicing.SHARE  # type: ignore[union-attr]
+        cap = targets.conf(name).code.summarize  # type: ignore[union-attr]
         churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
-        chosen = slicing.choose(cmap, churn, share)
+        chosen = slicing.choose(cmap, churn, cap)
         await asyncio.to_thread(filememory.keep_slice, targets, name, chosen)
         await filememory.index(targets, name, code, ask, chosen)
         stats["slice_files"] = len(chosen)

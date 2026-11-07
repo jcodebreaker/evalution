@@ -61,6 +61,16 @@ _logger = logging.getLogger(__name__)
 
 #: Tool calls one admin message may lead to.
 MAX_STEPS = 40
+#: Tool calls a learn may make before it is told to save: its brief holds what it needs.
+LEARN_READS = 4
+SAVE_NOW = (
+    "You have read enough: write the understanding now, in one write_understanding call, from "
+    "the brief and what you read."
+)
+#: Failed learns kept on a session for diagnosis, and how much of each.
+FAILED_KEPT = 3
+FAILED_STEPS = 20
+FAILED_CHARS = 2_000
 #: How long one admin message may keep it working.
 MAX_SECONDS = 20 * 60
 #: The same call this many times in a row is a loop: the last isn't run.
@@ -95,6 +105,7 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "messages": session["messages"],
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
         "usage": session.get("usage", []),
+        "failed_learns": session.get("failed_learns", []),
     }
 
 
@@ -165,6 +176,25 @@ def _trim(history: list[dict[str, Any]]) -> None:
             return
         history[: later[0]] = [{"role": "user", "content": EARLIER_CUT}]
         size = _size(history)
+
+
+def _refused(output: str) -> bool:
+    return output.startswith(("Refused", "Error"))
+
+
+def _keep_failed(session: dict[str, Any], history: list[dict[str, Any]]) -> None:
+    """Keep the last steps of a learn that saved nothing, capped, so why can be read later."""
+    steps = []
+    for message in history[-FAILED_STEPS:]:
+        entry: dict[str, Any] = {"role": message["role"]}
+        if message.get("content"):
+            entry["content"] = cut(str(message["content"]), FAILED_CHARS)
+        if message.get("tool_calls"):
+            entry["tool_calls"] = cut(json.dumps(message["tool_calls"]), FAILED_CHARS)
+        steps.append(entry)
+    kept = session.setdefault("failed_learns", [])
+    kept.append({"at": time.time(), "steps": steps})
+    del kept[:-FAILED_KEPT]
 
 
 def _doing(session: dict[str, Any], text: str) -> None:
@@ -425,6 +455,7 @@ class Agent:
         usage = TurnUsage(learn=learn_asked)
         steps = 0
         last_call, same = None, 0
+        output = ""
         limit = asyncio.timeout(MAX_SECONDS)
         try:
             if not self.llm:
@@ -480,7 +511,11 @@ class Agent:
                             stopped = (
                                 "I stopped: I kept repeating the same step. What should I try?"
                             )
+                            # Say why, when the step kept being refused: that is what to fix.
+                            if _refused(output):
+                                stopped += f" It was refused: {cut(output, 600)}"
                             break
+                        usage.step(call["name"])
                         output = await self._call(turn, call["name"], call["arguments"])
                         history.append(
                             {"role": "tool", "tool_call_id": call["id"], "content": output}
@@ -489,6 +524,11 @@ class Agent:
                         if steps >= MAX_STEPS:
                             stopped = f"I stopped after {MAX_STEPS} steps. Say go on."
                             break
+                    # A learn has its brief: past a few lookups, every step resends it all.
+                    reads = learn_asked and not turn.understood and steps >= LEARN_READS
+                    if reads and not turn.nudged:
+                        turn.nudged = True
+                        history.append({"role": "user", "content": SAVE_NOW})
                     for said in session.pop("inbox", []):
                         history.append(
                             {"role": "user", "content": f"The admin says, while you work: {said}"}
@@ -520,6 +560,8 @@ class Agent:
             session["status"] = "idle"
         finally:
             usage.record(session)
+            if learn_asked and not turn.understood:
+                _keep_failed(session, history)
             if learn_asked:
                 # What it read is in the learn's transcript, not the thread's.
                 session.pop("code_seen", None)

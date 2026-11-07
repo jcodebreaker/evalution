@@ -48,6 +48,8 @@ class TurnUsage:
     #: how many facts the code map read off the code with no model.
     slice_files: int = 0
     static_facts: int = 0
+    #: The tools called, in order.
+    tools: list[str] = field(default_factory=list)
     _started: float = field(default_factory=time.monotonic, repr=False)
 
     def add(self, sent: int, reply: Reply, light: bool = False) -> None:
@@ -69,6 +71,10 @@ class TurnUsage:
         self.tokens_out += reply.tokens_out
         self.cache_read += reply.cache_read
         self.cache_write += reply.cache_write
+
+    def step(self, tool: str) -> None:
+        """A tool call, in order: what each strong call was for."""
+        self.tools.append(tool)
 
     def note(self, stats: dict[str, float]) -> None:
         """What a learn's start says it did, beside the calls."""

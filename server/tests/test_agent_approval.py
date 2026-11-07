@@ -29,6 +29,7 @@ from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import case_text, load_case, save_set, write_case_text
 from evalution.targets import Targets
+from evalution.writer import agent as agent_module
 from evalution.writer import learn
 from evalution.writer.agent import Agent
 from evalution.writer.prompts import INSTRUCTIONS as WRITER_INSTRUCTIONS
@@ -531,13 +532,14 @@ def _facts_of(targets: Targets) -> dict[str, list[str]]:
 
 
 async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> None:
-    agent, repo, sent, script = _learning(tmp_path)
+    agent, repo, sent, script = _learning(tmp_path, summarize=0.2)
     targets = agent.targets
     opened = await agent.create("bot", "main")
     sid = opened["id"]
 
     # The first learn: the code map reads every file with no model; the light model reads only
-    # the slice (a fifth: here app.py, which holds the prompt, the tool and the route), then the
+    # the slice (capped at a fifth here: app.py, which holds the prompt, the tool and the route),
+    # then the
     # folders from their cards, then the app. The writer gets the app, the modules, the map, the
     # key limits, the slice's summaries and the other files' cards. What the map holds and the
     # understanding does not name is said back once.
@@ -667,15 +669,26 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert "It holds" not in json.dumps(sent["writer"])
 
 
-def test_the_slice_takes_what_matters_and_what_moves(tmp_path) -> None:
+def test_the_slice_takes_what_shapes_behaviour(tmp_path, monkeypatch) -> None:
     targets, code = _mapped(tmp_path)
+    (tmp_path / "app/lib/util.py").write_text("def add(a, b):\n    return a + b\n")
     cmap = codemap.build(targets, "bot", code).map
-    chosen = slicing.choose(cmap, {}, 0.2)
-    assert len(chosen) == 2 and chosen[0] == "app.py" and "notes.txt" not in chosen
-    assert len(slicing.choose(cmap, {}, 1.0)) == len(cmap.files)
-    assert "lib/memory.py" not in slicing.choose(cmap, {}, 0.4)
-    churned = slicing.choose(cmap, {"lib/memory.py": 40}, 0.4)
-    assert churned[0] == "app.py" and "lib/memory.py" in churned, "what changes often is read"
+    monkeypatch.setattr(slicing, "TOP_RANKED", 0)
+    chosen = slicing.choose(cmap, {})
+    # A prompt, tool and route; an agent's instructions and settings; state; a variable read.
+    assert set(chosen) == {
+        "app.py",
+        "agents/planner.md",
+        "agents/worker.yaml",
+        "lib/memory.py",
+        "web/chat.ts",
+    }, "a plain helper and a note are left to their cards"
+    assert chosen[0] == "app.py"
+    assert slicing.choose(cmap, {}, 0.2) == chosen[:2], "the cap keeps the best"
+    churned = slicing.choose(cmap, {"web/chat.ts": 40}, 0.2)
+    assert "web/chat.ts" in churned, "what changes often comes first among them"
+    monkeypatch.setattr(slicing, "TOP_RANKED", 10)
+    assert "lib/util.py" in slicing.choose(cmap, {}), "the most used are read whatever they do"
 
 
 def test_the_code_wins_over_what_the_docs_say() -> None:
@@ -800,3 +813,35 @@ def test_a_change_with_no_diff_is_given_by_its_text(tmp_path) -> None:
 
     given = learn._changes_text(NoDiff(), "abc1234", ["prompt.py"])  # type: ignore[arg-type]
     assert "never notify" in given and code_module.NOTHING_CHANGED not in given
+
+
+async def test_a_learn_is_told_to_save_and_a_refused_save_says_why(tmp_path) -> None:
+    agent, _repo, sent, script = _learning(tmp_path, summarize=0.2)
+    opened = await agent.create("bot", "main")
+    sid = opened["id"]
+    # Past a few lookups, the learn is told to save: its brief holds what it needs.
+    script += [("read_code", {"path": p}) for p in ("app.py", "lib/memory.py", "web/chat.ts")]
+    script += [("walk_code", {"name": "chat"}), ("write_understanding", UNDERSTOOD), "Learned."]
+    script += ["Done."]
+    shown = await _learn(agent, sid)
+    told = [i for i, body in enumerate(sent["writer"]) if agent_module.SAVE_NOW in json.dumps(body)]
+    assert told and told[0] == agent_module.LEARN_READS, "told once it read enough"
+    assert shown["usage"][-1]["tools"][:5] == ["read_code"] * 3 + [
+        "walk_code",
+        "write_understanding",
+    ]
+    assert not shown["failed_learns"]
+
+    # A save refused for the same reason each time stops the learn, says why, and the learn's
+    # last steps are kept on the session.
+    (tmp_path / "app" / "app.py").write_text(APP["app.py"] + "\nMAX_TRIES = 3\n")
+    _git(tmp_path / "app", "commit", "-qam", "tries")
+    wrong = {**UNDERSTOOD, "nodes": [{**UNDERSTOOD["nodes"][0], "evidence": []}]}
+    script += [("write_understanding", wrong)] * 3
+    shown = await _learn(agent, sid)
+    said = shown["messages"][-1]["text"]
+    assert said.startswith("I stopped: I kept repeating the same step.")
+    assert "It was refused: Refused, nothing saved." in said and "needs evidence" in said
+    failed = shown["failed_learns"][-1]["steps"]
+    assert any("write_understanding" in str(s.get("tool_calls")) for s in failed)
+    assert any("needs evidence" in str(s.get("content")) for s in failed)

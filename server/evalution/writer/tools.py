@@ -84,6 +84,8 @@ class AgentTurn:
     note: str | None = None
     #: The code map, once made this turn (walk_code, a learn's reminder).
     map: CodeMap | None = None
+    #: A learn was told to save now.
+    nudged: bool = False
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -446,6 +448,16 @@ class Tools:
         code = self.targets.code(target)
 
         def in_code(path: str, name: str) -> bool:
+            """Whether the file or folder *path* names (a full path, its end, or a folder) holds
+            *name*: as a definition in the code map, else in its text."""
+            if turn.map is not None:
+                rel = path.strip("/")
+                for d in turn.map.defs.values():
+                    near = (
+                        d.path == rel or d.path.endswith(f"/{rel}") or d.path.startswith(f"{rel}/")
+                    )
+                    if d.name == name and near:
+                        return True
             try:
                 return code is not None and name in code.read(path)
             except (CodeError, OSError):
