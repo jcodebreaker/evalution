@@ -1045,6 +1045,8 @@ export const UnderstandingSchema = z.object({
   card: z.object({
     name: z.string(),
     one_line: z.string().default(""),
+    /** A few plain sentences on what the app is, for a person. */
+    summary: z.string().default(""),
     stack: z.array(z.string()).default([]),
     status: z.enum(["learning", "up_to_date", "out_of_date"]).default("up_to_date"),
     changes: z.number().default(0),

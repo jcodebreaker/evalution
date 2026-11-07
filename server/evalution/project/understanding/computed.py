@@ -342,6 +342,7 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
     card = {
         "name": name,
         "one_line": (doc or {}).get("one_line", ""),
+        "summary": (doc or {}).get("summary", ""),
         "stack": stack(conf.code.path if conf.code else None, conf.adapter, traces),
         "status": "learning" if doc is None else "out_of_date" if changes else "up_to_date",
         "changes": changes,

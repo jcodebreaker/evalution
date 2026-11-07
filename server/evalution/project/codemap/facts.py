@@ -43,6 +43,8 @@ _BLOCK = re.compile(r"^[|>][-+]?\d*$")
 def _telling(key: str, value: str) -> bool:
     """Whether a setting is worth a fact: not a plain key, not the head of a block."""
     return key.rsplit(".", 1)[-1].lower() not in _PLAIN_KEYS and not _BLOCK.match(value.strip())
+
+
 _SECTION = re.compile(r"^\[([^\]]+)\]\s*$")
 
 

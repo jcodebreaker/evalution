@@ -82,7 +82,7 @@ def written(targets: Targets, name: str) -> dict[str, Any] | None:
     if stored is None:
         return None
     doc = overlay(with_details(stored, []), steers(targets, name))
-    keys = ("one_line", "nodes", "sections", "priorities", "starters", "step_labels")
+    keys = ("one_line", "summary", "nodes", "sections", "priorities", "starters", "step_labels")
     return {k: doc.get(k) for k in (*keys, "expected_paths")}
 
 

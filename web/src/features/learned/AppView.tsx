@@ -29,7 +29,7 @@ import { apply } from "./steer";
 /** The sections a person reads: the overview's. An area's section and the Details are the
  * test writer's notes, kept for it, not shown. */
 const forPeople = (section: { id: string }) =>
-  !section.id.startsWith("area-") && section.id !== "details";
+  !section.id.startsWith("area-") && section.id !== "details" && section.id !== "what_it_is";
 
 /** Claims a section shows before "Show more". */
 const SHOWN = 5;
@@ -184,6 +184,14 @@ export function AppView({
             </div>
           ) : null}
 
+          {shown.card.summary || shown.card.one_line ? (
+            <div className={SECTION}>
+              <SectionHeading>What it is</SectionHeading>
+              <p className="mx-[18px] mt-1 mb-1.5 max-w-[68ch] text-[14px] leading-relaxed">
+                {shown.card.summary || shown.card.one_line}
+              </p>
+            </div>
+          ) : null}
           {shown.sections.filter(forPeople).map((section) => (
             <div key={section.id} className={SECTION}>
               <SectionHeading>{section.title}</SectionHeading>

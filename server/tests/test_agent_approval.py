@@ -486,6 +486,7 @@ def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
 
 OVERVIEW_ARGS = {
     "one_line": "A bot that greets.",
+    "summary": "A small bot that greets people and answers them.",
     "claims": [
         {"id": "greets", "text": "It greets.", "evidence": [{"kind": "code", "ref": "app.py"}]}
     ],
