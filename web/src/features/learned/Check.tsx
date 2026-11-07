@@ -43,15 +43,21 @@ export function Check({
       on ? tone : "bg-bubble text-ink-2 hover:text-foreground",
     );
   return (
-    <div className="group/check grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 max-sm:grid-cols-1 max-sm:gap-2">
+    <div
+      className={cn(
+        "group/check relative grid items-start gap-3 max-sm:grid-cols-1 max-sm:gap-2",
+        always || done ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1",
+      )}
+    >
       <div className="min-w-0">{children}</div>
       <fieldset
         aria-label={label}
         className={cn(
           "m-0 flex min-w-0 gap-1 border-0 p-0 transition-opacity",
+          // Unchecked, the actions stay out of the way: over the claim's corner on hover or focus.
           !always &&
             !done &&
-            "opacity-35 group-focus-within/check:opacity-100 group-hover/check:opacity-100 max-md:opacity-100",
+            "pointer-events-none absolute end-0 top-0 rounded-[9px] bg-group p-0.5 opacity-0 shadow-sm group-focus-within/check:pointer-events-auto group-focus-within/check:opacity-100 group-hover/check:pointer-events-auto group-hover/check:opacity-100",
         )}
       >
         <button
