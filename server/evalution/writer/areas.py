@@ -60,12 +60,26 @@ evaluator can check) on what this area does for the app, naming its prompts, pro
 tools, agents, routes, state and key limits by their exact names and values, the order things \
 happen in, the conditions that switch them and what is refused; and nodes for the parts a diagram \
 of the app should show (an agent, its tools, workers, state it keeps). Every claim and node \
-cites the file it rests on (evidence kind code, docs or prompt, with the path). A claim is at \
-most 400 characters, a node's sub 200, its tools 20 names: longer is cut. Keep the ids of \
-what you wrote before when it still holds. Write from what is below; use walk_code or read_code \
-only when it lacks something you need. Never guess."""
+cites the file it rests on: evidence [{"kind": "code", "ref": "path/of/file.py"}] (kind code, \
+docs or prompt). A node has a kind (person, agent, tools, worker or state) and a title. \
+A claim is at most 400 characters, a node's sub 200, its tools 20 names: longer is cut. \
+Keep the ids of what you wrote before when it still holds. Write from what is below; use \
+walk_code or read_code only when it lacks something you need. Never guess."""
 
 _ID = re.compile(r"[^A-Za-z0-9_.-]+")
+
+EVIDENCE = {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["code", "docs", "prompt"]},
+            "ref": {"type": "string", "description": "The file's path, as in the cards"},
+        },
+        "required": ["kind", "ref"],
+    },
+}
 
 TOOLS = [
     {
@@ -84,12 +98,26 @@ TOOLS = [
                         "properties": {
                             "id": {"type": "string"},
                             "text": {"type": "string", "maxLength": CLAIM_CHARS},
-                            "evidence": {"type": "array", "items": {"type": "object"}},
+                            "evidence": EVIDENCE,
                         },
                         "required": ["id", "text", "evidence"],
                     },
                 },
-                "nodes": {"type": "array", "items": {"type": "object"}},
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "kind": {"type": "string", "enum": list(understanding.NODE_KINDS)},
+                            "title": {"type": "string"},
+                            "sub": {"type": "string", "maxLength": SUB_CHARS},
+                            "tools": {"type": "array", "items": {"type": "string"}},
+                            "evidence": EVIDENCE,
+                        },
+                        "required": ["id", "kind", "title", "evidence"],
+                    },
+                },
                 "more": {"type": "boolean", "description": "Another part follows"},
             },
             "required": ["title", "claims"],
@@ -205,6 +233,38 @@ def brief(area: Area, ctx: Context, before: Mapping[str, Any] | None) -> str:
     return "\n\n".join(parts)
 
 
+#: Node kinds a model reaches for, and the kind each is.
+_KINDS = {"tool": "tools", "store": "state", "database": "state", "memory": "state"}
+
+
+def _evidence(value: Any) -> list[Any]:
+    """Evidence read kindly: a bare path, or ``path``/``file`` for ``ref``, is what was meant."""
+    items = value if isinstance(value, list) else [value] if value else []
+    out = []
+    for item in items:
+        if isinstance(item, str):
+            item = {"kind": "code", "ref": item}
+        if isinstance(item, dict):
+            ref = item.get("ref") or item.get("path") or item.get("file")
+            kind = item.get("kind") if item.get("kind") in ("code", "docs", "prompt") else "code"
+            item = {"kind": kind, "ref": ref}
+        out.append(item)
+    return out
+
+
+def _node(node: Mapping[str, Any]) -> dict[str, Any]:
+    """A node read kindly: its title from its name, a near kind as the kind it is."""
+    kind = str(node.get("kind") or "").lower()
+    return {
+        **node,
+        "kind": _KINDS.get(kind, kind) if kind else "worker",
+        "title": node.get("title") or node.get("name") or node.get("id"),
+        "sub": cut(str(node.get("sub") or ""), SUB_CHARS),
+        "tools": list(node.get("tools") or [])[:NODE_TOOLS],
+        "evidence": _evidence(node.get("evidence")),
+    }
+
+
 def _tool_result(text: str) -> str:
     return text if text.startswith(("Refused", "Error")) else fenced("the result", text)
 
@@ -247,22 +307,17 @@ async def _handle(
             "id": understanding.AREA_PREFIX + namespace(area.id),
             "title": cut(str(args.get("title") or area.id), 120),
             "claims": [
-                {**c, "text": cut(str(c.get("text") or ""), CLAIM_CHARS)}
+                {
+                    **c,
+                    "text": cut(str(c.get("text") or ""), CLAIM_CHARS),
+                    "evidence": _evidence(c.get("evidence")),
+                }
                 if isinstance(c, dict)
                 else c
                 for c in claims
             ],
         }
-        nodes = [
-            {
-                **n,
-                "sub": cut(str(n.get("sub") or ""), SUB_CHARS),
-                "tools": list(n.get("tools") or [])[:NODE_TOOLS],
-            }
-            if isinstance(n, dict)
-            else n
-            for n in nodes
-        ]
+        nodes = [_node(n) if isinstance(n, dict) else n for n in nodes]
         written, problems = await ctx.check(
             {"one_line": "-", "nodes": nodes, "sections": [section]}
         )

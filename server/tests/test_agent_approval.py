@@ -457,10 +457,12 @@ def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
     files = first.split("[Data: its files", 1)[1].split("\n", 1)[1]
     path = re.search(r"^(\S+) \(", files, re.M)[1]
     evidence = [{"kind": "code", "ref": path}]
+    # Shapes a model reaches for (a path for a ref, a bare path, a name for a title, a near
+    # kind): taken as what was meant.
     section = {
         "title": f"The {area} area",
-        "claims": [{"id": "does", "text": f"{area} works.", "evidence": evidence}],
-        "nodes": [{"id": "part", "kind": "agent", "title": area, "evidence": evidence}],
+        "claims": [{"id": "does", "text": f"{area} works.", "evidence": [{"path": path}]}],
+        "nodes": [{"id": "part", "kind": "tool", "name": area, "evidence": [path]}],
     }
     if odd.get(area) == "cut" and len(body["messages"]) == 1:
         return ("cut", "write_section", section)
