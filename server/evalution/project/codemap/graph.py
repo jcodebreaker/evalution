@@ -6,7 +6,8 @@ the name is defined in so many places that it says nothing (``get``, ``run``).
 
 **Rank** is a personalized PageRank over "uses" edges, plainly: what many definitions use, and what
 the app's behaviour rests on (prompts, tools, agents, routes, state, and what a *focus* names),
-comes first. The kinds weigh twice: in where a walk restarts, and on the final score.
+comes first, then the constants that set its limits. The kinds weigh twice: in where a walk
+restarts, and on the final score.
 """
 
 from __future__ import annotations
@@ -19,7 +20,16 @@ from typing import Any
 from evalution.project.codemap.parse import BEHAVIOUR
 
 #: How much a kind weighs in the rank: what an understanding must cover first.
-WEIGHTS = {"prompt": 6.0, "tool": 6.0, "agent": 6.0, "route": 4.0, "state": 4.0, "class": 1.5}
+WEIGHTS = {
+    "prompt": 6.0,
+    "prompt-builder": 6.0,
+    "tool": 6.0,
+    "agent": 6.0,
+    "route": 4.0,
+    "state": 4.0,
+    "constant": 3.0,
+    "class": 1.5,
+}
 #: What a *focus* adds to a definition it names, or one in a file it names.
 FOCUS = 20.0
 #: A name defined in more places than this resolves to none: it says nothing.
@@ -237,11 +247,23 @@ class CodeMap:
         text = "\n\n".join(parts)
         return text[:WALK_CHARS] + ("\n… (cut)" if len(text) > WALK_CHARS else "")
 
-    def behaviour(self, paths: Iterable[str] | None = None) -> list[Definition]:
-        """The prompts, tools, agents, routes and state the map holds (of *paths*, when given)."""
-        wanted = None if paths is None else set(paths)
+    def behaviour(self, keys: Iterable[str] | None = None) -> list[Definition]:
+        """The prompts, tools, agents, routes and state the map holds (of *keys*, when given)."""
+        wanted = None if keys is None else set(keys)
         return [
             d
-            for d in self.defs.values()
-            if d.kind in BEHAVIOUR and (wanted is None or d.path in wanted)
+            for k, d in self.defs.items()
+            if d.kind in BEHAVIOUR and (wanted is None or k in wanted)
+        ]
+
+    def innermost(self, keys: Iterable[str]) -> list[str]:
+        """*keys* without those that hold another of them (a class whose method changed)."""
+        keys = list(keys)
+
+        def holds(outer: Definition, inner: Definition) -> bool:
+            same = outer.path == inner.path and outer is not inner
+            return same and outer.line <= inner.line and inner.end <= outer.end
+
+        return [
+            k for k in keys if not any(holds(self.defs[k], self.defs[o]) for o in keys if o != k)
         ]

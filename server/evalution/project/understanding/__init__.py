@@ -31,6 +31,7 @@ from evalution.project.understanding.document import (
     SECTION_IDS,
     check,
     clean_text,
+    parts,
     patched,
     read_evidence,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "load",
     "marks",
     "overlay",
+    "parts",
     "patched",
     "paths",
     "read_evidence",

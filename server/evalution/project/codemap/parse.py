@@ -5,8 +5,10 @@ their instructions and settings), and a line pattern for anything else.
 A **definition** is ``{name, kind, line, end, sig}``: where it is (1-based lines) and its first
 line.
 Its kind is what it is to the app, guessed from its shape and name: a ``tool``, ``prompt``,
-``agent``, ``route`` or ``state`` first (what an understanding must cover), else ``function``,
-``method``, ``class``, ``constant``, ``section`` or ``config``. A **reference** is
+``prompt-builder`` (``build_``, ``make_``, ``compose_`` functions, and those returning a long
+string), ``agent``, ``route`` or ``state`` first (what an understanding must cover), else
+``function``, ``method``, ``class``, ``constant`` (a module-level ``UPPER_CASE`` name, its sig
+``NAME = value`` when the value is short), ``section`` or ``config``. A **reference** is
 ``[name, definition it is used in]``: the calls a definition makes, and the capitalized names it
 uses (constants, classes, types), which is how a prompt reaches the code that sends it. Names
 resolve to definitions only when the map is read (:mod:`.graph`).
@@ -28,13 +30,16 @@ import tree_sitter_python
 import tree_sitter_typescript
 
 #: Bumped when what a parse gives changes, so cached maps are made again.
-VERSION = 1
+VERSION = 2
 SIG_CHARS = 160
 REFS_PER_FILE = 3_000
 #: A string this long, held in a module-level name, is taken for a prompt whatever its name.
 PROMPT_CHARS = 200
 #: The kinds an understanding must cover.
-BEHAVIOUR = ("tool", "prompt", "agent", "route", "state")
+BEHAVIOUR = ("tool", "prompt", "prompt-builder", "agent", "route", "state")
+#: A constant's value shown on its map line when it is this short.
+VALUE_CHARS = 80
+_BUILDER = re.compile(r"^(build|make|compose)(_|[A-Z])")
 
 _PROMPTISH = re.compile(r"prompt|instruction|system|persona|template", re.IGNORECASE)
 _AGENTISH = re.compile(r"agent|assistant|planner|orchestrat", re.IGNORECASE)
@@ -199,6 +204,8 @@ class _Tree:
             kind = "route"
         elif _TOOLISH.search(said):
             kind = "tool"
+        elif _BUILDER.match(name) or self._returns_prose(node):
+            kind = "prompt-builder"
         else:
             kind = (
                 "method"
@@ -207,6 +214,20 @@ class _Tree:
             )
         start = node.parent if decorators else node
         return self._add(name, kind, start, sig_node=node)
+
+    def _returns_prose(self, node: Any) -> bool:
+        """Whether a function returns a long string of its own: it writes a prompt."""
+        stack = list(node.children)
+        while stack:
+            child = stack.pop()
+            if child.type in ("return_statement", "arrow_function"):
+                value = child.named_children[-1] if child.named_children else None
+                prose = value is not None and value.type in self._STRINGS | {"concatenated_string"}
+                if prose and len(self._text(value)) >= PROMPT_CHARS:
+                    return True
+            if child.type not in self._FUNCTIONS:
+                stack.extend(child.children)
+        return False
 
     def _variable(self, node: Any) -> str | None:
         target = node.child_by_field_name("name") or node.child_by_field_name("left")
@@ -229,7 +250,14 @@ class _Tree:
                 return self._add(name, "tool", node)
             if _AGENTISH.search(called):
                 return self._add(name, "agent", node)
-        if name.isupper() or _named_kind("variable", name) != "constant":
+        if name.isupper():
+            said = " ".join(self._text(value).split())
+            sig = f"{name} = {said}" if len(said) <= VALUE_CHARS else f"{name} = …"
+            kind = _named_kind("variable", name)
+            self._add(name, kind, node)
+            self.defs[-1]["sig"] = sig[:SIG_CHARS]
+            return name
+        if _named_kind("variable", name) != "constant":
             return self._add(name, _named_kind("variable", name), node)
         return None
 

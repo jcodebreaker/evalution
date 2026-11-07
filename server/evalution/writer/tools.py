@@ -8,6 +8,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -43,6 +44,8 @@ from evalution.writer import linecheck
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
+_logger = logging.getLogger(__name__)
+
 #: Data files the agent may write for a test: plain names, text formats, small.
 FIXTURE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.(csv|tsv|json|txt|md|xml)$")
 FIXTURE_BYTES = 200_000
@@ -69,8 +72,10 @@ class AgentTurn:
     #: It saved an understanding; a learn's reminder of what that left out was given.
     understood: bool = False
     reminded: bool = False
-    #: In a learn of a small change, the files that moved: the understanding is patched.
+    #: In a learn of a small change, the definitions it rests on (touched, and one step out), and
+    #: the parts of the understanding citing the moved files: the understanding is patched.
     patch: list[str] | None = None
+    cited: list[str] = field(default_factory=list)
     #: The patch's line for the admin, which ends that learn.
     note: str | None = None
     #: The code map, once made this turn (walk_code, a learn's reminder).
@@ -154,6 +159,23 @@ def _plan(value: Any) -> dict[str, Any]:
         "tries": tries,
         "case": _text(value.get("case"), "plan.case"),
     }
+
+
+#: More than this rewritten outside what cites a small change is worth a look in the log.
+SCOPE_CHARS = 3_000
+
+
+def _scope(target: str, before: dict, after: dict, cited: set[str]) -> None:
+    """Log a patch that rewrote much outside the parts citing its change: not refused (it may be
+    right), but a patch should stay where the change is."""
+    old, new = understanding.parts(before), understanding.parts(after)
+    moved = sum(
+        len(json.dumps(new.get(k) or old.get(k), ensure_ascii=False))
+        for k in set(old) | set(new)
+        if k not in cited and old.get(k) != new.get(k)
+    )
+    if moved > SCOPE_CHARS:
+        _logger.warning("learn %s: a patch rewrote %d characters outside its change", target, moved)
 
 
 def _same_test(a: Any, b: Any) -> bool:
@@ -453,7 +475,10 @@ class Tools:
         before = await asyncio.to_thread(understanding.written, self.targets, self._target(turn))
         if before is None:
             return "Refused: nothing is saved yet. Write it whole with write_understanding."
-        said = await self.write_understanding(turn, understanding.patched(before, args))
+        after = understanding.patched(before, args)
+        said = await self.write_understanding(turn, after)
+        if turn.understood and turn.patch is not None:
+            _scope(self._target(turn), before, after, set(turn.cited))
         if turn.understood and isinstance(args.get("note"), str) and args["note"].strip():
             turn.note = args["note"].strip()
         return said

@@ -398,7 +398,8 @@ APP = {
         "@tool\ndef greet_people(name):\n    return MemoryStore().remember(name)\n\n\n"
         '@app.post("/chat")\ndef chat(message):\n'
         "    return greet_people(message) + SYSTEM_PROMPT\n\n\n"
-        "def _wrap(x):\n    return x\n"
+        "def _wrap(x):\n    return x\n\n\n"
+        "PREFIX_BUDGET_SECONDS = 30\n\n\ndef build_instructions():\n    return SYSTEM_PROMPT\n"
     ),
     "lib/memory.py": "class MemoryStore:\n    def remember(self, name):\n        return name\n",
     "web/chat.ts": (
@@ -561,7 +562,7 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     keeps = {
         "section": "can_do",
         "id": "keeps",
-        "text": "Its MemoryStore keeps names, trimmed.",
+        "text": "greet_people's MemoryStore keeps names, trimmed.",
         "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
     }
     note = "It now trims what it keeps."
@@ -580,10 +581,11 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert "claim:greets: It greets." in said and '"claim:greets"' not in said, "in outline"
     assert "lib/memory.py:2 def remember(self, name):" in said and "name.strip()" in said
     assert "used by: \n  app.py:6 def greet_people(name):" in said, "one step out"
-    assert "+        return name.strip()" in said and "every watched file" not in said
+    assert "+        return name.strip()" in said and "the code map" not in said
+    assert len(said) < 6_000, "a short brief: the change, not the app"
     patched = understanding.load(targets, "bot")
     claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
-    assert claims["keeps"]["text"] == "Its MemoryStore keeps names, trimmed."
+    assert claims["keeps"]["text"] == "greet_people's MemoryStore keeps names, trimmed."
     assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
     assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
     thread = (await agent._session(sid))["history"]
@@ -635,6 +637,8 @@ def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
     assert kinds["SYSTEM_PROMPT"] == "prompt" and kinds["greet_people"] == "tool"
     assert kinds["chat"] == "route" and kinds["MemoryStore"] == "state"
     assert kinds["sendChat"] == "function" and kinds["Planner"] == "prompt"
+    assert kinds["PREFIX_BUDGET_SECONDS"] == "constant"
+    assert kinds["build_instructions"] == "prompt-builder"
     assert made.parsed == 5
     # Kept by fingerprint: nothing parsed again until a file moves, and then that one alone.
     assert codemap.build(targets, "bot", code).parsed == 0
@@ -646,6 +650,9 @@ def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
     order = [cmap.defs[k].name for k in cmap.rank()]
     assert order.index("SYSTEM_PROMPT") < order.index("fetchReply")
     assert order.index("greet_people") < order.index("_wrap")
+    assert order.index("build_instructions") < order.index("_wrap")
+    assert order.index("PREFIX_BUDGET_SECONDS") < order.index("fetchReply")
+    assert "PREFIX_BUDGET_SECONDS = 30" in cmap.repo_map(2_000), "a constant shows its value"
     # The map fits its budget, and a larger budget holds more.
     small, large = cmap.repo_map(200), cmap.repo_map(2_000)
     assert 0 < len(small) <= 200 < len(large) <= 2_000 and "SYSTEM_PROMPT" in small
@@ -655,6 +662,11 @@ def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
     assert "app.py:11 def chat(message):" in walked.split("used by:")[1]
     assert "two steps away" in cmap.walk("greet_people", 2, code.read)
     assert cmap.walk("nothing_here", 1, code.read).startswith("(no definition")
+    # A small change's reminder looks only at what it touched and one step out.
+    remember = cmap.find("remember")
+    near = sorted({*remember, *cmap.callers(remember[0]), *cmap.callees(remember[0])})
+    assert learn.uncovered(cmap, {}, near) == {"app.py": ["greet_people"]}
+    assert learn.uncovered(cmap, {"x": "greet_people"}, near) == {}
 
 
 async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> None:

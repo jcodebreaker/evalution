@@ -51,30 +51,37 @@ _logger = logging.getLogger(__name__)
 FIRST = """\
 Below: the app's code as its modules, a map of its most used definitions (prompts, tools, agents, \
 routes and state marked), and the files that matter most, summarized. Write the understanding \
-from them, covering the whole app: every prompt, tool, agent, route and kind of state belongs in \
-it, by its exact name. For a definition's detail and how it connects, use walk_code(name) (its \
+from them, covering the whole app: every prompt, prompt builder, tool, agent, route and kind of \
+state belongs in it, by its exact name, and so do the constants that set its key limits, with \
+their values. For a definition's detail and how it connects, use walk_code(name) (its \
 code, what it uses and what uses it) rather than reading whole files."""
 
 AGAIN = """\
 Write the understanding again from what is below (the app's modules, a map of its most used \
 definitions, and the files that matter most, summarized), covering the whole app: every prompt, \
-tool, agent, route and kind of state belongs in it, by its exact name, whatever the last one said. \
+prompt builder, tool, agent, route and kind of state belongs in it, by its exact name, and so do \
+the constants that set its key limits, with their values, whatever the last one said. \
 Take from what you understood last time only its ids, for what stays, and what the code cannot say \
 (what the traces showed, the admin's marks). For detail, use walk_code(name) rather than reading \
 whole files, the changed and added ones first. Save with write_understanding."""
 
 PATCH = """\
-You learned this app before, and only a few files moved since. Below: the parts of what you \
+You learned this app before, and only a few files moved since. Change only the claims and nodes \
+about the definitions the change touched. Below: the parts of what you \
 understood that cite them, in full; an outline of the rest; each file's summary then and now; the \
 definitions the change touched, with their code, what they use and what uses them; and the diff. \
 Edit only what the change moves, in one patch_understanding call with its note: replace or add \
 the claims and nodes it changes, remove what it makes untrue. Leave the rest as it is. \
 read_understanding and walk_code are there only if what is below is not enough."""
 
-#: How much of the moved files' diff (or text, without git) a patch's brief carries, and of the
-#: definitions it touched.
-CHANGES_CHARS = 8_000
-DEFINITIONS_CHARS = 16_000
+#: How much a patch's brief carries of the moved files' diff (or text, without git), of the
+#: definitions it touched (each, and all), of the parts citing them, and of the outline: a small
+#: change is read in one step on a short brief.
+CHANGES_CHARS = 6_000
+DEFINITION_CHARS = 1_500
+DEFINITIONS_CHARS = 6_000
+CITED_CHARS = 8_000
+OUTLINE_CHARS_ALL = 6_000
 #: What a full learn gets of the code map, and how many files' summaries.
 MAP_CHARS = 40_000
 TOP_FILES = 25
@@ -126,12 +133,6 @@ def _small(moved: filememory.Changes, files: int) -> bool:
     return not moved.first and 0 < count <= max(PATCH_FILES, PATCH_SHARE * files)
 
 
-def _parts(doc: dict) -> dict[str, dict]:
-    """Each claim and node by ``claim:<id>`` or ``node:<id>``."""
-    found = {f"claim:{c['id']}": c for sec in doc.get("sections") or [] for c in sec["claims"]}
-    return found | {f"node:{n['id']}": n for n in doc.get("nodes") or []}
-
-
 def _outline(doc: dict, shown: set[str]) -> str:
     """The understanding by ids and titles, what is shown in full left out: enough to keep ids
     and to see where a new claim goes, at a fraction of the whole."""
@@ -179,11 +180,31 @@ def _touched(cmap: CodeMap, diff: str, paths: list[str]) -> list[str]:
     return [k for path in paths for k in cmap.overlapping(path, spans.get(path))]
 
 
+def _cut(text: str, limit: int) -> str:
+    return text[:limit] + ("\n… (cut)" if len(text) > limit else "")
+
+
 def _definitions(cmap: CodeMap, keys: list[str], read: Callable[[str], str]) -> str:
-    """Each touched definition's code, and one step out: what it uses and what uses it."""
-    parts = [f"{cmap.defs[k].label()}\n{cmap.code(k, read)}\n{cmap.neighbours(k)}" for k in keys]
-    text = "\n\n".join(parts)
-    return text[:DEFINITIONS_CHARS] + ("\n… (cut)" if len(text) > DEFINITIONS_CHARS else "")
+    """Each touched definition's code, and one step out by signature: what it uses and what
+    uses it."""
+    shown = [
+        "\n".join(
+            [cmap.defs[k].label(), _cut(cmap.code(k, read), DEFINITION_CHARS), cmap.neighbours(k)]
+        )
+        for k in keys
+    ]
+    return _cut("\n\n".join(shown), DEFINITIONS_CHARS)
+
+
+@dataclass(frozen=True)
+class Patch:
+    """A small change's brief, the definitions it rests on (the touched ones and one step out),
+    and the parts of the understanding that cite the moved files."""
+
+    text: str
+    keys: list[str]
+    cited: list[str]
+    definitions: int
 
 
 def _patch_brief(
@@ -194,10 +215,11 @@ def _patch_brief(
     before: dict,
     moved: filememory.Changes,
     memory: dict,
-) -> str:
+) -> Patch:
     """What a small change's learn is given: the parts of the understanding that cite the moved
-    files in full and an outline of the rest, each file's summary then and now, and the change
-    itself, so it can patch in one step."""
+    files in full and an outline of the rest, each file's summary then and now, the definitions
+    the change touched with one step out, and the diff, so it can patch in one step. No map: the
+    change is all it is about."""
     was = filememory.summaries(memory)
     now = filememory.summaries(filememory.load(targets, name))
     lines = []
@@ -212,25 +234,25 @@ def _patch_brief(
             lines.append(f"{path} ({kind})\n  then: {then}\n  now: {after}")
     touched = set(moved.changed) | set(moved.removed)
     links = knowledge.load(targets, name).get("links") or {}
-    parts = _parts(before)
+    parts = understanding.parts(before)
     cited = {key for key, files in links.items() if set(files) & touched and key in parts}
-    full = {key: parts[key] for key in sorted(cited)}
+    full = json.dumps({key: parts[key] for key in sorted(cited)}, ensure_ascii=False)
     changed = [*moved.changed, *moved.added]
     diff = _changes_text(code, memory.get("commit"), changed)
-    hit = _touched(cmap, diff, changed)
-    return "\n\n".join(
+    hit = cmap.innermost(_touched(cmap, diff, changed))
+    near = {n for k in hit for n in (*cmap.callees(k), *cmap.callers(k))}
+    definitions = _definitions(cmap, hit, code.read)
+    text = "\n\n".join(
         [
             PATCH,
-            fenced("the parts that cite them", json.dumps(full, ensure_ascii=False) or "(none)"),
-            fenced("the rest, in outline", _outline(before, cited)),
+            fenced("the parts that cite them", _cut(full, CITED_CHARS)),
+            fenced("the rest, in outline", _cut(_outline(before, cited), OUTLINE_CHARS_ALL)),
             fenced("the files that moved", "\n".join(lines)),
-            fenced(
-                "the definitions the change touched",
-                _definitions(cmap, hit, code.read) or "(none in the map)",
-            ),
+            fenced("the definitions the change touched", definitions or "(none in the map)"),
             fenced("the diff", diff or "(nothing readable)"),
         ]
     )
+    return Patch(text, sorted({*hit, *near}), sorted(cited), len(definitions))
 
 
 class _Clock:
@@ -298,11 +320,11 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
         }
         clock("code map")
         if before is not None and not traces and _small(moved, len(files)):
-            turn.patch = sorted({*moved.changed, *moved.added})
-            brief = await asyncio.to_thread(
+            patch = await asyncio.to_thread(
                 _patch_brief, targets, name, code, cmap, before, moved, memory
             )
-            return Begun(text=brief, stats={**stats, "map_chars": len(brief)})
+            turn.patch, turn.cited = patch.keys, patch.cited
+            return Begun(text=patch.text, stats={**stats, "map_chars": patch.definitions})
         await modules.index(targets, name, cmap, ask)
         clock("modules")
         kept = filememory.load(targets, name)
@@ -335,14 +357,14 @@ _GENERIC = re.compile(
 _PROSE = re.compile(r"(^|/)(docs?|adr)/|\.(rst|txt|adoc)$", re.IGNORECASE)
 
 
-def uncovered(cmap: CodeMap, doc: dict, paths: list[str] | None) -> dict[str, list[str]]:
-    """``path -> names``: the prompts, tools, agents, routes and state the code map holds (in
-    *paths*, when given) that the understanding never mentions, ignoring case; private, generic
-    and prose ones left out, at most :data:`NAMES_SENT`."""
+def uncovered(cmap: CodeMap, doc: dict, keys: list[str] | None) -> dict[str, list[str]]:
+    """``path -> names``: the prompts, tools, agents, routes and state the code map holds (of the
+    definitions *keys*, when given) that the understanding never mentions, ignoring case;
+    private, generic and prose ones left out, at most :data:`NAMES_SENT`."""
     said = json.dumps(doc, ensure_ascii=False).casefold()
     out: dict[str, list[str]] = {}
     count = 0
-    for d in sorted(cmap.behaviour(paths), key=lambda d: (d.path, d.line)):
+    for d in sorted(cmap.behaviour(keys), key=lambda d: (d.path, d.line)):
         name = d.name
         if count >= NAMES_SENT or _PROSE.search(d.path) or name.startswith("_"):
             continue
@@ -356,7 +378,8 @@ def uncovered(cmap: CodeMap, doc: dict, paths: list[str] | None) -> dict[str, li
 
 def left_out(targets: Targets, turn: AgentTurn) -> str | None:
     """Once per learn, after it saved: what the code map holds that the understanding does not
-    name (of the moved files only, for a small change), said back to the writer; ``None`` when
+    name (for a small change, of the touched definitions and one step out only), said back to the
+    writer; ``None`` when
     nothing is, or it was said already."""
     name = str(turn.session["target"])
     if turn.reminded or not turn.understood or turn.map is None:

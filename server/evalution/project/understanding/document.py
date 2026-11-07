@@ -221,3 +221,9 @@ def patched(doc: Mapping[str, Any], edit: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"claims[{n}].section: one of {', '.join(s['id'] for s in sections)}")
         home["claims"].append(body)
     return out
+
+
+def parts(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Each claim and node by ``claim:<id>`` or ``node:<id>``."""
+    found = {f"claim:{c['id']}": c for s in doc.get("sections") or [] for c in s["claims"]}
+    return found | {f"node:{n['id']}": n for n in doc.get("nodes") or []}

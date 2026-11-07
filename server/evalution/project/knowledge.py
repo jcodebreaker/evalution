@@ -98,19 +98,13 @@ def paths_in(ref: str, files: Mapping[str, Any], read: Iterable[str] = ()) -> li
     return list(dict.fromkeys(found))
 
 
-def _items(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Each claim and node by ``claim:<id>`` or ``node:<id>``."""
-    found = {f"claim:{c['id']}": c for s in doc.get("sections") or [] for c in s["claims"]}
-    return found | {f"node:{n['id']}": n for n in doc.get("nodes") or []}
-
-
 def links(
     doc: Mapping[str, Any], files: Mapping[str, str], read: Iterable[str] = ()
 ) -> dict[str, dict[str, str]]:
     """``key -> {file: its hash now}``, from the evidence each claim and node cites."""
     out: dict[str, dict[str, str]] = {}
     read = list(read)
-    for key, item in _items(doc).items():
+    for key, item in understanding.parts(doc).items():
         named = [
             path
             for entry in item.get("evidence") or []
@@ -263,7 +257,7 @@ def _prompt(
     the lines around each change (:data:`evalution.code.DIFF_CONTEXT`). Never whole files beside
     it: the claims say what the files were, and the diff what moved. Secrets files are never in it:
     only watched files are named, between two commits."""
-    items = _items(doc)
+    items = understanding.parts(doc)
     ordered = list(_sent(stale, items))
     lines = [
         json.dumps(
@@ -372,7 +366,7 @@ def _apply(
     log = understanding.steers(targets, name)
     owned = {
         key
-        for key, item in _items(understanding.overlay(doc, log)).items()
+        for key, item in understanding.parts(understanding.overlay(doc, log)).items()
         if item.get("fix") or item.get("verdict")
     }
     with targets.guards.knowledge:
@@ -381,7 +375,7 @@ def _apply(
         flags = dict(state.get("flags") or {})
         now = time.time()
         new = copy.deepcopy(doc)
-        items = _items(new)
+        items = understanding.parts(new)
         gone: set[str] = set()
         changed = flagged = 0
         for key, said in answer["claims"].items():
@@ -440,8 +434,8 @@ def _apply(
         state.update(
             version=new["version"],
             links=links(new, files, read),
-            stale={k: v for k, v in stale.items() if k in _items(new)},
-            flags={k: v for k, v in flags.items() if k in _items(new)},
+            stale={k: v for k, v in stale.items() if k in understanding.parts(new)},
+            flags={k: v for k, v in flags.items() if k in understanding.parts(new)},
             checked=head,
             detected=head,
         )
@@ -490,7 +484,7 @@ async def _refresh(runs: History, name: str, asked: bool) -> str:
     if caller is None:
         return "no_model"
     overlaid = understanding.overlay(doc, understanding.steers(targets, name))
-    items = _items(overlaid)
+    items = understanding.parts(overlaid)
     sent = _sent(wanted, items)
     if not sent:
         return "idle"
@@ -582,7 +576,7 @@ def _changes(targets: Targets, name: str) -> list[dict[str, Any]]:
     kept = understanding.versions(targets, name)
     if len(kept) < 2:
         return []
-    before, after = _items(kept[-2]), _items(kept[-1])
+    before, after = understanding.parts(kept[-2]), understanding.parts(kept[-1])
     out: list[dict[str, Any]] = []
     for key, item in after.items():
         said = _shown(item, key)
