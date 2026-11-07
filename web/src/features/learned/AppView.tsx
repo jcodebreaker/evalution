@@ -26,6 +26,11 @@ import { apply } from "./steer";
  * usual paths, claims to check, what matters most), the tests it suggests, and the connection.
  * Every check is sent as a steer and shows at once.
  */
+/** The sections a person reads: the overview's. An area's section and the Details are the
+ * test writer's notes, kept for it, not shown. */
+const forPeople = (section: { id: string }) =>
+  !section.id.startsWith("area-") && section.id !== "details";
+
 /** Claims a section shows before "Show more". */
 const SHOWN = 5;
 
@@ -179,7 +184,7 @@ export function AppView({
             </div>
           ) : null}
 
-          {shown.sections.map((section) => (
+          {shown.sections.filter(forPeople).map((section) => (
             <div key={section.id} className={SECTION}>
               <SectionHeading>{section.title}</SectionHeading>
               {section.note ? (
