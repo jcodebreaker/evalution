@@ -1,9 +1,15 @@
 import type { AgentSession } from "../../lib/schema";
 import { LoadingState } from "../../ui/loading";
 
-/** The working line with what the writer did last, newest first under it. */
+/** A step's shape without its numbers: "Summaries: 98/762" and "Summaries: 101/762" are one. */
+const shape = (text: string) => text.replace(/\d+/g, "#");
+
+/** The working line with what the writer did last, newest first under it. A step that only
+ * counts up (a progress line) shows once, at its latest count, never as a stack of copies. */
 export function Working({ session }: { session: AgentSession }) {
-  const { activity } = session;
+  const activity = session.activity.filter(
+    (step, i, all) => i === all.length - 1 || shape(all[i + 1]?.text ?? "") !== shape(step.text),
+  );
   return (
     <div className="flex flex-col gap-1.5">
       <LoadingState label={activity.at(-1)?.text ?? "Working…"} />
