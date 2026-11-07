@@ -638,7 +638,14 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     redone = re.findall(r"\[Data: module (.+?)\. Material", json.dumps(sent["modules"][-1]))
     assert len(sent["modules"]) == 2 and sorted(redone) == [".", "lib"]
     said = _first_text(sent["writer"][4])
-    assert said.startswith("Learn bot again.\n\n" + learn.AGAIN)
+    assert said.startswith("Learn bot again.\n\n" + learn.AGAIN) and "It greets." in said
+    # Details is the engine's: never sent to the writer, whose cost does not grow with it, yet it
+    # covers every file with facts.
+    assert "It holds" not in json.dumps(sent["writer"][4:])
+    held = understanding.details_of(understanding.load(targets, "bot"))
+    assert {c["evidence"][0]["ref"].split(":")[0] for c in held} == set(
+        targets.code("bot").hashes()
+    )
     results = [
         b["content"]
         for b in sent["writer"][6]["messages"][-1]["content"]

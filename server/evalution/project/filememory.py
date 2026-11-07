@@ -356,11 +356,11 @@ def facts(memory: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
 
 def details(memory: Mapping[str, Any], paths: Iterable[str]) -> list[dict[str, Any]]:
-    """The facts of the files *paths* as claims, in path and line order, each citing its file and
-    line (so the knowledge links follow it), with an id that stays while its file's facts do."""
+    """The facts of the files *paths*, in that order, as claims, each citing its file and line (so
+    the knowledge links follow it), with an id that stays while its file's facts do."""
     known = facts(memory)
     claims = []
-    for path in sorted(set(paths)):
+    for path in dict.fromkeys(paths):
         tag = hashlib.sha256(path.encode()).hexdigest()[:8]
         for n, fact in enumerate(known.get(path) or []):
             ref = f"{path}:{fact['line']}" if fact.get("line") else path
@@ -373,15 +373,3 @@ def details(memory: Mapping[str, Any], paths: Iterable[str]) -> list[dict[str, A
                 }
             )
     return claims
-
-
-def by_size(memory: Mapping[str, Any], ranked: Iterable[str], budget: int) -> list[str]:
-    """The files of *ranked*, best first, whose facts fit in *budget* characters together."""
-    known = facts(memory)
-    out = []
-    for path in ranked:
-        size = sum(len(f["fact"]) for f in known.get(path) or [])
-        if size and size <= budget:
-            out.append(path)
-            budget -= size
-    return out

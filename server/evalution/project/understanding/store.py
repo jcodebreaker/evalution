@@ -10,9 +10,11 @@ from evalution.project.profile import (
     FINGERPRINT_DOC,
     fingerprint_hash,
     read_doc,
+    read_profile,
     write_doc,
     write_profile,
 )
+from evalution.project.understanding.document import with_details
 from evalution.project.understanding.rendering import render_profile
 from evalution.project.understanding.steering import (
     STEERS_DOC,
@@ -74,10 +76,20 @@ def steer(targets: Targets, name: str, body: Mapping[str, Any]) -> dict[str, Any
 
 
 def written(targets: Targets, name: str) -> dict[str, Any] | None:
-    """What the agent wrote last, with the steers laid over it, so it can keep ids."""
+    """What the agent wrote last, with the steers laid over it, so it can keep ids. Details is
+    left out: the engine writes it, and sent to the model it would cost as much as the code."""
     stored = load(targets, name)
     if stored is None:
         return None
-    doc = overlay(stored, steers(targets, name))
+    doc = overlay(with_details(stored, []), steers(targets, name))
     keys = ("one_line", "nodes", "sections", "priorities", "starters", "step_labels")
     return {k: doc.get(k) for k in (*keys, "expected_paths")}
+
+
+def writer_profile(targets: Targets, name: str) -> str:
+    """The profile as the writer is given it: rendered without Details (see :func:`written`), or
+    as kept when there is no understanding to render it from."""
+    stored = load(targets, name)
+    if stored is None:
+        return read_profile(targets, name)
+    return render_profile(name, with_details(stored, []), steers(targets, name))

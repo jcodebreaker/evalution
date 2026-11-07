@@ -46,7 +46,14 @@ from evalution.project.understanding.steering import (
     overlay,
     steers,
 )
-from evalution.project.understanding.store import load, save, steer, versions, written
+from evalution.project.understanding.store import (
+    load,
+    save,
+    steer,
+    versions,
+    writer_profile,
+    written,
+)
 
 __all__ = [
     "DETAILS",
@@ -76,5 +83,6 @@ __all__ = [
     "versions",
     "view",
     "with_details",
+    "writer_profile",
     "written",
 ]

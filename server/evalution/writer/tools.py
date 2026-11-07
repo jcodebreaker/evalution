@@ -427,7 +427,8 @@ class Tools:
     async def read_profile(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the profile")
         return fenced(
-            "the profile", profile.read_profile(self.targets, self._target(turn)) or "(none yet)"
+            "the profile",
+            understanding.writer_profile(self.targets, self._target(turn)) or "(none yet)",
         )
 
     async def read_understanding(self, turn: AgentTurn, _args: dict) -> Any:

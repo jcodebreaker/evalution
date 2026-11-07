@@ -44,8 +44,8 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.config import ConfigError
 from evalution.llm import LLM, LLMError, Reply, cut, fenced
-from evalution.project import drift
-from evalution.project.profile import read_profile, required_clean
+from evalution.project import drift, understanding
+from evalution.project.profile import required_clean
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, meaning_changes, parse_case
 from evalution.suite.store import case_stems, list_sets, load_case
@@ -358,7 +358,7 @@ class Agent:
         full = "\n".join([full, *broken]).strip()
         if learning or len(full) > CASES_CHARS:
             full = "\n".join(f"{c.case}: {c.name}" for c in cases) + "\n(read_case for one)"
-        profile = read_profile(self.targets, session["target"])
+        profile = understanding.writer_profile(self.targets, session["target"])
         changes = len(drift.read(self.targets, session["target"]).get("changes") or [])
         adapter = self.targets.conf(session["target"]).adapter
         clean: list[str] = []

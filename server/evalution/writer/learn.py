@@ -94,8 +94,6 @@ TOP_FILES = 25
 NAMES_SENT = 25
 #: Key limits a full learn is given.
 LIMITS = 40
-#: The facts a full learn's Details holds, of the top-ranked files.
-DETAILS_CHARS = 40_000
 #: How much of each claim the outline of the rest shows.
 OUTLINE_CHARS = 80
 
@@ -201,6 +199,12 @@ def _patch_details(before: dict, moved: filememory.Changes) -> list[str]:
         for e in c.get("evidence") or []
     }
     return sorted((held - set(moved.removed)) | set(moved.changed) | set(moved.added))
+
+
+def _by_module(cmap: CodeMap, paths: Iterable[str]) -> list[str]:
+    """*paths* grouped by folder, the folders in name order and the files in rank order within."""
+    rank = {p: n for n, p in enumerate(cmap.ranked_files())}
+    return sorted(set(paths), key=lambda p: (modules.folder_of(p), rank.get(p, len(rank)), p))
 
 
 def _cut(text: str, limit: int) -> str:
@@ -350,12 +354,13 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
                 _patch_brief, targets, name, code, cmap, before, moved, memory
             )
             turn.patch, turn.cited = patch.keys, patch.cited
-            turn.details = _patch_details(before, moved)
+            held = understanding.load(targets, name)
+            turn.details = _by_module(cmap, _patch_details(held or {}, moved))
             return Begun(text=patch.text, stats={**stats, "patch_chars": patch.definitions})
         await modules.index(targets, name, cmap, ask)
         clock("modules")
         kept = filememory.load(targets, name)
-        turn.details = filememory.by_size(kept, cmap.ranked_files(), DETAILS_CHARS)
+        turn.details = _by_module(cmap, filememory.facts(kept))
         shown = cmap.ranked_files()[:TOP_FILES]
         drawn = cmap.repo_map(MAP_CHARS)
         limits = "\n".join(f"{d.path}:{d.line} {d.sig}" for d in key_limits(cmap))
