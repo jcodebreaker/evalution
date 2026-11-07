@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import subprocess
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -426,6 +427,13 @@ APP = {
 }
 
 
+#: Prose of the app: its docs and a decision record.
+DOCS = {
+    "docs/guide.md": "# Guide\nHow the bot greets.\n",
+    "docs/adr/0001-greet.md": "# Greet first\nThe bot greets before anything.\n",
+}
+
+
 def _git(folder, *args) -> None:
     subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
@@ -435,27 +443,34 @@ def _git(folder, *args) -> None:
     )
 
 
-def _area_answer(body: dict, fail: frozenset) -> Any:
+def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
     """An area's agent: its section names the area and cites its first file, with a node of its
-    own; once reminded, it ends. An area in *fail* never writes."""
+    own. An area in *fail* never writes; one *odd* says ``cut`` writes a first answer cut at the
+    output limit, ``parts`` writes its section in two parts."""
     first = body["messages"][0]["content"]
     first = first if isinstance(first, str) else first[-1]["text"]
     area = re.search(r"The area (\S+):", first)[1]
     if area.split("~")[0] in fail:
         return "I can't tell."
-    if len(body["messages"]) > 1:
+    if len(body["messages"]) > 1 and odd.get(area) != "cut":
         return "Done."
     files = first.split("[Data: its files", 1)[1].split("\n", 1)[1]
     path = re.search(r"^(\S+) \(", files, re.M)[1]
     evidence = [{"kind": "code", "ref": path}]
-    return (
-        "write_section",
-        {
-            "title": f"The {area} area",
-            "claims": [{"id": "does", "text": f"{area} works.", "evidence": evidence}],
-            "nodes": [{"id": "part", "kind": "agent", "title": area, "evidence": evidence}],
-        },
-    )
+    section = {
+        "title": f"The {area} area",
+        "claims": [{"id": "does", "text": f"{area} works.", "evidence": evidence}],
+        "nodes": [{"id": "part", "kind": "agent", "title": area, "evidence": evidence}],
+    }
+    if odd.get(area) == "cut" and len(body["messages"]) == 1:
+        return ("cut", "write_section", section)
+    if odd.get(area) == "parts":
+        second = {"id": "also", "text": f"{area} also keeps.", "evidence": evidence}
+        return [
+            ("write_section", {**section, "more": True}),
+            ("write_section", {"title": section["title"], "claims": [second]}),
+        ]
+    return ("write_section", section)
 
 
 OVERVIEW_ARGS = {
@@ -472,6 +487,8 @@ def _learning(
     skip: frozenset = frozenset(),
     summarize: float | None = None,
     fail: frozenset = frozenset(),
+    odd: Mapping[str, str] | None = None,
+    docs: bool = False,
 ):
     """:data:`APP` in a repo, and a model: the light one summarizes the files, modules and app it
     is sent (never a path in *skip*); an area's agent writes a section naming its area (never one
@@ -484,7 +501,13 @@ def _learning(
     _git(repo, "init", "-q")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "first")
-    code = {"path": "app", "include": ["**/*.py", "**/*.ts", "agents/**"]}
+    if docs:
+        for rel, text in DOCS.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(text)
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "docs")
+    code = {"path": "app", "include": ["**/*.py", "**/*.ts", "agents/**", "docs/**"]}
     if summarize is not None:
         code["summarize"] = summarize
     block = {"adapter": "http", "http": {"send": {"url": "x"}}, "code": code}
@@ -494,6 +517,7 @@ def _learning(
         "app": [],
         "areas": [],
         "overview": [],
+        "docs": [],
         "writer": [],
     }
     script: list = []
@@ -530,7 +554,10 @@ def _learning(
             said = json.dumps({"summary": "The app greets."})
         elif system == area_agents.INSTRUCTIONS:
             sent["areas"].append(body)
-            said = _area_answer(body, fail)
+            said = _area_answer(body, fail, odd or {})
+        elif system == learn.DOCS:
+            sent["docs"].append(body)
+            said = json.dumps({"summary": "The docs say it greets."})
         elif system == learn.OVERVIEW:
             sent["overview"].append(body)
             said = ("write_overview", OVERVIEW_ARGS)
@@ -540,18 +567,20 @@ def _learning(
         if kind != "anthropic":
             return httpx.Response(200, json={"choices": [{"message": {"content": said}}]})
         # ("cut", name, input): a call that stopped at the output limit.
-        cut = not isinstance(said, str) and said[0] == "cut"
+        cut = isinstance(said, tuple) and said[0] == "cut"
         said = said[1:] if cut else said
+        calls = said if isinstance(said, list) else [said]
         blocks = (
             [{"type": "text", "text": said}]
             if isinstance(said, str)
             else [
                 {
                     "type": "tool_use",
-                    "id": f"t{sum(len(v) for v in sent.values())}",
-                    "name": said[0],
-                    "input": said[1],
+                    "id": f"t{sum(len(v) for v in sent.values())}-{n}",
+                    "name": call[0],
+                    "input": call[1],
                 }
+                for n, call in enumerate(calls)
             ]
         )
         usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100}
@@ -614,9 +643,10 @@ async def test_a_learn_is_split_into_areas_merged_and_kept(tmp_path, monkeypatch
         )
     )
     assert sorted(_area_runs(shown)) == sorted(a.id for a in parts)
-    # A section each, and where the area's code names what it left out, the reminder answered.
-    reminded = [b for b in sent["areas"] if "not in your section" in json.dumps(b)]
-    assert len(sent["areas"]) == len(parts) + len(reminded) and reminded
+    # One call an area: what to cover is named up front, so nothing is said back after.
+    assert len(sent["areas"]) == len(parts)
+    root = next(b for b in sent["areas"] if "The area root:" in json.dumps(b))
+    assert "to cover" in json.dumps(root) and "greet_people" in json.dumps(root)
     assert all(b["max_tokens"] == area_agents.TOKENS for b in sent["areas"])
     assert len(sent["overview"]) == 1 and sent["overview"][0]["max_tokens"] == learn.OVERVIEW_TOKENS
     assert not sent["writer"], "no single giant write"
@@ -631,7 +661,7 @@ async def test_a_learn_is_split_into_areas_merged_and_kept(tmp_path, monkeypatch
     assert shown["messages"][-1]["text"] == "I've learned bot. Check what I understood."
     usage = shown["usage"][-1]
     assert usage["areas_total"] == len(parts) == usage["areas_run"] and usage["overview_calls"] == 1
-    assert all(a["outcome"] == "learned" and a["calls"] <= 2 for a in usage["areas"])
+    assert all(a["outcome"] == "learned" and a["calls"] == 1 for a in usage["areas"])
     # An area reads its own files' facts; the assembled Details reaches no model.
     assert "It holds" not in json.dumps(sent["overview"])
     assert understanding.DETAILS not in json.dumps([sent["areas"], sent["overview"]])
@@ -673,6 +703,12 @@ def test_the_areas_are_the_same_for_the_same_files() -> None:
     edited = areas.partition({**sizes, "pkg0/mod0/f0.py": 30_000})
     assert [a.files for a in edited] == [a.files for a in parts], "an edit moves no file"
     assert [a.id for a in edited] == [a.id for a in parts]
+    # A folder that shapes nothing joins its neighbour; one that does stays an area of its own.
+    shaping = {p for p in sizes if not p.startswith("pkg2/")}
+    folded = areas.partition(sizes, shaping)
+    assert len(folded) < len(parts)
+    assert any(len(a.folders) > 1 and any(f.startswith("pkg2") for f in a.folders) for a in folded)
+    assert areas.partition(sizes, shaping) == folded
     many = areas.partition({f"one/{n}/x{k}.py": 1 for n in range(20) for k in range(30)})
     assert len(many) == areas.MAX_AREAS
 
@@ -684,13 +720,13 @@ async def test_areas_run_a_few_at_a_time_and_one_failing_never_blocks(
     running, most = 0, 0
     real = area_agents.run_area
 
-    async def counted(area, ctx, before):
+    async def counted(area, ctx, before, budget=None):
         nonlocal running, most
         running += 1
         most = max(most, running)
         await asyncio.sleep(0.01)
         try:
-            return await real(area, ctx, before)
+            return await real(area, ctx, before, budget)
         finally:
             running -= 1
 
@@ -873,3 +909,45 @@ async def test_a_save_refused_the_same_way_says_why(tmp_path) -> None:
     said = shown["messages"][-1]["text"]
     assert said.startswith("I stopped: I kept repeating the same step.")
     assert "It was refused: Refused, nothing saved." in said and "needs evidence" in said
+
+
+async def test_prose_gets_no_area_and_is_summed_up_once(tmp_path) -> None:
+    agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, docs=True)
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    assert not any(a["area"].startswith("docs") for a in shown["usage"][-1]["areas"])
+    assert "docs/guide.md" not in json.dumps(sent["areas"]), "no area agent reads the docs"
+    assert len(sent["docs"]) == 1 and "The bot greets before anything" not in json.dumps(
+        sent["docs"]
+    ), "the docs' cards, not their text"
+    assert "The docs say it greets." in json.dumps(sent["overview"])
+    details = understanding.details_of(understanding.load(agent.targets, "bot"))
+    assert details, "the docs keep their facts in Details"
+
+
+async def test_a_section_comes_in_parts_and_a_cut_one_in_smaller_parts(tmp_path) -> None:
+    odd = {"lib": "parts", "web": "cut"}
+    agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, odd=odd)
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    sections = {s["id"]: s for s in understanding.load(agent.targets, "bot")["sections"]}
+    lib = sections[f"{understanding.AREA_PREFIX}lib"]
+    assert [c["id"] for c in lib["claims"]] == ["lib.does", "lib.also"], "two parts, one section"
+    web = [b for b in sent["areas"] if "The area web:" in json.dumps(b)]
+    assert len(web) == 2, "the cut call was not run; the next was asked for smaller parts"
+    told = json.dumps(web[1]["messages"][-1])
+    assert "Not run: cut at the output limit" in told and "at most 7 claims" in told
+    assert f"{understanding.AREA_PREFIX}web" in sections
+    assert all(a["outcome"] == "learned" for a in shown["usage"][-1]["areas"])
+
+
+async def test_an_area_spends_no_more_than_its_budget(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(area_agents, "BUDGET", 200)
+    agent, _repo, _sent, _script = _learning(tmp_path, summarize=0.2, fail=frozenset({"web"}))
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    runs = [a for a in shown["usage"][-1]["areas"] if a["area"].startswith("web")]
+    # A call costs 115 tokens: after one, what is left covers no other, so no retry follows.
+    assert [r["outcome"] for r in runs] == ["out of budget"]
+    assert sum(r["tokens_in"] + r["tokens_out"] for r in runs) <= 200
+    assert "Not learned: web (out of budget)" in shown["messages"][-1]["text"]
