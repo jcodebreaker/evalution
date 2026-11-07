@@ -61,8 +61,6 @@ _logger = logging.getLogger(__name__)
 
 #: Tool calls one admin message may lead to.
 MAX_STEPS = 40
-#: Tool calls a learn may make before it is told to save: its brief holds what it needs.
-LEARN_READS = 4
 #: Output tokens a step of the writer may use: a whole understanding is saved in one call.
 WRITER_TOKENS = 32_000
 #: The answer to a call that came cut at the output limit.
@@ -70,10 +68,6 @@ CUT_OFF = (
     "Not run: your reply was cut off at the output limit, so this call may be missing its end. "
     "Save in two steps: write_understanding with the sections and nodes first, then "
     "patch_understanding with the rest."
-)
-SAVE_NOW = (
-    "You have read enough: write the understanding now, in one write_understanding call, from "
-    "the brief and what you read."
 )
 #: Failed learns kept on a session for diagnosis, and how much of each.
 FAILED_KEPT = 3
@@ -190,8 +184,11 @@ def _refused(output: str) -> bool:
     return output.startswith(("Refused", "Error"))
 
 
-def _keep_failed(session: dict[str, Any], history: list[dict[str, Any]]) -> None:
-    """Keep the last steps of a learn that saved nothing, capped, so why can be read later."""
+def _keep_failed(
+    session: dict[str, Any], history: list[dict[str, Any]], area: str | None = None
+) -> None:
+    """Keep the last steps of a learn, or of one of its areas, that saved nothing, capped, so why
+    can be read later."""
     steps = []
     for message in history[-FAILED_STEPS:]:
         entry: dict[str, Any] = {"role": message["role"]}
@@ -201,7 +198,7 @@ def _keep_failed(session: dict[str, Any], history: list[dict[str, Any]]) -> None
             entry["tool_calls"] = cut(json.dumps(message["tool_calls"]), FAILED_CHARS)
         steps.append(entry)
     kept = session.setdefault("failed_learns", [])
-    kept.append({"at": time.time(), "steps": steps})
+    kept.append({"at": time.time(), **({"area": area} if area else {}), "steps": steps})
     del kept[:-FAILED_KEPT]
 
 
@@ -478,11 +475,32 @@ class Agent:
                         said = [{"role": "user", "content": text}]
                         return (await self._chat(usage, light, system, said, light=True)).text
 
+                    async def chat(
+                        key: str, system: str, messages: list, tools: list, tokens: int
+                    ) -> Reply:
+                        return await self._chat(
+                            usage,
+                            key,
+                            system,
+                            messages,
+                            tools=tools,
+                            max_tokens=tokens,
+                            light=key == "light",
+                        )
+
+                    conf = self.targets.conf(session["target"]).code
+                    wanted = (conf.area_model if conf else None) or "strong"
+                    area_key = (
+                        "light" if wanted == "light" and self.llm.model_id("light") else "strong"
+                    )
                     _doing(session, "Reading the code")
-                    begun = await learn.begin(self.targets, turn, ask)
+                    begun = await learn.begin(self.targets, turn, ask, chat, (area_key, "strong"))
                     usage.note(begun.stats)
-                    if begun.nothing:
-                        say(session, "agent", begun.nothing)
+                    usage.areas = begun.areas
+                    for area, steps_kept in begun.failed:
+                        _keep_failed(session, steps_kept, area)
+                    if begun.nothing or begun.done:
+                        say(session, "agent", begun.nothing or begun.done or "")
                         session["status"] = "idle"
                         return
                     if begun.text:
@@ -518,11 +536,6 @@ class Agent:
                     if not reply.tool_calls:
                         if reply.text and not turn.replied:
                             say(session, "agent", reply.text)
-                        if learn_asked and (
-                            left := await asyncio.to_thread(learn.left_out, self.targets, turn)
-                        ):
-                            history.append({"role": "user", "content": left})
-                            continue
                         break
                     stopped = None
                     for call in reply.tool_calls:
@@ -546,24 +559,10 @@ class Agent:
                         if steps >= MAX_STEPS:
                             stopped = f"I stopped after {MAX_STEPS} steps. Say go on."
                             break
-                    # A learn has its brief: past a few lookups, every step resends it all.
-                    reads = learn_asked and not turn.understood and steps >= LEARN_READS
-                    if reads and not turn.nudged:
-                        turn.nudged = True
-                        history.append({"role": "user", "content": SAVE_NOW})
                     for said in session.pop("inbox", []):
                         history.append(
                             {"role": "user", "content": f"The admin says, while you work: {said}"}
                         )
-                    if learn_asked and turn.patch is not None and turn.understood and not stopped:
-                        # A patch saved ends the learn, its note the reply, unless the code still
-                        # names what it left out: then once more.
-                        left = await asyncio.to_thread(learn.left_out, self.targets, turn)
-                        if not left:
-                            say(session, "agent", turn.note or "I've updated what I understood.")
-                            break
-                        turn.understood = False
-                        history.append({"role": "user", "content": left})
                     await self._save(session)
                     if stopped:
                         say(session, "agent", stopped)
@@ -582,7 +581,8 @@ class Agent:
             session["status"] = "idle"
         finally:
             usage.record(session)
-            if learn_asked and not turn.understood:
+            # A learn its areas made keeps their failures itself; the writer's own is kept here.
+            if learn_asked and not turn.understood and turn.map is None:
                 _keep_failed(session, history)
             if learn_asked:
                 # What it read is in the learn's transcript, not the thread's.

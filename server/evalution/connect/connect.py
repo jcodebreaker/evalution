@@ -126,6 +126,11 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
             if isinstance(summarize, bool) or not isinstance(summarize, int | float):
                 raise TargetError("code.summarize: a share above 0, at most 1")
             block["code"]["summarize"] = summarize
+        area_model = code.get("area_model")
+        if area_model is not None:
+            if area_model not in ("strong", "light"):
+                raise TargetError("code.area_model: strong or light")
+            block["code"]["area_model"] = area_model
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
@@ -229,6 +234,7 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
             "ignore": list(conf.code.ignore),
             "include": list(conf.code.include),
             "summarize": conf.code.summarize,
+            "area_model": conf.code.area_model,
         }
         if raw_code
         else None

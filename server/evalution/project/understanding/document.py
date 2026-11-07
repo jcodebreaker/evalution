@@ -13,6 +13,8 @@ SECTION_IDS = ("what_it_is", "can_do", "good_reply", "in_use")
 #: The section of facts the engine assembles from the code (:func:`with_details`); the writer
 #: never writes it, so it is not among the sections it is offered.
 DETAILS = "details"
+#: The sections a learn's areas write (:mod:`evalution.writer.areas`): ``area-<area id>``.
+AREA_PREFIX = "area-"
 EVIDENCE_KINDS = ("prompt", "code", "traces", "docs", "admin")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
@@ -102,7 +104,9 @@ def check(
     ):
         section = section if isinstance(section, dict) else {}
         where = f"sections[{n}]"
-        if section.get("id") not in (*SECTION_IDS, DETAILS):
+        sid = section.get("id")
+        area = isinstance(sid, str) and sid.startswith(AREA_PREFIX) and len(sid) <= 64
+        if sid not in (*SECTION_IDS, DETAILS) and not area:
             problems.append(f"{where}: id is one of {', '.join(SECTION_IDS)}")
         claims = []
         for c, claim in enumerate(
