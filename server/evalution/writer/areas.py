@@ -237,7 +237,7 @@ def brief(area: Area, ctx: Context, before: Mapping[str, Any] | None) -> str:
 _KINDS = {"tool": "tools", "store": "state", "database": "state", "memory": "state"}
 
 
-def _evidence(value: Any) -> list[Any]:
+def read_evidence(value: Any) -> list[Any]:
     """Evidence read kindly: a bare path, or ``path``/``file`` for ``ref``, is what was meant."""
     items = value if isinstance(value, list) else [value] if value else []
     out = []
@@ -261,7 +261,7 @@ def _node(node: Mapping[str, Any]) -> dict[str, Any]:
         "title": node.get("title") or node.get("name") or node.get("id"),
         "sub": cut(str(node.get("sub") or ""), SUB_CHARS),
         "tools": list(node.get("tools") or [])[:NODE_TOOLS],
-        "evidence": _evidence(node.get("evidence")),
+        "evidence": read_evidence(node.get("evidence")),
     }
 
 
@@ -310,7 +310,7 @@ async def _handle(
                 {
                     **c,
                     "text": cut(str(c.get("text") or ""), CLAIM_CHARS),
-                    "evidence": _evidence(c.get("evidence")),
+                    "evidence": read_evidence(c.get("evidence")),
                 }
                 if isinstance(c, dict)
                 else c

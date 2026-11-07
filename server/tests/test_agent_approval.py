@@ -761,6 +761,10 @@ async def test_areas_run_a_few_at_a_time_and_one_failing_never_blocks(
     assert progress["web"]["state"] == "failed" and progress["web"]["calls"] > 0
     assert all(a["state"] == "learned" for k, a in progress.items() if k != "web")
     assert shown["learn"]["stage"] == "saving"
+    # Nothing changed, but web was not learned: learning again tries it again, and only it.
+    again = await _learn(agent, sid)
+    assert again["messages"][-1]["text"].startswith("I've learned bot.")
+    assert {a["id"] for a in again["learn"]["areas"] if a["state"] != "kept"} == {"web"}
 
 
 async def test_a_failing_area_is_split_in_halves(tmp_path, monkeypatch) -> None:
