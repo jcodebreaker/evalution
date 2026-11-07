@@ -134,15 +134,14 @@ export function AppView({
       </>
     );
   }
-  const learning = working || shown.card.status === "learning";
-  const activity = learning ? <Learning session={working ? agent : null} /> : null;
+  const activity = working ? <Learning session={working ? agent : null} /> : null;
   // Before the writer learns anything, the server sends only the card, at version 0.
   if (shown.version === 0) {
     return (
       <>
         {toolbar}
         <Page>
-          <ProjectCard card={shown.card} target={target} />
+          <ProjectCard card={shown.card} target={target} learning={working} />
           {activity}
           {connection}
         </Page>
@@ -155,7 +154,7 @@ export function AppView({
     <>
       {toolbar}
       <Page>
-        <ProjectCard card={shown.card} target={target} />
+        <ProjectCard card={shown.card} target={target} learning={working} />
         {activity}
         <OutOfDate target={target} knowledge={shown.knowledge} onUpdated={setShown} />
         <LastChanges knowledge={shown.knowledge} onUndo={undo} />

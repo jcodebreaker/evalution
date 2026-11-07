@@ -22,12 +22,21 @@ function Figure({ value, label, sub }: { value: string; label: string; sub?: str
 }
 
 /** The app at a glance: what it is, what it's built with, its numbers, and whether it changed. */
-export function ProjectCard({ card, target }: { card: Card; target: string }) {
+export function ProjectCard({
+  card,
+  target,
+  learning = false,
+}: {
+  card: Card;
+  target: string;
+  /** The writer is learning it now: a card with nothing learned yet says so. */
+  learning?: boolean;
+}) {
   const { numbers } = card;
   const [copied, setCopied] = useState<string | null>(null);
   const status =
     card.status === "learning"
-      ? { label: "Learning", tone: "bg-bubble text-ink-2" }
+      ? { label: learning ? "Learning" : "Not learned", tone: "bg-bubble text-ink-2" }
       : card.status === "out_of_date"
         ? {
             label: card.changes
