@@ -27,6 +27,14 @@ import { apply } from "./steer";
  * usual paths, claims to check, what matters most), the tests it suggests, and the connection.
  * Every check is sent as a steer and shows at once.
  */
+/** Claims a section shows before "Show more". */
+const SHOWN = 5;
+
+/** A section's first claims, and any flagged one (it wants the owner); all of them when opened. */
+function shownClaims<T extends { flagged?: boolean }>(claims: T[], all: boolean): T[] {
+  return all ? claims : claims.filter((claim, index) => index < SHOWN || claim.flagged);
+}
+
 export function AppView({
   target,
   agent,
@@ -47,6 +55,7 @@ export function AppView({
   const [shown, setShown] = useState<Understanding | null>(null);
   const [node, setNode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [all, setAll] = useState<Set<string>>(() => new Set());
   const loaded = ready(load);
   useEffect(() => setShown(loaded), [loaded]);
 
@@ -183,7 +192,7 @@ export function AppView({
                   <span>{section.note}</span>
                 </div>
               ) : null}
-              {section.claims.map((claim) => (
+              {shownClaims(section.claims, all.has(section.id)).map((claim) => (
                 <div
                   key={claim.id}
                   data-flagged={claim.flagged ? "" : undefined}
@@ -198,6 +207,15 @@ export function AppView({
                   </Check>
                 </div>
               ))}
+              {section.claims.length > SHOWN && !all.has(section.id) ? (
+                <button
+                  type="button"
+                  onClick={() => setAll((open) => new Set(open).add(section.id))}
+                  className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[12.5px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  Show {section.claims.length - shownClaims(section.claims, false).length} more
+                </button>
+              ) : null}
             </div>
           ))}
 
