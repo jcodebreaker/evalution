@@ -452,7 +452,7 @@ def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
     area = re.search(r"The area (\S+):", first)[1]
     if area.split("~")[0] in fail:
         return "I can't tell."
-    if len(body["messages"]) > 1 and odd.get(area) != "cut":
+    if len(body["messages"]) > 1 and odd.get(area) not in ("cut", "cut-many"):
         return "Done."
     files = first.split("[Data: its files", 1)[1].split("\n", 1)[1]
     path = re.search(r"^(\S+) \(", files, re.M)[1]
@@ -464,6 +464,15 @@ def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
     }
     if odd.get(area) == "cut" and len(body["messages"]) == 1:
         return ("cut", "write_section", section)
+    if odd.get(area) == "cut-many" and len(body["messages"]) == 1:
+        # Two parts in one answer, the second cut short at the output limit.
+        cut_short = {"title": section["title"], "claims": [{"id": "half", "text": "Cut sh"}]}
+        return ("cut", [("write_section", {**section, "more": True}), ("write_section", cut_short)])
+    if odd.get(area) == "cut-many":
+        if len(body["messages"]) > 3:
+            return "Done."
+        second = {"id": "rest", "text": f"{area} also keeps.", "evidence": evidence}
+        return ("write_section", {"title": section["title"], "claims": [second]})
     if odd.get(area) == "parts":
         second = {"id": "also", "text": f"{area} also keeps.", "evidence": evidence}
         return [
@@ -568,7 +577,7 @@ def _learning(
             return httpx.Response(200, json={"choices": [{"message": {"content": said}}]})
         # ("cut", name, input): a call that stopped at the output limit.
         cut = isinstance(said, tuple) and said[0] == "cut"
-        said = said[1:] if cut else said
+        said = (said[1] if isinstance(said[1], list) else said[1:]) if cut else said
         calls = said if isinstance(said, list) else [said]
         blocks = (
             [{"type": "text", "text": said}]
@@ -936,7 +945,7 @@ async def test_a_section_comes_in_parts_and_a_cut_one_in_smaller_parts(tmp_path)
     web = [b for b in sent["areas"] if "The area web:" in json.dumps(b)]
     assert len(web) == 2, "the cut call was not run; the next was asked for smaller parts"
     told = json.dumps(web[1]["messages"][-1])
-    assert "Not run: cut at the output limit" in told and "at most 7 claims" in told
+    assert "cut at the output limit" in told and "at most 7 claims" in told
     assert f"{understanding.AREA_PREFIX}web" in sections
     assert all(a["outcome"] == "learned" for a in shown["usage"][-1]["areas"])
 
@@ -951,3 +960,21 @@ async def test_an_area_spends_no_more_than_its_budget(tmp_path, monkeypatch) -> 
     assert [r["outcome"] for r in runs] == ["out of budget"]
     assert sum(r["tokens_in"] + r["tokens_out"] for r in runs) <= 200
     assert "Not learned: web (out of budget)" in shown["messages"][-1]["text"]
+
+
+async def test_a_cut_answer_keeps_its_whole_calls_and_asks_for_one_part_an_answer(tmp_path) -> None:
+    """The output limit holds for a whole answer: an area that put several parts in one answer
+    was cut every time however few claims each had. The whole calls before the cut are taken, and
+    the next answer is asked for one part."""
+    agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, odd={"web": "cut-many"})
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    web = next(
+        s
+        for s in understanding.load(agent.targets, "bot")["sections"]
+        if s["id"] == f"{understanding.AREA_PREFIX}web"
+    )
+    assert [c["id"] for c in web["claims"]] == ["web.does", "web.rest"], "nothing of the cut one"
+    told = json.dumps([b for b in sent["areas"] if "The area web:" in json.dumps(b)][1])
+    assert "Write ONE write_section call per answer" in told
+    assert all(a["outcome"] == "learned" for a in shown["usage"][-1]["areas"])
