@@ -10,6 +10,9 @@ from typing import Any
 
 NODE_KINDS = ("person", "agent", "tools", "worker", "state")
 SECTION_IDS = ("what_it_is", "can_do", "good_reply", "in_use")
+#: The section of facts the engine assembles from the code (:func:`with_details`); the writer
+#: never writes it, so it is not among the sections it is offered.
+DETAILS = "details"
 EVIDENCE_KINDS = ("prompt", "code", "traces", "docs", "admin")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
@@ -99,7 +102,7 @@ def check(
     ):
         section = section if isinstance(section, dict) else {}
         where = f"sections[{n}]"
-        if section.get("id") not in SECTION_IDS:
+        if section.get("id") not in (*SECTION_IDS, DETAILS):
             problems.append(f"{where}: id is one of {', '.join(SECTION_IDS)}")
         claims = []
         for c, claim in enumerate(
@@ -227,3 +230,19 @@ def parts(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """Each claim and node by ``claim:<id>`` or ``node:<id>``."""
     found = {f"claim:{c['id']}": c for s in doc.get("sections") or [] for c in s["claims"]}
     return found | {f"node:{n['id']}": n for n in doc.get("nodes") or []}
+
+
+def with_details(doc: Mapping[str, Any], claims: list[dict[str, Any]]) -> dict[str, Any]:
+    """*doc* with its Details section made of *claims* (none: no section), last."""
+    out = dict(doc)
+    sections = [s for s in doc.get("sections") or [] if s.get("id") != DETAILS]
+    if claims:
+        sections.append({"id": DETAILS, "title": "Details", "claims": claims})
+    out["sections"] = sections
+    return out
+
+
+def details_of(doc: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The claims of *doc*'s Details section."""
+    found = next((s for s in (doc or {}).get("sections") or [] if s.get("id") == DETAILS), None)
+    return list(found["claims"]) if found else []

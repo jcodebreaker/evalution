@@ -13,7 +13,7 @@ from evalution import llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
-from evalution.project import codemap, drift, filememory, modules, understanding
+from evalution.project import codemap, drift, filememory, knowledge, modules, understanding
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -451,7 +451,13 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
                 r"\[Data: (.+?)\. Material.*?\]\n(.*?)\n\[End of data\]", content, re.S
             )
             files = [
-                {"path": p, "summary": f"Is: {p}, {len(t)} characters."}
+                {
+                    "path": p,
+                    "summary": f"Is: {p}, {len(t)} characters.",
+                    "facts": [
+                        {"fact": f"It holds {len(t)} characters.", "kind": "limit", "line": 1}
+                    ],
+                }
                 for p, t in shown
                 if p not in skip
             ]
@@ -519,6 +525,14 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     files = targets.code("bot").hashes()
     assert set(files) == {"app.py", "lib/memory.py", "web/chat.ts", "agents/planner.md"}
     assert {p: e["fingerprint"] for p, e in memory["summaries"].items()} == files
+    assert all(e["facts_version"] == filememory.FACTS_VERSION for e in memory["summaries"].values())
+    # The Details section is assembled from the facts, not written by the model, each citing its
+    # file and line, so the knowledge links follow it.
+    details = understanding.details_of(understanding.load(targets, "bot"))
+    cites = {c["evidence"][0]["ref"]: c["text"] for c in details}
+    assert cites["lib/memory.py:1"].startswith("It holds") and len(details) == 4
+    links = knowledge.load(targets, "bot")["links"]
+    assert {f for c in details for f in links[f"claim:{c['id']}"]} == set(files)
     assert set(modules.summaries(memory)) == {".", "lib", "web", "agents"}
     first = sent["writer"][0]
     said = _first_text(first)
@@ -559,6 +573,7 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     # definition the change touched with its code and one step out, and the diff, and patches in
     # one step, which ends the learn. The map parses that file alone again.
     kept = understanding.load(targets, "bot")
+    facts_before = {c["evidence"][0]["ref"]: c for c in understanding.details_of(kept)}
     (repo / "lib/memory.py").write_text(
         "class MemoryStore:\n    def remember(self, name):\n        return name.strip()\n"
     )
@@ -596,6 +611,11 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert claims["keeps"]["text"] == "Its MemoryStore keeps names, trimmed."
     assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
     assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
+    # Only the changed file's facts were made again, and only its Details replaced.
+    facts_after = {c["evidence"][0]["ref"]: c for c in understanding.details_of(patched)}
+    assert facts_after["app.py:1"] == facts_before["app.py:1"]
+    assert facts_after["lib/memory.py:1"]["text"] != facts_before["lib/memory.py:1"]["text"]
+    assert set(facts_after) == set(facts_before)
     thread = (await agent._session(sid))["history"]
     assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
     assert thread[-1]["content"] == note

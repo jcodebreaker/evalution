@@ -55,7 +55,8 @@ summarized. Write the understanding from them, covering the whole app: every pro
 builder, tool, agent, route and kind of state belongs in it, by its exact name, and so do the key \
 limits and settings that shape its behaviour, with their values. For a definition's detail and \
 how it connects, use walk_code(name) (its code, what it uses and what uses it) rather than \
-reading whole files."""
+reading whole files. A Details section of exact facts from the code is added to it by itself: \
+write the rest, and leave Details out."""
 
 AGAIN = """\
 Write the understanding again from what is below (the app's modules, a map of its most used \
@@ -64,7 +65,8 @@ the whole app: every prompt, prompt builder, tool, agent, route and kind of stat
 by its exact name, and so do the key limits and settings that shape its behaviour, with their \
 values, whatever the last one said. Take from what you understood last time only its ids, for \
 what stays, and what the code cannot say (what the traces showed, the admin's marks). For detail, \
-use walk_code(name) rather than reading whole files, the changed and added ones first. Save with \
+use walk_code(name) rather than reading whole files, the changed and added ones first. A Details \
+section of exact facts from the code is added by itself: leave it out. Save with \
 write_understanding."""
 
 PATCH = """\
@@ -92,6 +94,8 @@ TOP_FILES = 25
 NAMES_SENT = 25
 #: Key limits a full learn is given.
 LIMITS = 40
+#: The facts a full learn's Details holds, of the top-ranked files.
+DETAILS_CHARS = 40_000
 #: How much of each claim the outline of the rest shows.
 OUTLINE_CHARS = 80
 
@@ -186,6 +190,17 @@ def _touched(cmap: CodeMap, diff: str, paths: list[str]) -> list[str]:
     diff (new, or not a checkout)."""
     spans = codemap.spans(diff)
     return [k for path in paths for k in cmap.overlapping(path, spans.get(path))]
+
+
+def _patch_details(before: dict, moved: filememory.Changes) -> list[str]:
+    """The files a patch's Details holds: those it held, less the removed ones, and the changed
+    and added ones; only theirs are made again, the rest stay as they were."""
+    held = {
+        re.sub(r":\d+$", "", e["ref"])
+        for c in understanding.details_of(before)
+        for e in c.get("evidence") or []
+    }
+    return sorted((held - set(moved.removed)) | set(moved.changed) | set(moved.added))
 
 
 def _cut(text: str, limit: int) -> str:
@@ -335,10 +350,12 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
                 _patch_brief, targets, name, code, cmap, before, moved, memory
             )
             turn.patch, turn.cited = patch.keys, patch.cited
+            turn.details = _patch_details(before, moved)
             return Begun(text=patch.text, stats={**stats, "patch_chars": patch.definitions})
         await modules.index(targets, name, cmap, ask)
         clock("modules")
         kept = filememory.load(targets, name)
+        turn.details = filememory.by_size(kept, cmap.ranked_files(), DETAILS_CHARS)
         shown = cmap.ranked_files()[:TOP_FILES]
         drawn = cmap.repo_map(MAP_CHARS)
         limits = "\n".join(f"{d.path}:{d.line} {d.sig}" for d in key_limits(cmap))
@@ -401,7 +418,10 @@ def uncovered(
     files the code map holds (of the definitions *keys*, when given), and the definitions *also*
     (the key limits), that the understanding never mentions, ignoring case; private and generic
     ones left out, at most :data:`NAMES_SENT`."""
-    said = json.dumps(doc, ensure_ascii=False).casefold()
+    # Details' evidence is file paths the engine wrote, which name nothing the writer covered.
+    texts = [c["text"] for c in understanding.details_of(doc)]
+    rest = understanding.with_details(doc, []) if doc.get("sections") else doc
+    said = json.dumps([rest, texts], ensure_ascii=False).casefold()
     out: dict[str, list[str]] = {}
     count = 0
     every = [*cmap.behaviour(keys), *also]

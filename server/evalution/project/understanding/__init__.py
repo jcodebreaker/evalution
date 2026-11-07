@@ -26,14 +26,17 @@ the card as text, :mod:`.store` the writes (each one renders the profile again).
 
 from evalution.project.understanding.computed import NO_TOOLS, build, existing, paths, view
 from evalution.project.understanding.document import (
+    DETAILS,
     EVIDENCE_KINDS,
     NODE_KINDS,
     SECTION_IDS,
     check,
     clean_text,
+    details_of,
     parts,
     patched,
     read_evidence,
+    with_details,
 )
 from evalution.project.understanding.rendering import card_md, render_profile
 from evalution.project.understanding.steering import (
@@ -46,6 +49,7 @@ from evalution.project.understanding.steering import (
 from evalution.project.understanding.store import load, save, steer, versions, written
 
 __all__ = [
+    "DETAILS",
     "EVIDENCE_KINDS",
     "KNOWLEDGE_DOC",
     "NODE_KINDS",
@@ -56,6 +60,7 @@ __all__ = [
     "card_md",
     "check",
     "clean_text",
+    "details_of",
     "existing",
     "load",
     "marks",
@@ -70,5 +75,6 @@ __all__ = [
     "steers",
     "versions",
     "view",
+    "with_details",
     "written",
 ]

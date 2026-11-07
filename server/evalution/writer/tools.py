@@ -76,6 +76,9 @@ class AgentTurn:
     #: the parts of the understanding citing the moved files: the understanding is patched.
     patch: list[str] | None = None
     cited: list[str] = field(default_factory=list)
+    #: In a learn, the files whose facts make the understanding's Details; else ``None``, and a
+    #: save keeps the Details it had.
+    details: list[str] | None = None
     #: The patch's line for the admin, which ends that learn.
     note: str | None = None
     #: The code map, once made this turn (walk_code, a learn's reminder).
@@ -459,6 +462,12 @@ class Tools:
         )
         if problems:
             return "Refused, nothing saved. Fix these and save again:\n" + "\n".join(problems[:20])
+        if turn.details is not None:
+            memory = await asyncio.to_thread(filememory.load, self.targets, target)
+            claims = filememory.details(memory, turn.details)
+        else:
+            claims = understanding.details_of(understanding.load(self.targets, target))
+        written = understanding.with_details(written, claims)
         drift.keep_baseline(self.targets, target, taken)
         turn.understood = True
         understanding.save(self.targets, target, understanding.build(written, found))

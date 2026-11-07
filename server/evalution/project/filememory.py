@@ -24,6 +24,7 @@ Summaries written under another :data:`VERSION` of :data:`INSTRUCTIONS` are not 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -44,6 +45,13 @@ DOC = "files.json"
 #: Bumped with :data:`INSTRUCTIONS` when an old summary would mislead, so all are written again.
 VERSION = 1
 SUMMARY_CHARS = 600
+#: A file's facts (:data:`INSTRUCTIONS`), at most; bumped with what a fact must say, which writes
+#: every file's summary and facts again.
+FACTS = 12
+FACTS_CHARS = 1_500
+FACT_CHARS = 300
+FACTS_VERSION = 1
+FACT_KINDS = ("condition", "order", "limit", "route", "tool", "refusal", "prompt_rule", "other")
 #: What one summarizing call carries, and how many run at once.
 BATCH_CHARS = 60_000
 PARALLEL = 4
@@ -71,8 +79,17 @@ separated by ";" (tool: a, b; agent: c; prompt: d; route: e; state: f; function:
 "State:" memory, storage or sessions it reads or writes; "Test:" behaviour worth testing. Say only \
 what the file shows.
 
+Then up to 12 facts: precise, checkable statements of what the code does, never prose about it. \
+Each names the symbols and values it rests on: a condition or switch (which setting or flag, what \
+it turns on), an order (what comes first, then, last, and the fallback), a limit (its name and \
+value), a route or endpoint and what it does, a tool's purpose and arguments, a refusal or \
+fail-closed rule, or a prompt rule quoted word for word in quotes (short). Lines are numbered: \
+give the line each fact rests on. Leave out what a fact cannot say exactly.
+
 Answer with one JSON object and nothing else:
-{"files": [{"path": "a/b.py", "summary": "Is: ... Defines: ..."}]}"""
+{"files": [{"path": "a/b.py", "summary": "Is: ... Defines: ...", "facts": [{"fact": "...", \
+"kind": "condition|order|limit|route|tool|refusal|prompt_rule|other", "symbols": ["NAME"], \
+"line": 12}]}]}"""
 
 
 @dataclass(frozen=True)
@@ -116,9 +133,16 @@ def summaries(memory: Mapping[str, Any]) -> dict[str, str]:
 
 
 def unsummarized(memory: Mapping[str, Any], files: Mapping[str, str]) -> list[str]:
-    """The files with no summary for their fingerprint now."""
+    """The files with no summary and facts for their fingerprint now (and the facts' version)."""
     kept = memory.get("summaries") or {}
-    return sorted(p for p, f in files.items() if (kept.get(p) or {}).get("fingerprint") != f)
+
+    def current(path: str, fingerprint: str) -> bool:
+        entry = kept.get(path) or {}
+        return (
+            entry.get("fingerprint") == fingerprint and entry.get("facts_version") == FACTS_VERSION
+        )
+
+    return sorted(p for p, f in files.items() if not current(p, f))
 
 
 def learned(targets: Targets, name: str, code: Code) -> None:
@@ -160,13 +184,16 @@ def _shown(code: Code, path: str) -> str | None:
         text = code.read(path)
     except (CodeError, OSError):
         return None
-    if len(text) <= BATCH_CHARS:
-        return text
-    lines = [line for line in text[HEAD_CHARS:].splitlines() if _DEFINES.search(line)]
-    rest = "\n".join(lines)[: BATCH_CHARS - HEAD_CHARS]
+    numbered = [f"{n}| {line}" for n, line in enumerate(text.splitlines(), 1)]
+    whole = "\n".join(numbered)
+    if len(whole) <= BATCH_CHARS:
+        return whole
+    head = "\n".join(numbered)[:HEAD_CHARS]
+    shown_lines = head.count("\n") + 1
+    rest = [line for line in numbered[shown_lines:] if _DEFINES.search(line.split("| ", 1)[-1])]
     return (
-        f"{text[:HEAD_CHARS]}\n… (too long to show whole: from here, only the lines that define "
-        f"something)\n{rest}"
+        f"{head}\n… (too long to show whole: from here, only the lines that define "
+        f"something)\n" + "\n".join(rest)[: BATCH_CHARS - HEAD_CHARS]
     )
 
 
@@ -183,17 +210,40 @@ def batches(texts: Mapping[str, str]) -> list[list[str]]:
     return out
 
 
-def _read_answer(text: str, asked: Iterable[str]) -> dict[str, str]:
-    """``path -> summary`` for the files asked; what is not that shape is left out."""
+def _facts(value: Any) -> list[dict[str, Any]]:
+    """A file's facts read strictly: what is not that shape is left out, the rest capped."""
+    out, size = [], 0
+    for entry in value if isinstance(value, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        fact = " ".join(str(entry.get("fact") or "").split())[:FACT_CHARS]
+        if not fact or size + len(fact) > FACTS_CHARS or len(out) >= FACTS:
+            continue
+        symbols = entry.get("symbols") if isinstance(entry.get("symbols"), list) else []
+        line = entry.get("line")
+        out.append(
+            {
+                "fact": fact,
+                "kind": entry.get("kind") if entry.get("kind") in FACT_KINDS else "other",
+                "symbols": [str(s)[:80] for s in symbols if isinstance(s, str | int)][:8],
+                "line": line if isinstance(line, int) and not isinstance(line, bool) else None,
+            }
+        )
+        size += len(fact)
+    return out
+
+
+def _read_answer(text: str, asked: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """``path -> {summary, facts}`` for the files asked; what is not that shape is left out."""
     wanted = set(asked)
-    found: dict[str, str] = {}
+    found: dict[str, dict[str, Any]] = {}
     listed = json_answer(text).get("files")
     for entry in listed if isinstance(listed, list) else []:
         if not isinstance(entry, dict) or entry.get("path") not in wanted:
             continue
         said = " ".join(str(entry.get("summary") or "").split())[:SUMMARY_CHARS]
         if said:
-            found[entry["path"]] = said
+            found[entry["path"]] = {"summary": said, "facts": _facts(entry.get("facts"))}
     return found
 
 
@@ -215,7 +265,7 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
             why[path] = "does not read"
     gate = asyncio.Semaphore(PARALLEL)
 
-    async def one(paths: list[str]) -> dict[str, str]:
+    async def one(paths: list[str]) -> dict[str, dict[str, Any]]:
         body = "\n\n".join(fenced(p, texts[p]) for p in paths)
         async with gate:
             try:
@@ -227,7 +277,7 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
         why.update({p: error for p in paths if p not in found})
         return found
 
-    async def round_of(groups: list[list[str]]) -> dict[str, str]:
+    async def round_of(groups: list[list[str]]) -> dict[str, dict[str, Any]]:
         done = await asyncio.gather(*(one(g) for g in groups if g))
         return {p: s for found in done for p, s in found.items()}
 
@@ -245,7 +295,10 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
     with targets.guards.knowledge:
         memory = load(targets, name)
         kept = {p: e for p, e in (memory.get("summaries") or {}).items() if p in files}
-        kept |= {p: {"fingerprint": files[p], "summary": s} for p, s in written.items()}
+        kept |= {
+            p: {"fingerprint": files[p], **found, "facts_version": FACTS_VERSION}
+            for p, found in written.items()
+        }
         save(
             targets,
             name,
@@ -292,3 +345,43 @@ def brief(
         )
     parts.append(fenced("the files that matter most, summarized", summaries or "(no files)"))
     return "\n\n".join(parts)
+
+
+# The facts, as the understanding's Details
+
+
+def facts(memory: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """``path -> facts`` of what *memory* holds."""
+    return {p: list(e.get("facts") or []) for p, e in (memory.get("summaries") or {}).items()}
+
+
+def details(memory: Mapping[str, Any], paths: Iterable[str]) -> list[dict[str, Any]]:
+    """The facts of the files *paths* as claims, in path and line order, each citing its file and
+    line (so the knowledge links follow it), with an id that stays while its file's facts do."""
+    known = facts(memory)
+    claims = []
+    for path in sorted(set(paths)):
+        tag = hashlib.sha256(path.encode()).hexdigest()[:8]
+        for n, fact in enumerate(known.get(path) or []):
+            ref = f"{path}:{fact['line']}" if fact.get("line") else path
+            kind = "prompt" if fact.get("kind") == "prompt_rule" else "code"
+            claims.append(
+                {
+                    "id": f"fact-{tag}-{n}",
+                    "text": fact["fact"],
+                    "evidence": [{"kind": kind, "ref": ref}],
+                }
+            )
+    return claims
+
+
+def by_size(memory: Mapping[str, Any], ranked: Iterable[str], budget: int) -> list[str]:
+    """The files of *ranked*, best first, whose facts fit in *budget* characters together."""
+    known = facts(memory)
+    out = []
+    for path in ranked:
+        size = sum(len(f["fact"]) for f in known.get(path) or [])
+        if size and size <= budget:
+            out.append(path)
+            budget -= size
+    return out
