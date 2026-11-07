@@ -1,5 +1,5 @@
 import type { Evidence } from "../../lib/schema";
-import type { Checked } from "./Check";
+import type { Checked } from "./ClaimText";
 
 const EVIDENCE_LABEL: Record<Evidence["kind"], string> = {
   prompt: "prompt",

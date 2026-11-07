@@ -9,7 +9,6 @@ import { Connection } from "../connect/Connection";
 import { Fold, Group } from "../shared/group";
 import { OutOfDate } from "../shared/KnowledgeUpdate";
 import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
-import { Check } from "./Check";
 import { ClaimText } from "./ClaimText";
 import { DiagramView } from "./Diagram";
 import { LastChanges } from "./LastChanges";
@@ -169,9 +168,7 @@ export function AppView({
                 selected={node}
                 onSelect={(id) => setNode((now) => (now === id ? null : id))}
               />
-              {picked ? (
-                <NodeCheck node={picked} onSteer={(verb) => steer({ node: picked.id, ...verb })} />
-              ) : null}
+              {picked ? <NodeCheck node={picked} /> : null}
             </div>
           ) : null}
 
@@ -197,13 +194,7 @@ export function AppView({
                   data-flagged={claim.flagged ? "" : undefined}
                   className="px-[18px] py-[9px] hover:bg-selection/50"
                 >
-                  <Check
-                    item={claim}
-                    label={claim.text}
-                    onSteer={(verb) => steer({ claim: claim.id, ...verb })}
-                  >
-                    <ClaimText text={claim.text} item={claim} />
-                  </Check>
+                  <ClaimText text={claim.text} item={claim} />
                 </div>
               ))}
               {section.claims.length > SHOWN && !all.has(section.id) ? (
