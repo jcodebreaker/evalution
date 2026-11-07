@@ -20,7 +20,9 @@ wrong answer is read again with the next change.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
@@ -29,7 +31,7 @@ from evalution.code import Code, CodeError
 from evalution.core.case import Case
 from evalution.core.rules import judged_tries
 from evalution.llm import Caller, cut, fenced, json_answer
-from evalution.project import drift
+from evalution.project import codemap, drift
 from evalution.project.history import History
 from evalution.project.profile import (
     FINGERPRINT_DOC,
@@ -60,6 +62,11 @@ FILES_SHOWN = 20
 AREAS_CAP = 6
 AREA_CAP = 60
 SUMMARY_CAP = 500
+#: Steps back through what uses a changed definition that still reach a test.
+HOPS = 3
+_CODE_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+_CODE_SHAPED = re.compile(r"_|[a-z][A-Z]")
+
 #: Seconds with no new word from a hook before a burst of them counts as one change, and the most
 #: a steady stream can put that off.
 SETTLE = 5.0
@@ -131,6 +138,49 @@ async def interpret(
     except Exception:
         _logger.warning("impact: the change was not interpreted; showing all tests")
         return fallback
+
+
+def _code_names(case: Case) -> set[str]:
+    """The code names a test rests on: the tools it expects, forbids or reads results of, and the
+    words of its file shaped like code (``load_memory``, ``sendChat``)."""
+    tools = case.tools
+    named = {
+        s["name"] for step in tools.get("expected") or [] for s in step.get("parallel") or [step]
+    }
+    named |= set(tools.get("never") or []) | {r["name"] for r in tools.get("results") or []}
+    words = _CODE_WORD.findall(json.dumps(case.raw, ensure_ascii=False))
+    return named | {w for w in words if _CODE_SHAPED.search(w)}
+
+
+def by_map(targets: Targets, name: str, files: Sequence[str], diff: str) -> dict[str, Any] | None:
+    """What the change means by the code map alone, no model: the definitions the diff touches,
+    what uses them up to :data:`HOPS` steps back, and the tests that name any of them. ``None``
+    when the map cannot decide: a file it does not hold (removed, or unreadable), no definition
+    touched, or no test reached; the model reads it then."""
+    code = targets.code(name)
+    if code is None:
+        return None
+    cmap = codemap.build(targets, name, code).map
+    where = codemap.spans(diff) if diff else {}
+    changed: list[str] = []
+    for path in files:
+        if path not in cmap.files:
+            return None
+        changed += cmap.overlapping(path, where.get(path))
+    if not changed:
+        return None
+    reach = cmap.reach_back(changed, HOPS)
+    reached = {cmap.defs[k].name for k in reach}
+    tests = [
+        f"{slug}/{c.case}"
+        for slug, cases in _all_cases(targets, name).items()
+        for c in cases
+        if _code_names(c) & reached
+    ]
+    if not tests:
+        return None
+    areas = sorted({cmap.defs[k].name for k in reach if cmap.defs[k].kind in codemap.BEHAVIOUR})
+    return {"summary": "", "areas": areas[:AREAS_CAP], "tests": tests, "uncovered": [], "by": "map"}
 
 
 def _snapshot(code: Code) -> dict[str, Any]:
@@ -294,7 +344,13 @@ async def refresh(runs: History, name: str, *, asked: bool = False) -> None:
     result: dict[str, Any] = {}
     if look["files"]:
         result = look["seen"].get(look["fingerprint"]) or {}
-        if not result or (asked and result.get("by") != "model"):
+        if not result or (asked and result.get("by") not in ("model", "map")):
+            # The map first: free, so it reads every change; the model only when it cannot say.
+            result = (
+                await asyncio.to_thread(by_map, runs.targets, name, look["files"], look["diff"])
+                or {}
+            )
+        if not result or (asked and result.get("by") not in ("model", "map")):
             allowed = asked or updates(runs.targets, name) == "auto"
             caller = runs.caller("light") if allowed else None
             result = await interpret(
@@ -340,7 +396,7 @@ def card(
         "uncovered": change.get("uncovered") or [],
         "files": change["files"][:FILES_SHOWN],
         "file_count": len(change["files"]),
-        "read": change.get("by") == "model",
+        "read": change.get("by") in ("model", "map"),
         "tests": [
             {"set": named[t][0], "case": named[t][1].case, "name": named[t][1].name} for t in left
         ],

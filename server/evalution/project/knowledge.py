@@ -40,8 +40,6 @@ from evalution.targets import Targets
 _logger = logging.getLogger(__name__)
 
 DOC = understanding.KNOWLEDGE_DOC
-#: The import graph of the code, kept between checks (:func:`imports.graph`).
-IMPORTS_DOC = "imports.json"
 VERDICTS = ("still_true", "rewrite", "removed")
 #: Evidence kinds that rest on a file; a rewrite cites one of these.
 FILE_KINDS = ("code", "docs", "prompt")
@@ -156,17 +154,6 @@ def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -
 # Detecting: free, every time
 
 
-def _reached(
-    code: Code, targets: Targets, name: str, files: Mapping[str, str], removed: Iterable[str]
-) -> dict[str, list[str]]:
-    cached = read_doc(targets, name, IMPORTS_DOC)
-    edges, keep = imports.graph(
-        code.root, files, cached if isinstance(cached, dict) else {}, removed
-    )
-    write_doc(targets, name, IMPORTS_DOC, keep)
-    return edges
-
-
 def stale_from(
     linked: Mapping[str, Mapping[str, str]],
     changed: Iterable[str],
@@ -226,7 +213,7 @@ def _detect(targets: Targets, name: str, code: Code, doc: Mapping[str, Any]) -> 
             {f for found in linked.values() for f, h in found.items() if files.get(f) != h}
         )
     removed = [n for n in names if n not in files]
-    edges = _reached(code, targets, name, files, removed) if names and linked else {}
+    edges = imports.kept_graph(targets, name, code.root, files, removed) if names and linked else {}
     fresh = stale_from(linked, names, files, edges, head)
     with targets.guards.knowledge:
         state = load(targets, name)

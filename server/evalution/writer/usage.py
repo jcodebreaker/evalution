@@ -31,6 +31,13 @@ class TurnUsage:
     light_calls: int = 0
     light_chars_in: int = 0
     light_chars_out: int = 0
+    #: A learn's code map: how long making it took, the files parsed for it (the rest were kept),
+    #: its definitions and references, and how much of it was sent.
+    map_seconds: float = 0.0
+    map_files_parsed: int = 0
+    map_defs: int = 0
+    map_refs: int = 0
+    map_chars: int = 0
     _started: float = field(default_factory=time.monotonic, repr=False)
 
     def add(self, sent: int, reply: Reply, light: bool = False) -> None:
@@ -50,6 +57,11 @@ class TurnUsage:
         self.tokens_out += reply.tokens_out
         self.cache_read += reply.cache_read
         self.cache_write += reply.cache_write
+
+    def note(self, stats: dict[str, float]) -> None:
+        """What a learn's start says it did, beside the calls."""
+        for key, value in stats.items():
+            setattr(self, key, type(getattr(self, key))(value))
 
     def record(self, session: dict[str, Any]) -> None:
         """Put this turn on *session*, with how long it took."""

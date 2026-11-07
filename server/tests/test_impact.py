@@ -204,3 +204,32 @@ def test_a_failed_call_falls_back_and_is_not_paid_for_twice(app, monkeypatch) ->
     asyncio.run(impact.refresh(runs, "bot"))
     asyncio.run(impact.refresh(runs, "bot"))
     assert len(calls) == 1 and len(_card(runs)["tests"]) == 2
+
+
+MEMORY = (
+    "def load_memory():\n    return {}\n\n\ndef answer_with_memory():\n    return load_memory()\n"
+)
+
+
+def test_the_code_map_finds_the_test_a_change_reaches_with_no_model(app, monkeypatch) -> None:
+    runs = app
+    (runs.tmp / "app" / "memory.py").write_text(MEMORY.format(1))
+    tests = runs.tmp / "sets" / "bot" / "main"
+    case = {
+        "name": "A",
+        "turns": [{"message": "hi"}],
+        "tools": {"expected": [{"name": "answer_with_memory"}]},
+    }
+    (tests / "a.case.json").write_text(json.dumps(case))
+    import_sets(runs.targets.docs, runs.tmp / "sets")
+
+    async def model(*, instructions, input_text):
+        raise AssertionError("the map decides")
+
+    monkeypatch.setattr(runs, "caller", lambda _key: model)
+    _ran(runs, 1, _stamp(runs), ["a", "b"], scope="all")
+    # load_memory moved: answer_with_memory uses it, and test a expects that tool.
+    (runs.tmp / "app" / "memory.py").write_text(MEMORY.format(2))
+    asyncio.run(impact.refresh(runs, "bot"))
+    card = _card(runs)
+    assert card["read"] and [t["case"] for t in card["tests"]] == ["a"]

@@ -13,7 +13,7 @@ from evalution import llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
-from evalution.project import drift, filememory, understanding
+from evalution.project import codemap, drift, filememory, modules, understanding
 from evalution.project.profile import update_connection
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.runner import Runs
@@ -390,6 +390,24 @@ UNDERSTOOD = {
     "priorities": [],
     "starters": [],
 }
+#: A tiny app in three languages and an agent's instructions: what the code map is tried on.
+APP = {
+    "app.py": (
+        "from lib.memory import MemoryStore\n\n"
+        'SYSTEM_PROMPT = "You greet people."\n\n\n'
+        "@tool\ndef greet_people(name):\n    return MemoryStore().remember(name)\n\n\n"
+        '@app.post("/chat")\ndef chat(message):\n'
+        "    return greet_people(message) + SYSTEM_PROMPT\n\n\n"
+        "def _wrap(x):\n    return x\n"
+    ),
+    "lib/memory.py": "class MemoryStore:\n    def remember(self, name):\n        return name\n",
+    "web/chat.ts": (
+        "export function sendChat(text: string) {\n  return fetchReply(text);\n}\n"
+        "function fetchReply(text: string) {\n  return text;\n}\n"
+    ),
+    "agents/planner.md": "# Planner\nPlans the day.\n",
+    "notes.txt": "x\n",
+}
 
 
 def _git(folder, *args) -> None:
@@ -402,16 +420,11 @@ def _git(folder, *args) -> None:
 
 
 def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
-    """An app with code, and a model: the light one summarizes what it is sent, the strong one
-    plays the script, ``(tool, arguments)`` or a closing text per call. The light model never
-    summarizes a path in *skip*, and says app.py defines the tool ``greet_people`` and two
-    helpers."""
+    """:data:`APP` in a repo, and a model: the light one summarizes the files and modules it is
+    sent (never a path in *skip*), the strong one plays the script, ``(tool, arguments)`` or a
+    closing text per call."""
     repo = tmp_path / "app"
-    for rel, text in {
-        "app.py": "def greet(): ...\n",
-        "lib/memory.py": "STORE = {}\n",
-        "notes.txt": "x\n",
-    }.items():
+    for rel, text in APP.items():
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
     _git(repo, "init", "-q")
@@ -420,27 +433,33 @@ def _learning(tmp_path, kind: str = "anthropic", skip: frozenset = frozenset()):
     block = {
         "adapter": "http",
         "http": {"send": {"url": "x"}},
-        "code": {"path": "app", "include": ["**/*.py"]},
+        "code": {"path": "app", "include": ["**/*.py", "**/*.ts", "agents/**"]},
     }
-    sent: dict[str, list] = {"light": [], "writer": []}
+    sent: dict[str, list] = {"light": [], "modules": [], "writer": []}
     script: list = []
 
     def answer(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         system = body["system"] if kind == "anthropic" else body["messages"][0]["content"]
+        text = json.dumps(body["messages"])
         if system == filememory.INSTRUCTIONS:
             sent["light"].append(body)
-            text = json.dumps(body["messages"])
-            paths = re.findall(r"\[Data: (.+?)\. Material", text)
-            defines = {"app.py": " Defines: tool: greet_people; function: _wrap, build_wake."}
+            content = body["messages"][-1]["content"]
+            content = content if isinstance(content, str) else content[-1]["text"]
+            shown = re.findall(
+                r"\[Data: (.+?)\. Material.*?\]\n(.*?)\n\[End of data\]", content, re.S
+            )
+            files = [
+                {"path": p, "summary": f"Is: {p}, {len(t)} characters."}
+                for p, t in shown
+                if p not in skip
+            ]
+            said = json.dumps({"files": files})
+        elif system == modules.INSTRUCTIONS:
+            sent["modules"].append(body)
+            folders = re.findall(r"\[Data: module (.+?)\. Material", text)
             said = json.dumps(
-                {
-                    "files": [
-                        {"path": p, "summary": f"Is: {p} summarized.{defines.get(p, '')}"}
-                        for p in paths
-                        if p not in skip
-                    ]
-                }
+                {"modules": [{"folder": f, "summary": f"{f} does."} for f in folders]}
             )
         else:
             sent["writer"].append(body)
@@ -479,35 +498,44 @@ async def _learn(agent: Agent, session_id: str) -> dict:
     return await agent.get(session_id)
 
 
+def _first_text(body: dict) -> str:
+    return body["messages"][0]["content"][-1]["text"]
+
+
 async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> None:
     agent, repo, sent, script = _learning(tmp_path)
     targets = agent.targets
     opened = await agent.create("bot", "main")
     sid = opened["id"]
 
-    # The first learn: every included file summarized by the light model, in one call, and all of
-    # them handed to the writer, which saves. What the summaries name and the understanding does
-    # not is said back once, and only once.
-    script += [("write_understanding", UNDERSTOOD), "Learned.", "Greeting covers it."]
+    # The first learn: every included file summarized in one light call, the folders in another,
+    # and the writer given the modules, the ranked code map and the top files. What the map holds
+    # and the understanding does not name is said back once.
+    script += [("write_understanding", UNDERSTOOD), "Learned.", "The rest is plumbing."]
     shown = await _learn(agent, sid)
-    assert len(sent["light"]) == 1
+    assert len(sent["light"]) == 1 and len(sent["modules"]) == 1
     memory = filememory.load(targets, "bot")
     files = targets.code("bot").hashes()
-    assert set(files) == {"app.py", "lib/memory.py"}, "include is honoured"
+    assert set(files) == {"app.py", "lib/memory.py", "web/chat.ts", "agents/planner.md"}
     assert {p: e["fingerprint"] for p, e in memory["summaries"].items()} == files
+    assert set(modules.summaries(memory)) == {".", "lib", "web", "agents"}
     first = sent["writer"][0]
-    said = first["messages"][0]["content"][-1]["text"]
-    assert "- memory.py: Is: lib/memory.py summarized." in said and "notes.txt" not in said
-    reminded = sent["writer"][2]["messages"][-1]["content"][-1]["text"]
-    assert reminded.startswith(learn.LEFT_OUT) and "app.py: greet_people" in reminded
-    assert len(sent["writer"]) == 3 and shown["messages"][-1]["text"] == "Greeting covers it."
-    # The writer's prefix is marked cacheable; the light call is not.
+    said = _first_text(first)
+    assert "walk_code" in said and "lib/: lib does." in said
+    assert 'SYSTEM_PROMPT = "You greet people."  [prompt]' in said and "- memory.py: Is:" in said
+    reminded = _first_text({"messages": [sent["writer"][2]["messages"][-1]]})
+    assert reminded.startswith(learn.LEFT_OUT)
+    assert "app.py: SYSTEM_PROMPT, greet_people, chat" in reminded and "_wrap" not in reminded
+    assert len(sent["writer"]) == 3 and shown["messages"][-1]["text"] == "The rest is plumbing."
+    # The writer's prefix is marked cacheable; the light calls are not.
     assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert first["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
-    assert "cache_control" not in json.dumps(sent["light"])
+    assert "cache_control" not in json.dumps([*sent["light"], *sent["modules"]])
     usage = shown["usage"][-1]
-    assert usage["learn"] and usage["calls"] == 4 and usage["light_calls"] == 1
-    assert usage["cache_read"] == 400 and usage["chars_in"] > len(said)
+    assert usage["learn"] and usage["calls"] == 5 and usage["light_calls"] == 2
+    assert usage["cache_read"] == 500 and usage["chars_in"] > len(said)
+    assert usage["map_files_parsed"] == 4 and usage["map_defs"] >= 8
+    assert 0 < usage["map_chars"] <= learn.MAP_CHARS and usage["map_refs"] > 0
 
     # Nothing moved: the drift check, the commit and a clean tree say so, with no file hashed,
     # no session read and no model.
@@ -520,54 +548,55 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     monkeypatch.undo()
     commit = targets.code("bot").commit()
     assert shown["messages"][-1]["text"] == f"Nothing changed since {commit[:7]}."
-    assert shown["usage"][-1]["calls"] == 0 and len(sent["light"]) == 1 and len(sent["writer"]) == 3
+    assert shown["usage"][-1]["calls"] == 0 and len(sent["writer"]) == 3
 
     # One file changed: the writer gets the part citing it in full, an outline of the rest, the
-    # file's summary then and now and its diff, and patches in one step, which ends the learn.
+    # definition the change touched with its code and one step out, and the diff, and patches in
+    # one step, which ends the learn. The map parses that file alone again.
     kept = understanding.load(targets, "bot")
-    (repo / "lib/memory.py").write_text("STORE = {'kept': True}\n")
+    (repo / "lib/memory.py").write_text(
+        "class MemoryStore:\n    def remember(self, name):\n        return name.strip()\n"
+    )
     _git(repo, "commit", "-qam", "keep")
     keeps = {
         "section": "can_do",
         "id": "keeps",
-        "text": "It keeps what it was told.",
+        "text": "Its MemoryStore keeps names, trimmed.",
         "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
     }
-    note = "It now keeps what it was told."
+    note = "It now trims what it keeps."
     script += [("patch_understanding", {"claims": [keeps], "note": note})]
     shown = await _learn(agent, sid)
     assert len(sent["light"]) == 2 and "lib/memory.py" in json.dumps(sent["light"][1])
     assert "app.py" not in json.dumps(sent["light"][1])
     assert len(sent["writer"]) == 4, "one strong call"
     assert shown["messages"][-1]["text"] == note and shown["usage"][-1]["calls"] == 2
-    # A learn starts from its brief alone: nothing of the thread's earlier turns is sent, and the
-    # instructions carry no profile.
+    assert shown["usage"][-1]["map_files_parsed"] == 1
     started = sent["writer"][3]
     assert len(started["messages"]) == 1 and "Learned." not in json.dumps(started["messages"])
     assert "[Data: the target's profile" not in started["system"][0]["text"]
-    said = started["messages"][0]["content"][-1]["text"]
+    said = _first_text(started)
     assert learn.PATCH in said and '"claim:keeps"' in said and "It keeps a store." in said
     assert "claim:greets: It greets." in said and '"claim:greets"' not in said, "in outline"
-    assert "lib/memory.py (changed)" in said and "+STORE = {'kept': True}" in said
-    assert "every watched file" not in said
+    assert "lib/memory.py:2 def remember(self, name):" in said and "name.strip()" in said
+    assert "used by: \n  app.py:6 def greet_people(name):" in said, "one step out"
+    assert "+        return name.strip()" in said and "every watched file" not in said
     patched = understanding.load(targets, "bot")
-    assert patched["version"] == kept["version"] + 1
     claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
-    assert claims["keeps"]["text"] == "It keeps what it was told."
+    assert claims["keeps"]["text"] == "Its MemoryStore keeps names, trimmed."
     assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
     assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
-    assert filememory.load(targets, "bot")["files"] == targets.code("bot").hashes()
-    # The thread keeps what was asked and said, and none of a brief.
     thread = (await agent._session(sid))["history"]
     assert [m["content"] for m in thread if m["role"] == "user"] == ["Learn bot again."] * 3
     assert thread[-1]["content"] == note
 
-    # Past the threshold, the understanding is written again from every summary; a file read
-    # twice is not sent twice.
+    # Past the threshold, the understanding is written again; only the folders whose files'
+    # summaries moved since theirs were written are summarized again, and a file read twice is
+    # not sent twice.
     monkeypatch.setattr(learn, "PATCH_FILES", 0)
     monkeypatch.setattr(learn, "PATCH_SHARE", 0.0)
-    (repo / "app.py").write_text("def greet(): return 'hi'\n")
-    _git(repo, "commit", "-qam", "hi")
+    (repo / "app.py").write_text(APP["app.py"] + "\nMAX_TRIES = 3\n")
+    _git(repo, "commit", "-qam", "tries")
     script += [
         ("read_code", {"path": "app.py"}),
         ("read_code", {"path": "app.py"}),
@@ -576,8 +605,10 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
         "Covered.",
     ]
     await _learn(agent, sid)
-    said = sent["writer"][4]["messages"][0]["content"][-1]["text"]
-    assert said.startswith("Learn bot again.\n\n" + learn.AGAIN) and "every watched file" in said
+    redone = re.findall(r"\[Data: module (.+?)\. Material", json.dumps(sent["modules"][-1]))
+    assert len(sent["modules"]) == 2 and sorted(redone) == [".", "lib"]
+    said = _first_text(sent["writer"][4])
+    assert said.startswith("Learn bot again.\n\n" + learn.AGAIN)
     results = [
         b["content"]
         for b in sent["writer"][6]["messages"][-1]["content"]
@@ -586,26 +617,44 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert results[-1].startswith("app.py is unchanged since you read it at step")
 
 
-def test_the_reminder_names_only_code_definitions() -> None:
-    memory = {
-        "summaries": {
-            "docs/adr/0001-store.md": {"summary": "Defines: `ENV_FLAG`, table_field."},
-            "app.py": {
-                "summary": "Is: the app. Defines: tools: `greet_people`, POST, YYYY-MM-DD, "
-                "README.md, API, _private, run_agent(); function: parse_result; agent: Greeter. "
-                "State: `memory_store`."
-            },
-            "lib/tools.py": {"summary": "Prompts/rules: `SYSTEM_PROMPT` says be brief."},
-        }
-    }
-    understood = {"claims": ["It greets people."]}
-    assert filememory.uncovered(memory, understood) == {
-        "app.py": ["greet_people", "run_agent", "Greeter"],
-        "lib/tools.py": ["SYSTEM_PROMPT"],
-    }
-    assert filememory.uncovered(memory, understood, ["lib/tools.py"]) == {
-        "lib/tools.py": ["SYSTEM_PROMPT"]
-    }
+def _mapped(tmp_path) -> tuple[Targets, Code]:
+    repo = tmp_path / "app"
+    for rel, text in APP.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    block = {"adapter": "http", "http": {"send": {"url": "x"}}, "code": {"path": "app"}}
+    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"targets": {"bot": block}}))
+    targets = Targets(load(tmp_path / "evalution.yaml"))
+    return targets, targets.code("bot")
+
+
+def test_the_code_map_parses_once_ranks_behaviour_and_walks(tmp_path) -> None:
+    targets, code = _mapped(tmp_path)
+    made = codemap.build(targets, "bot", code)
+    kinds = {d.name: d.kind for d in made.map.defs.values()}
+    assert kinds["SYSTEM_PROMPT"] == "prompt" and kinds["greet_people"] == "tool"
+    assert kinds["chat"] == "route" and kinds["MemoryStore"] == "state"
+    assert kinds["sendChat"] == "function" and kinds["Planner"] == "prompt"
+    assert made.parsed == 5
+    # Kept by fingerprint: nothing parsed again until a file moves, and then that one alone.
+    assert codemap.build(targets, "bot", code).parsed == 0
+    (tmp_path / "app/web/chat.ts").write_text(APP["web/chat.ts"] + "export const X = 1;\n")
+    again = codemap.build(targets, "bot", code)
+    assert again.parsed == 1
+    cmap = again.map
+    # Ranked: what the app's behaviour rests on before plain helpers.
+    order = [cmap.defs[k].name for k in cmap.rank()]
+    assert order.index("SYSTEM_PROMPT") < order.index("fetchReply")
+    assert order.index("greet_people") < order.index("_wrap")
+    # The map fits its budget, and a larger budget holds more.
+    small, large = cmap.repo_map(200), cmap.repo_map(2_000)
+    assert 0 < len(small) <= 200 < len(large) <= 2_000 and "SYSTEM_PROMPT" in small
+    walked = cmap.walk("greet_people", 1, code.read)
+    assert "return MemoryStore().remember(name)" in walked
+    assert "lib/memory.py:2 def remember(self, name):" in walked.split("used by:")[0]
+    assert "app.py:11 def chat(message):" in walked.split("used by:")[1]
+    assert "two steps away" in cmap.walk("greet_people", 2, code.read)
+    assert cmap.walk("nothing_here", 1, code.read).startswith("(no definition")
 
 
 async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> None:
@@ -617,7 +666,7 @@ async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> N
     assert len(sent["light"]) == 2 and "app.py" not in json.dumps(sent["light"][1]["messages"])
     failed = filememory.load(agent.targets, "bot")["failed"]
     assert failed["lib/memory.py"]["why"] == "left out of the answer"
-    said = sent["writer"][0]["messages"][0]["content"][-1]["text"]
+    said = _first_text(sent["writer"][0])
     assert "- memory.py (not summarized: left out of the answer)" in said
 
 

@@ -300,6 +300,14 @@ TOOLS = [
         {"path": _STR},
         ["path"],
     ),
+    _tool(
+        "walk_code",
+        "A definition of the target's code (a function, class, prompt, tool, route... by name, "
+        "or every one of a file by its path): its code, what it uses and what uses it, from the "
+        "code map. depth 2 adds what is one step further, by signature.",
+        {"name": _STR, "depth": {"type": "integer"}},
+        ["name"],
+    ),
     _tool("read_drift", "What changed in the target since its profile was written.", {}, []),
     _tool(
         "diff_code",

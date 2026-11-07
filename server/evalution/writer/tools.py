@@ -19,7 +19,16 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.core.case import Case
 from evalution.llm import cut, fenced
-from evalution.project import drift, filememory, knowledge, library_fit, profile, understanding
+from evalution.project import (
+    codemap,
+    drift,
+    filememory,
+    knowledge,
+    library_fit,
+    profile,
+    understanding,
+)
+from evalution.project.codemap import CodeMap
 from evalution.results.evidence import look_into
 from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
@@ -64,6 +73,8 @@ class AgentTurn:
     patch: list[str] | None = None
     #: The patch's line for the admin, which ends that learn.
     note: str | None = None
+    #: The code map, once made this turn (walk_code, a learn's reminder).
+    map: CodeMap | None = None
 
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
@@ -106,6 +117,7 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "read_trace_digest": "Reading recent traces",
         "list_code": "Looking at the code",
         "read_code": f"Reading {args.get('path')}",
+        "walk_code": f"Reading {args.get('name')}",
         "read_drift": "Checking what changed",
         "diff_code": "Reading the code changes",
         "note_drift": "Noting a change",
@@ -486,6 +498,22 @@ class Tools:
             text = text[:READ_CHARS] + "\n… (cut here: the rest of the file is not shown)"
         return fenced(path, text)
 
+    async def walk_code(self, turn: AgentTurn, args: dict) -> Any:
+        """A definition's code with what it uses and what uses it, from the code map: the way
+        through the code without reading whole files."""
+        code = self._code(turn)
+        if turn.map is None:
+            made = await asyncio.to_thread(codemap.build, self.targets, self._target(turn), code)
+            turn.map = made.map
+        target = _text(args.get("name"), "name")
+        depth = args.get("depth") or 1
+        if isinstance(depth, bool) or not isinstance(depth, int) or not 1 <= depth <= 2:
+            raise ValueError("depth: 1 or 2")
+        turn.read.append(f"Walked {target}")
+        found = turn.map.find(target)
+        turn.code_read.update(turn.map.defs[k].path for k in found)
+        return fenced(f"the code of {target}", turn.map.walk(target, depth, code.read))
+
     async def read_drift(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the drift")
         return drift.read(self.targets, self._target(turn))
@@ -708,6 +736,7 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "read_trace_digest": Tools.read_trace_digest,
     "list_code": Tools.list_code,
     "read_code": Tools.read_code,
+    "walk_code": Tools.walk_code,
     "read_drift": Tools.read_drift,
     "diff_code": Tools.diff_code,
     "note_drift": Tools.note_drift,

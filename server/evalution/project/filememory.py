@@ -42,8 +42,6 @@ _logger = logging.getLogger(__name__)
 
 DOC = "files.json"
 #: Bumped with :data:`INSTRUCTIONS` when an old summary would mislead, so all are written again.
-#: Not for the kinds on Defines (they came later): a summary without them still reads, and only its
-#: Prompts/rules names are checked (:func:`uncovered`).
 VERSION = 1
 SUMMARY_CHARS = 600
 #: What one summarizing call carries, and how many run at once.
@@ -52,7 +50,7 @@ PARALLEL = 4
 #: Of a file too long for one call: its head, then the lines that define something.
 HEAD_CHARS = 20_000
 #: How much of the summaries a learn is given; past it, files by name only.
-SHOWN_CHARS = 120_000
+SHOWN_CHARS = 30_000
 _DEFINES = re.compile(
     r"^\s*(export\s+|async\s+|pub\s+)*(def|class|function|const|let|interface|type|func|fn|struct|"
     r"enum|[A-Z_]{3,}\s*=)|prompt|instruction|system|tool",
@@ -95,7 +93,8 @@ def load(targets: Targets, name: str) -> dict[str, Any]:
     return found if isinstance(found, dict) and found.get("version") == VERSION else {}
 
 
-def _write(targets: Targets, name: str, memory: Mapping[str, Any]) -> None:
+def save(targets: Targets, name: str, memory: Mapping[str, Any]) -> None:
+    """Keep *memory*; callers hold ``targets.guards.knowledge`` around its load and save."""
     write_doc(targets, name, DOC, {**memory, "version": VERSION})
 
 
@@ -127,7 +126,7 @@ def learned(targets: Targets, name: str, code: Code) -> None:
     this."""
     with targets.guards.knowledge:
         memory = load(targets, name)
-        _write(
+        save(
             targets,
             name,
             {
@@ -247,7 +246,7 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
         memory = load(targets, name)
         kept = {p: e for p, e in (memory.get("summaries") or {}).items() if p in files}
         kept |= {p: {"fingerprint": files[p], "summary": s} for p, s in written.items()}
-        _write(
+        save(
             targets,
             name,
             {
@@ -262,13 +261,15 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask) -> int:
 # What a learn is told
 
 
-def brief(memory: Mapping[str, Any], files: Mapping[str, str], found: Changes) -> str:
-    """The code as a learn is given it: what changed since the last one, and a summary of every
-    watched file, grouped by folder."""
+def brief(
+    memory: Mapping[str, Any], files: Mapping[str, str], found: Changes, shown: Iterable[str]
+) -> str:
+    """What changed since the last learn, and the summaries of the files *shown* (the ones that
+    matter most), grouped by folder, up to :data:`SHOWN_CHARS`."""
     kept = memory.get("summaries") or {}
     folders: dict[str, list[str]] = {}
     budget = SHOWN_CHARS
-    for path in sorted(files):
+    for path in sorted(p for p in shown if p in files):
         entry = kept.get(path) or {}
         summary = entry.get("summary") if entry.get("fingerprint") == files[path] else None
         name = PurePosixPath(path).name
@@ -289,77 +290,5 @@ def brief(memory: Mapping[str, Any], files: Mapping[str, str], found: Changes) -
         parts.append(
             fenced(f"what changed in the code since {since}", json.dumps(moved, ensure_ascii=False))
         )
-    parts.append(fenced("every watched file, summarized", summaries or "(no files)"))
+    parts.append(fenced("the files that matter most, summarized", summaries or "(no files)"))
     return "\n\n".join(parts)
-
-
-# What the understanding leaves out
-
-#: The labelled parts of a summary that name what an understanding should mention.
-_NAMED_PARTS = re.compile(
-    r"(Prompts/rules|Defines):(.*?)(?=\b(?:Is|Prompts/rules|Defines|State|Test):|$)", re.S
-)
-#: A name as code writes it: ``snake_case``, ``camelCase``, ``CONSTANT``, or called ``name()``.
-_CODE_NAME = re.compile(
-    r"`([^`]{3,60})`|\b([A-Za-z]\w*(?:_\w+|[a-z][A-Z]\w*)|[A-Z][A-Z0-9_]{3,}|\w{3,}(?=\(\)))"
-)
-#: Names that say nothing of the app: HTTP verbs, date patterns, the usual files of a repository.
-_GENERIC = re.compile(
-    r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|Y{2,4}(-?MM(-?DD)?)?|README|LICENSE|CHANGELOG|"
-    r"CONTRIBUTING|TODO|NOTE)$|\.\w{1,5}$|^\d",
-    re.IGNORECASE,
-)
-#: Files whose summaries name nothing to check for: prose, not code.
-_PROSE = re.compile(r"(^|/)(docs?|adr)/|\.(md|mdx|rst|txt|adoc)$", re.IGNORECASE)
-#: How many names one reminder carries.
-NAMES_SENT = 25
-
-
-#: The kinds on a summary's Defines that an understanding should mention: what the app's model
-#: sees or does, not the helpers code calls.
-_KEPT_KINDS = {"tool", "agent", "route", "prompt", "state", "role"}
-_KIND = re.compile(r"^\s*([a-z]+?)s?\s*:\s*(.*)$", re.S)
-
-
-def _named(summary: str) -> list[str]:
-    """The names a summary gives under Prompts/rules, and under Defines those of a kept kind;
-    generic ones and private ones (``_name``) left out."""
-    found: list[str] = []
-    for label, part in _NAMED_PARTS.findall(summary):
-        if label == "Prompts/rules":
-            found += [quoted or bare for quoted, bare in _CODE_NAME.findall(part)]
-            continue
-        for segment in part.split(";"):
-            kind = _KIND.match(segment)
-            if kind and kind[1] in _KEPT_KINDS:
-                items = [re.sub(r"[`()]", " ", i).split() for i in kind[2].split(",")]
-                found += [words[0].rstrip(".") for words in items if words]
-    out = []
-    for name in (n.strip() for n in found):
-        acronym = name.isupper() and len(name) <= 4
-        generic = acronym or _GENERIC.search(name) or name.startswith("_")
-        if name and not generic and name not in out:
-            out.append(name)
-    return out
-
-
-def uncovered(
-    memory: Mapping[str, Any], understood: Mapping[str, Any], only: Iterable[str] | None = None
-) -> dict[str, list[str]]:
-    """``path -> names``: the prompts and definitions the summaries of code files (of the files
-    *only*, when given) name that the understanding never mentions, matched by name, ignoring
-    case. Free, and rough: it only reminds the writer once, which may say why a name does not
-    belong."""
-    said = json.dumps(understood, ensure_ascii=False).casefold()
-    wanted = None if only is None else set(only)
-    out: dict[str, list[str]] = {}
-    count = 0
-    for path, entry in sorted((memory.get("summaries") or {}).items()):
-        if _PROSE.search(path) or (wanted is not None and path not in wanted):
-            continue
-        names = [n for n in _named(str(entry.get("summary") or "")) if n.casefold() not in said]
-        names = names[: max(0, NAMES_SENT - count)]
-        if names:
-            out[path] = names
-            count += len(names)
-    return out

@@ -16,6 +16,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from evalution.project.profile import read_doc, write_doc
+from evalution.targets import Targets
+
+#: The graph of a target's code, kept between reads (:func:`kept_graph`).
+DOC = "imports.json"
 #: Steps through imports that still count as resting on a file.
 HOPS = 2
 #: Bumped when what is read out of a file changes, so old cache entries are not used.
@@ -229,3 +234,14 @@ def reach(edges: Mapping[str, Iterable[str]], start: Iterable[str], hops: int = 
             break
         seen |= front
     return seen - begin
+
+
+def kept_graph(
+    targets: Targets, name: str, root: Path, files: Mapping[str, str], removed: Iterable[str] = ()
+) -> dict[str, list[str]]:
+    """:func:`graph` of target *name*, its cache kept in :data:`DOC`, so a file is read again only
+    when it moved, whoever asks: the knowledge refresh and the code map."""
+    cached = read_doc(targets, name, DOC)
+    edges, keep = graph(root, files, cached if isinstance(cached, dict) else {}, removed)
+    write_doc(targets, name, DOC, keep)
+    return edges

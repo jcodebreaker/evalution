@@ -441,6 +441,7 @@ class Agent:
 
                     _doing(session, "Reading the code")
                     begun = await learn.begin(self.targets, turn, ask)
+                    usage.note(begun.stats)
                     if begun.nothing:
                         say(session, "agent", begun.nothing)
                         session["status"] = "idle"
