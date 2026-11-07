@@ -458,16 +458,14 @@ async def _begin(
         sliced = set(memory.get("slice") or ())
         due = [p for p in [*moved.changed, *moved.added] if p in sliced & made.reshaped]
         if due:
-            shown["read"] = len(due)
-            await filememory.index(targets, name, code, ask, due)
+            await filememory.index(targets, name, code, ask, due, shown)
         stats["slice_files"] = len(due)
     else:
         conf = targets.conf(name).code
         churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
         chosen = slicing.choose(cmap, churn, conf.summarize if conf else None)
         await asyncio.to_thread(filememory.keep_slice, targets, name, chosen)
-        shown["read"] = len(chosen)
-        await filememory.index(targets, name, code, ask, chosen)
+        await filememory.index(targets, name, code, ask, chosen, shown)
         stats["slice_files"] = len(chosen)
         clock("slice")
         await modules.index(targets, name, cmap, ask)

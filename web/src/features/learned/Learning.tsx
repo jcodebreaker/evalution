@@ -2,7 +2,7 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../../lib/cn";
 import type { AgentSession, LearnArea, LearnProgress } from "../../lib/schema";
-import { LoadingState } from "../../ui/loading";
+import { LoadingState, Spinner } from "../../ui/loading";
 import { Group } from "../shared/group";
 
 /** Calls an area's agent may make (the server's STEPS): one bar segment each. */
@@ -56,31 +56,9 @@ function useNow(on: boolean) {
 export function Learning({ session }: { session: AgentSession | null }) {
   const progress = session?.learn ?? null;
   const now = useNow(Boolean(progress));
-  if (!progress?.areas.length) {
-    const activity = session?.activity ?? [];
-    return (
-      <div className="flex flex-col gap-1.5">
-        <LoadingState label={stageLabel(progress) ?? "Learning your app…"} />
-        {activity.length ? (
-          <ol className="m-0 flex list-none flex-col gap-0.5 p-0 ps-[22px] text-[12px] text-ink-3">
-            {activity
-              .slice(-6)
-              .reverse()
-              .map((step) => (
-                <li key={`${step.at}-${step.text}`}>{step.text}</li>
-              ))}
-          </ol>
-        ) : null}
-      </div>
-    );
-  }
-  return <Areas progress={progress} now={now} />;
-}
-
-function stageLabel(progress: LearnProgress | null) {
-  if (progress?.stage === "map") return "Mapping the code…";
-  if (progress?.stage === "read") return `Reading ${progress.read ?? "the"} files…`;
-  return null;
+  if (progress) return <Areas progress={progress} now={now} />;
+  // A learn from the traces alone has no stages: its last step.
+  return <LoadingState label={session?.activity.at(-1)?.text ?? "Learning your app…"} />;
 }
 
 function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
@@ -93,7 +71,12 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
   const at = STAGES.findIndex(([key]) => key === progress.stage);
   const meta: Record<string, string> = {
     map: progress.files ? `${progress.files} files · ${progress.map_seconds ?? 0}s` : "",
-    read: progress.read != null ? `${progress.read} files` : "",
+    read:
+      progress.read == null
+        ? ""
+        : progress.stage === "read" && progress.read
+          ? `${progress.read_done ?? 0} of ${progress.read} files`
+          : `${progress.read} files`,
     areas: `${finished} of ${due.length}`,
     overview: progress.stage === "overview" ? "writing" : "",
   };
@@ -133,7 +116,33 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
         })}
       </ol>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12px] text-ink-2">
+      {areas.length ? null : (
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <p className="m-0 flex items-center gap-2.5 text-[12.5px] text-ink-2">
+            <Spinner />
+            {progress.stage === "map"
+              ? "Mapping the code"
+              : progress.read
+                ? `Reading the files that do something · ${progress.read_done ?? 0} of ${progress.read}`
+                : "Splitting the code into areas"}
+            <span className="ms-auto font-mono text-[11.5px] text-ink-3">
+              {clock(now - progress.at)}
+            </span>
+          </p>
+          {progress.stage === "read" && progress.read ? (
+            <span className="h-1.5 overflow-hidden rounded-full bg-selection-strong" aria-hidden>
+              <span
+                className="block h-full rounded-full bg-tint transition-[width] duration-500"
+                style={{ width: `${(100 * (progress.read_done ?? 0)) / progress.read}%` }}
+              />
+            </span>
+          ) : null}
+        </div>
+      )}
+      <div
+        hidden={!areas.length}
+        className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12px] text-ink-2"
+      >
         <span className="font-semibold text-foreground">
           {due.length} of {areas.length} areas
           {progress.parallel ? (

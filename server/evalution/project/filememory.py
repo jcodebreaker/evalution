@@ -239,15 +239,25 @@ def _read_answer(text: str, asked: Iterable[str]) -> dict[str, dict[str, Any]]:
     return found
 
 
-async def index(targets: Targets, name: str, code: Code, ask: Ask, paths: Iterable[str]) -> int:
+async def index(
+    targets: Targets,
+    name: str,
+    code: Code,
+    ask: Ask,
+    paths: Iterable[str],
+    shown: dict[str, Any] | None = None,
+) -> int:
     """Summarize the files of *paths* with no summary for what they are now, in batches, a few
     calls at a time. A batch that fails, or leaves files out, is tried once more in two halves; a
     file still without a summary is kept in ``failed`` with why, and logged, for the brief to name
     and the next full learn to try again. Nothing outside *paths* is read. How many were
-    summarized."""
+    summarized. *shown*: a learn's progress, given ``read`` (the files to read) and
+    ``read_done`` (those read so far)."""
+    shown = shown if shown is not None else {}
     files = await asyncio.to_thread(code.hashes)
     memory = load(targets, name)
     missing = unsummarized(memory, files, paths)
+    shown |= {"read": len(missing), "read_done": 0}
     if not missing:
         return 0
     texts, why = {}, {}
@@ -268,6 +278,7 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask, paths: Iterab
             else:
                 error = "left out of the answer"
         why.update({p: error for p in paths if p not in found})
+        shown["read_done"] = shown.get("read_done", 0) + len(found)
         return found
 
     async def round_of(groups: list[list[str]]) -> dict[str, dict[str, Any]]:

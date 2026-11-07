@@ -938,6 +938,7 @@ export const LearnProgressSchema = z.object({
   stage: z.enum(["map", "read", "areas", "overview", "saving"]),
   files: z.number().optional(),
   read: z.number().optional(),
+  read_done: z.number().optional(),
   map_seconds: z.number().optional(),
   parallel: z.number().optional(),
   areas: z.array(LearnAreaSchema).default([]),
