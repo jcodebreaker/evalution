@@ -103,7 +103,7 @@ export function AppView({
       <ToolbarTitle title="What it learned" />
       <Button variant="ghost" className="text-ink-2" disabled={working} onClick={onLearn}>
         <Sparkles />
-        Learn again
+        {shown?.version ? "Learn again" : "Learn"}
       </Button>
     </Toolbar>
   );
