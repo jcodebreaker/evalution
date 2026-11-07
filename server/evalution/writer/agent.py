@@ -108,6 +108,7 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
         "usage": session.get("usage", []),
         "failed_learns": session.get("failed_learns", []),
+        "learn": session.get("learn"),
     }
 
 
@@ -453,6 +454,7 @@ class Agent:
         history = [{"role": "user", "content": asked}] if learn_asked else thread
         if learn_asked:
             session.pop("code_seen", None)
+            session.pop("learn", None)
         else:
             thread.append({"role": "user", "content": asked})
         said_from = len(session["messages"])

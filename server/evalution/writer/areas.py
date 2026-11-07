@@ -314,13 +314,31 @@ def _take(run: Run, part: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
     run.nodes = merged(run.nodes, nodes)
 
 
+def _now(calls: list[dict[str, Any]]) -> str:
+    """What an answer's calls do, in a few words, for the page's progress."""
+    if not calls:
+        return "thinking"
+    call = calls[-1]
+    args = call["arguments"] if isinstance(call.get("arguments"), dict) else {}
+    if call["name"] == "write_section":
+        return "writing section"
+    said = args.get("path") or args.get("name") or ""
+    return cut(f"{call['name']} {said}".strip(), 80)
+
+
 async def run_area(
-    area: Area, ctx: Context, before: Mapping[str, Any] | None, budget: Budget | None = None
+    area: Area,
+    ctx: Context,
+    before: Mapping[str, Any] | None,
+    budget: Budget | None = None,
+    shown: dict[str, Any] | None = None,
 ) -> Run:
     """Understand *area*: its :class:`Run`, ``outcome`` ``learned`` or why not. It stops when
     *budget* is spent; a call cut at the output limit is never run, and the next is asked for
-    fewer claims a part, so the same shape is never tried twice."""
+    fewer claims a part, so the same shape is never tried twice. *shown*: the area's entry in the
+    learn's progress, kept current as it goes."""
     budget = budget or Budget()
+    shown = shown if shown is not None else {}
     run = Run(area.id)
     begun = time.monotonic()
     messages: list[dict[str, Any]] = [{"role": "user", "content": brief(area, ctx, before)}]
@@ -336,6 +354,9 @@ async def run_area(
             run.tokens_in += reply.tokens_in
             run.tokens_out += reply.tokens_out
             budget.spend(reply)
+            shown["calls"] = shown.get("calls", 0) + 1
+            shown["tokens"] = shown.get("tokens", 0) + reply.tokens_in + reply.tokens_out
+            shown["now"] = _now(reply.tool_calls)
             messages.append(
                 {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
             )

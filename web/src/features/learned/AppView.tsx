@@ -126,7 +126,7 @@ export function AppView({
     );
   }
   const learning = working || shown.card.status === "learning";
-  const activity = learning ? <Learning activity={working ? (agent?.activity ?? []) : []} /> : null;
+  const activity = learning ? <Learning session={working ? agent : null} /> : null;
   // Before the writer learns anything, the server sends only the card, at version 0.
   if (shown.version === 0) {
     return (

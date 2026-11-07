@@ -729,13 +729,13 @@ async def test_areas_run_a_few_at_a_time_and_one_failing_never_blocks(
     running, most = 0, 0
     real = area_agents.run_area
 
-    async def counted(area, ctx, before, budget=None):
+    async def counted(area, ctx, before, budget=None, shown=None):
         nonlocal running, most
         running += 1
         most = max(most, running)
         await asyncio.sleep(0.01)
         try:
-            return await real(area, ctx, before, budget)
+            return await real(area, ctx, before, budget, shown)
         finally:
             running -= 1
 
@@ -754,6 +754,11 @@ async def test_areas_run_a_few_at_a_time_and_one_failing_never_blocks(
     assert any(f.get("area") == "web" for f in shown["failed_learns"])
     sections = understanding.load(agent.targets, "bot")["sections"]
     assert not any(s["id"] == f"{understanding.AREA_PREFIX}web" for s in sections)
+    # The page's progress: every area at its end state, with what it took.
+    progress = {a["id"]: a for a in shown["learn"]["areas"]}
+    assert progress["web"]["state"] == "failed" and progress["web"]["calls"] > 0
+    assert all(a["state"] == "learned" for k, a in progress.items() if k != "web")
+    assert shown["learn"]["stage"] == "saving"
 
 
 async def test_a_failing_area_is_split_in_halves(tmp_path, monkeypatch) -> None:

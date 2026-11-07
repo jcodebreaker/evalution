@@ -921,6 +921,29 @@ export const AgentMessageSchema = z.object({
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
+export const LearnAreaSchema = z.object({
+  id: z.string(),
+  files: z.number(),
+  state: z.enum(["waiting", "running", "learned", "failed", "kept"]),
+  calls: z.number().default(0),
+  tokens: z.number().default(0),
+  now: z.string().default(""),
+  since: z.number().optional(),
+  seconds: z.number().optional(),
+});
+export type LearnArea = z.infer<typeof LearnAreaSchema>;
+
+export const LearnProgressSchema = z.object({
+  at: z.number(),
+  stage: z.enum(["map", "read", "areas", "overview", "saving"]),
+  files: z.number().optional(),
+  read: z.number().optional(),
+  map_seconds: z.number().optional(),
+  parallel: z.number().optional(),
+  areas: z.array(LearnAreaSchema).default([]),
+});
+export type LearnProgress = z.infer<typeof LearnProgressSchema>;
+
 export const AgentSessionSchema = z.object({
   id: z.string(),
   target: z.string().nullable().default(null),
@@ -929,6 +952,8 @@ export const AgentSessionSchema = z.object({
   messages: z.array(AgentMessageSchema),
   /** What the agent did last, newest at the end: shown while it works. */
   activity: z.array(z.object({ at: z.number(), text: z.string() })).default([]),
+  /** A learn's progress: its stage and each area's agent. */
+  learn: LearnProgressSchema.nullable().default(null),
 });
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 

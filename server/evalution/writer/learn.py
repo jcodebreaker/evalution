@@ -223,28 +223,47 @@ def _halves(area: areas.Area) -> list[areas.Area]:
 
 
 async def _understand(
-    area: areas.Area, ctx: area_agents.Context, before: Mapping[str, Any] | None, gate: Any
+    area: areas.Area,
+    ctx: area_agents.Context,
+    before: Mapping[str, Any] | None,
+    gate: Any,
+    shown: dict[str, Any] | None = None,
 ) -> tuple[list[area_agents.Run], list[area_agents.Run]]:
     """*area* understood: once, again on failure, then in two halves, while its budget lasts
     (:class:`area_agents.Budget`, shared by all of them). ``(every run made, those whose sections
-    make the area)``: one whole, or the halves that were learned."""
+    make the area)``: one whole, or the halves that were learned. *shown*: the area's entry in
+    the learn's progress."""
+    shown = shown if shown is not None else {}
     budget = area_agents.Budget()
-    runs = []
+    begun = time.monotonic()
+    runs: list[area_agents.Run] = []
+    kept: list[area_agents.Run] = []
+
+    async def one(part: areas.Area, prior: Mapping[str, Any] | None) -> area_agents.Run:
+        async with gate:
+            shown["state"] = "running"
+            shown.setdefault("since", time.time())
+            shown["now"] = "thinking"
+            run = await area_agents.run_area(part, ctx, prior, budget, shown)
+        runs.append(run)
+        return run
+
     for _ in range(2):
         if budget.out():
             break
-        async with gate:
-            run = await area_agents.run_area(area, ctx, before, budget)
-        runs.append(run)
-        if run.outcome == "learned":
-            return runs, [run]
-    halves = []
-    for half in _halves(area) if len(area.files) > 1 else []:
-        if budget.out():
+        if (await one(area, before)).outcome == "learned":
+            kept = runs[-1:]
             break
-        async with gate:
-            halves.append(await area_agents.run_area(half, ctx, None, budget))
-    return [*runs, *halves], [r for r in halves if r.outcome == "learned"]
+    else:
+        for half in _halves(area) if len(area.files) > 1 else []:
+            if budget.out():
+                break
+            if (await one(half, None)).outcome == "learned":
+                kept.append(runs[-1])
+    shown["state"] = "learned" if kept else "failed"
+    shown["now"] = "" if kept else (runs[-1].outcome if runs else "out of budget")
+    shown["seconds"] = round(time.monotonic() - begun, 1)
+    return runs, kept
 
 
 _PROSE = re.compile(r"(^|/)(docs?|adr|adrs)/|\.(md|mdx|rst|txt|adoc)$", re.IGNORECASE)
@@ -410,6 +429,7 @@ async def _begin(
         clock("hashes")
         if not filememory.changes(memory, hashed):
             return nothing
+    shown = turn.session["learn"] = {"at": time.time(), "stage": "map", "areas": []}
     found, taken = await turn.take(targets)
     clock("traces and code state")
     traces = _trace_changes(read_doc(targets, name, FINGERPRINT_DOC), taken)
@@ -431,12 +451,14 @@ async def _begin(
         "static_facts": sum(len(cmap.facts(p)) for p in cmap.files),
     }
     clock("code map")
+    shown |= {"stage": "read", "files": len(files), "map_seconds": round(made.seconds, 1)}
     if before is not None and not traces and _small(moved, len(files)):
         # The light model reads a changed file again only when it is in the slice and what it
         # offers moved (its facts, its definitions' lines); never another file.
         sliced = set(memory.get("slice") or ())
         due = [p for p in [*moved.changed, *moved.added] if p in sliced & made.reshaped]
         if due:
+            shown["read"] = len(due)
             await filememory.index(targets, name, code, ask, due)
         stats["slice_files"] = len(due)
     else:
@@ -444,6 +466,7 @@ async def _begin(
         churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
         chosen = slicing.choose(cmap, churn, conf.summarize if conf else None)
         await asyncio.to_thread(filememory.keep_slice, targets, name, chosen)
+        shown["read"] = len(chosen)
         await filememory.index(targets, name, code, ask, chosen)
         stats["slice_files"] = len(chosen)
         clock("slice")
@@ -472,12 +495,27 @@ async def _begin(
     ]
     stats |= {"areas_total": len(parts), "areas_run": len(due_areas)}
     gate = asyncio.Semaphore(PARALLEL)
+    due_ids = {a.id for a in due_areas}
+    entries = {
+        a.id: {
+            "id": a.id,
+            "files": len(a.files),
+            "state": "waiting" if a.id in due_ids else "kept",
+            "calls": 0,
+            "tokens": 0,
+            "now": "",
+        }
+        for a in parts
+    }
+    shown |= {"stage": "areas", "parallel": PARALLEL, "areas": list(entries.values())}
 
     def previous(area: areas.Area) -> dict[str, Any] | None:
         sections = (stored.get(area.id) or {}).get("sections")
         return {"sections": sections} if sections else None
 
-    done = await asyncio.gather(*(_understand(a, ctx, previous(a), gate) for a in due_areas))
+    done = await asyncio.gather(
+        *(_understand(a, ctx, previous(a), gate, entries[a.id]) for a in due_areas)
+    )
     clock("areas")
     usage = [r.usage() for runs, _ in done for r in runs]
     failed = [(r.area, r.transcript) for runs, _ in done for r in runs if r.outcome != "learned"]
@@ -509,6 +547,7 @@ async def _begin(
     overview = old.get("doc") if old.get("of") == made_of else None
     stats["overview_calls"] = 0
     if overview is None:
+        shown["stage"] = "overview"
         brief = _overview_brief(kept, sections, nodes, cmap, old.get("doc"), docs_said)
         overview, stats["overview_calls"] = await _overview(chat, keys[1], brief, check, nodes)
         overview = overview or old.get("doc")
@@ -532,6 +571,7 @@ async def _begin(
         return Begun(
             done=f"I couldn't save what I learned: {said}", stats=stats, areas=usage, failed=failed
         )
+    shown["stage"] = "saving"
     await saving.keep(targets, name, written, (found, taken), cmap, _by_module(cmap, cmap.files))
     turn.understood = True
     with targets.guards.knowledge:
