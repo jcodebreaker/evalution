@@ -487,6 +487,9 @@ def _learning(
             said = script.pop(0)
         if kind != "anthropic":
             return httpx.Response(200, json={"choices": [{"message": {"content": said}}]})
+        # ("cut", name, input): a call that stopped at the output limit.
+        cut = not isinstance(said, str) and said[0] == "cut"
+        said = said[1:] if cut else said
         blocks = (
             [{"type": "text", "text": said}]
             if isinstance(said, str)
@@ -500,7 +503,10 @@ def _learning(
             ]
         )
         usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100}
-        return httpx.Response(200, json={"content": blocks, "usage": usage, "model": "m"})
+        reply = {"content": blocks, "usage": usage, "model": "m"}
+        if cut:
+            reply["stop_reason"] = "max_tokens"
+        return httpx.Response(200, json=reply)
 
     config = ModelConfig(
         kind=kind, base_url="http://model", api_key_env=None, models={"strong": "m", "light": "l"}
@@ -845,3 +851,21 @@ async def test_a_learn_is_told_to_save_and_a_refused_save_says_why(tmp_path) -> 
     failed = shown["failed_learns"][-1]["steps"]
     assert any("write_understanding" in str(s.get("tool_calls")) for s in failed)
     assert any("needs evidence" in str(s.get("content")) for s in failed)
+
+
+async def test_a_save_cut_at_the_output_limit_is_not_run(tmp_path) -> None:
+    """A write_understanding that came cut (a long understanding past the output limit) loses its
+    end, its nodes first: it is not run, and the writer is told to save in two steps."""
+    agent, _repo, sent, script = _learning(tmp_path, summarize=0.2)
+    sid = (await agent.create("bot", "main"))["id"]
+    script += [
+        ("cut", "write_understanding", {"one_line": "A bot.", "sections": []}),
+        ("write_understanding", UNDERSTOOD),
+        "Learned.",
+        "The rest is plumbing.",
+    ]
+    await _learn(agent, sid)
+    told = json.dumps(sent["writer"][1]["messages"][-1])
+    assert "cut off at the output limit" in told
+    assert sent["writer"][0]["max_tokens"] == agent_module.WRITER_TOKENS
+    assert understanding.load(agent.targets, "bot") is not None

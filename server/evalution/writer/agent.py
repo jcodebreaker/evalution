@@ -63,6 +63,14 @@ _logger = logging.getLogger(__name__)
 MAX_STEPS = 40
 #: Tool calls a learn may make before it is told to save: its brief holds what it needs.
 LEARN_READS = 4
+#: Output tokens a step of the writer may use: a whole understanding is saved in one call.
+WRITER_TOKENS = 32_000
+#: The answer to a call that came cut at the output limit.
+CUT_OFF = (
+    "Not run: your reply was cut off at the output limit, so this call may be missing its end. "
+    "Save in two steps: write_understanding with the sections and nodes first, then "
+    "patch_understanding with the rest."
+)
 SAVE_NOW = (
     "You have read enough: write the understanding now, in one write_understanding call, from "
     "the brief and what you read."
@@ -488,11 +496,25 @@ class Agent:
                         session.pop("code_seen", None)
                     sent = copy.deepcopy(history)
                     reply = await self._chat(
-                        usage, "strong", instructions, sent, tools=TOOLS, cache=True
+                        usage,
+                        "strong",
+                        instructions,
+                        sent,
+                        tools=TOOLS,
+                        cache=True,
+                        max_tokens=WRITER_TOKENS,
                     )
                     history.append(
                         {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
                     )
+                    if reply.cut and reply.tool_calls:
+                        # Cut at the output limit: its calls may have lost their ends (a save
+                        # without its nodes), so none runs, and it is told why.
+                        for call in reply.tool_calls:
+                            history.append(
+                                {"role": "tool", "tool_call_id": call["id"], "content": CUT_OFF}
+                            )
+                        continue
                     if not reply.tool_calls:
                         if reply.text and not turn.replied:
                             say(session, "agent", reply.text)

@@ -75,6 +75,8 @@ class Reply:
     #: the provider says.
     cache_read: int = 0
     cache_write: int = 0
+    #: It stopped at the output limit: a tool call in it may be missing its end.
+    cut: bool = False
 
 
 class LLM:
@@ -306,6 +308,7 @@ def read_anthropic(data: dict[str, Any]) -> Reply:
         model=str(data.get("model") or ""),
         cache_read=read,
         cache_write=wrote,
+        cut=data.get("stop_reason") == "max_tokens",
     )
 
 
@@ -327,6 +330,7 @@ def read_openai(data: dict[str, Any]) -> Reply:
         tokens_out=int(usage.get("completion_tokens") or 0),
         model=str(data.get("model") or ""),
         cache_read=int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
+        cut=choices[0].get("finish_reason") == "length",
     )
 
 
