@@ -31,13 +31,16 @@ class TurnUsage:
     light_calls: int = 0
     light_chars_in: int = 0
     light_chars_out: int = 0
-    #: A learn's code map: how long making it took, the files parsed for it (the rest were kept),
-    #: its definitions and references, and how much of it was sent.
+    #: A learn's code map: how long making it took, the files parsed for it (the rest were kept,
+    #: parsed by whoever made the map first: a learn, walk_code or the change card), its
+    #: definitions and references, how much of it a full learn sent (the map and the key limits),
+    #: and how much of the touched definitions a patch sent.
     map_seconds: float = 0.0
     map_files_parsed: int = 0
     map_defs: int = 0
     map_refs: int = 0
     map_chars: int = 0
+    patch_chars: int = 0
     _started: float = field(default_factory=time.monotonic, repr=False)
 
     def add(self, sent: int, reply: Reply, light: bool = False) -> None:

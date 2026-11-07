@@ -34,13 +34,13 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from evalution.code import NOTHING_CHANGED, Code, CodeError
 from evalution.llm import fenced
 from evalution.project import codemap, drift, filememory, knowledge, modules, understanding
-from evalution.project.codemap import CodeMap
+from evalution.project.codemap import CodeMap, Definition
 from evalution.project.profile import FINGERPRINT_DOC, read_doc
 from evalution.targets import Targets
 from evalution.traces.profile import render
@@ -50,28 +50,31 @@ _logger = logging.getLogger(__name__)
 
 FIRST = """\
 Below: the app's code as its modules, a map of its most used definitions (prompts, tools, agents, \
-routes and state marked), and the files that matter most, summarized. Write the understanding \
-from them, covering the whole app: every prompt, prompt builder, tool, agent, route and kind of \
-state belongs in it, by its exact name, and so do the constants that set its key limits, with \
-their values. For a definition's detail and how it connects, use walk_code(name) (its \
-code, what it uses and what uses it) rather than reading whole files."""
+routes and state marked), its key limits and settings, and the files that matter most, \
+summarized. Write the understanding from them, covering the whole app: every prompt, prompt \
+builder, tool, agent, route and kind of state belongs in it, by its exact name, and so do the key \
+limits and settings that shape its behaviour, with their values. For a definition's detail and \
+how it connects, use walk_code(name) (its code, what it uses and what uses it) rather than \
+reading whole files."""
 
 AGAIN = """\
 Write the understanding again from what is below (the app's modules, a map of its most used \
-definitions, and the files that matter most, summarized), covering the whole app: every prompt, \
-prompt builder, tool, agent, route and kind of state belongs in it, by its exact name, and so do \
-the constants that set its key limits, with their values, whatever the last one said. \
-Take from what you understood last time only its ids, for what stays, and what the code cannot say \
-(what the traces showed, the admin's marks). For detail, use walk_code(name) rather than reading \
-whole files, the changed and added ones first. Save with write_understanding."""
+definitions, its key limits and settings, and the files that matter most, summarized), covering \
+the whole app: every prompt, prompt builder, tool, agent, route and kind of state belongs in it, \
+by its exact name, and so do the key limits and settings that shape its behaviour, with their \
+values, whatever the last one said. Take from what you understood last time only its ids, for \
+what stays, and what the code cannot say (what the traces showed, the admin's marks). For detail, \
+use walk_code(name) rather than reading whole files, the changed and added ones first. Save with \
+write_understanding."""
 
 PATCH = """\
 You learned this app before, and only a few files moved since. Change only the claims and nodes \
-about the definitions the change touched. Below: the parts of what you \
-understood that cite them, in full; an outline of the rest; each file's summary then and now; the \
-definitions the change touched, with their code, what they use and what uses them; and the diff. \
-Edit only what the change moves, in one patch_understanding call with its note: replace or add \
-the claims and nodes it changes, remove what it makes untrue. Leave the rest as it is. \
+about the definitions the change touched. Below: the parts of what you understood that cite \
+them, in full; an outline of the rest; each file's summary then and now; the definitions the \
+change touched, with their code, what they use and what uses them; the diff; and, when there are \
+any, the names around the change your understanding does not cover yet. Edit only what the \
+change moves, and cover those names, in one patch_understanding call with its note: replace or \
+add the claims and nodes it changes, remove what it makes untrue. Leave the rest as it is. \
 read_understanding and walk_code are there only if what is below is not enough."""
 
 #: How much a patch's brief carries of the moved files' diff (or text, without git), of the
@@ -85,14 +88,19 @@ OUTLINE_CHARS_ALL = 6_000
 #: What a full learn gets of the code map, and how many files' summaries.
 MAP_CHARS = 40_000
 TOP_FILES = 25
-#: Names said back after a save, at most.
+#: Names said back after a save, or put up front in a patch, at most.
 NAMES_SENT = 25
+#: Key limits a full learn is given.
+LIMITS = 40
 #: How much of each claim the outline of the rest shows.
 OUTLINE_CHARS = 80
 
 #: A change of at most this many files, or this share of the watched ones, is patched.
 PATCH_FILES = 5
 PATCH_SHARE = 0.10
+
+#: In a patch's brief, the change's prompts, tools and the like the understanding does not name.
+COVER = "also make sure these are covered, by their names"
 
 #: Said back once after a learn's save, when the code map holds what it left out.
 LEFT_OUT = """\
@@ -242,6 +250,8 @@ def _patch_brief(
     hit = cmap.innermost(_touched(cmap, diff, changed))
     near = {n for k in hit for n in (*cmap.callees(k), *cmap.callers(k))}
     definitions = _definitions(cmap, hit, code.read)
+    missing = uncovered(cmap, before, sorted({*hit, *near}))
+    names = "\n".join(f"{path}: {', '.join(found)}" for path, found in missing.items())
     text = "\n\n".join(
         [
             PATCH,
@@ -250,6 +260,7 @@ def _patch_brief(
             fenced("the files that moved", "\n".join(lines)),
             fenced("the definitions the change touched", definitions or "(none in the map)"),
             fenced("the diff", diff or "(nothing readable)"),
+            *([fenced(COVER, names)] if names else []),
         ]
     )
     return Patch(text, sorted({*hit, *near}), sorted(cited), len(definitions))
@@ -324,17 +335,19 @@ async def _begin(targets: Targets, turn: AgentTurn, ask: filememory.Ask, clock: 
                 _patch_brief, targets, name, code, cmap, before, moved, memory
             )
             turn.patch, turn.cited = patch.keys, patch.cited
-            return Begun(text=patch.text, stats={**stats, "map_chars": patch.definitions})
+            return Begun(text=patch.text, stats={**stats, "patch_chars": patch.definitions})
         await modules.index(targets, name, cmap, ask)
         clock("modules")
         kept = filememory.load(targets, name)
         shown = cmap.ranked_files()[:TOP_FILES]
         drawn = cmap.repo_map(MAP_CHARS)
-        stats["map_chars"] = len(drawn)
+        limits = "\n".join(f"{d.path}:{d.line} {d.sig}" for d in key_limits(cmap))
+        stats["map_chars"] = len(drawn) + len(limits)
         folders = "\n\n".join(f"{f}/: {said}" for f, said in modules.summaries(kept).items())
         parts += [
             fenced("the app's modules", folders or "(none summarized)"),
             fenced("the code map: its most used definitions, by file", drawn or "(empty)"),
+            fenced("key limits and settings", limits or "(none found)"),
             filememory.brief(kept, files, moved, shown),
         ]
     if traces:
@@ -353,20 +366,48 @@ _GENERIC = re.compile(
     r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|Y{2,4}(-?MM(-?DD)?)?|README|LICENSE|CHANGELOG)$"
     r"|\.\w{1,5}$|^\d|^[A-Z]{1,4}$"
 )
-#: Files whose definitions are prose, not code.
-_PROSE = re.compile(r"(^|/)(docs?|adr)/|\.(rst|txt|adoc)$", re.IGNORECASE)
+#: Files whose definitions are prose or settings, not code: headings and keys are no names to
+#: remind of.
+_NOT_CODE = re.compile(r"(^|/)(docs?|adr)/|\.(md|mdx|rst|txt|adoc|ya?ml|json|toml)$", re.IGNORECASE)
+#: Names of constants that set how the app behaves.
+_LIMIT = re.compile(
+    r"BUDGET|MAX|MIN|LIMIT|TIMEOUT|SECONDS|TTL|RETR|THRESHOLD|CAP\b|_CAP|WINDOW|TOKENS|CHARS"
+)
 
 
-def uncovered(cmap: CodeMap, doc: dict, keys: list[str] | None) -> dict[str, list[str]]:
-    """``path -> names``: the prompts, tools, agents, routes and state the code map holds (of the
-    definitions *keys*, when given) that the understanding never mentions, ignoring case;
-    private, generic and prose ones left out, at most :data:`NAMES_SENT`."""
+def key_limits(cmap: CodeMap) -> list[Definition]:
+    """The constants that set the app's limits, highest-ranked first, at most :data:`LIMITS`: those
+    of code files named like a limit, or used by a prompt builder or a tool."""
+    used = {
+        k
+        for key, d in cmap.defs.items()
+        if d.kind in ("prompt-builder", "tool")
+        for k in cmap.callees(key)
+    }
+    found = [
+        cmap.defs[k]
+        for k in cmap.rank()
+        if cmap.defs[k].kind == "constant"
+        and not _NOT_CODE.search(cmap.defs[k].path)
+        and (_LIMIT.search(cmap.defs[k].name) or k in used)
+    ]
+    return found[:LIMITS]
+
+
+def uncovered(
+    cmap: CodeMap, doc: dict, keys: list[str] | None, also: Iterable[Definition] = ()
+) -> dict[str, list[str]]:
+    """``path -> names``: the prompts, prompt builders, tools, agents, routes and state of code
+    files the code map holds (of the definitions *keys*, when given), and the definitions *also*
+    (the key limits), that the understanding never mentions, ignoring case; private and generic
+    ones left out, at most :data:`NAMES_SENT`."""
     said = json.dumps(doc, ensure_ascii=False).casefold()
     out: dict[str, list[str]] = {}
     count = 0
-    for d in sorted(cmap.behaviour(keys), key=lambda d: (d.path, d.line)):
+    every = [*cmap.behaviour(keys), *also]
+    for d in sorted(every, key=lambda d: (d.path, d.line)):
         name = d.name
-        if count >= NAMES_SENT or _PROSE.search(d.path) or name.startswith("_"):
+        if count >= NAMES_SENT or _NOT_CODE.search(d.path) or name.startswith("_"):
             continue
         if _GENERIC.search(name) or name.casefold() in said:
             continue
@@ -377,16 +418,17 @@ def uncovered(cmap: CodeMap, doc: dict, keys: list[str] | None) -> dict[str, lis
 
 
 def left_out(targets: Targets, turn: AgentTurn) -> str | None:
-    """Once per learn, after it saved: what the code map holds that the understanding does not
-    name (for a small change, of the touched definitions and one step out only), said back to the
-    writer; ``None`` when
-    nothing is, or it was said already."""
+    """Once per full learn, after it saved: what the code map holds that the understanding does not
+    name, its key limits too, said back to the writer; ``None`` when nothing is, it was said
+    already, or this is a patch (told up front, so that its save ends it)."""
     name = str(turn.session["target"])
     if turn.reminded or not turn.understood or turn.map is None:
         return None
     turn.reminded = True
     doc = understanding.load(targets, name)
-    missing = uncovered(turn.map, doc or {}, turn.patch)
+    if turn.patch is not None:
+        return None  # a patch was told up front
+    missing = uncovered(turn.map, doc or {}, None, key_limits(turn.map))
     if not missing:
         return None
     lines = "\n".join(f"{path}: {', '.join(names)}" for path, names in missing.items())

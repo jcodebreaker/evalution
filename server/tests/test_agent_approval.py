@@ -527,6 +527,9 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     reminded = _first_text({"messages": [sent["writer"][2]["messages"][-1]]})
     assert reminded.startswith(learn.LEFT_OUT)
     assert "app.py: SYSTEM_PROMPT, greet_people, chat" in reminded and "_wrap" not in reminded
+    assert "PREFIX_BUDGET_SECONDS" in reminded, "a key limit is checked for too"
+    assert "Planner" not in reminded, "a heading of an agent's instructions is no name to remind of"
+    assert "[Data: key limits and settings" in said and "PREFIX_BUDGET_SECONDS = 30" in said
     assert len(sent["writer"]) == 3 and shown["messages"][-1]["text"] == "The rest is plumbing."
     # The writer's prefix is marked cacheable; the light calls are not.
     assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
@@ -536,7 +539,8 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert usage["learn"] and usage["calls"] == 5 and usage["light_calls"] == 2
     assert usage["cache_read"] == 500 and usage["chars_in"] > len(said)
     assert usage["map_files_parsed"] == 4 and usage["map_defs"] >= 8
-    assert 0 < usage["map_chars"] <= learn.MAP_CHARS and usage["map_refs"] > 0
+    assert 0 < usage["map_chars"] <= learn.MAP_CHARS + 4_000 and usage["map_refs"] > 0
+    assert usage["patch_chars"] == 0
 
     # Nothing moved: the drift check, the commit and a clean tree say so, with no file hashed,
     # no session read and no model.
@@ -562,7 +566,7 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     keeps = {
         "section": "can_do",
         "id": "keeps",
-        "text": "greet_people's MemoryStore keeps names, trimmed.",
+        "text": "Its MemoryStore keeps names, trimmed.",
         "evidence": [{"kind": "code", "ref": "lib/memory.py"}],
     }
     note = "It now trims what it keeps."
@@ -573,6 +577,7 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert len(sent["writer"]) == 4, "one strong call"
     assert shown["messages"][-1]["text"] == note and shown["usage"][-1]["calls"] == 2
     assert shown["usage"][-1]["map_files_parsed"] == 1
+    assert shown["usage"][-1]["patch_chars"] > 0 and shown["usage"][-1]["map_chars"] == 0
     started = sent["writer"][3]
     assert len(started["messages"]) == 1 and "Learned." not in json.dumps(started["messages"])
     assert "[Data: the target's profile" not in started["system"][0]["text"]
@@ -583,9 +588,12 @@ async def test_learning_again_reads_only_what_changed(tmp_path, monkeypatch) -> 
     assert "used by: \n  app.py:6 def greet_people(name):" in said, "one step out"
     assert "+        return name.strip()" in said and "the code map" not in said
     assert len(said) < 6_000, "a short brief: the change, not the app"
+    # What the change's neighbourhood names and the understanding does not, said up front: the
+    # save then ends the learn, with no reminder round.
+    assert f"[Data: {learn.COVER}" in said and "app.py: greet_people" in said
     patched = understanding.load(targets, "bot")
     claims = {c["id"]: c for c in patched["sections"][0]["claims"]}
-    assert claims["keeps"]["text"] == "greet_people's MemoryStore keeps names, trimmed."
+    assert claims["keeps"]["text"] == "Its MemoryStore keeps names, trimmed."
     assert claims["greets"] == kept["sections"][0]["claims"][0], "the rest as it was"
     assert patched["nodes"] == kept["nodes"] and patched["one_line"] == kept["one_line"]
     thread = (await agent._session(sid))["history"]
