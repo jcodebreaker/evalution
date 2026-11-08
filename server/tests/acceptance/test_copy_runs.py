@@ -7,7 +7,7 @@ import sys
 
 import pytest
 import yaml
-from test_acceptance import HERE, World, _target
+from test_acceptance import MADE_UP_APP, World, _target
 
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
 
@@ -47,7 +47,7 @@ class CopyWorld(World):
             stores=[PlannedStore("scratch", "dir", str(kept), strategy="snapshot")],
             launch={
                 "kind": "process",
-                "command": [sys.executable, str(HERE / "made_up_app.py"), "{port}"],
+                "command": [sys.executable, "-m", MADE_UP_APP, "{port}"],
                 "cwd": str(self.root),
                 "env": {"TRACES": f"http://127.0.0.1:{self.port}/v1/traces"},
                 "roots": [str(kept)],

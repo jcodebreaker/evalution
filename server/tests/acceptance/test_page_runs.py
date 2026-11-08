@@ -20,7 +20,7 @@ import yaml
 
 pytest.importorskip("playwright", reason="page runs need the page extra: uv sync --extra page")
 
-from test_acceptance import HERE, World, _target
+from test_acceptance import MADE_UP_APP, World, _target
 
 from evalution.config import load
 from evalution.core.evidence import SHOTS_OFF, VIDEO, VIDEO_ON_FAILURE, is_shot
@@ -136,7 +136,7 @@ class PageWorld(World):
             stores=[PlannedStore("scratch", "dir", str(kept), strategy="snapshot")],
             launch={
                 "kind": "process",
-                "command": [sys.executable, str(HERE / "made_up_app.py"), "{port}"],
+                "command": [sys.executable, "-m", MADE_UP_APP, "{port}"],
                 "cwd": str(self.root),
                 "env": {
                     "TRACES": f"http://127.0.0.1:{self.port}/v1/traces",

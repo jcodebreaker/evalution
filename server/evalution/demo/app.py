@@ -1,4 +1,5 @@
-"""Run as a process: a made-up assistant and a made-up model gateway, over real sockets.
+"""Run as a process (``python -m evalution.demo.app PORT``): a made-up assistant and a made-up
+model gateway, over real sockets. ``evalution demo ui`` plays it, and so do the acceptance tests.
 
 The app works the way apps that aren't built for evalution do. It makes its own sessions, nests its
 messages in a list, says "Queued!" and does the work in a linked child session, keeps its memory per
@@ -26,11 +27,13 @@ refuse_message_once (the next message is answered 503 and not taken, as a busy a
 switch goes off) and hang_message (the message's request never gets an answer, and isn't taken).
 The page's code is told them in its #page-data, and does the rest. PAGE_SWITCHES (names,
 comma-separated) turns some on from the start, for a copy of the app that evalution starts itself.
+DROP_REPLY_TO (a phrase) drops the reply only to a message that holds it, so one test can find a
+dropped reply while another, on the same copy, finds its reply shown.
 
 The gateway answers like an OpenAI-compatible server, and goes down when told.
 
 To look at the page by hand, run it with TRACES pointing at something that takes OTLP posts (a
-running ``evalution serve``'s /v1/traces): ``TRACES=... python made_up_app.py 8000``.
+running ``evalution serve``'s /v1/traces): ``TRACES=... python -m evalution.demo.app 8000``.
 """
 
 import asyncio
@@ -38,7 +41,9 @@ import json
 import os
 import re
 import secrets
+import signal
 import sys
+import threading
 import time
 from collections.abc import AsyncIterator
 from html import escape
@@ -56,7 +61,8 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-TRACES = os.environ["TRACES"]
+#: Where its spans go, by OTLP: a running ``evalution serve``'s /v1/traces. Needed to run it.
+TRACES = os.environ.get("TRACES", "")
 SHARED_MEMORY = os.environ.get("SHARED_MEMORY") == "1"
 WORK_SECONDS = float(os.environ.get("WORK_SECONDS", "4"))
 
@@ -109,6 +115,8 @@ page_switches.update(
 )
 #: Switches on the app's side of the page's Send, which the page's code isn't told.
 MESSAGE_SWITCHES = ("refuse_message_once", "hang_message")
+#: A phrase: the page drops the reply to any message holding it, and shows every other.
+drop_reply_to = os.environ.get("DROP_REPLY_TO") or None
 _background: set[asyncio.Task] = set()
 
 
@@ -453,6 +461,7 @@ def _chat_page(person: str, sid: str | None) -> str:
         "messages": [item["data"] for item in sessions[sid]["items"]] if sid else [],
         # The page's own: the message switches are the app's side of Send, not its code's.
         "switches": {k: on for k, on in page_switches.items() if k not in MESSAGE_SWITCHES},
+        "drop_reply_to": drop_reply_to,
     }
     return CHAT.substitute(
         style=STYLE,
@@ -544,6 +553,11 @@ SCRIPT = """
   const failed = "Something went wrong. Try again.";
   let session = page.session;
   let streaming = null;
+
+  // Whether the reply to the message `asked` is dropped: every reply, or those to one phrase.
+  function dropped(asked) {
+    return switches.drop_reply || (!!page.drop_reply_to && asked.includes(page.drop_reply_to));
+  }
 
   function busy(on) {
     if (!on && switches.never_clear_busy) return;
@@ -642,7 +656,7 @@ SCRIPT = """
       await events(response, function (name, data) {
         if (name === "start") {
           said = "";
-          item = switches.drop_reply ? null : article("assistant");
+          item = dropped(text) ? null : article("assistant");
         } else if (name === "delta" && item) {
           said += data.text;
           show(item, {content: said});
@@ -667,9 +681,14 @@ SCRIPT = """
     }
   }
 
+  let asked = "";
   page.messages.forEach(function (said) {
-    if (said.role === "user") article("user").textContent = said.content;
-    else if (!switches.drop_reply) show(article("assistant"), said);
+    if (said.role === "user") {
+      asked = said.content;
+      article("user").textContent = said.content;
+    } else if (!dropped(asked)) {
+      show(article("assistant"), said);
+    }
   });
 
   document.getElementById("composer").addEventListener("submit", function (event) {
@@ -729,4 +748,16 @@ async def complete(request: Request) -> JSONResponse:
     )
 
 
-uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
+def _stop_when_orphaned(parent: int) -> None:
+    """Stop once whatever started this app is gone, so no copy of it outlives its evalution (a
+    server stopped hard, or killed by a test, can't take its copies down)."""
+    while os.getppid() == parent:
+        time.sleep(1)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+if __name__ == "__main__":
+    if not TRACES:
+        sys.exit("TRACES: where the app sends its spans, e.g. http://127.0.0.1:8080/v1/traces")
+    threading.Thread(target=_stop_when_orphaned, args=(os.getppid(),), daemon=True).start()
+    uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")

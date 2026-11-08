@@ -1,5 +1,5 @@
 """``evalution serve | run | accept | sets | profile | hooks | migrate | regrade | backup |
-upgrade | restore | adapter`` (docs/architecture.md, "Layout").
+upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 
 * ``serve``: the API, the page and the trace intake, on 127.0.0.1:8080. There is no login: it
   answers only this computer, unless ``--host`` names another address on purpose (it then warns:
@@ -43,6 +43,9 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   taken down after, unless ``--keep``.
 * ``isolation down [PROJECT]``: take down a copy (only ``eval-*``); without PROJECT, list them.
   ``isolation show --target T``: the target's saved plan.
+* ``demo ui [--no-open]``: two tests played through the made-up app's page on a copy, in a scratch
+  folder of their own, then the failing one's result opened in the browser; Ctrl-C stops it and
+  deletes the folder. Spends nothing (:mod:`evalution.demo.ui`, docs/ui-testing.md).
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
@@ -80,6 +83,7 @@ from evalution.benchmarks import planning
 from evalution.code import CodeError
 from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
+from evalution.demo import ui as demo_ui
 from evalution.isolation import containers as store_boxes
 from evalution.isolation import discover as store_scan
 from evalution.isolation import isolate as isolation
@@ -895,6 +899,9 @@ def main(argv: list[str] | None = None) -> int:
     copy_cmd.add_argument("action", choices=("down", "show"))
     copy_cmd.add_argument("project", nargs="?", help="down: the copy (eval-*); none lists them")
     copy_cmd.add_argument("--target", help="show: whose plan")
+    show = sub.add_parser("demo", help="see a part of evalution working on a made-up app: free")
+    show.add_argument("what", choices=("ui",), help="ui: two tests played through a chat page")
+    show.add_argument("--no-open", action="store_true", help="print the result's address only")
     hook = sub.add_parser("hooks", help="git hooks in the target's repo, opt-in")
     hook.add_argument("action", choices=("install", "uninstall", "status"))
     hook.add_argument("--target", required=True)
@@ -946,6 +953,8 @@ def main(argv: list[str] | None = None) -> int:
             return benchmark(config, args)
         if args.command == "hooks":
             return hooks(config, args)
+        if args.command == "demo":
+            return demo_ui.run(config.web_dir, open_browser=not args.no_open)
         if args.command == "stores":
             return find_stores(config, args)
         if args.command == "isolate":

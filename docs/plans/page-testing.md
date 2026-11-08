@@ -58,7 +58,7 @@ A review against the code (2026-11-07) changed the first draft. In short:
 | Part | Where | State |
 |---|---|---|
 | Driving a real page and recording it | `docs/demo/capture.mjs` | Works, in Node, for evalution's own page |
-| A made-up app and model gateway | `server/tests/acceptance/made_up_app.py` | Works, API only, no page |
+| A made-up app and model gateway | `server/evalution/demo/app.py` (was `tests/acceptance/made_up_app.py`) | Works, API only, no page |
 | The adapter contract | `adapters/base.py` | Stable. Gains `Turn.shown` |
 | Copies with their own address | `isolation/launch.py` `_copy_url`, `isolate.py` `adapter_on` | In progress (isolation plan phases 3 to 5). Remaps only the published API port today |
 | Tries linked to spans | `X-Evalution-Run`/`-Try` headers, `trace_attribute` | Works for API adapters; the page's own requests carry nothing yet |
@@ -203,7 +203,7 @@ What it changes:
 
 ### Phase 6: the made-up app gets a page
 
-`tests/acceptance/made_up_app.py` serves a small static chat page (HTML and JS, no Node): sign-in, input, Send, streaming replies over SSE, New chat, a Stop button while busy. Switches break it: rename Send, never clear busy, throw on a reply shape, show an error after the text, drop a reply. Acceptance tests play cases through it in CI with headless Chromium.
+`evalution/demo/app.py` (then `tests/acceptance/made_up_app.py`) serves a small static chat page (HTML and JS, no Node): sign-in, input, Send, streaming replies over SSE, New chat, a Stop button while busy. Switches break it: rename Send, never clear busy, throw on a reply shape, show an error after the text, drop a reply. Acceptance tests play cases through it in CI with headless Chromium.
 
 Written alongside phase 3, since phase 3's tests need it.
 

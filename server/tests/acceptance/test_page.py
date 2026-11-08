@@ -13,12 +13,11 @@ import threading
 import time
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 import httpx
 import pytest
 
-HERE = Path(__file__).parent
+MADE_UP_APP = "evalution.demo.app"
 SWITCHES = ["rename_send", "never_clear_busy", "throw_on_reply", "error_after_text", "drop_reply"]
 
 
@@ -57,7 +56,7 @@ class App:
         self.url = f"http://127.0.0.1:{port}"
         traces = f"http://127.0.0.1:{self.collector.server_address[1]}/v1/traces"
         self.process = subprocess.Popen(
-            [sys.executable, str(HERE / "made_up_app.py"), str(port)],
+            [sys.executable, "-m", MADE_UP_APP, str(port)],
             env={**os.environ, "TRACES": traces, "WORK_SECONDS": "0.5"},
             stdout=subprocess.DEVNULL,
         )

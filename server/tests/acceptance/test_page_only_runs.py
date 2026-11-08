@@ -16,7 +16,7 @@ import yaml
 
 pytest.importorskip("playwright", reason="page runs need the page extra: uv sync --extra page")
 
-from test_acceptance import HERE
+from test_acceptance import MADE_UP_APP
 from test_page_runs import CASE, PAGE, PASSWORD_ENV, PageWorld, _a_browser
 
 from evalution.core.judgement import Outcome
@@ -62,7 +62,7 @@ class AloneWorld(PageWorld):
             stores=[PlannedStore("scratch", "dir", str(kept), strategy="snapshot")],
             launch={
                 "kind": "process",
-                "command": [sys.executable, str(HERE / "made_up_app.py"), "{port}"],
+                "command": [sys.executable, "-m", MADE_UP_APP, "{port}"],
                 "cwd": str(self.root),
                 "env": {
                     "TRACES": f"http://127.0.0.1:{self.port}/v1/traces",

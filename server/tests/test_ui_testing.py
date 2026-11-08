@@ -18,6 +18,7 @@ from evalution.config import ConfigError, load, page_targets, save_page_target
 from evalution.core.case import Case
 from evalution.core.evidence import VIDEO, PageRecord, PageTurn, TryEvidence
 from evalution.core.judgement import Outcome
+from evalution.demo import app as made_up_app
 from evalution.project.pagemaps import KeptMap, PageMapStore
 from evalution.runs.estimate import about, plays
 from evalution.runs.page.map import PageMap, described, proof_words, read_map
@@ -111,7 +112,7 @@ def test_a_target_whose_code_has_a_chat_page_is_offered_ui_testing_until_turned_
 
 def test_the_made_up_apps_code_reads_as_a_chat_page(tmp_path) -> None:
     """Connecting the made-up app, whose code is its chat page, offers UI testing."""
-    made_up = Path(__file__).parent / "acceptance" / "made_up_app.py"
+    made_up = Path(made_up_app.__file__)
     repo = tmp_path / "app"
     repo.mkdir()
     (repo / "made_up_app.py").write_text(made_up.read_text())

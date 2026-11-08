@@ -25,6 +25,7 @@ server/            Python 3.12, uv, FastAPI. Package `evalution`.
   evalution/       Each layer imports only from below it (ADR 0006)
     cli.py         `evalution serve`, `evalution run --target --set`
     upgrade.py     `evalution backup`, `upgrade`, `restore`: what is kept, across new code
+    demo/          `evalution demo ui` (ui.py, docs/ui-testing.md); app.py the made-up app and gateway with its chat page, which the acceptance tests play too
     api/           the HTTP API and the page: app.py create_app and the route order, deps.py what routes share
       traces.py targets.py settings.py connect.py   the /v1 routes by area, in the order they match
       understanding.py health.py sets.py tests.py runs.py writer.py

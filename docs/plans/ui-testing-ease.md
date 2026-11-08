@@ -40,9 +40,11 @@ Done when: each failure kind seen during building (503 on the message, renamed S
 ### 5. Show it working in a minute
 
 - **`evalution demo ui`** (and a **Try the demo** link where UI testing is offered): starts the made-up app with its chat page as a target on a copy, plays two tests through its page (one passes; one with a broken page fails on the page), and opens the result: pills, screenshots, video. It spends nothing: the made-up app's gateway answers.
-- **A one-page guide**, *UI testing in five minutes*, linked from each of the places above.
+- **A one-page guide**, *UI testing in five minutes* ([docs/ui-testing.md](../ui-testing.md)), linked from each of the places above.
 
 Done when: on a fresh install, `evalution demo ui` ends with the browser open on a page-tested failure, with its video, in under two minutes.
+
+Built (2026-11-08): `evalution demo ui [--no-open]` (`server/evalution/demo/ui.py`). The made-up app moved into the package as `evalution.demo.app` (`python -m evalution.demo.app PORT`), and the acceptance tests start that one. In a new temporary folder (deleted on Ctrl-C), it sets up `demo-chat`, the made-up app's API under its page on a copy started from a plan saved as proven, with two tests: *Answer shown* passes; in *Remembers the dog's name* the page drops the reply to "What did I tell you?" (`DROP_REPLY_TO`, a per-message form of `drop_reply`, so both play on one copy in one run): answered ✓, shown ✕. It plays them through an `evalution serve` of that folder on a free port, prints and opens the failing test's result, and keeps serving until Ctrl-C. No model is set up, every check is code, so nothing is spent; the failed try therefore has no written analysis. About 30 s here. The **Try the demo** link where UI testing is offered waits on 1.
 
 ## Order
 

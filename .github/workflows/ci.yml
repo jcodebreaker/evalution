@@ -76,6 +76,7 @@ jobs:
           uv run --all-groups pytest -q -rs
           tests/test_page_map.py tests/test_page_target.py tests/test_page_target_contract.py
           tests/test_page_evidence.py tests/test_page_view.py tests/acceptance/test_page_runs.py
+          tests/test_demo.py tests/acceptance/test_demo_ui.py
 
   server-audit:
     runs-on: ubuntu-24.04
