@@ -111,6 +111,27 @@ A script outside the package, on `eval-relay-lite-0`, hand-written map.
 
 **Done when:** each question has an answer written into this plan, and 50 turns in a row show the same text on the page as the API returned.
 
+#### What phase 0 found (2026-11-08, on `eval-relay-lite-0`)
+
+A Node script with Playwright and the system Chrome, against evalution's copy (never the live stacks). 5 turns, not 50: each one is a real model call. The scripts aren't kept; the numbers are.
+
+| Question | Answer |
+|---|---|
+| 1. Topology | One origin. The engine serves the web and the API on the same container port, and the copy publishes it once (`127.0.0.1:51146`). For relay-lite, `{copy_page}` is the API's URL. |
+| 2. Test person | **No sign-in form: identity is a header.** Relay-lite takes `X-Forwarded-Email` with `X-Atrium-Proxy-Secret`, the way the `relay` adapter already does. A browser route on the copy's origin adds both to every request (53 out of 53 on load), and the page plays as the eval person (`/v1/me` gave `eval+…@relay.local`). So a new person per try is free, with no seeded accounts. New `sign_in` kind: `headers`, sent only to the copy's origin. |
+| 3. Same session | **Yes, without trying.** Relay-lite gives each person exactly one Conversation; the page opened at `/app/<conversation id>`, the same id the API's `/v1/me/assistant` gives. **Page sends works:** the page typed and clicked Send, and the adapter's own way of finding the new Round (`_new_round`: Rounds started since the message was sent) found the page's Round every time. |
+| 4. Trace linking | No WebSocket and no EventSource: every request is `fetch` (39 of 53), so headers added by the route reach everything, `X-Evalution-Run`/`-Try` included. Spans carry `session.id` = the Conversation id, shared by the page and the API. |
+| 5. Catch-up | The page showed the API's reply within one 250 ms sample of the Round settling, 5 out of 5. Stop appeared 0.07 to 0.22 s after Send and was gone when the Round settled. The page matched the API's words every time after normalising. |
+| 6. Cost | 1.2 to 2 s per turn once warm (13 s for the first, which starts the person's host); 28 s for page load plus 5 turns. A screenshot is about 90 KB. Video needs Playwright's own ffmpeg build, a separate download: the image must carry it. |
+
+What it changes:
+
+1. **Page sends.** The inner adapter needs a way to wait on a turn it didn't send: an optional `Target.watch(session, since, deadline) -> Turn`, declared by a `watch` capability. The `relay` adapter's `send` already splits into "post" and "wait for the Round", so `watch` is its second half. Without `watch`, the page target falls back to "page watches" (the inner adapter sends).
+2. **Replies have no roles of their own.** Relay-lite's messages are paragraphs inside `main`, with no `log` and no `article`. Finding "the newest reply element" by role won't work here. The `shown` check becomes: **the adapter's reply text appears in the conversation region after the turn**, normalised. `replies.item` and `replies.mine` become optional.
+3. **Busy is "Stop" in the composer.** `busy: [{role: button, name: "Stop"}]` held on every turn. Matches the plan.
+4. **A real finding on the first load:** `GET /v1/me/assistant` returned **500** once for a brand-new eval person, and the page logged it as a console error, though the page then worked. Every first load of a new person would fail `page_healthy`. Either relay-lite has a race when it registers a person (worth reporting), or `page_healthy` needs a way to say "known, ignore". It shouldn't be silenced by default.
+5. **Video** needs ffmpeg in the image, not only Chromium.
+
 ### Phase 1: ADR 0010 and the seam
 
 1. ADR 0010 accepted (drafted: `docs/adr/0010-the-page-is-a-second-observation.md`).
