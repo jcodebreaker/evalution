@@ -8,6 +8,7 @@ import type {
   Period,
   Steer,
   TargetBody,
+  TestSetupChange,
   TokenScope,
   Understanding,
 } from "./schema";
@@ -48,6 +49,7 @@ import {
   TargetDetailSchema,
   TargetSchema,
   TestPlanSchema,
+  TestSetupSchema,
   TracesSchema,
   UnderstandingSchema,
   UpdatesSchema,
@@ -269,6 +271,12 @@ export const api = {
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
   undoIsolation: (name: string) =>
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
+  /** The test setup: the test person, what the copy starts with, how often it's put back. */
+  testSetup: (name: string) =>
+    get(one(TestSetupSchema), `/v1/targets/${enc(name)}/isolation/setup`),
+  /** Changes part of the test setup; the answer is all of it. Refused while it's being set up. */
+  changeTestSetup: (name: string, change: TestSetupChange) =>
+    call("PUT", `/v1/targets/${enc(name)}/isolation/setup`, change).then(one(TestSetupSchema)),
   benchmarks: (target: string) => get(one(BenchmarksSchema), `/v1/benchmarks${query({ target })}`),
   /** Work out how the benchmark plays on this app, and try it with a few real messages. */
   planBenchmark: (target: string) => post((data) => data, "/v1/benchmarks/plan", { target }),

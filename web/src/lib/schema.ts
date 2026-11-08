@@ -403,11 +403,71 @@ export const RunIsolationSchema = z.object({
 });
 export type RunIsolation = z.infer<typeof RunIsolationSchema>;
 
-const IsolationStepSchema = z.object({
-  key: z.string(),
-  text: z.string(),
-  state: z.enum(["doing", "done", "problem"]),
+/** Older servers' step states, in the words the page uses now. */
+const OLD_STEP_STATES: Record<string, string> = { doing: "running", problem: "failed" };
+
+/**
+ * One step of setting up the test copy, in order: `find`, `copy`, `store:<id>`, `person`, `prove`.
+ * Older servers send `{key, text, state: doing|done|problem}`; it reads the same.
+ */
+export const IsolationStepSchema = z.preprocess(
+  (raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const step = raw as Record<string, unknown>;
+    const state = typeof step.state === "string" ? step.state : "";
+    return { ...step, label: step.label ?? step.text, state: OLD_STEP_STATES[state] ?? state };
+  },
+  z.object({
+    key: z.string(),
+    label: z.string().default(""),
+    state: z.enum(["waiting", "running", "done", "failed"]).catch("waiting"),
+    /** How long it took, or has taken so far. */
+    seconds: z.number().nullable().default(null),
+    /** What went wrong, when it failed. */
+    detail: z.string().nullable().default(null),
+  }),
+);
+export type IsolationStep = z.infer<typeof IsolationStepSchema>;
+
+/** Who each try talks as, what the copy starts with, and how often it is put back. */
+export const TestSetupSchema = z.object({
+  person: z
+    .object({
+      name: z.string().default(""),
+      language: z.string().nullable().default(null),
+      timezone: z.string().nullable().default(null),
+      new_every_try: z.boolean().default(true),
+    })
+    .prefault({}),
+  start: z
+    .object({
+      kind: z.enum(["empty", "seed"]).catch("empty"),
+      file: z.string().nullable().default(null),
+    })
+    .prefault({ kind: "empty" }),
+  /** Put back before every try, or before every test. */
+  reset: z.enum(["try", "test"]).catch("try"),
+  copies: z.number().int().default(1),
+  version: z.number().default(0),
+  /** What this app lets the page change: the person's fields, and starting from sample data. */
+  supports: z
+    .object({
+      person: z.array(z.string()).default([]),
+      seed: z.boolean().default(false),
+    })
+    .prefault({}),
+  /** Changed since it was proven: it's checked again before the next run. */
+  needs_check: z.boolean().default(false),
 });
+export type TestSetup = z.infer<typeof TestSetupSchema>;
+
+/** A change to part of the test setup, as PUT takes it. */
+export type TestSetupChange = {
+  person?: Partial<TestSetup["person"]>;
+  start?: Partial<TestSetup["start"]>;
+  reset?: TestSetup["reset"];
+  copies?: number;
+};
 
 /** A target's isolation plan (ADR 0009): where the app keeps what it remembers, how each place
  * is reset between tries, and how far that is proven. */

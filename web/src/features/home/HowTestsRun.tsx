@@ -3,10 +3,8 @@ import { type ReactNode, useState } from "react";
 import { cn } from "../../lib/cn";
 import { storeLabel } from "../../lib/isolation";
 import type { Health, Isolation } from "../../lib/schema";
-import { Button } from "../../ui/button";
-import { Sheet } from "../../ui/dialog";
-import { IsolationPlan, useIsolation } from "../connect/Isolation";
-import { Steps } from "../connect/Steps";
+import { Checklist } from "../environment/Checklist";
+import { useIsolation, useOpenEnvironment } from "../environment/use-isolation";
 import { TextLink } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { ISOLATE_COST, IsolateButton } from "../shared/IsolateButton";
@@ -36,7 +34,7 @@ export function HowTestsRun({
   isolation: Health["isolation"];
 }) {
   const [started, setStarted] = useState(false);
-  const [details, setDetails] = useState(false);
+  const open = useOpenEnvironment();
   if (!isolation) return null;
   const proven = isolation.status === "proven";
   const links = (
@@ -49,9 +47,7 @@ export function HowTestsRun({
         </span>
       ) : null}
       <HowIsolationLink />
-      {isolation.status !== "none" ? (
-        <TextLink onClick={() => setDetails(true)}>Details</TextLink>
-      ) : null}
+      {open ? <TextLink onClick={open}>Details</TextLink> : null}
     </div>
   );
   return (
@@ -74,19 +70,6 @@ export function HowTestsRun({
         <Body target={target} card={isolation} onStarted={() => setStarted(true)} />
       )}
       {links}
-      {details ? (
-        <Sheet
-          onClose={() => setDetails(false)}
-          title="Isolation"
-          footer={
-            <Button variant="secondary" onClick={() => setDetails(false)}>
-              Close
-            </Button>
-          }
-        >
-          <IsolationPlan target={target} />
-        </Sheet>
-      ) : null}
     </section>
   );
 }
@@ -196,7 +179,7 @@ function Following({ target }: { target: string }): ReactNode {
   if (!job) return <p className="m-0 text-ink-2">Starting…</p>;
   return (
     <div className="flex flex-col gap-2">
-      <Steps steps={job.steps} />
+      <Checklist steps={job.steps} />
       {job.error ? <p className="m-0 text-[12.5px] text-destructive">{job.error}</p> : null}
     </div>
   );

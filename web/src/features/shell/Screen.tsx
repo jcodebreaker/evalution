@@ -6,6 +6,7 @@ import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
 import { BenchmarksView } from "../benchmarks/BenchmarksView";
 import { ConnectView } from "../connect/ConnectView";
+import { TestEnvironmentView } from "../environment/TestEnvironment";
 import { HomeView } from "../home/HomeView";
 import { AppView } from "../learned/AppView";
 import { RunAll } from "../runs/RunAll";
@@ -99,6 +100,8 @@ export function Screen({
         }}
         onLearn={setLearn}
         onLearned={() => nav({ view: "app" })}
+        writer={agent.session}
+        onFirstTest={() => nav({ view: "tests" })}
         onAsk={ask}
       />
     );
@@ -108,6 +111,9 @@ export function Screen({
   }
   if (!target) {
     return null;
+  }
+  if (place.view === "environment") {
+    return <TestEnvironmentView target={target} />;
   }
   if (place.view === "app") {
     return (

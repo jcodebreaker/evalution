@@ -3,6 +3,7 @@ import {
   Gauge,
   House,
   ListChecks,
+  Monitor,
   Network,
   Plus,
   Settings,
@@ -22,7 +23,7 @@ import { CardRow } from "../learned/ProjectCard";
 import { Logo } from "./Logo";
 
 /**
- * The app picker (with Connect), then Home, What it learned, Tests, Benchmarks and Runs (with the going run
+ * The app picker (with Connect), then Home, What it learned, Test environment, Tests, Benchmarks and Runs (with the going run
  * under it); Settings at the bottom.
  */
 export function Sidebar({
@@ -139,6 +140,7 @@ export function Sidebar({
       >
         {item("home", <House className="size-4" aria-hidden />, "Home")}
         {item("app", <Network className="size-4" aria-hidden />, "What it learned")}
+        {item("environment", <Monitor className="size-4" aria-hidden />, "Test environment")}
         <NavLabel>Your tests</NavLabel>
         {item("tests", <ListChecks className="size-4" aria-hidden />, "Tests")}
         {item("runs", <ChartColumn className="size-4" aria-hidden />, "Runs")}
