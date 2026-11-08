@@ -7,9 +7,11 @@ page sends: it types the message and clicks Send, waits for the copy to answer t
 carried it (an error status, or no answer by the deadline, is the turn's end), and the inner
 adapter then waits for that turn. Else the inner adapter sends, and the page only watches. Either
 way, once the turn is done the page gets ``catch_up_seconds`` for its busy signs to clear and the
-reply to show in ``replies.in`` once more than before the turn, both normalised
-(:func:`normalised`), so an earlier reply with the same words isn't taken for it. ``Turn.shown`` is
-the newest; ``None`` when the reply never showed, with the last of what did in
+reply to show in ``replies.in``: its words as the page renders them, in order, after the person's
+message and after what the region already showed before the turn
+(:func:`evalution.core.rendered.shown_span`), so neither the message's echo nor an earlier reply
+with the same words is taken for it. ``Turn.shown`` is the page's text where it showed, the newest;
+``None`` when the reply never showed, with the last of what did in
 ``Session.extra["page"]["last_shown"]``.
 
 One browser per page target, so one per copy, launched on first use: Playwright's own Chromium when
@@ -77,6 +79,7 @@ from evalution.core.evidence import (
     PageRecord,
     PageTurn,
 )
+from evalution.core.rendered import page_words, shown_span
 from evalution.core.trace import Section
 from evalution.isolation.launch import scrub
 from evalution.runs.page.map import Locator, PageMap, PageMapBroken, fill_urls, page_map_of
@@ -110,7 +113,6 @@ _SCRUB_SHORTEST = 6
 #: Methods a page sends a message with.
 _SENDS = frozenset({"POST", "PUT", "PATCH"})
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
-_MARKS = re.compile(r"[*_`#>]")
 _TAG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 #: Plain language names a test person may give, as a browser's locale.
 _LANGUAGES = {
@@ -142,12 +144,6 @@ def system_chrome() -> str | None:
     """The system Chrome to use when Playwright has no Chromium of its own, if it is there."""
     path = os.environ.get("EVALUTION_CHROME") or MAC_CHROME
     return path if Path(path).is_file() else None
-
-
-def normalised(text: str) -> str:
-    """*text* as a reply and a page are compared: Markdown's marks gone, whitespace collapsed,
-    lowercase."""
-    return " ".join(_MARKS.sub("", text).split()).lower()
 
 
 def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
@@ -707,9 +703,7 @@ class PageTarget(Target):
             # The inner adapter sends; the page has the conversation open and watches.
             turn = await self.inner.send(session, message, deadline=deadline)
         if turn.error is None:
-            step["shown_at"] = await self._catch_up(
-                page, session, turn, normalised(before), deadline
-            )
+            step["shown_at"] = await self._catch_up(page, session, turn, before, message, deadline)
             if turn.shown is None:
                 step["instead"] = session.extra["page"].get("last_shown", "")
         return turn
@@ -778,14 +772,14 @@ class PageTarget(Target):
         return since
 
     async def _catch_up(
-        self, page: Any, session: Session, turn: Turn, before: str, deadline: float
+        self, page: Any, session: Session, turn: Turn, before: str, message: str, deadline: float
     ) -> float | None:
-        """Wait for the page to stop being busy and show *turn*'s reply once more than it did
-        *before* the turn (normalised), and say on *turn* what it showed: the newest. When it
-        showed; ``None`` when it didn't. ``Turn.reply`` is never changed; a region the page lacks
-        is the map's error."""
+        """Wait for the page to stop being busy and show *turn*'s reply after the person's
+        *message* and past what the region showed *before* the turn (:func:`shown_span`), and say
+        on *turn* what it showed: the newest. When it showed; ``None`` when it didn't.
+        ``Turn.reply`` is never changed; a region the page lacks is the map's error."""
         api = _api()
-        want = normalised(turn.reply)
+        earlier = page_words(before)
         region = self._locator(page, self.page.replies.in_).first
         busy = [self._locator(page, mark).first for mark in self.page.busy]
         left = min(self.page.catch_up_seconds, deadline - time.time())
@@ -797,11 +791,14 @@ class PageTarget(Target):
                     seen = True
                     text = await region.inner_text(timeout=1000)
                     idle = not [b for b in busy if await b.is_visible()]
-                    shown = normalised(text)
-                    more = bool(want) and shown.count(want) > before.count(want)
-                    at = shown.rfind(want)
-                    if idle and more:
-                        turn.shown = shown[at : at + len(want)]
+                    now = page_words(text)
+                    kept = next(
+                        (i for i, (a, b) in enumerate(zip(earlier, now, strict=False)) if a != b),
+                        min(len(earlier), len(now)),
+                    )
+                    span = shown_span(turn.reply, text, message=message, after=kept)
+                    if idle and span is not None:
+                        turn.shown = text[span[0] : span[1]]
                         session.extra["page"].pop("last_shown", None)
                         return time.time()
                 if time.time() >= until:

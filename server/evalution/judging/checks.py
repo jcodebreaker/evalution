@@ -36,6 +36,7 @@ from evalution.core.judgement import (
     Route,
     WhyUnjudged,
 )
+from evalution.core.rendered import reply_words, shows
 from evalution.core.rules import route_of, steps_bind, timeout_outcome
 from evalution.judging.steps import EXTRA_OK, Step, arg_problem
 
@@ -289,9 +290,9 @@ def _page_turn_refs(evidence: TryEvidence, at: int) -> list[EvidenceRef]:
 
 
 def _shown_check(evidence: TryEvidence, at: int, role: Role) -> CheckResult | None:
-    """Whether turn *at* (from 1)'s reply showed on the page: its words among what the page's
-    replies showed after the turn, read as :func:`_plain` reads them. ``None`` for a turn with no
-    reply to look for."""
+    """Whether turn *at* (from 1)'s reply showed on the page: its words, as a page renders them,
+    in order in what the page showed of it (:func:`evalution.core.rendered.shows`, the same reading
+    the page target waited with). ``None`` for a turn with no reply to look for."""
     turn = evidence.turns[at - 1]
     id_, kind, refs = f"shown:{at}", CheckKind.SHOWN, _page_turn_refs(evidence, at)
     if turn.error:
@@ -305,8 +306,7 @@ def _shown_check(evidence: TryEvidence, at: int, role: Role) -> CheckResult | No
             unjudged=WhyUnjudged.NO_REPLY,
             evidence=refs,
         )
-    reply = _plain(turn.reply.text)
-    if not reply:
+    if not reply_words(turn.reply.text):
         return None
     if turn.shown is None:
         page = evidence.page
@@ -314,7 +314,7 @@ def _shown_check(evidence: TryEvidence, at: int, role: Role) -> CheckResult | No
         said = f"; it showed {_cut(instead)!r} instead" if instead.strip() else ""
         why = f"turn {at}'s reply never showed on the page{said}"
         return _code(id_, kind, Outcome.FAILED, why, role=role, evidence=refs)
-    if reply in _plain(turn.shown.text):
+    if shows(turn.reply.text, turn.shown.text):
         why = f"turn {at}'s reply showed on the page"
         return _code(id_, kind, Outcome.PASSED, why, role=role, evidence=refs)
     why = f"the page showed {_cut(turn.shown.text)!r}, not turn {at}'s reply"

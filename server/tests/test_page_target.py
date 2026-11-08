@@ -327,7 +327,7 @@ async def test_the_page_sends_and_the_inner_adapter_watches(chat) -> None:
         turn = await target.send(session, "hello", deadline=time.time() + 20)
         assert turn.error is None, turn.error
         assert turn.reply == "Echo: **hello**", "the reply is the inner adapter's, as sent"
-        assert turn.shown == "echo: hello", "what the page showed, normalised"
+        assert turn.shown == "Echo: hello", "what the page showed, where the reply showed"
         assert inner.sent == [] and len(inner.watched) == 1
         sent = [p for p, _ in chat.seen if p == "/api/send"]
         assert sent == ["/api/send"], "the browser sent the message"
@@ -345,7 +345,7 @@ async def test_without_watch_the_inner_adapter_sends_and_the_page_watches(chat) 
         assert (turn.error, turn.reply, turn.shown) == (
             None,
             "Echo: **hi *there***",
-            "echo: hi there",
+            "Echo: hi *there",
         )
         assert inner.sent == ["hi *there*"] and inner.watched == []
         assert not [p for p, _ in chat.seen if p == "/api/send"], "the page only watched"
@@ -371,7 +371,7 @@ async def test_the_same_reply_again_isnt_taken_for_the_one_the_page_dropped(chat
     try:
         session = await target.open("r")
         first = await target.send(session, "hello", deadline=time.time() + 20)
-        assert first.shown == "echo: hello"
+        assert first.shown == "Echo: hello"
         chat.drop_from = 1  # the page shows the first reply still, and drops the second
         again = await target.send(session, "hello", deadline=time.time() + 20)
         assert again.error is None and again.reply == "Echo: **hello**"
@@ -400,7 +400,7 @@ async def test_an_http_adapter_never_reads_the_reply_from_before_the_page_sent(c
         for message in ("hello", "again"):
             turn = await target.send(session, message, deadline=time.time() + 20)
             assert (turn.error, turn.reply) == (None, f"Echo: **{message}**")
-            assert turn.shown == f"echo: {message}"
+            assert turn.shown == f"Echo: {message}"
     finally:
         await target.dispose()
 

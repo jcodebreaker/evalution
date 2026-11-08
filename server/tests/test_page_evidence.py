@@ -349,3 +349,30 @@ def test_a_try_judged_under_the_rules_before_page_checks_says_so() -> None:
     found = current(attempt)
     assert (found.rules, found.rules_from) == (RULES_VERSION, RULES_VERSION - 1)
     assert checks_made_under(run) == RULES_VERSION - 1, "not compared with today's as like"
+
+
+def test_a_rendered_table_counts_as_shown() -> None:
+    """relay-lite numbers a table's rows and drops its bars: the reply still showed."""
+    reply = "| Fruit | Colour |\n|---|---|\n| Apple | Red |\n| Banana | Yellow |"
+    shown = "Fruit\tColour\n1\tApple\tRed\n2\tBanana\tYellow"
+    checks = _checks(_case(), _evidence(_turn(reply, shown), page=_page(PageTurn())))
+    assert checks["shown:1"].outcome is Outcome.PASSED, checks["shown:1"].why
+
+
+def test_the_failure_analysis_is_told_which_checks_failed() -> None:
+    """A try that failed only on the page must say so to the model reading it."""
+    from evalution.review.findings import try_input
+
+    page = _page(PageTurn(instead=Clipped(text="Something went wrong")))
+    case = _case(page={"decides": True})
+    checks = code_checks(case, _evidence(_turn("Ok."), page=page), [], 1.0, {"tools": 0.8})
+    attempt = {
+        "n": 1,
+        "tools": 1.0,
+        "reply": 1.0,
+        "seconds": 2,
+        "judgements": [judgement(checks.checks, None, Route.EXPECTED).model_dump(mode="json")],
+    }
+    material = try_input({"turns": [{"message": "hi"}], "name": "n"}, attempt, [])
+    assert "never showed on the page" in material
+    assert "Something went wrong" in material
