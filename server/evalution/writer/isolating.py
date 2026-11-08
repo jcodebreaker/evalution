@@ -27,7 +27,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from evalution.isolation import discover
-from evalution.isolation.plan import Plan, PlannedStore, PlanStore, hashes, stale, strategy_for
+from evalution.isolation.plan import (
+    TRACES,
+    Plan,
+    PlannedStore,
+    PlanStore,
+    hashes,
+    stale,
+    strategy_for,
+)
 
 if TYPE_CHECKING:
     from evalution.config import Config
@@ -53,7 +61,6 @@ KINDS = (
 STRATEGIES = ("relocate", "snapshot", "identity", "none")
 OPS = ("set", "add", "remove", "exclude", "include")
 #: A table or schema of traces: evidence of what happened, never reset.
-_TRACES = re.compile(r"(^|[._])(spans?|traces?|otel|opentelemetry|telemetry)([._]|$)", re.I)
 _SETTING = re.compile(r"^[A-Z][A-Z0-9_]{1,80}$")
 _STORE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$")
 _PREFIXES = ("env:", "service:", "package:", "volume:", "socket:", "sqlite:///")
@@ -134,7 +141,8 @@ def evidence(plan: Plan | None, scanned: list[discover.Store], work: dict[str, A
         if done.get("status") == "proven":
             continue
         lines = [line for line in str(done.get("report", "")).splitlines() if line.strip()]
-        leaks = [line for line in lines if _LEAK_LINE.match(line)] or lines[-1:]
+        leaks = [f"leaked to {x}" for x in done.get("leaks") or []]
+        leaks = leaks or [line for line in lines if _LEAK_LINE.match(line)] or lines[-1:]
         said += [(f"rehearsal {n}: {line.strip()}", None) for line in leaks]
     found.findings = [
         {"id": f"p{n}", "what": what, "store": store} for n, (what, store) in enumerate(said, 1)
@@ -388,7 +396,7 @@ class _Edit:
         if entry not in self.plan.exclude:
             self.refused.append(f"include: {entry!r} isn't left alone now.")
             return
-        if _TRACES.search(str(entry)):
+        if TRACES.search(str(entry)):
             self.refused.append(
                 f"include: {entry} is a trace table; it stays excluded, since resetting it "
                 "would erase the evidence of what happened."
@@ -501,7 +509,7 @@ def _tried(work: dict[str, Any]) -> str:
     for done in work["rehearsals"]:
         if done.get("status") == "proven":
             continue
-        leaks = [
+        leaks = list(done.get("leaks") or []) or [
             line.strip()
             for line in str(done.get("report", "")).splitlines()
             if _LEAK_LINE.match(line)
@@ -556,6 +564,7 @@ async def rehearse(targets: Targets, session: dict[str, Any], args: dict[str, An
             "version": proposal["version"],
             "status": status,
             "report": result.report,
+            "leaks": list(result.leaks),
             "changes": proposal["changes"],
         }
     )

@@ -54,7 +54,8 @@ _CONTAINER_NOTE = "found inside a container, by the probe"
 #: What :func:`evalution.isolation.observe.reconcile` cites for a file no code names.
 _UNNAMED = "not named anywhere in the code"
 #: A table or schema of traces: kept as evidence of what happened, never reset.
-TRACES = re.compile(r"(^|_)(spans?|traces?|otel|opentelemetry|telemetry)(_|$)", re.IGNORECASE)
+#: A table, schema or dotted ``db.schema.table`` name that holds traces.
+TRACES = re.compile(r"(^|[._])(spans?|traces?|otel|opentelemetry|telemetry)([._]|$)", re.IGNORECASE)
 _TRACES = TRACES
 #: What a store keyed by person is keyed by.
 _PERSON = re.compile(r"user|person|account|member|customer|owner|identity|profile", re.IGNORECASE)
