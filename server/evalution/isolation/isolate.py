@@ -291,6 +291,7 @@ async def drivers_for(
         volumes = {v for v in listed.split() if _owned(v, project)}
     for store in plan.stores:
         loc = store.locator
+        made = len(out)
         try:
             if store.kind == "memory":
                 notes.append(f"{store.id}: in the process's memory; a restart clears it")
@@ -325,7 +326,15 @@ async def drivers_for(
                 notes.append(f"{store.id}: no driver for a {store.kind} at {loc}")
         except (Refused, DockerError) as exc:
             notes.append(f"{store.id}: {exc}")
+        finally:
+            for driver in out[made:]:
+                driver.store_id = store.id  # type: ignore[attr-defined]
     return out
+
+
+def store_id(driver: Driver) -> str:
+    """The plan's id for the store *driver* resets, else the driver's own name."""
+    return str(getattr(driver, "store_id", None) or driver.name)
 
 
 # Running the copy for a rehearsal ----------------------------------------------------------------

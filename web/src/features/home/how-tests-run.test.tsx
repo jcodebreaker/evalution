@@ -169,6 +169,24 @@ it("a try whose putting back didn't hold says so in the warning colour", () => {
   expect(warning.className).toContain("text-warning");
 });
 
+it("a run recorded with what reset each store on the copy still names them", () => {
+  before({
+    how: "proven",
+    plan_version: 1,
+    restore_seconds: 7.14,
+    checked: [
+      "volume:eval-relay-lite-0_artifact-data",
+      "postgres:eval-relay-lite-0-postgres-1/atrium",
+    ],
+    stores: STORES,
+  });
+  expect(
+    screen.getByText(
+      "Put back memory index (Docker volume artifact-data) and conversations (Postgres database atrium) in 7.1 s, and checked them.",
+    ),
+  ).toBeTruthy();
+});
+
 it("an older run's ids show as they are", () => {
   before({ how: "proven", plan_version: 1, restore_seconds: 4, checked: ["a", "b"] });
   expect(screen.getByText("Put back a and b in 4 s, and checked them.")).toBeTruthy();

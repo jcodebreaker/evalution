@@ -50,6 +50,7 @@ from evalution.isolation.isolate import (
     plan_spec,
     rehearse_plan,
     roots_of,
+    store_id,
     take_down,
     work_folder,
 )
@@ -375,8 +376,9 @@ class Copies:
         except (DockerError, OSError) as exc:
             now = {}
             problem = problem or f"{DIDNT_HOLD}: the stores couldn't be read ({exc})"
-        checked = [d.name for d in slot.drivers if now.get(d.name) == slot.before[d.name]]
-        differ = [d.name for d in slot.drivers if d.name not in checked]
+        same = [d for d in slot.drivers if now.get(d.name) == slot.before[d.name]]
+        checked = [store_id(d) for d in same]
+        differ = [store_id(d) for d in slot.drivers if d not in same]
         if differ and problem is None:
             problem = f"{DIDNT_HOLD}: {', '.join(differ)}"
         return isolation("proven", self.version, seconds, checked, problem)

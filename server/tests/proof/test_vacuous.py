@@ -673,7 +673,8 @@ async def test_11_on_a_managed_copy_a_pass_resting_on_a_leak_is_not_a_pass(make_
     assert [current(t).outcome.value for t in _tries(doc)] == ["passed", "failed"]
     labels = [t["isolation"] for t in _tries(doc)]
     assert all(lab["how"] == "proven" and lab["plan_version"] == 1 for lab in labels)
-    assert all(lab["checked"] == [lab["checked"][0]] and lab["problem"] is None for lab in labels)
+    # The plan's id for each store checked, which the page names in plain words.
+    assert all(lab["checked"] == ["memory"] and lab["problem"] is None for lab in labels)
     assert all(isinstance(lab["restore_seconds"], float) for lab in labels)
     assert doc["isolation"] == {"how": "proven", "plan_version": 1}
     assert summary(doc)["isolation"] == doc["isolation"]

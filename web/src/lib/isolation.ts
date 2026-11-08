@@ -86,9 +86,31 @@ const tenths = (seconds: number) => `${Math.round(seconds * 10) / 10} s`;
 export const about = (seconds: number) => `about ${Math.max(1, Math.round(seconds))} s`;
 
 /** The stores `ids` names, in plain words; an id the plan no longer has shows as it is. */
+/**
+ * The store `id` stands for: the plan's id, or, in runs recorded before the plan's ids were, the
+ * name of what reset it on the copy (`volume:<copy>_<name>`, `postgres:<container>/<database>`).
+ */
+function storeFor(
+  id: string,
+  stores: readonly StoreWords[] | null | undefined,
+): StoreWords | undefined {
+  const exact = stores?.find((entry) => entry.id === id);
+  if (exact || !stores) return exact;
+  const volume = /^volume:(.+)$/.exec(id)?.[1];
+  if (volume) {
+    return stores.find(
+      (entry) =>
+        entry.kind === "volume" && (volume === entry.name || volume.endsWith(`_${entry.name}`)),
+    );
+  }
+  const database = /^postgres:[^/]+\/(.+)$/.exec(id)?.[1];
+  if (database) return stores.find((entry) => entry.kind === "postgres" && entry.name === database);
+  return undefined;
+}
+
 function named(ids: readonly string[], stores: readonly StoreWords[] | null | undefined): string[] {
   return ids.map((id) => {
-    const store = stores?.find((entry) => entry.id === id);
+    const store = storeFor(id, stores);
     return store ? inSentence(store) : id;
   });
 }
@@ -99,7 +121,7 @@ function problemWords(problem: string, stores: readonly StoreWords[] | null | un
   if (problem.startsWith(held)) {
     const rest = problem.slice(held.length);
     const ids = rest.split(", ").map((part) => part.trim());
-    const known = ids.every((id) => stores?.some((store) => store.id === id));
+    const known = ids.every((id) => storeFor(id, stores) !== undefined);
     return `Putting it back didn't hold: ${known ? joinWords(named(ids, stores)) : rest}. This try isn't judged.`;
   }
   return problem.charAt(0).toUpperCase() + problem.slice(1);
