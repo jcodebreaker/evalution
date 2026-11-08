@@ -209,7 +209,7 @@ async def play_try(
     *second_go*: what started before this go is the go before's, whatever marks it carries.
     *unclean*: why the app can't be taken to start clean (a reset of evalution's copy that didn't
     hold); the try isn't played, as when it starts holding what an earlier one left.
-    *page_files*: where a try played through the app's page keeps its screenshots."""
+    *page_files*: where a try played through the app's page keeps its screenshots and video."""
     left_over = unclean or await leftover(target, session, case)
     on_page = target if isinstance(target, PageTarget) else None
     if on_page is not None:
@@ -301,7 +301,7 @@ async def play_try(
         )
     if on_page is not None:
         cut_short = played.failure is Failure.TIMED_OUT or played.cancelled
-        played.page = on_page.record(session, played.t0, cut_short=cut_short)
+        played.page = await on_page.record(session, played.t0, cut_short=cut_short)
     played.evidence = _evidence(case, n, played, status, note)
     return played
 

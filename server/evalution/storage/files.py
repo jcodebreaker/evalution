@@ -57,6 +57,9 @@ class Files(Protocol):
     def list(self, run: str, case: str, n: int) -> list[str]:
         """The try's file names, sorted; none for a try that has none."""
 
+    def delete(self, run: str, case: str, n: int, name: str) -> bool:
+        """Forget *name* of the try; whether it was there."""
+
     def delete_run(self, run: str) -> int:
         """Forget every file of *run*; how many went."""
 
@@ -91,6 +94,14 @@ class LocalFiles:
         if not folder.is_dir():
             return []
         return sorted(p.name for p in folder.iterdir() if p.is_file() and _NAME.match(p.name))
+
+    def delete(self, run: str, case: str, n: int, name: str) -> bool:
+        found = self._folder(run, case, n, name) / name
+        try:
+            found.unlink()
+        except FileNotFoundError:
+            return False
+        return True
 
     def delete_run(self, run: str) -> int:
         if not _RUN_ID.match(run):

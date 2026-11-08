@@ -34,10 +34,11 @@ from evalution.adapters.base import (
 )
 from evalution.adapters.http import HttpTarget
 from evalution.config import TargetConfig
-from evalution.core.evidence import Failure
+from evalution.core.evidence import VIDEO, Failure
 from evalution.isolation.launch import free_port
+from evalution.runs.page import target as page_target
 from evalution.runs.page.map import PageMap
-from evalution.runs.page.target import PageFiles, PageTarget, system_chrome
+from evalution.runs.page.target import NO_VIDEO, PageFiles, PageTarget, system_chrome
 from evalution.storage.files import LocalFiles
 
 
@@ -519,15 +520,17 @@ async def test_a_try_records_what_the_page_did(chat, tmp_path) -> None:
         await target.send(session, "hello", deadline=time.time() + 20)
         chat.drop_from = 1
         await target.send(session, "again", deadline=time.time() + 20)
-        found = target.record(session, t0)
+        found = await target.record(session, t0)
+        video = target._ffmpeg
     finally:
         await target.dispose()
     first, second = found.turns
     assert first.shown_at is not None and first.shown_at > 0 and first.instead.text == ""
     assert second.shown_at is None and "Couldn't load this reply" in second.instead.text
     assert (first.shot, second.shot) == ("turn-1.png", "turn-2.png")
-    assert found.files == ("turn-1.png", "turn-2.png")
-    assert files.list("run-1", "a-case", 1) == ["turn-1.png", "turn-2.png"]
+    kept = ("turn-1.png", "turn-2.png", *((VIDEO,) if video else ()))
+    assert found.files == kept
+    assert files.list("run-1", "a-case", 1) == sorted(kept)
     with files.open("run-1", "a-case", 1, "turn-1.png") as shot:
         assert shot.read(8) == b"\x89PNG\r\n\x1a\n"
     said = [(c.level, c.text.text) for c in found.console]
@@ -537,8 +540,9 @@ async def test_a_try_records_what_the_page_did(chat, tmp_path) -> None:
     assert all(c.at < 0 for c in found.console), "written as the page opened, before the try"
     missing = [(r.method, r.path, r.status) for r in found.failed_requests]
     assert missing == [("GET", "/api/missing", 404)], "the copy's only, and never the query"
-    assert not found.interrupted and found.video_missing
-    again = target.record(session, t0)
+    assert not found.interrupted
+    assert found.video_missing == (None if video else NO_VIDEO)
+    again = await target.record(session, t0)
     assert again.turns == () and again.console == (), "each try's record is its own"
 
 
@@ -551,7 +555,104 @@ async def test_a_turn_cut_off_leaves_an_interrupted_record(chat) -> None:
         t0 = time.time()
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(target.send(session, "hello", deadline=t0 + 20), 0.5)
-        found = target.record(session, t0)
+        found = await target.record(session, t0)
     finally:
         await target.dispose()
     assert found.interrupted and len(found.turns) == 1 and found.turns[0].shot is None
+    assert found.video_missing is None and found.files == (), "nowhere to keep files"
+
+
+#: How a WebM file starts (EBML).
+WEBM = b"\x1a\x45\xdf\xa3"
+
+
+def _video_target(chat: ChatApp, video: str = "failed") -> PageTarget:
+    copy = chat.url  # type: ignore[attr-defined]
+    page = PageMap.model_validate({**MAP, "video": video})
+    return PageTarget(Watching(chat.url), page, copy, element_seconds=1.5)
+
+
+def _needs_ffmpeg(target: PageTarget) -> None:
+    if target._ffmpeg is False:
+        pytest.skip("video needs Playwright's ffmpeg: `playwright install ffmpeg`")
+
+
+async def test_each_try_keeps_a_video_of_its_own(chat, tmp_path) -> None:
+    files = LocalFiles(tmp_path)
+    target = _video_target(chat)
+    try:
+        session = await target.open("r")
+        _needs_ffmpeg(target)
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        t0 = time.time()
+        await target.send(session, "hello", deadline=time.time() + 20)
+        first = await target.record(session, t0)
+        # The next try in the same session plays on a new page, whose video is its own.
+        target.begin(session, PageFiles(files, "run-1", "a-case", 2))
+        turn = await target.send(session, "again", deadline=time.time() + 20)
+        assert turn.error is None and turn.shown == "echo: again", "a new page on the chat"
+        second = await target.record(session, time.time())
+        recording = target._videos[session.extra["page"]["context"]]
+    finally:
+        await target.dispose()
+    for n, found in ((1, first), (2, second)):
+        assert found.files == ("turn-1.png", VIDEO), "each try counts its turns from one"
+        assert found.video_missing is None and found.video_policy == "failed"
+        with files.open("run-1", "a-case", n, VIDEO) as video:
+            assert video.read(4) == WEBM
+        assert files.path("run-1", "a-case", n, VIDEO).stat().st_size > 1000
+    assert not recording.exists(), "the browser's own copies go with the context"
+
+
+async def test_never_records_nothing(chat, tmp_path) -> None:
+    files = LocalFiles(tmp_path)
+    target = _video_target(chat, "never")
+    try:
+        session = await target.open("r")
+        assert _page(target, session).video is None
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        await target.send(session, "hello", deadline=time.time() + 20)
+        found = await target.record(session, time.time())
+    finally:
+        await target.dispose()
+    assert found.files == ("turn-1.png",) and found.video_missing is None
+    assert found.video_policy is None and target._ffmpeg is None, "never tried to record"
+    assert files.list("run-1", "a-case", 1) == ["turn-1.png"]
+
+
+async def test_a_video_too_big_is_dropped_and_says_why(chat, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(page_target, "VIDEO_BYTES", 10)
+    files = LocalFiles(tmp_path)
+    target = _video_target(chat, "always")
+    try:
+        session = await target.open("r")
+        _needs_ffmpeg(target)
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        await target.send(session, "hello", deadline=time.time() + 20)
+        found = await target.record(session, time.time())
+    finally:
+        await target.dispose()
+    assert found.files == ("turn-1.png",) and found.video_policy is None
+    assert found.video_missing is not None and "more than the 0 MB" in found.video_missing
+    assert files.list("run-1", "a-case", 1) == ["turn-1.png"]
+
+
+async def test_without_ffmpeg_a_try_plays_on_and_says_why_it_has_no_video(
+    chat, tmp_path, monkeypatch
+) -> None:
+    if system_chrome() is None:
+        pytest.skip("hiding Playwright's ffmpeg hides its Chromium too: needs the system Chrome")
+    # Playwright looks for its ffmpeg (and its browsers) here: an empty folder has none.
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "none"))
+    files = LocalFiles(tmp_path)
+    target = _video_target(chat)
+    try:
+        session = await target.open("r")
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        turn = await target.send(session, "hello", deadline=time.time() + 20)
+        found = await target.record(session, time.time())
+    finally:
+        await target.dispose()
+    assert turn.error is None and turn.shown == "echo: hello"
+    assert target._ffmpeg is False
+    assert found.files == ("turn-1.png",) and found.video_missing == NO_VIDEO

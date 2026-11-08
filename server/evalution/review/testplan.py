@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
-from evalution.core.evidence import PageTurn, TryEvidence
+from evalution.core.evidence import VIDEO_ON_FAILURE, PageTurn, TryEvidence
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
 from evalution.core.rules import (
     called_of,
@@ -828,6 +828,11 @@ def _on_page(
             "check": _decided(checks.get(f"shown:{at}")),
         }
     video = next((name for name in page.files if name.endswith(".webm")), None)
+    url = file_url(video) if video else None
+    missing = page.video_missing
+    if video and url is None and page.video_policy == "failed" and judged.outcome is Outcome.PASSED:
+        # Deleted once the try passed, here and wherever it was played.
+        video, missing = None, VIDEO_ON_FAILURE
     return {
         "console": [
             {"level": line.level, "text": line.text.text, "at": line.at} for line in page.console
@@ -839,8 +844,8 @@ def _on_page(
         "without_page": judge_try(
             c for c in judged.checks if c.kind not in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH)
         ).value,
-        "video": {"name": video, "url": file_url(video)} if video else None,
-        "video_missing": page.video_missing,
+        "video": {"name": video, "url": url} if video else None,
+        "video_missing": missing,
         "interrupted": page.interrupted,
     }
 

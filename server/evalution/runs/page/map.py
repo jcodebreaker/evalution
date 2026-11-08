@@ -26,6 +26,9 @@ trusts a proxy in front of it to say who is signed in. A header's value is a tem
 (``{person.email}``, ``{account.email}``, ``{secret:ENV_NAME}``), never a literal secret. These
 headers are only ever sent to the copy's origin, never to another host the page reaches; the page
 target holds to that.
+
+``video`` says when a try's video is kept: ``failed`` (the default: recorded, and deleted once the
+try is judged a pass), ``always``, or ``never`` (not recorded at all).
 """
 
 from __future__ import annotations
@@ -70,6 +73,8 @@ ENTRIES = frozenset(
 )
 
 Status = Literal["draft", "tried", "approved", "stale", "broken"]
+#: When a try's video is kept: only when it doesn't pass, always, or never (not recorded).
+Video = Literal["failed", "always", "never"]
 
 _HOW = "name the element by its role and name ({role, name}) or its test id ({test_id})"
 _CSS = {"css", "selector", "class"}
@@ -371,6 +376,7 @@ class PageMap(_Strict):
     :param catch_up_seconds: After the inner adapter's send returns, how long the page gets to
         stop being busy and show the reply.
     :param evidence: Per entry (one of :data:`ENTRIES`), why it is what it is.
+    :param video: When a try's video is kept (:data:`Video`).
     """
 
     url: PageUrl
@@ -384,6 +390,7 @@ class PageMap(_Strict):
     catch_up_seconds: float = Field(default=10.0, gt=0, le=CATCH_UP_MOST)
     status: Status = "draft"
     evidence: dict[str, Evidence] = Field(default_factory=dict)
+    video: Video = "failed"
 
     @model_validator(mode="after")
     def _known_entries(self) -> PageMap:
@@ -499,6 +506,13 @@ _SIGN_IN = {
 }
 
 
+_VIDEO = {
+    "failed": "kept when a try doesn't pass",
+    "always": "kept for every try",
+    "never": "not recorded",
+}
+
+
 def described(page: PageMap) -> list[dict[str, str]]:
     """The map in plain words, entry by entry, as ``{what, where}``: how the page is played, as a
     person reads it."""
@@ -515,4 +529,5 @@ def described(page: PageMap) -> list[dict[str, str]]:
     if page.busy:
         rows.append(("Busy while", " or ".join(_where(found) for found in page.busy)))
     rows.append(("Waits for the reply", f"up to {page.catch_up_seconds:g} s"))
+    rows.append(("Video", _VIDEO[page.video]))
     return [{"what": what, "where": where} for what, where in rows]

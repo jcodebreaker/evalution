@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from evalution.api.app import create_app
 from evalution.config import load
 from evalution.core.evidence import (
+    VIDEO_ON_FAILURE,
     Clipped,
     ConsoleLine,
     FailedRequest,
@@ -224,6 +225,23 @@ def test_the_try_view_lays_the_page_over_its_turns(client, home) -> None:
     assert kinds["shown:2"] == "shown" and kinds["page_health"] == "page_health"
 
 
+def test_a_passed_trys_video_kept_only_on_failure_is_said_to_be(client, home) -> None:
+    _store(home, SHOWN.model_copy(update={"video_policy": "failed"}))
+    shown = client.get("/v1/evals/runs/r1/cases/dog/compare").json()
+    assert shown["page"]["video"] is None, "the try passed: its video was deleted once judged"
+    assert shown["page"]["video_missing"] == VIDEO_ON_FAILURE
+
+    # Kept always, the same try's video is named, and served once it is here.
+    _store(home, SHOWN.model_copy(update={"video_policy": "always"}))
+    LocalFiles(load(home / "evalution.yaml").data_dir).put("r1", "dog", 1, "try.webm", b"webm")
+    page = client.get("/v1/evals/runs/r1/cases/dog/compare").json()["page"]
+    assert page["video"] == {
+        "name": "try.webm",
+        "url": "/v1/evals/runs/r1/cases/dog/tries/1/files/try.webm",
+    }
+    assert page["video_missing"] is None
+
+
 def test_a_try_through_the_api_has_no_page(client, home) -> None:
     _store(home, None)
     shown = client.get("/v1/evals/runs/r1/cases/dog/compare").json()
@@ -243,5 +261,6 @@ def test_a_target_says_whether_it_plays_through_its_page(client) -> None:
     assert words["Replies"] == "main named “Chat”"
     assert words["Opens"] == "/chat"
     assert "New chat" not in words
+    assert words["Video"] == "kept when a try doesn't pass"
     broken = client.get("/v1/targets/broken").json()["page"]
     assert broken["map"] == [] and "{copy_page}" in broken["error"]

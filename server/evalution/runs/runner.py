@@ -51,7 +51,7 @@ from evalution.adapters.base import (
 )
 from evalution.core import net
 from evalution.core.case import MOST_TRIES, Case, EvalSet
-from evalution.core.evidence import Failure, TraceStatus, TryEvidence
+from evalution.core.evidence import VIDEO, Failure, TraceStatus, TryEvidence
 from evalution.core.judgement import CheckKind, Decider, JudgeStamp, Outcome, Verdict, WhyUnjudged
 from evalution.core.rules import (
     ADAPTER_BROKEN,
@@ -1058,6 +1058,25 @@ class Runs:
                 _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
         await asyncio.shield(self._save(doc))
 
+    async def _drop_passed_video(self, run: str, evidence: TryEvidence, outcome: Outcome) -> None:
+        """Delete a passed try's video when its page map keeps one only when a try fails. Its
+        evidence still names the file; the try view says why there is none."""
+        page, files = evidence.page, self.store.files
+        if (
+            page is None
+            or files is None
+            or page.video_policy != "failed"
+            or VIDEO not in page.files
+            or outcome is not Outcome.PASSED
+        ):
+            return
+        try:
+            await asyncio.to_thread(files.delete, run, evidence.case, evidence.n, VIDEO)
+        except (OSError, ValueError):
+            _logger.warning(
+                "evals: the video of a passed try of %s not deleted", run, exc_info=True
+            )
+
     async def _try(
         self,
         target: Target,
@@ -1149,6 +1168,7 @@ class Runs:
             else None
         )
         found = judgement(checks, graded_by, code.route)
+        await self._drop_passed_video(doc["run"], evidence, found.outcome)
         attempt = {
             "n": n,
             "seconds": played.seconds,

@@ -1,8 +1,9 @@
 """A test played through the made-up app's page by the real server and runner, in a real browser
 (ADR 0010): on evalution's own copy of the app, which the run starts from a proven plan, signed in
 with the slot's test account. With the page as it should be, every layer holds and the try keeps a
-screenshot. Each switch that breaks the page gives the result it should: a reply that never showed
-is shown ✕ while stored and answered hold, and the API alone passes; an error drawing a reply is the
+screenshot, and its video is deleted once it passes. Each switch that breaks the page gives the
+result it should: a reply that never showed is shown ✕ while stored and answered hold, the try keeps
+its video and the page can play it, and the API alone passes; an error drawing a reply is the
 page's health, with the TypeError in the console; a renamed Send is a broken page map, which ends
 the run after one try.
 
@@ -21,11 +22,12 @@ pytest.importorskip("playwright", reason="page runs need the page extra: uv sync
 
 from test_acceptance import HERE, World, _target
 
+from evalution.core.evidence import VIDEO, VIDEO_ON_FAILURE
 from evalution.core.judgement import Outcome
 from evalution.core.rules import PAGE_MAP_BROKEN, current, layers
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
 from evalution.results.store import RunStore
-from evalution.runs.page.target import system_chrome
+from evalution.runs.page.target import NO_VIDEO, system_chrome
 from evalution.storage import Database
 
 
@@ -169,6 +171,13 @@ def _try(doc: dict) -> dict:
     return attempt
 
 
+def _view(world: PageWorld, run: str) -> dict:
+    """The try view the page reads."""
+    found = world.client.get(f"/v1/evals/runs/{run}/cases/answer-shown/compare")
+    assert found.status_code == 200, found.text
+    return found.json()
+
+
 def _checks(attempt: dict) -> dict[str, str]:
     return {c.id: c.outcome.value for c in current(attempt).checks}
 
@@ -184,19 +193,39 @@ def test_a_test_plays_through_the_page_and_each_broken_page_reads_as_what_broke(
     assert layers(found) == {"stored": "absent", "answered": "pass", "shown": "pass"}
     (evidence,) = world.evidence(doc["run"])
     page = evidence.page
-    assert page is not None and not page.interrupted and page.video_missing
+    assert page is not None and not page.interrupted
+    # Without Playwright's ffmpeg the try plays on, and says why it has no video.
+    video = page.video_missing != NO_VIDEO
     assert evidence.turns[0].shown is not None and "42" in evidence.turns[0].shown.text
     (turn,) = page.turns
     assert turn.shot == "turn-1.png" and turn.shown_at is not None
-    shot = world.root / "data" / "files" / doc["run"] / "answer-shown.1" / "turn-1.png"
-    assert shot.read_bytes()[:4] == b"\x89PNG"
+    kept = world.root / "data" / "files" / doc["run"] / "answer-shown.1"
+    assert (kept / "turn-1.png").read_bytes()[:4] == b"\x89PNG"
+    if video:
+        # Recorded, then deleted once the try passed: the map keeps video only when one fails.
+        assert page.video_missing is None and page.video_policy == "failed"
+        assert VIDEO in page.files and not (kept / VIDEO).exists()
+        shown = _view(world, doc["run"])["page"]
+        assert shown["video"] is None and shown["video_missing"] == VIDEO_ON_FAILURE
 
     # The reply never shows, though the app stored and answered it; the API alone passes.
     world.switches("drop_reply")
-    attempt = _try(world.play("paged"))
+    doc = world.play("paged")
+    attempt = _try(doc)
     found = current(attempt)
     assert layers(found) == {"stored": "absent", "answered": "pass", "shown": "fail"}
     assert found.outcome is Outcome.FAILED and _checks(attempt)["shown:1"] == "failed"
+    if video:
+        # The failed try keeps its video, and the page plays it from the file route.
+        (evidence,) = world.evidence(doc["run"])
+        assert evidence.page is not None and VIDEO in evidence.page.files
+        made = world.root / "data" / "files" / doc["run"] / "answer-shown.1" / VIDEO
+        assert made.stat().st_size > 1000 and made.read_bytes()[:4] == b"\x1a\x45\xdf\xa3"
+        shown = _view(world, doc["run"])["page"]
+        assert shown["video_missing"] is None and shown["video"]["url"]
+        served = world.client.get(shown["video"]["url"])
+        assert served.status_code == 200 and served.headers["content-type"] == "video/webm"
+        assert served.content == made.read_bytes()
     api_only = current(_try(world.play("bot")))
     assert api_only.outcome is Outcome.PASSED, "through the API alone this would have passed"
     assert layers(api_only)["shown"] == "absent"

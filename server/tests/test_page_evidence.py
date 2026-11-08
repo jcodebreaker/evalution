@@ -130,6 +130,12 @@ def test_the_file_store_keeps_lists_and_deletes_a_run(tmp_path) -> None:
     where = files.path("run-1", "greets", 3, "video.webm")
     assert where == tmp_path / "files" / "run-1" / "greets.3" / "video.webm"
     assert where.parent.is_dir() and not where.exists()
+    files.put("run-1", "greets", 2, "try.webm", b"webm")
+    assert files.delete("run-1", "greets", 2, "try.webm") is True
+    assert files.delete("run-1", "greets", 2, "try.webm") is False
+    assert files.list("run-1", "greets", 2) == ["video.webm"]
+    with pytest.raises(FileNameError):
+        files.delete("run-1", "greets", 2, "../video.webm")
     assert files.delete_run("run-1") == 2
     assert not (tmp_path / "files" / "run-1").exists()
     assert files.list("run-2", "greets", 1) == ["turn-1.png"]

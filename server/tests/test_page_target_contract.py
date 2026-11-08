@@ -138,9 +138,12 @@ def wrapped(request, monkeypatch) -> tuple[PageTarget, Fake]:
     async def show(page: Any, session: Session) -> None:
         inner.asked.append("shown")
 
+    async def live(session: Session) -> None:
+        return None
+
     monkeypatch.setattr(target, "_new_context", new_context)
     monkeypatch.setattr(target, "_show", show)
-    monkeypatch.setattr(target, "_page_of", lambda session: None)
+    monkeypatch.setattr(target, "_live", live)
     return target, inner
 
 

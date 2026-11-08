@@ -19,6 +19,10 @@ from evalution.core.judgement import Frozen
 ITEM_BYTES = 64_000
 #: The most console lines, and failed requests, a page try keeps: the first ones.
 PAGE_LINES = 200
+#: A page try's video, by name in the run's file store.
+VIDEO = "try.webm"
+#: Why a passed try has no video, when its page map keeps one only when a try fails.
+VIDEO_ON_FAILURE = "kept only when a try fails"
 _TAIL_BYTES = 16_000
 #: What a span holds in place of content kept from it: not captured, whatever else it says.
 _REDACTED = re.compile(r"__REDACTED__|\[REDACTED\]|<REDACTED>", re.IGNORECASE)
@@ -239,6 +243,9 @@ class PageRecord(Frozen):
     :param files: The try's screenshots and video, by name in the run's file store.
     :param video_missing: Why there is no video when one was to be kept, e.g. the try was cut off
         before the browser could finish it.
+    :param video_policy: When the try's video is kept, as the page map said while it played:
+        ``failed`` (a passed try's is deleted once it is judged, :data:`VIDEO_ON_FAILURE`) or
+        ``always``; ``None`` when none was recorded.
     :param interrupted: The try was cut short (a restart, a stop) before the page was closed.
     :param left_out: Console lines and failed requests past :data:`PAGE_LINES` each, not kept.
     """
@@ -248,6 +255,7 @@ class PageRecord(Frozen):
     failed_requests: tuple[FailedRequest, ...] = ()
     files: tuple[str, ...] = ()
     video_missing: str | None = None
+    video_policy: str | None = None
     interrupted: bool = False
     left_out: int = 0
 

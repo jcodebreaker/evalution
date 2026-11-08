@@ -26,7 +26,16 @@ What the page did is recorded per try (:meth:`PageTarget.record`, a
 reply showed or what showed instead, and a screenshot taken after it (sign-in boxes masked) into
 the run's file store; the console's errors and warnings and uncaught errors, scrubbed of the
 target's secrets; requests to the copy's origin that failed (400 and up, or no answer), by path
-without the query. No video yet.
+without the query.
+
+And a video of the try, unless the map's ``video`` is ``never``: each context records its pages
+(Playwright's ffmpeg, at the viewport's size), and a form sign-in happens on a page of its own,
+closed before the try's page opens, so no video shows the form being filled. ``record`` closes the
+try's page, which finishes its video, and moves it into the file store as
+:data:`~evalution.core.evidence.VIDEO`; the next turn in the same session opens a new page on the
+conversation. A video over :data:`VIDEO_BYTES` is dropped. Without ffmpeg the try plays on with no
+video and says why; a try whose page was never recorded (a restart) says its video is missing. A
+passed try's video is deleted once judged when the map keeps it only for failures (the runner's).
 
 A form or cookie sign-in uses the slot's test account: the target's ``page_accounts``, a list of
 ``{email, password_env}`` (one per slot, the password read as any ``*_env`` is), as the copy's
@@ -47,6 +56,8 @@ import logging
 import os
 import re
 import secrets
+import shutil
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -72,6 +83,7 @@ from evalution.adapters.base import (
 from evalution.adapters.http import RUN_HEADER, TRY_HEADER
 from evalution.config import ConfigError, KeyRing, TargetConfig
 from evalution.core.evidence import (
+    VIDEO,
     Clipped,
     ConsoleLine,
     FailedRequest,
@@ -105,9 +117,18 @@ NO_BROWSER = (
     "page mode needs a browser, and none was found: install Google Chrome, set EVALUTION_CHROME "
     "to a Chrome or Chromium, or run `playwright install chromium`"
 )
-#: Why a page try has no video, in this version.
-NO_VIDEO = "video needs Playwright's ffmpeg"
-NOT_YET_VIDEO = "video isn't recorded in this version"
+#: The page's size in the browser, and its video's.
+VIEWPORT = {"width": 1280, "height": 720}
+#: The largest video a try keeps; a bigger one is dropped, and the try says so.
+VIDEO_BYTES = 50_000_000
+#: Seconds the browser gets to close a try's page and finish its video.
+VIDEO_SECONDS = 30.0
+#: Why a page try has no video.
+NO_VIDEO = "video needs Playwright's ffmpeg: run `playwright install ffmpeg`"
+CUT_OFF = "the try was cut off before its video was finished"
+UNFINISHED = "the browser didn't finish the try's video"
+NOT_KEPT = "the try's video couldn't be kept"
+NO_PAGE = "nothing of the try was on the page to record"
 #: The shortest value scrubbed from what the page wrote: shorter ones are words, not secrets.
 _SCRUB_SHORTEST = 6
 #: Methods a page sends a message with.
@@ -206,28 +227,24 @@ def _env_names(block: Any) -> list[str]:
     return found
 
 
-def video_missing() -> str:
-    """Why a page try has no video: no Playwright ffmpeg here, or not in this version."""
-    home = Path.home()
-    roots = [
-        os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
-        str(home / "Library" / "Caches" / "ms-playwright"),
-        str(home / ".cache" / "ms-playwright"),
-    ]
-    for root in roots:
-        if root and any(Path(root).glob("ffmpeg*")):
-            return NOT_YET_VIDEO
-    return NO_VIDEO
-
-
 @dataclass(frozen=True)
 class PageFiles:
-    """Where a try's screenshots go: the run's file store, under its run, case and try."""
+    """Where a try's screenshots and video go: the run's file store, under its run, case and
+    try."""
 
     files: Files
     run: str
     case: str
     n: int
+
+
+def _kept_video(made: Path, keep: PageFiles) -> None:
+    """Move the finished video *made* into the try's files, as :data:`VIDEO`."""
+    where = keep.files.path(keep.run, keep.case, keep.n, VIDEO)
+    part = where.with_name(f".{VIDEO}.part")
+    shutil.move(made, part)
+    part.chmod(0o600)
+    part.replace(where)
 
 
 @dataclass
@@ -309,10 +326,15 @@ class PageTarget(Target):
         self._lock = asyncio.Lock()
         self._playwright: Any = None
         self._browser: Any = None
-        #: Each session's context and its page, by the key ``Session.extra["page"]`` holds.
+        #: Each session's context and its page, by the key ``Session.extra["page"]`` holds. The
+        #: page is ``None`` once a try's was closed to finish its video, until the next turn.
         self._open: dict[str, tuple[Any, Any]] = {}
         #: What each of those pages did, by the same key.
         self._records: dict[str, _Record] = {}
+        #: Where each context records its videos, by the same key; removed with the context.
+        self._videos: dict[str, Path] = {}
+        #: Whether Playwright's ffmpeg is here; ``None`` until a context tried to record.
+        self._ffmpeg: bool | None = None
 
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
@@ -407,11 +429,12 @@ class PageTarget(Target):
         await self._drop(session)
         added = self._headers(session)
         browser = await self._launched()
-        context = await browser.new_context(**self._context_options())
         key = f"{session.id}:{secrets.token_hex(4)}"
-        page = await context.new_page()
+        context, page = await self._context(browser, key)
+        record = _Record()
         self._open[key] = (context, page)
-        self._records[key] = self._recording(page)
+        self._records[key] = record
+        self._listen(page, record)
         session.extra["page"] = {"context": key}
 
         async def add(route: Any) -> None:
@@ -419,7 +442,43 @@ class PageTarget(Target):
 
         await context.route(self._on_copy, add)
         await self._sign_in(context, page, session)
+        if self.page.sign_in.form is not None:
+            # The form was filled on a page of its own: the try's page, and its video, start
+            # signed in, sharing the context's cookies and storage.
+            signed_in = page
+            page = await context.new_page()
+            self._open[key] = (context, page)
+            self._listen(page, record)
+            await signed_in.close()
         return page
+
+    async def _context(self, browser: Any, key: str) -> tuple[Any, Any]:
+        """A new context and its first page, recording video when the map keeps any and
+        Playwright's ffmpeg is here (else without, and :attr:`_ffmpeg` says so)."""
+        options = {**self._context_options(), "viewport": VIEWPORT}
+        if self.page.video != "never" and self._ffmpeg is not False:
+            folder = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="evalution-video-"))
+            context = None
+            try:
+                context = await browser.new_context(
+                    **options, record_video_dir=str(folder), record_video_size=VIEWPORT
+                )
+                page = await context.new_page()
+            except Exception as exc:
+                if context is not None:
+                    with contextlib.suppress(Exception):
+                        await context.close()
+                await asyncio.to_thread(shutil.rmtree, folder, True)
+                if not isinstance(exc, _api().Error) or "ffmpeg" not in str(exc):
+                    raise
+                _logger.warning("evals: page tries have no video here: %s", NO_VIDEO)
+                self._ffmpeg = False
+            else:
+                self._ffmpeg = True
+                self._videos[key] = folder
+                return context, page
+        context = await browser.new_context(**options)
+        return context, await context.new_page()
 
     def _secret(self, value: str) -> None:
         if len(value) >= _SCRUB_SHORTEST:
@@ -428,10 +487,9 @@ class PageTarget(Target):
     def _scrubbed(self, text: str) -> str:
         return scrub(text, sorted(self._secrets, key=len, reverse=True))
 
-    def _recording(self, page: Any) -> _Record:
-        """A record of what *page* does from now: its console, its uncaught errors, and the
+    def _listen(self, page: Any, record: _Record) -> None:
+        """Keep in *record* what *page* does from now: its console, its uncaught errors, and the
         requests to the copy that fail."""
-        record = _Record()
 
         def console(message: Any) -> None:
             level = {"error": "error", "warning": "warning"}.get(message.type)
@@ -457,7 +515,6 @@ class PageTarget(Target):
         page.on("pageerror", uncaught)
         page.on("response", answered)
         page.on("requestfailed", unanswered)
-        return record
 
     def _record_of(self, session: Session) -> _Record | None:
         key = (session.extra.get("page") or {}).get("context")
@@ -472,12 +529,20 @@ class PageTarget(Target):
             record.turns.clear()
             record.files.clear()
 
-    def record(self, session: Session, t0: float, *, cut_short: bool = False) -> PageRecord:
+    async def record(self, session: Session, t0: float, *, cut_short: bool = False) -> PageRecord:
         """What the page did of the try that started at *t0*, times from it, and forget it. A try
-        *cut_short* (out of time, stopped), or with a turn still going, is ``interrupted``."""
+        *cut_short* (out of time, stopped), or with a turn still going, is ``interrupted``. When
+        the map keeps video and the try has somewhere to keep files, its page is closed to finish
+        its video, which is kept as :data:`VIDEO` (see the module's docstring)."""
         found = self._record_of(session)
+        policy = None if self.page.video == "never" else self.page.video
         if found is None:
-            return PageRecord(interrupted=True, video_missing=video_missing())
+            return PageRecord(interrupted=True, video_missing=CUT_OFF if policy else None)
+        files, missing = list(found.files), None
+        if policy is not None and found.keep is not None:
+            missing = await self._keep_video(session, found.keep)
+            if missing is None:
+                files.append(VIDEO)
         turns = tuple(
             PageTurn(
                 shown_at=None if step["shown_at"] is None else round(step["shown_at"] - t0, 3),
@@ -496,8 +561,9 @@ class PageTarget(Target):
                 FailedRequest(method=method, path=path, status=status, at=round(at - t0, 3))
                 for method, path, status, at in found.failed
             ),
-            files=tuple(found.files),
-            video_missing=video_missing(),
+            files=tuple(files),
+            video_missing=missing,
+            video_policy=policy if VIDEO in files else None,
             interrupted=cut_short or any(not step["done"] for step in found.turns),
         )
         found.console.clear()
@@ -505,6 +571,40 @@ class PageTarget(Target):
         found.turns.clear()
         found.files.clear()
         return made
+
+    async def _keep_video(self, session: Session, keep: PageFiles) -> str | None:
+        """Close the try's page, which finishes its video, and keep that as the try's
+        :data:`VIDEO`. Why there is none; ``None`` when it was kept."""
+        key = session.extra["page"]["context"]
+        context, page = self._open.get(key, (None, None))
+        if page is None:
+            return NO_PAGE
+        video = page.video
+        if video is None:
+            return NO_VIDEO
+        # The next turn in this session, if any, opens a page of its own (:meth:`_live`).
+        self._open[key] = (context, None)
+        api = _api()
+        made = self._videos[key] / f"{secrets.token_hex(4)}.webm"
+        try:
+            await asyncio.wait_for(page.close(), VIDEO_SECONDS)
+            await asyncio.wait_for(video.save_as(made), VIDEO_SECONDS)
+            size = (await asyncio.to_thread(made.stat)).st_size
+        except (api.Error, TimeoutError, OSError):
+            _logger.warning("evals: the video of %s wasn't finished", session.id, exc_info=True)
+            return UNFINISHED
+        if not size:
+            return UNFINISHED
+        if size > VIDEO_BYTES:
+            await asyncio.to_thread(made.unlink, True)
+            most = VIDEO_BYTES // 1_000_000
+            return f"the video was {size / 1_000_000:.1f} MB, more than the {most} MB a try keeps"
+        try:
+            await asyncio.to_thread(_kept_video, made, keep)
+        except (OSError, ValueError):
+            _logger.warning("evals: the video of %s not kept", session.id, exc_info=True)
+            return NOT_KEPT
+        return None
 
     async def _shoot(self, page: Any, record: _Record, index: int) -> str | None:
         """A screenshot of the page after turn *index*, with sign-in boxes masked, kept as the
@@ -614,22 +714,39 @@ class PageTarget(Target):
             await self._act(item.first.click(), opening.pick.item)
         await self._find(page, self.page.ready)
 
-    def _page_of(self, session: Session) -> Any:
-        """:raises TargetGone: This process holds no page for *session*."""
+    async def _live(self, session: Session) -> Any:
+        """*session*'s page; a new one in its context, showing its conversation, when the last
+        try's was closed to finish its video.
+
+        :raises TargetGone: This process holds no context for *session*.
+        """
         key = (session.extra.get("page") or {}).get("context")
         found = self._open.get(key) if isinstance(key, str) else None
         if found is None:
             raise TargetGone("the session's page isn't open")
-        return found[1]
+        context, page = found
+        if page is None:
+            page = await context.new_page()
+            self._open[key] = (context, page)
+            if (record := self._records.get(key)) is not None:
+                self._listen(page, record)
+            await self._show(page, session)
+        return page
 
     async def _drop(self, session: Session) -> None:
-        """Close *session*'s context, if this process holds it."""
+        """Close *session*'s context, if this process holds it, and its videos with it."""
         key = (session.extra.get("page") or {}).get("context")
-        found = self._open.pop(key, None) if isinstance(key, str) else None
-        if isinstance(key, str):
-            self._records.pop(key, None)
-        if found is not None:
-            await found[0].close()
+        if not isinstance(key, str):
+            return
+        found = self._open.pop(key, None)
+        self._records.pop(key, None)
+        folder = self._videos.pop(key, None)
+        try:
+            if found is not None:
+                await found[0].close()
+        finally:
+            if folder is not None:
+                await asyncio.to_thread(shutil.rmtree, folder, True)
 
     # The contract
 
@@ -674,7 +791,7 @@ class PageTarget(Target):
         elif session.extra.get("fresh"):
             turn = Turn("", started, started, error=NO_FRESH, failure=Failure.NOT_SUPPORTED)
         else:
-            page = self._page_of(session)
+            page = await self._live(session)
             turn = await self._played(page, session, message, started, deadline, step)
             if record is not None:
                 step["shot"] = await self._shoot(page, record, len(record.turns))
@@ -825,7 +942,7 @@ class PageTarget(Target):
         if not self.capabilities.conversation_break:
             raise NotImplementedError(f"{self.name} can't start a new conversation on its page")
         await self.inner.break_conversation(session)
-        await self._show(self._page_of(session), session)
+        await self._show(await self._live(session), session)
 
     async def cancel(self, session: Session) -> None:
         """The inner adapter's: the work in flight is the app's, not the page's."""
@@ -846,6 +963,9 @@ class PageTarget(Target):
                 await context.close()
         self._open.clear()
         self._records.clear()
+        for folder in list(self._videos.values()):
+            await asyncio.to_thread(shutil.rmtree, folder, True)
+        self._videos.clear()
         if self._browser is not None:
             with contextlib.suppress(Exception):
                 await self._browser.close()
