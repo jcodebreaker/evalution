@@ -19,12 +19,12 @@ import shutil
 from dataclasses import dataclass, field
 
 from evalution.isolation.discover import Store
+from evalution.isolation.drivers.postgres import DumpScanner
 
 #: Seconds one search inside a container may take.
 SEARCH_SECONDS = 120
 #: Mounts never searched: sockets, and the usual read-only config.
 _SKIP_MOUNT = re.compile(r"\.sock$|^/(etc|proc|sys|dev)(/|$)|\.(sql|conf|ya?ml|json|sh|py)$")
-_COPY = re.compile(r"^COPY ([\w.\"]+) ")
 
 
 @dataclass
@@ -97,23 +97,18 @@ async def _postgres_tables(container: Container, canary: str) -> list[str]:
     db = container.env.get("POSTGRES_DB", user)
     proc = await asyncio.create_subprocess_exec(
         "docker", "exec", container.name, "pg_dump", "-U", user, "-d", db, "--data-only",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=64 << 20,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=256 << 20,
     )  # fmt: skip
-    tables: list[str] = []
-    table = ""
+    scanner = DumpScanner(db, canary)
     assert proc.stdout is not None
     try:
         async with asyncio.timeout(SEARCH_SECONDS):
             async for raw in proc.stdout:
-                line = raw.decode(errors="replace")
-                if (m := _COPY.match(line)) is not None:
-                    table = m.group(1).replace('"', "")
-                elif canary in line and table and f"{db}.{table}" not in tables:
-                    tables.append(f"{db}.{table}")
+                scanner.feed(raw.decode(errors="replace"))
     except TimeoutError:
         proc.kill()
     await proc.wait()
-    return tables
+    return scanner.tables
 
 
 async def _mount_files(container: Container, dest: str, canary: str) -> list[str]:
