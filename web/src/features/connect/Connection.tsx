@@ -9,6 +9,7 @@ import { Spinner } from "../../ui/loading";
 import { KEY_LEFT_BEHIND } from "../shared/hosts";
 import { CheckResult } from "./CheckResult";
 import { Isolation } from "./Isolation";
+import { PlaysThrough } from "./PlaysThrough";
 import { Probe } from "./Probe";
 import { TargetFields } from "./TargetFields";
 import { useCheck } from "./use-check";
@@ -96,6 +97,7 @@ export function Connection({
             : ""}
         </p>
       ) : null}
+      {saved ? <PlaysThrough page={saved.page} /> : null}
       {saved?.adapter_error ? (
         <p className="m-0 text-[13px] text-destructive">
           Its adapter doesn't load: {saved.adapter_error}

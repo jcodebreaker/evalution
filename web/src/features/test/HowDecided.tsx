@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { count } from "../../lib/format";
 import type { CheckRow, Explain, TryOutcome } from "../../lib/schema";
-import { checkWord } from "../../lib/verdict";
+import { checkKindWord, checkWord } from "../../lib/verdict";
 import { SectionHead } from "./SectionHead";
 
 const MARK: Record<TryOutcome, [string, string]> = {
@@ -13,6 +13,8 @@ const MARK: Record<TryOutcome, [string, string]> = {
 
 function Row({ check }: { check: CheckRow }) {
   const [glyph, tone] = MARK[check.outcome];
+  const kind = checkKindWord(check.kind);
+  const tags = [kind, check.guide ? "guide" : null].filter(Boolean).join(" · ");
   return (
     <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-1.5 text-[12.5px]">
       <span
@@ -26,7 +28,7 @@ function Row({ check }: { check: CheckRow }) {
         {glyph}
       </span>
       <span className="break-words text-ink-2">{check.text}</span>
-      {check.guide ? <span className="text-[11px] text-ink-3">guide</span> : null}
+      {tags ? <span className="text-[11px] text-ink-3">{tags}</span> : null}
     </li>
   );
 }

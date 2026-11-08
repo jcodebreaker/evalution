@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { type BeforeWords, beforeWords } from "../../lib/isolation";
 import type { Actual, LineAgreement, PlanStep, TryIsolation } from "../../lib/schema";
+import { PageShown } from "./Page";
 import { StepBody } from "./StepBody";
 
 /** What a try started from, under its "Before" step. */
@@ -62,8 +63,15 @@ function kindLabel(kind: PlanStep["kind"], result: boolean, app: string): string
 
 /** Whether a step held in the try shown: `null` before a run or when nothing says. */
 function held(step: PlanStep): boolean | null {
-  const outcomes = [step.actual, ...step.items.map((item) => item.actual)].filter(
-    (entry): entry is Actual => !!entry,
+  // What the page showed of a message counts as much as its being sent.
+  const page = step.page?.check
+    ? {
+        passed: step.page.check.outcome === "passed",
+        unjudged: step.page.check.outcome === "unjudged",
+      }
+    : undefined;
+  const outcomes = [step.actual, page, ...step.items.map((item) => item.actual)].filter(
+    (entry): entry is Pick<Actual, "passed" | "unjudged"> => !!entry,
   );
   const decided = outcomes.filter((entry) => !entry.unjudged);
   if (decided.some((entry) => !entry.passed)) return false;
@@ -93,11 +101,13 @@ export function Steps({
   isolation?: TryIsolation | null;
 }) {
   let number = 0;
+  let message = 0;
   return (
     <ol className="m-0 flex list-none flex-col p-0">
       {steps.map((step, index) => {
         const numbered = step.kind !== "before" && step.kind !== "passes";
         if (numbered) number += 1;
+        if (step.kind === "say") message += 1;
         // A try's "Before" says what it started from: put back and checked, a new person, or not.
         const before =
           result && step.kind === "before" && isolation ? beforeWords(isolation, step.title) : null;
@@ -138,6 +148,7 @@ export function Steps({
                 onLabel={onLabel}
               />
               {before ? <BeforeNote words={before} /> : null}
+              {result && step.page ? <PageShown page={step.page} n={message} /> : null}
             </div>
           </li>
         );

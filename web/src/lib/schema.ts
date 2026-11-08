@@ -71,6 +71,14 @@ export const TargetDetailSchema = z.object({
   /** From a save: stored secrets that stayed behind, since a host changed. */
   secrets_dropped: z.array(z.string()).default([]),
   managed: z.boolean().default(false),
+  /** How it plays through its own page (ADR 0010), its map in plain words; none: its API. */
+  page: z
+    .object({
+      map: z.array(z.object({ what: z.string(), where: z.string() })).default([]),
+      /** Why its `page:` block doesn't read. */
+      error: z.string().nullable().default(null),
+    })
+    .nullish(),
 });
 export type TargetDetail = z.infer<typeof TargetDetailSchema>;
 
@@ -789,6 +797,25 @@ export const PlanItemSchema = z.object({
 });
 export type PlanItem = z.infer<typeof PlanItemSchema>;
 
+/** How a page check came out, decided by code from the page (ADR 0010). */
+const PageCheckSchema = z.object({ outcome: TryOutcomeSchema, why: z.string().default("") });
+
+/** What the app's page showed of one message, on a try played through it (ADR 0010). */
+export const StepPageSchema = z.object({
+  /** The page's text of the reply; `null`: it never showed. */
+  shown: z.string().nullable().default(null),
+  /** Seconds from the try's first message when it showed. */
+  shown_at: z.number().nullable().default(null),
+  /** What the page showed instead, when the reply didn't show. */
+  instead: z.string().default(""),
+  shot: z.string().nullable().default(null),
+  /** Where the screenshot is read; `null` when this server doesn't hold it. */
+  shot_url: z.string().nullable().default(null),
+  /** The `shown` check of this message. */
+  check: PageCheckSchema.nullable().default(null),
+});
+export type StepPage = z.infer<typeof StepPageSchema>;
+
 export const PlanStepSchema = z.object({
   kind: z.enum(["before", "say", "filler", "break", "state", "agent", "reply", "passes"]),
   title: z.string().default(""),
@@ -808,6 +835,8 @@ export const PlanStepSchema = z.object({
   note: z.string().optional(),
   reference: z.string().optional(),
   actual: ActualSchema.optional(),
+  /** What the page showed of this message; none on a try through the API. */
+  page: StepPageSchema.nullish(),
 });
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 
@@ -834,6 +863,8 @@ export type LaneStep = z.infer<typeof LaneStepSchema>;
 
 const CheckRowSchema = z.object({
   id: z.string(),
+  /** Its check kind (`state`, `shown`, `page_health`, ...); older servers don't say. */
+  kind: z.string().nullish(),
   text: z.string(),
   outcome: TryOutcomeSchema,
   /** Recorded, and doesn't decide. */
@@ -934,11 +965,41 @@ export const LayersSchema = z.object({
 });
 export type Layers = z.infer<typeof LayersSchema>;
 
+/** What the app's page showed over a whole try played through it (ADR 0010). */
+export const TryPageSchema = z.object({
+  console: z.array(z.object({ level: z.string(), text: z.string(), at: z.number() })).default([]),
+  failed_requests: z
+    .array(
+      z.object({
+        method: z.string(),
+        path: z.string(),
+        /** `null`: no answer came. */
+        status: z.number().nullable().default(null),
+        at: z.number(),
+      }),
+    )
+    .default([]),
+  /** Console lines and failed requests past the cap, not kept. */
+  left_out: z.number().default(0),
+  /** The `page_health` check. */
+  health: PageCheckSchema.nullable().default(null),
+  /** How the try comes out on every check but the page's. */
+  without_page: TryOutcomeSchema.nullable().catch(null).default(null),
+  video: z.object({ name: z.string(), url: z.string().nullable() }).nullable().default(null),
+  /** Why there is no video when one was to be kept. */
+  video_missing: z.string().nullable().default(null),
+  /** The try was cut short before the page was closed. */
+  interrupted: z.boolean().default(false),
+});
+export type TryPage = z.infer<typeof TryPageSchema>;
+
 export const CompareSchema = TestPlanSchema.extend({
   run: z.string(),
   verdict: VerdictSchema.nullable().default(null),
   divergence: DivergenceSchema.nullable().catch(null).default(null),
   layers: LayersSchema.nullish(),
+  /** What the app's page showed; none for a try played through the API alone. */
+  page: TryPageSchema.nullish(),
   tries: z
     .array(
       z.object({

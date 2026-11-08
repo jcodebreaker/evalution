@@ -46,6 +46,45 @@ export function ConfirmDialog({
   );
 }
 
+/** One picture, large and centred, with what it shows as its title. */
+export function PictureDialog({
+  onClose,
+  title,
+  src,
+  alt,
+}: {
+  onClose: () => void;
+  title: ReactNode;
+  src: string;
+  alt: string;
+}) {
+  return (
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Backdrop className={BACKDROP} />
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-32px)] w-[min(1100px,calc(100vw-32px))] -translate-1/2 flex-col gap-3 rounded-xl bg-window p-4 shadow-[0_0_0_0.5px_var(--separator),0_24px_60px_-12px_rgba(0,0,0,0.35)] transition-[opacity,scale] duration-150 outline-none data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+          <div className="flex items-center gap-2">
+            <Dialog.Title className="m-0 flex-1 text-[14px] font-semibold">{title}</Dialog.Title>
+            <Dialog.Close className="h-7 rounded-md px-2.5 text-[12.5px] text-ink-2 hover:bg-selection hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+              Close
+            </Dialog.Close>
+          </div>
+          <img
+            src={src}
+            alt={alt}
+            className="min-h-0 w-full rounded-lg object-contain ring-[0.5px] ring-separator"
+          />
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 /** A panel from the end edge, as shadcn's Sheet. */
 export function Sheet({
   onClose,

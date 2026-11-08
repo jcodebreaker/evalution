@@ -477,3 +477,39 @@ def page_map_of(target: TargetConfig) -> PageMap | None:
     except ValidationError as e:
         reasons = "; ".join(_plain(err, where) for err in e.errors())
         raise ConfigError(reasons) from None
+
+
+def _where(found: Locator) -> str:
+    """One element of the map in plain words."""
+    if found.test_id is not None:
+        return f"test id “{found.test_id}”"
+    if found.attr is not None:
+        return f"{found.attr} is “{found.equals}”"
+    return f"{found.role} named “{found.name}”" if found.name is not None else f"any {found.role}"
+
+
+_SIGN_IN = {
+    "none": "nothing",
+    "cookie": "a cookie",
+    "form": "the sign-in form, as a seeded account",
+    "headers": "headers sent only to the copy",
+}
+
+
+def described(page: PageMap) -> list[dict[str, str]]:
+    """The map in plain words, entry by entry, as ``{what, where}``: how the page is played, as a
+    person reads it."""
+    rows = [
+        ("Opens", page.url.replace(COPY_PAGE, "", 1) or "/"),
+        ("Signs in with", _SIGN_IN[page.sign_in.kind]),
+        ("Ready when it shows", _where(page.ready)),
+        ("Message box", _where(page.actions.type.fill)),
+        ("Send", _where(page.actions.send.click)),
+    ]
+    if page.actions.new_chat is not None:
+        rows.append(("New chat", _where(page.actions.new_chat.click)))
+    rows.append(("Replies", _where(page.replies.in_)))
+    if page.busy:
+        rows.append(("Busy while", " or ".join(_where(found) for found in page.busy)))
+    rows.append(("Waits for the reply", f"up to {page.catch_up_seconds:g} s"))
+    return [{"what": what, "where": where} for what, where in rows]

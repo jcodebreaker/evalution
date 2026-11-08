@@ -1,4 +1,6 @@
-import type { Actual, RunTest, TryOutcome, Verdict } from "./schema";
+import type { Actual, Layers, RunTest, StepPage, TryOutcome, Verdict } from "./schema";
+
+type Layer = Layers["stored"];
 
 // The words for how a test, a try or a check came out, so every screen says the same.
 
@@ -103,3 +105,107 @@ export function verdictLine(
   if (test.basis === "model_only") return PASSED_MODEL_ONLY;
   return test.different ? PASSED_DIFFERENT_ROUTE : WORD.pass;
 }
+
+// A try played through the app's page (ADR 0010): which layer held, and what the page showed.
+
+const LAYER_NAME: Record<keyof Layers, string> = {
+  stored: "Stored",
+  answered: "Answered",
+  shown: "Shown",
+};
+
+const LAYER_GLYPH: Record<Layer, string> = { pass: "✓", fail: "✕", unjudged: "?", absent: "" };
+const LAYER_SAID: Record<Layer, string> = {
+  pass: "held",
+  fail: "failed",
+  unjudged: "couldn't judge",
+  absent: "",
+};
+
+/** One layer of a try, as a pill: `Stored ✓`. */
+export type LayerPill = { layer: keyof Layers; text: string; label: string; state: Layer };
+
+/** What the banner says of a try's layers. */
+export type LayerWords = {
+  pills: LayerPill[];
+  /** Said in place of the try's outcome, when only the page failed it. */
+  headline: string | null;
+  /** Only the page failed: through the API alone, the try would have passed. */
+  apiAlone: boolean;
+  /** What the banner adds in a sentence: {@link API_ALONE}, or that the page only guided. */
+  line: string | null;
+};
+
+export const API_ALONE = "Through the API alone, this try would have passed.";
+/** A try that passed although the page failed: the test doesn't let the page decide. */
+export const PAGE_GUIDES =
+  "The page didn't show everything, but this test doesn't let the page decide.";
+
+/**
+ * The banner's layers: which held, and the plain words for a try only the page failed; `null` for
+ * a try played through the API alone. `withoutPage` is how the try comes out on every check but
+ * the page's, when the server says.
+ */
+export function layerWords(
+  layers: Layers | null | undefined,
+  outcome: TryOutcome,
+  withoutPage?: TryOutcome | null,
+): LayerWords | null {
+  if (!layers || layers.shown === "absent") return null;
+  const order = ["stored", "answered", "shown"] as const;
+  const pills = order
+    .filter((layer) => layers[layer] !== "absent")
+    .map((layer) => ({
+      layer,
+      text: `${LAYER_NAME[layer]} ${LAYER_GLYPH[layers[layer]]}`,
+      label: `${LAYER_NAME[layer]}: ${LAYER_SAID[layers[layer]]}`,
+      state: layers[layer],
+    }));
+  const held = (layer: Layer) => layer === "pass" || layer === "absent";
+  const onlyShown = layers.shown === "fail" && held(layers.stored) && held(layers.answered);
+  const apiAlone = onlyShown && (withoutPage ?? "passed") === "passed";
+  let headline: string | null = null;
+  if (onlyShown && outcome === "failed") {
+    headline =
+      layers.stored === "pass"
+        ? "Failed on the page, not in memory"
+        : layers.answered === "pass"
+          ? "Failed on the page, not in the answer"
+          : "Failed on the page";
+  }
+  const line =
+    outcome === "passed"
+      ? layers.shown === "fail"
+        ? PAGE_GUIDES
+        : null
+      : apiAlone
+        ? API_ALONE
+        : null;
+  return { pills, headline, apiAlone, line };
+}
+
+/** What the page showed of one message, in a line, and whether that held. */
+export function shownWords(page: StepPage): { held: boolean | null; text: string } {
+  const outcome = page.check?.outcome;
+  if (outcome === "unjudged") return { held: null, text: "Nothing to show: the turn had no reply" };
+  if (page.shown !== null && outcome !== "failed") {
+    return { held: outcome === "passed" ? true : null, text: "Shown on the page" };
+  }
+  const instead = (page.shown ?? page.instead).trim();
+  return {
+    held: false,
+    text: instead ? `Not shown — the page showed: “${instead}”` : "Not shown on the page",
+  };
+}
+
+/** Who decides a page check: code, from the page. Never a model. */
+export const CHECKED_ON_PAGE = "checked on the page";
+
+const KIND_WORD: Record<string, string> = {
+  shown: "on the page",
+  page_health: "the page's health",
+};
+
+/** A check kind's few words, for the kinds a reader should tell apart; `null` for the rest. */
+export const checkKindWord = (kind: string | null | undefined) =>
+  kind ? (KIND_WORD[kind] ?? null) : null;

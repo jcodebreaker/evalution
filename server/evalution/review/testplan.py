@@ -21,13 +21,21 @@ import hashlib
 import io
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
+from evalution.core.evidence import PageTurn, TryEvidence
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
-from evalution.core.rules import called_of, current, label_of, line_reason, steps_bind
+from evalution.core.rules import (
+    called_of,
+    current,
+    judge_try,
+    label_of,
+    line_reason,
+    steps_bind,
+)
 from evalution.core.trace import Call
 from evalution.judging.steps import actual, describe_arg
 from evalution.llm import Caller, ask_json, fenced, json_answer
@@ -696,6 +704,7 @@ def _tool_rows(attempt: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _check_row(check: CheckResult) -> dict[str, Any]:
     return {
         "id": check.id,
+        "kind": check.kind.value,
         "text": check.why or check.id,
         "outcome": check.outcome.value,
         "guide": check.role is Role.GUIDE,
@@ -781,6 +790,61 @@ def trace_words(attempt: Mapping[str, Any], judged: Judgement) -> str | None:
     return f"{words} ({note})" if note else words
 
 
+def _decided(check: CheckResult | None) -> dict[str, Any] | None:
+    return {"outcome": check.outcome.value, "why": check.why} if check else None
+
+
+def _on_page(
+    steps: Sequence[dict[str, Any]],
+    kept: TryEvidence | None,
+    judged: Judgement,
+    file_url: Callable[[str], str | None],
+) -> dict[str, Any] | None:
+    """What the app's page showed of a try played through it (ADR 0010): each message step's
+    ``page`` (what showed, or what showed instead, when, its screenshot and the ``shown`` check
+    that decided it, by code), and the try's console, failed requests and video. ``None`` for a
+    try played through the API alone. Turns are counted as :func:`_sent` counts them."""
+    page = kept.page if kept is not None else None
+    if kept is None or page is None:
+        return None
+    checks = {c.id: c for c in judged.checks}
+    at = 0
+    for step in steps:
+        if step["kind"] == "filler":
+            at += int(step.get("count") or 1)
+        if step["kind"] != "say":
+            continue
+        at += 1
+        if at > len(kept.turns):
+            continue
+        shown = kept.turns[at - 1].shown
+        seen = page.turns[at - 1] if at <= len(page.turns) else PageTurn()
+        step["page"] = {
+            "shown": shown.text if shown is not None else None,
+            "shown_at": seen.shown_at,
+            "instead": seen.instead.text,
+            "shot": seen.shot,
+            "shot_url": file_url(seen.shot) if seen.shot else None,
+            "check": _decided(checks.get(f"shown:{at}")),
+        }
+    video = next((name for name in page.files if name.endswith(".webm")), None)
+    return {
+        "console": [
+            {"level": line.level, "text": line.text.text, "at": line.at} for line in page.console
+        ],
+        "failed_requests": [r.model_dump(mode="json") for r in page.failed_requests],
+        "left_out": page.left_out,
+        "health": _decided(checks.get("page_health")),
+        # How the try comes out on every check but the page's: through the API alone.
+        "without_page": judge_try(
+            c for c in judged.checks if c.kind not in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH)
+        ).value,
+        "video": {"name": video, "url": file_url(video)} if video else None,
+        "video_missing": page.video_missing,
+        "interrupted": page.interrupted,
+    }
+
+
 def _code_check(item: str, judged: Judgement) -> CheckResult | None:
     """The check behind a reply word or tool result item; a try older than it has none."""
     start = item.replace("-", ":") + ":" if item.startswith("result-") else item.replace("-", ":")
@@ -794,10 +858,14 @@ def compare(
     reasons: Mapping[int, str | None] | None = None,
     marks: Mapping[str, float] | None = None,
     replies: Sequence[str] = (),
+    kept: TryEvidence | None = None,
+    file_url: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
     """*plan* with try *n* of the run's case *entry* (the first that didn't pass when ``None``, else
     the first) laid over it. *reasons* are each try's one-line reason, *marks* the pass marks it was
-    held to, *replies* what came back to each message of the try.
+    held to, *replies* what came back to each message of the try. *kept* is the try's evidence,
+    whose page record (ADR 0010) is laid over its turns too; *file_url* says where the page reads
+    one of its kept files, ``None`` when this server doesn't hold it.
 
     :raises LookupError: No such try.
     """
@@ -895,6 +963,7 @@ def compare(
                 else:
                     item["actual"] = {"passed": False, "text": attempt.get("error") or "Not graded"}
     _sent(steps, attempt, replies)
+    on_page = _on_page(steps, kept, judged, file_url or (lambda _name: None))
     broken = list(attempt.get("limits_broken") or [])
     passes = next((s for s in steps if s["kind"] == "passes"), None)
     if passes is not None:
@@ -936,4 +1005,6 @@ def compare(
             "must": [i["text"] for i in reply_step["items"]] if reply_step else [],
             "highlights": _highlights(reply, lines),
         },
+        # What the app's page showed, for a try played through it (ADR 0010); none through the API.
+        "page": on_page,
     }

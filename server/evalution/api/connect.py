@@ -23,9 +23,11 @@ from evalution.api.deps import (
     target_name,
 )
 from evalution.api.workspaces import Workspace
+from evalution.config import ConfigError, TargetConfig
 from evalution.connect import connect, discover, probe
 from evalution.core.case import SLUG
 from evalution.project.profile import connection, update_connection
+from evalution.runs.page.map import described, page_map_of
 from evalution.targets import Targets
 
 
@@ -49,12 +51,23 @@ def _managed(targets: Targets, name: str) -> str:
     return name
 
 
+def _page(conf: TargetConfig) -> dict[str, Any] | None:
+    """How a target plays through its page (ADR 0010), in plain words; ``None`` when it plays
+    through its API. Read only: the map is written by hand in the target's ``page:`` block."""
+    try:
+        found = page_map_of(conf)
+    except ConfigError as exc:
+        return {"map": [], "error": str(exc)}
+    return None if found is None else {"map": described(found), "error": None}
+
+
 def _view(targets: Targets, name: str) -> dict[str, Any]:
     conf = targets.conf(name)
     info = adapter_info(conf.adapter)
     return {
         **connect.view(conf, name in targets.config.managed),
         "adapter_label": info.label if info else conf.adapter,
+        "page": _page(conf),
         #: Why its adapter doesn't load, when it doesn't: none of its runs can start.
         "adapter_error": broken().get(conf.adapter),
         "adapter_change": connection(targets, name).get("adapter_change"),

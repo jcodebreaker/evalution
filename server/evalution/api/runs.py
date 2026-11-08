@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from evalution.api import isolation_words
 from evalution.api.deps import (
@@ -18,6 +21,7 @@ from evalution.api.deps import (
     target_name,
 )
 from evalution.core.case import MOST_TRIES, Case
+from evalution.core.evidence import TryEvidence
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
 from evalution.results.compare import comparison, default_base
@@ -28,6 +32,7 @@ from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs import trust
 from evalution.runs.runner import RunBusyError
+from evalution.storage.files import FileNameError, Files
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import load_case, sent_files
 
@@ -36,12 +41,34 @@ from evalution.suite.store import load_case, sent_files
 UPLOAD_BYTES = 32 * 2**20
 
 
-def _replies(store: RunStore, run: str, case: str, n: int) -> list[str]:
-    """What came back to each message of one try, from what was kept of it."""
-    for kept in store.evidence(run):
-        if kept.case == case and kept.n == n:
-            return [turn.reply.text for turn in kept.turns]
-    return []
+#: What a kept file is served as, by its ending; anything else is bytes to save, not to show.
+_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webm": "video/webm"}
+
+
+def _kept(store: RunStore, run: str, case: str, n: int) -> TryEvidence | None:
+    """What was kept of one try; ``None`` when nothing was."""
+    return next((e for e in store.evidence(run) if e.case == case and e.n == n), None)
+
+
+def file_url(run: str, case: str, n: int) -> Callable[[str], str]:
+    """Where the page reads one of try *n*'s kept files, by its name."""
+    base = f"/v1/evals/runs/{quote(run, safe='')}/cases/{quote(case, safe='')}/tries/{n}/files"
+    return lambda name: f"{base}/{quote(name, safe='')}"
+
+
+def _here(files: Files | None, run: str, case: str, n: int) -> frozenset[str]:
+    """The try's files this server holds: none hosted, nor for a run played elsewhere."""
+    if files is None:
+        return frozenset()
+    try:
+        return frozenset(files.list(run, case, n))
+    except FileNameError:
+        return frozenset()
+
+
+def _read(files: Files, run: str, case: str, n: int, name: str) -> bytes:
+    with files.open(run, case, n, name) as found:
+        return found.read()
 
 
 def runs_router() -> APIRouter:
@@ -170,6 +197,26 @@ def runs_router() -> APIRouter:
         await asyncio.to_thread(trust.case_view, ws.targets.docs, doc, case, found)
         return found
 
+    @router.get("/evals/runs/{run}/cases/{case}/tries/{n}/files/{name}")
+    async def get_try_file(ws: Current, run: str, case: str, n: int, name: str) -> Response:
+        """One file kept with try *n* (ADR 0010): a screenshot or the video of a try played
+        through the app's page. None hosted, where no page is played, nor for a run played
+        elsewhere, which keeps their names only."""
+        files = ws.targets.files
+        doc = await asyncio.to_thread(ws.runs.load, run) if files is not None else None
+        entry = (doc or {}).get("cases", {}).get(case)
+        if files is None or entry is None or all(t.get("n") != n for t in entry.get("tries", [])):
+            raise not_found("File")
+        try:
+            data = await asyncio.to_thread(_read, files, run, case, n, name)
+        except (FileNameError, FileNotFoundError, IsADirectoryError) as exc:
+            raise not_found("File") from exc
+        media = _MEDIA.get(PurePosixPath(name).suffix.lower(), "application/octet-stream")
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"}
+        if media == "application/octet-stream":
+            headers["Content-Disposition"] = "attachment"
+        return Response(data, media_type=media, headers=headers)
+
     @router.put("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
     async def put_label(
         ws: Current, run: str, case: str, n: int, line: int, body: dict[str, Any]
@@ -240,8 +287,18 @@ def runs_router() -> APIRouter:
         try:
             held = (t["n"] for t in tries if current(t).outcome is not Outcome.PASSED)
             wanted = n or next(held, tries[0]["n"])
-            said = await asyncio.to_thread(_replies, runs.store, run, case, wanted)
-            shown = testplan.compare(plan, entry, n, reasons, pass_marks(doc), said)
+            kept = await asyncio.to_thread(_kept, runs.store, run, case, wanted)
+            here = await asyncio.to_thread(_here, targets.files, run, case, wanted)
+            shown = testplan.compare(
+                plan,
+                entry,
+                n,
+                reasons,
+                pass_marks(doc),
+                [turn.reply.text for turn in kept.turns] if kept else [],
+                kept,
+                lambda name: file_url(run, case, wanted)(name) if name in here else None,
+            )
         except LookupError as exc:
             raise not_found("Try") from exc
         one = next(t for t in (case_detail(doc, case) or {})["tries"] if t["n"] == shown["try"])

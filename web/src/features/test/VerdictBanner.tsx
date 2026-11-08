@@ -1,13 +1,25 @@
 import { cn } from "../../lib/cn";
 import { seconds } from "../../lib/format";
-import type { Compare, TryOutcome } from "../../lib/schema";
-import { NEVER_REACHED, PASSED_MODEL_ONLY, retriedWords, tryWord } from "../../lib/verdict";
+import type { Compare, Layers, TryOutcome } from "../../lib/schema";
+import {
+  layerWords,
+  NEVER_REACHED,
+  PASSED_MODEL_ONLY,
+  retriedWords,
+  tryWord,
+} from "../../lib/verdict";
 
 const MODEL_ONLY = PASSED_MODEL_ONLY.split(", ")[1];
 const TONE: Record<TryOutcome, [string, string, string]> = {
   passed: ["bg-success/12", "text-success", "✓"],
   failed: ["bg-destructive/10", "text-destructive", "✕"],
   unjudged: ["bg-bubble", "text-ink-2", "?"],
+};
+const PILL: Record<Layers["shown"], string> = {
+  pass: "text-success",
+  fail: "text-destructive",
+  unjudged: "text-ink-2",
+  absent: "text-ink-2",
 };
 const DOT: Record<TryOutcome, string> = {
   passed: "bg-success",
@@ -37,6 +49,8 @@ export function VerdictBanner({
     said(those("unjudged"), "couldn't be judged"),
   ];
   const lead = shown.tries.length === 1 ? "" : ` on try ${shown.try}`;
+  // Played through the page: which layer held, and plain words when only the page failed.
+  const layered = layerWords(shown.layers, shown.outcome, shown.page?.without_page);
   return (
     <div
       className={cn(
@@ -47,10 +61,13 @@ export function VerdictBanner({
       <span className={cn("text-[20px]", TONE[shown.outcome][1])}>{TONE[shown.outcome][2]}</span>
       <div className="flex min-w-0 flex-1 flex-col">
         <b className="text-[15px]">
-          {`${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}`}
+          {layered?.headline
+            ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
+            : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}`}
         </b>
         <small className="text-[12.5px] text-ink-2">
           {[
+            layered?.line ?? null,
             shown.passed ? null : shown.reason,
             shown.called ? null : NEVER_REACHED,
             ...retriedWords(shown.retried),
@@ -61,6 +78,26 @@ export function VerdictBanner({
             .join(" ")}
           {shown.seconds === null ? null : ` · ${seconds(shown.seconds)}`}
         </small>
+        {layered ? (
+          <ul
+            aria-label="Which layer held"
+            className="m-0 mt-1.5 flex list-none flex-wrap gap-1.5 p-0"
+          >
+            {layered.pills.map((pill) => (
+              <li
+                key={pill.layer}
+                title={pill.label}
+                className={cn(
+                  "rounded-full bg-group px-2 py-0.5 text-[12px] font-medium ring-[0.5px] ring-separator",
+                  PILL[pill.state],
+                )}
+              >
+                <span aria-hidden>{pill.text}</span>
+                <span className="sr-only">{pill.label}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       {shown.tries.length > 1 ? (
         <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0" aria-label="Tries">

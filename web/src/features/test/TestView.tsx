@@ -16,6 +16,7 @@ import type { Doubt } from "./HowDecided";
 import { HowDecided } from "./HowDecided";
 import { Inspector } from "./Inspector";
 import { Output } from "./Output";
+import { PageNotes } from "./Page";
 import type { Mode } from "./Segmented";
 import { Segmented } from "./Segmented";
 import { Steps } from "./Steps";
@@ -208,6 +209,7 @@ export function TestView({
           ) : (
             <Centered>Couldn't read what this test checks.</Centered>
           )}
+          {view === "result" && shown?.page ? <PageNotes page={shown.page} /> : null}
 
           {view === "result" && shown?.try ? (
             <>
