@@ -188,3 +188,17 @@ def test_container_finds_mark_the_stores_that_name_them():
     assert out["postgresql://prod-test-cluster/app"].seen == []  # an example in the code
     assert len(out["volume:artifact-data"].seen) == 1
     assert len(out) == 5
+
+
+def test_scan_skips_tests_and_their_throwaway_stores(tmp_path):
+    root = _write(
+        tmp_path,
+        {
+            "app/db.py": 'import sqlite3\nsqlite3.connect("data/app.db")\n',
+            "tests/test_db.py": 'sqlite3.connect("test.db")\n',
+            "engine/tests/db/helpers.py": 'URL = "postgresql://localhost:5432/testdb"\n',
+            "app/db_test.py": 'open("fixture.sqlite")\n',
+            "node_modules/pg/index.js": "process.env.DATABASE_URL\n",
+        },
+    )
+    assert _kinds(discover.scan(root)) == {("sqlite", "data/app.db")}

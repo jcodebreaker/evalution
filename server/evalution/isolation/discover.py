@@ -17,6 +17,7 @@ Stores found more than once are merged by kind and locator, keeping every piece 
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -173,25 +174,37 @@ def env_kind(name: str, example: str = "") -> str | None:
 def files(folder: Path) -> dict[str, str]:
     """``relative path -> text`` of what can name a store. Never a secrets file."""
     out: dict[str, str] = {}
-    for path in sorted(folder.rglob("*")):
-        rel = path.relative_to(folder).as_posix()
-        parts = Path(rel).parts
-        if any(
-            p in _SKIP or (p.startswith(".") and p not in (".env.example", ".env.sample"))
-            for p in parts
-        ):
-            continue
-        if not path.is_file() or not _TEXT.search(rel) or is_secret(rel) or rel.endswith(".lock"):
-            continue
-        try:
-            if path.stat().st_size > MAX_BYTES:
+    for dirpath, dirs, names in os.walk(folder):
+        # Folders pruned as they are met: hidden ones, build output, dependencies and tests.
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if d not in _SKIP and not d.startswith(".") and d.lower() not in _TEST_DIR
+        )
+        for name in sorted(names):
+            path = Path(dirpath) / name
+            rel = path.relative_to(folder).as_posix()
+            if name.startswith(".") and name not in (".env.example", ".env.sample"):
                 continue
-            out[rel] = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if len(out) >= MAX_FILES:
-            break
+            if _TEST_FILE.match(name) or not _TEXT.search(rel) or is_secret(rel):
+                continue
+            if rel.endswith(".lock") or not path.is_file():
+                continue
+            text = _read(path)
+            if text is not None:
+                out[rel] = text
+            if len(out) >= MAX_FILES:
+                return out
     return out
+
+
+def _read(path: Path) -> str | None:
+    try:
+        if path.stat().st_size > MAX_BYTES:
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def _package_names(rel: str, text: str) -> list[tuple[int, str]]:
