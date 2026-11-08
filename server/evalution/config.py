@@ -202,6 +202,15 @@ class TracesConfig:
 
 
 @dataclass(frozen=True)
+class IsolationConfig:
+    """How a run treats an app with no proven isolation plan (ADR 0009). ``require_proven``:
+    refuse to run it (``evalution isolate --target T`` makes one); off (the default), it runs on
+    the app as it is, every result labelled not isolated."""
+
+    require_proven: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     file: Path
     root: Path
@@ -215,6 +224,7 @@ class Config:
     #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
+    isolation: IsolationConfig = IsolationConfig()
     #: The ready-made test library (``library/stateful/*.json``).
     library_dir: Path = Path("library")
     #: One real turn before the first run on an adapter and its settings (``runs/preflight.py``).
@@ -309,6 +319,13 @@ def _traces(block: dict[str, Any]) -> TracesConfig:
     if isinstance(stuck, bool) or not isinstance(stuck, (int, float)) or stuck < 0:
         raise ConfigError("traces.stuck_seconds: a number of 0 or more")
     return TracesConfig(keep_days, float(settle), float(stuck))
+
+
+def _isolation(block: dict[str, Any]) -> IsolationConfig:
+    required = block.get("require_proven", False)
+    if not isinstance(required, bool):
+        raise ConfigError("isolation.require_proven: true or false")
+    return IsolationConfig(require_proven=required)
 
 
 def _check_adapters(raw: dict[str, Any]) -> bool:
@@ -451,6 +468,7 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
         },
         managed=frozenset(n for n in managed if n not in own),
         traces=_traces(_dict(data.get("traces"), "traces")),
+        isolation=_isolation(_dict(data.get("isolation"), "isolation")),
         library_dir=where("library_dir", "library"),
         check_adapters=_check_adapters(data),
         adapters_dir=where("adapters_dir", "data/adapters") if "adapters_dir" in data else None,

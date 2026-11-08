@@ -123,6 +123,13 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "restore_seconds": null
+     },
      "label": "Passed",
      "limits_broken": [],
      "n": 1,
@@ -331,6 +338,13 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "restore_seconds": null
+     },
      "label": "Passed",
      "limits_broken": [],
      "n": 2,
@@ -539,6 +553,13 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "restore_seconds": null
+     },
      "label": "Passed",
      "limits_broken": [],
      "n": 3,
@@ -730,6 +751,10 @@
    }
   ],
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -837,6 +862,10 @@
   },
   "error": null,
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,

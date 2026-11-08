@@ -10,6 +10,7 @@ import asyncio
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from evalution.adapters.base import (
     failure_of,
     may_have_heard,
 )
+from evalution.config import IsolationConfig
 from evalution.core.evidence import (
     ITEM_BYTES,
     Clipped,
@@ -77,6 +79,7 @@ from evalution.review.findings import report_input
 from evalution.review.health import _played, _verdicts, regressions
 from evalution.runs import play, runner, trust
 from evalution.runs.collect import TRACE_WAIT, Wanted, own_spans
+from evalution.runs.isolated import NotIsolated
 from evalution.runs.play import play_try, play_with_retry
 from evalution.runs.preflight import forget_setup, passed_setups, remember_setup, setup_key
 from evalution.runs.runner import STILL_WORKING, RunBusyError, Runs
@@ -625,17 +628,17 @@ async def test_10_control_a_slower_agent_gets_the_right_answer(make_rig) -> None
 # 11. Leaks across tries
 
 
-async def _store_breaks_in_try_2(make_rig, faults: list[str]) -> dict:
-    rig = make_rig(faults)
-    rig.agent.store_fails_from_try = 2
+async def _store_breaks_in_try_2(make_rig, faults: list[str], **options: Any) -> dict:
+    rig = make_rig(faults, options={"store_fails_from_try": 2, **options})
     rig.fill("memory-recalls-fact")
     # Two tries exactly: unasked, a pass and a fail would play on.
     return await rig.run(tries=2)
 
 
 @known(
-    "Nothing looks for state surviving a reset, and fresh is only handed to the adapter: try 2 "
-    "stores nothing and passes on what try 1 left behind"
+    "With no proven isolation plan, an adapter's own reset is trusted and fresh is only handed to "
+    "it: try 2 stores nothing and passes on what try 1 left behind. A managed target is put back "
+    "and checked before every try (test_11_on_a_managed_copy_...)"
 )
 async def test_11_a_pass_resting_on_a_leak_is_not_a_pass(make_rig) -> None:
     doc = await _store_breaks_in_try_2(make_rig, ["leak_across_tries", "forgets_to_store"])
@@ -646,6 +649,68 @@ async def test_11_control_without_the_leak_try_2_fails(make_rig) -> None:
     doc = await _store_breaks_in_try_2(make_rig, ["forgets_to_store"])
     assert _verdict(doc) == "flaky"
     assert [current(t).outcome.value for t in _tries(doc)] == ["passed", "failed"]
+    assert {t["isolation"]["how"] for t in _tries(doc)} == {"identity"}
+    assert doc["isolation"] == {"how": "identity", "plan_version": None}
+
+
+#: Where the file-backed agent keeps its memory, in its rig's folder.
+MEMORY_FILE = "app-data/memory.json"
+
+
+async def _on_a_managed_copy(make_rig, faults: list[str], *, drifts: bool = False) -> dict:
+    """The same agent keeping its memory in a file, as a managed target: a proven plan names the
+    folder, and the runner plays on evalution's own copy of the app."""
+    rig = make_rig(faults, options={"store_fails_from_try": 2, "memory_file": MEMORY_FILE})
+    rig.manage(drifts=drifts)
+    rig.fill("memory-recalls-fact")
+    return await rig.run(tries=2)
+
+
+async def test_11_on_a_managed_copy_a_pass_resting_on_a_leak_is_not_a_pass(make_rig) -> None:
+    doc = await _on_a_managed_copy(make_rig, ["leak_across_tries", "forgets_to_store"])
+    # Putting the copy back took try 1's memory away: try 2 stores nothing and fails, as it should.
+    assert _verdict(doc) != "pass"
+    assert [current(t).outcome.value for t in _tries(doc)] == ["passed", "failed"]
+    labels = [t["isolation"] for t in _tries(doc)]
+    assert all(lab["how"] == "proven" and lab["plan_version"] == 1 for lab in labels)
+    assert all(lab["checked"] == [lab["checked"][0]] and lab["problem"] is None for lab in labels)
+    assert all(isinstance(lab["restore_seconds"], float) for lab in labels)
+    assert doc["isolation"] == {"how": "proven", "plan_version": 1}
+    assert summary(doc)["isolation"] == doc["isolation"]
+
+
+async def test_11_control_unmanaged_the_same_file_backed_agent_passes_on_the_leak(make_rig) -> None:
+    rig = make_rig(
+        ["leak_across_tries", "forgets_to_store"],
+        options={"store_fails_from_try": 2, "memory_file": MEMORY_FILE},
+    )
+    rig.fill("memory-recalls-fact")
+    doc = await rig.run(tries=2)
+    # The false pass the managed copy prevents: try 2 recalls what try 1 stored.
+    assert _verdict(doc) == "pass"
+    assert {t["isolation"]["how"] for t in _tries(doc)} == {"identity"}
+
+
+async def test_11_on_a_managed_copy_a_reset_that_doesnt_hold_leaves_the_try_unjudged(
+    make_rig,
+) -> None:
+    doc = await _on_a_managed_copy(make_rig, ["forgets_to_store"], drifts=True)
+    tries = _tries(doc)
+    assert [current(t).outcome.value for t in tries] == ["unjudged", "unjudged"]
+    assert all(t["isolation"]["problem"].startswith("reset didn't hold: ") for t in tries)
+    assert all(t["isolation"]["checked"] == [] for t in tries)
+    assert all(t["error"].startswith("reset didn't hold") for t in tries)
+    assert _verdict(doc) != "pass"
+
+
+async def test_11_a_managed_target_with_require_proven_and_no_plan_is_refused(make_rig) -> None:
+    rig = make_rig()
+    rig.fill("memory-recalls-fact")
+    rig.targets.config = replace(rig.config, isolation=IsolationConfig(require_proven=True))
+    with pytest.raises(NotIsolated, match="evalution isolate --target agent"):
+        rig.runs.estimate(TARGET, SET, None, 1)
+    rig.targets.config = rig.config
+    assert rig.runs.estimate(TARGET, SET, None, 1)["isolation"]["how"] == "identity"
 
 
 # 12. What the approval covers

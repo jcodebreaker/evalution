@@ -49,6 +49,7 @@ def make_rig(tmp_path, clock, monkeypatch):
     try:
         yield make
     finally:
+        scripted_agent.WIRES.clear()
         monkeypatch.undo()
         adapters.infos.cache_clear()
         adapters.own_traffic.cache_clear()
