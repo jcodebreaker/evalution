@@ -20,6 +20,7 @@ opened on a person's own app.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import re
 import time
@@ -29,6 +30,7 @@ from typing import Any
 
 from evalution.adapters.base import Capabilities, Target
 from evalution.config import Config
+from evalution.core.evidence import VIDEO
 from evalution.runs import isolated
 from evalution.runs.page.map import PageMap, read_map
 from evalution.runs.page.target import PageFiles, PageTarget, on_page, page_missing
@@ -218,14 +220,21 @@ async def rehearse(
             with contextlib.suppress(Exception):
                 await page.dispose_browser()
     instead = record.turns[0].instead.text if record.turns else ""
+    passed = turn.error is None and turn.shown is not None
+    kept = list(record.files)
+    if passed and keep is not None and record.video_policy == "failed" and VIDEO in kept:
+        # As a run does: a video is kept only of a try that didn't pass.
+        with contextlib.suppress(OSError, ValueError):
+            await asyncio.to_thread(keep.files.delete, keep.run, keep.case, keep.n, VIDEO)
+        kept.remove(VIDEO)
     return Rehearsed(
-        passed=turn.error is None and turn.shown is not None,
+        passed=passed,
         reply=turn.reply,
         shown=turn.shown,
         instead=instead,
         error=turn.error,
-        shots=list(record.files),
-        at={"run": keep.run, "case": keep.case, "n": keep.n} if keep and record.files else None,
+        shots=kept,
+        at={"run": keep.run, "case": keep.case, "n": keep.n} if keep and kept else None,
         seconds=round(time.time() - started, 1),
         console=[line.text.text for line in record.console if line.level == "error"][:5],
     )
