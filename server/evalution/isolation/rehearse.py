@@ -1,32 +1,62 @@
-"""A plan for resetting an app's stores, tried once before any test relies on it (prototype).
+"""A plan for resetting an app's stores, tried once on a copy before any test relies on it.
 
-The plan names the stores to reset. The rehearsal:
+The plan's stores are each a :class:`~evalution.isolation.drivers.Driver`. The rehearsal:
 
 1. stops the app and keeps each planned store as it is now: the **starting state**, and its hash;
-2. starts the app and sends a probe carrying a canary, watching every folder the app uses;
-3. stops it, and fails if the canary reached nothing planned, or if the app wrote to a file no
-   planned store covers;
+2. starts the app and sends a probe carrying a canary, watching the folders the app uses here;
+3. stops it, and fails if the canary reached nothing planned, or if the app wrote outside the
+   plan: a file here no planned store covers, or (inside containers, where nothing can be
+   watched file by file) a place the canary turned up that no planned store holds;
 4. puts every planned store back to the starting state and fails if its hash doesn't match;
-5. starts the app again and fails if the canary is still anywhere it can reach;
+5. starts the app again and fails if the canary is still anywhere it can be looked for;
 6. always ends with the starting state put back and the app started, so a rehearsal leaves the
    app exactly as it found it, whatever happened.
 
 Only what the plan names is ever replaced, and only by its own copy from step 1. The copies live
-in a folder of evalution's own.
+in a folder of evalution's own. A planned store whose hash the probe didn't move is reported as
+unconfirmed, not as a failure. Tables the plan leaves out (traces) are never a leak.
 """
 
 from __future__ import annotations
 
+import asyncio
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from evalution.code import SKIP_DIRS
 from evalution.isolation import observe
+from evalution.isolation.drivers import Driver
 from evalution.isolation.drivers.files import SIDECARS, FileStore
 
-__all__ = ["SIDECARS", "FileStore", "Rehearsal", "Step", "rehearse"]
+__all__ = ["SIDECARS", "FileStore", "Rehearsal", "Runner", "Step", "rehearse", "scan_files"]
+
+
+class Runner(Protocol):
+    """The app as a rehearsal works it: started, stopped with its stores kept, and probed."""
+
+    async def start(self) -> None:
+        """Start the app (again) and wait until it answers."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop it, its stores kept, so drivers can copy them whole."""
+        ...
+
+    async def probe(self, canary: str) -> object:
+        """Send one message carrying *canary*."""
+        ...
+
+    def watch_roots(self) -> list[Path]:
+        """Folders on this computer the running app writes in (may be none)."""
+        ...
+
+    async def search(self, canary: str) -> list[str]:
+        """Every place *canary* is, as a path here or ``container:where`` inside a container:
+        the watched folders and every container of the app, those it started included."""
+        ...
 
 
 @dataclass
@@ -40,23 +70,33 @@ class Step:
 class Rehearsal:
     ok: bool
     steps: list[Step] = field(default_factory=list)
-    #: Files outside the plan the canary reached, or the app wrote to.
+    #: Places outside the plan the canary reached, or the app wrote to.
     leaks: list[str] = field(default_factory=list)
+    #: Planned stores the probe didn't change: kept in the plan, but not shown to be needed.
+    unconfirmed: list[str] = field(default_factory=list)
+    #: Seconds the whole rehearsal took.
+    seconds: float = 0.0
 
     def report(self) -> str:
         lines = [
             f"{'ok ' if s.ok else 'NO '} {s.name}{': ' + s.detail if s.detail else ''}"
             for s in self.steps
         ]
+        if self.unconfirmed:
+            lines.append(
+                f"Unconfirmed (the probe didn't change them): {', '.join(self.unconfirmed)}"
+            )
+        failed = next((s for s in self.steps if not s.ok), None)
         lines.append(
             "Proven: the plan resets everything the probe reached."
             if self.ok
-            else "Not proven: " + (", ".join(self.leaks) or self.steps[-1].detail)
+            else "Not proven: "
+            + (", ".join(self.leaks) or (failed.detail if failed else "") or "see above")
         )
         return "\n".join(lines)
 
 
-def _scan(roots: list[Path], canary: str) -> list[str]:
+def scan_files(roots: Sequence[Path], canary: str) -> list[str]:
     """Every file under *roots* that holds *canary*."""
     found = []
     for root in roots:
@@ -70,81 +110,119 @@ def _scan(roots: list[Path], canary: str) -> list[str]:
 
 
 async def rehearse(
-    stores: list[FileStore],
-    folder: Path,
-    start: Callable[[], Awaitable[int | None]],
-    stop: Callable[[], Awaitable[None]],
-    probe: Callable[[str], Awaitable[object]],
+    drivers: Sequence[Driver],
+    runner: Runner,
     workdir: Path,
+    *,
+    ignore: Sequence[str] = (),
 ) -> Rehearsal:
     """Try the plan once on a running app (see the module's docstring).
 
-    :param start: Starts the app and returns its process id, when it has one on this computer.
-    :param stop: Stops it, so its stores can be copied whole.
-    :param probe: Sends one message carrying the canary it's given.
+    :param drivers: The plan's stores, on the app the runner works.
     :param workdir: An empty folder of evalution's own, for the starting state.
+    :param ignore: Places never counted as a leak, ``db.schema.table`` (the plan's traces).
     """
+    started_at = asyncio.get_running_loop().time()
     out = Rehearsal(ok=False)
     canary = f"eval-rehearsal-{secrets.token_hex(6)}"
-    kept: list[tuple[FileStore, Path]] = []
+    kept: list[tuple[Driver, Path]] = []
     before: dict[str, str] = {}
-    started = False
+    running = True  # a rehearsal is handed a started app
 
     def step(name: str, ok: bool, detail: str = "") -> bool:
         out.steps.append(Step(name, ok, detail))
         return ok
 
-    def unplanned(paths: list[str]) -> list[str]:
-        return [p for p in paths if not any(s.covers(p) for s in stores)]
+    def outside(places: list[str]) -> list[str]:
+        """*places* no planned store covers and the plan doesn't leave alone."""
+        return [
+            p
+            for p in places
+            if not any(d.covers(p) for d in drivers)
+            and not any(p.partition(":")[2] == i or p == i for i in ignore)
+        ]
+
+    async def holding() -> list[str]:
+        found: list[str] = []
+        for d in drivers:
+            found += await asyncio.to_thread(d.holding, canary)
+        return found
+
+    async def digests() -> dict[str, str]:
+        return {d.name: await asyncio.to_thread(d.digest) for d in drivers}
 
     try:
-        await stop()
-        before = {s.name: s.digest() for s in stores}
-        for i, store in enumerate(stores):
-            store.keep(workdir / str(i))
-            kept.append((store, workdir / str(i)))
+        await runner.stop()
+        running = False
+        before = await digests()
+        for i, d in enumerate(drivers):
+            await asyncio.to_thread(d.keep, workdir / str(i))
+            kept.append((d, workdir / str(i)))
         step("starting state kept", True, f"{len(kept)} stores")
 
-        pid = await start()
-        started = True
-        open_files = observe.open_by(pid)[0] if pid else []
-        roots = observe.roots_for(folder, open_files, [])
-        roots += [s.path.parent for s in stores if not any(s.path.is_relative_to(r) for r in roots)]
-        snap = observe.snapshot(roots)
-        await probe(canary)
-        await stop()
-        started = False
-        created, changed, _ = observe.diff(snap, observe.snapshot(roots))
-        reached = [p for s in stores for p in s.holding(canary)]
+        await runner.start()
+        running = True
+        roots = runner.watch_roots()
+        roots += [
+            s.path.parent
+            for s in drivers
+            if isinstance(s, FileStore) and not any(s.path.is_relative_to(r) for r in roots)
+        ]
+        snap = await asyncio.to_thread(observe.snapshot, roots)
+        await runner.probe(canary)
+        found = await runner.search(canary)  # while it runs: a container is searched from inside
+        await runner.stop()
+        running = False
+        after = await asyncio.to_thread(observe.snapshot, roots)
+        created, changed, _ = observe.diff(snap, after)
+        moved = await digests()
+        out.unconfirmed = [d.name for d in drivers if moved[d.name] == before[d.name]]
+        reached = await holding()
         if not step("the probe reached a planned store", bool(reached), ", ".join(reached)):
-            out.leaks = unplanned(_scan(roots, canary))
+            out.leaks = outside(found)
             return out
-        stray = unplanned(sorted({*created, *changed}))
+        stray = outside(sorted({*created, *changed, *found}))
         if not step("the app wrote only to planned stores", not stray, ", ".join(stray)):
             out.leaks = stray
             return out
 
-        for store, copy in kept:
-            store.put_back(copy)
-        moved = [s.name for s in stores if s.digest() != before[s.name]]
-        if not step("put back to the starting state", not moved, ", ".join(moved)):
+        for d, copy in kept:
+            await asyncio.to_thread(d.put_back, copy)
+        back = await digests()
+        differ = [d.name for d in drivers if back[d.name] != before[d.name]]
+        if not step("put back to the starting state", not differ, ", ".join(differ)):
             return out
 
-        pid = await start()
-        started = True
-        left = _scan(roots, canary)
+        await runner.start()
+        running = True
+        left = [*await holding(), *outside(await runner.search(canary))]
         if not step("the canary is gone after the reset", not left, ", ".join(left)):
             out.leaks = left
             return out
         out.ok = True
         return out
+    except Exception as exc:  # a driver or the app failing ends the rehearsal, not the cleanup
+        step("stopped by an error", False, f"{type(exc).__name__}: {exc}")
+        out.ok = False
+        return out
     finally:
-        if started:
-            await stop()
-        for store, copy in kept:
-            store.put_back(copy)
-        if kept:
-            back = all(s.digest() == before[s.name] for s, _ in kept)
-            step("left as it was found", back)
-            out.ok = out.ok and back
-        await start()
+        try:
+            if running:
+                await runner.stop()
+            for d, copy in kept:
+                await asyncio.to_thread(d.put_back, copy)
+            if kept:
+                now = await digests()
+                same = all(now[d.name] == before[d.name] for d, _ in kept)
+                step("left as it was found", same)
+                out.ok = out.ok and same
+            for d, copy in kept:
+                drop = getattr(d, "drop_golden", None)
+                if drop is not None:
+                    await asyncio.to_thread(drop, copy)
+        except Exception as exc:  # said in the report, then the app is started
+            step("left as it was found", False, f"{type(exc).__name__}: {exc}")
+            out.ok = False
+        finally:
+            await runner.start()
+            out.seconds = round(asyncio.get_running_loop().time() - started_at, 1)

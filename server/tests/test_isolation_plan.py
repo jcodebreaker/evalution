@@ -210,3 +210,17 @@ def test_strategy_rules():
     assert strategy_for("hosted", "package:mem0ai", ["MEM0_URL"], None, False) == "none"
     assert strategy_for("memory", "InMemoryStore", [], None, False) == "relocate"
     assert strategy_for("redis", "env:REDIS_URL", [], "session", False) == "none"
+
+
+def test_evidence_is_kept_beside_the_plan_and_leaks_round_trip(tmp_path):
+    from evalution.isolation.plan import _TRACES, TRACES, Plan, PlanStore
+
+    assert TRACES is _TRACES and TRACES.search("otel_spans")
+    store = PlanStore(tmp_path)
+    assert store.load_evidence("app") is None
+    path = store.save_evidence("app", {"candidates": [{"kind": "dir", "seen": ["written: x"]}]})
+    assert path == tmp_path / "isolation" / "app" / "evidence.json"
+    assert store.load_evidence("app") == {"candidates": [{"kind": "dir", "seen": ["written: x"]}]}
+    plan = Plan(target="app", leaks=["c:volume:v/memory_index"])
+    assert Plan.from_json(plan.to_json()).leaks == ["c:volume:v/memory_index"]
+    assert Plan.from_json('{"target": "old"}').leaks == []

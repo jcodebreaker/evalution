@@ -36,6 +36,13 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   prototype, :mod:`evalution.isolation`). Alone, a read of the folder: free. With ``--target``,
   one probe message carrying a canary goes through T's adapter while the process listening on P
   (default the target's port) is watched, and what it wrote is lined up with what the code names.
+* ``isolate --target T [--keep] [--yes] [--slot N]``: start evalution's own copy of T's app,
+  find its stores with one probe, draft a reset plan and rehearse it on the copy with a second
+  (:mod:`evalution.isolation.isolate`). Shows the copy and asks before any message is sent. Prints
+  the rehearsal's account and where the plan is kept; exits 1 when it isn't proven. The copy is
+  taken down after, unless ``--keep``.
+* ``isolation down [PROJECT]``: take down a copy (only ``eval-*``); without PROJECT, list them.
+  ``isolation show --target T``: the target's saved plan.
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
@@ -75,7 +82,10 @@ from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
 from evalution.isolation import containers as store_boxes
 from evalution.isolation import discover as store_scan
+from evalution.isolation import isolate as isolation
+from evalution.isolation import launch as app_copies
 from evalution.isolation import observe as store_watch
+from evalution.isolation.plan import PlanStore
 from evalution.llm import LLM
 from evalution.project import hooks as git_hooks
 from evalution.results import baseline
@@ -473,6 +483,67 @@ async def _probe_stores(
     return seen, boxes, await store_boxes.search(boxes, canary)
 
 
+async def isolate(config: Config, args: argparse.Namespace) -> int:
+    """Find, plan and rehearse T's stores on a copy; 0 when the plan is proven."""
+
+    async def ask(summary: str) -> bool:
+        print(summary)
+        print(
+            "Two messages go to the copy (not to your app): one to find where it keeps what it's "
+            "told, one to rehearse resetting that."
+        )
+        try:
+            answer = await asyncio.to_thread(input, "Send them? [y/N] ")
+        except EOFError:
+            answer = ""
+        return answer.strip().lower() in ("y", "yes")
+
+    try:
+        plan = await isolation.isolate(
+            config, args.target, slot=args.slot, yes=args.yes, ask=ask, keep=args.keep
+        )
+    except isolation.Declined:
+        print("evalution: nothing sent; the copy is taken down", file=sys.stderr)
+        return 1
+    except app_copies.LaunchError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    print(plan.report)
+    print(f"Plan ({plan.status}): {isolation.plan_path(config, args.target)}")
+    if args.keep:
+        name = app_copies.project_name(args.target, args.slot)
+        print(f"The copy is still running: evalution isolation down {name}")
+    return 0 if plan.status == "proven" else 1
+
+
+async def isolation_copies(config: Config, args: argparse.Namespace) -> int:
+    """``isolation down [PROJECT]`` and ``isolation show --target T``."""
+    if args.action == "show":
+        if not args.target:
+            raise LookupError("isolation show needs --target")
+        plan = PlanStore(config.data_dir).load(args.target)
+        if plan is None:
+            print(f"evalution: {args.target} has no isolation plan yet", file=sys.stderr)
+            return 1
+        print(f"{args.target}: {plan.status}, {len(plan.stores)} store(s)")
+        print(plan.report)
+        print(f"Plan: {isolation.plan_path(config, args.target)}")
+        return 0
+    if not args.project:
+        found = await app_copies.copies()
+        print("\n".join(found) if found else "No copies of evalution's are on this computer.")
+        return 0
+    try:
+        app_copies.guard(args.project)
+        await app_copies.down(args.project)
+        left = await isolation.clear_extras(args.project)
+    except app_copies.LaunchError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    print(f"Took down {args.project}" + (f", and {', '.join(left)}" if left else ""))
+    return 0
+
+
 def migrate(config: Config) -> int:
     changed, unreadable = RunStore(Targets(config).docs).upcast_all()
     print(f"evalution: {len(changed)} runs rewritten")
@@ -813,6 +884,17 @@ def main(argv: list[str] | None = None) -> int:
     found.add_argument("--port", type=int, help="the port the app's process listens on")
     found.add_argument("--yes", action="store_true")
     found.add_argument("--json", action="store_true")
+    iso = sub.add_parser(
+        "isolate", help="find, plan and rehearse a target's resets on a copy: sends two messages"
+    )
+    iso.add_argument("--target", required=True)
+    iso.add_argument("--slot", type=int, default=0, help="which copy: eval-<target>-<slot>")
+    iso.add_argument("--keep", action="store_true", help="leave the copy running after")
+    iso.add_argument("--yes", action="store_true", help="send without asking")
+    copy_cmd = sub.add_parser("isolation", help="evalution's copies of apps, and saved plans")
+    copy_cmd.add_argument("action", choices=("down", "show"))
+    copy_cmd.add_argument("project", nargs="?", help="down: the copy (eval-*); none lists them")
+    copy_cmd.add_argument("--target", help="show: whose plan")
     hook = sub.add_parser("hooks", help="git hooks in the target's repo, opt-in")
     hook.add_argument("action", choices=("install", "uninstall", "status"))
     hook.add_argument("--target", required=True)
@@ -866,6 +948,10 @@ def main(argv: list[str] | None = None) -> int:
             return hooks(config, args)
         if args.command == "stores":
             return find_stores(config, args)
+        if args.command == "isolate":
+            return asyncio.run(isolate(config, args))
+        if args.command == "isolation":
+            return asyncio.run(isolation_copies(config, args))
         if args.command == "check":
             return asyncio.run(check_target(config, args.target, args.isolation))
         if args.command == "compare":
