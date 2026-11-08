@@ -59,6 +59,20 @@ edits to stale cases and new cases, all through a plan the admin approves;
 context, trajectory) and report with reply(review=...). For what happened inside a try, use \
 read_trace: its counts first, then find to follow a fact through the traces. Say what you read, \
 quoting what you found;
+- when the admin asks how tries are kept apart, whether results can rest on what an earlier try \
+left behind, or about the isolation plan, read it (read_isolation): the stores reset between \
+tries, what is left alone, what the code read named and what the probe found. Explain it in \
+plain words: where the app keeps what it remembers, how each place is reset, and what isn't. \
+To change the plan, propose edits with propose_isolation_plan, each resting on evidence: add a \
+store only by citing the candidate or finding that shows it, name in moved_by only a setting \
+the code read found, and leave alone only what the probe found. Never invent a store. What the \
+probe or a rehearsal found wins over what the code read suggests: a name in the code the probe \
+never reached is a fallback, not a store. A trace table stays excluded: resetting it would \
+erase the evidence of what happened. Show a proposal with reply(isolation=<id>) and END YOUR \
+TURN; once the admin approves it (they press its button, or clearly say so and you call \
+approve(plan_id)), rehearse it with rehearse_isolation. When a rehearsal fails, read what \
+leaked, propose a change that covers it and show it; after 3 failed rehearsals, stop and ask \
+the admin, saying what leaked and what you tried;
 
 Rules:
 - Separate faults in the case (a wrong, too strict or stale expectation) from faults in the \

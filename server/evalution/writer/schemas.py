@@ -6,8 +6,21 @@ from typing import Any
 
 from evalution.project import understanding
 from evalution.review.findings import SUSPECTS
+from evalution.writer.isolating import MAX_FAILED, OPS, STRATEGIES
 
 STEP_KINDS = ("message", "generated", "check")
+_NEW_STORE = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "locator": {"type": "string"},
+        "moved_by": {"type": "array", "items": {"type": "string"}},
+        "keyed_by": {"type": "string"},
+        "strategy": {"type": "string", "enum": list(STRATEGIES)},
+    },
+    "required": ["id", "kind", "locator"],
+}
 
 _PLAN_SCHEMA = {
     "type": "object",
@@ -360,10 +373,64 @@ TOOLS = [
         [],
     ),
     _tool(
+        "read_isolation",
+        "How this target's tries are kept apart: the saved isolation plan (its stores, what is "
+        "left alone, its report), files its evidence cites that changed since, what the code "
+        "read named (candidates, c1...), what the probe and failed rehearsals found (findings, "
+        "p1...), settings not tied to a store, and this session's proposal and rehearsals left.",
+        {},
+        [],
+    ),
+    _tool(
+        "propose_isolation_plan",
+        "Propose edits to the isolation plan, each checked against the evidence; nothing is "
+        "saved or rehearsed until the admin approves. ops: set (store, and any of moved_by, "
+        "keyed_by, strategy), add (new: {id, kind, locator, moved_by?, keyed_by?, strategy?}, "
+        "and cite: the candidate or finding id that shows it), remove (store), exclude (entry: "
+        "something the probe found, to leave alone), include (entry: reset it again). A refusal "
+        "says why and keeps nothing.",
+        {
+            "changes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "op": {"type": "string", "enum": list(OPS)},
+                        "store": {"type": "string", "description": "A store id in the plan"},
+                        "new": _NEW_STORE,
+                        "moved_by": {"type": "array", "items": _STR},
+                        "keyed_by": {"type": ["string", "null"]},
+                        "strategy": {"type": "string", "enum": list(STRATEGIES)},
+                        "cite": {"type": "string", "description": "A candidate or finding id"},
+                        "entry": _STR,
+                    },
+                    "required": ["op"],
+                },
+            },
+            "why": {"type": "string", "description": "One line for the admin: why this change"},
+        },
+        ["changes"],
+    ),
+    _tool(
+        "rehearse_isolation",
+        "Rehearse the isolation proposal the admin approved (default: the latest) on "
+        "evalution's own copy of the app: its report, and proven or failed. A proven plan is "
+        f"saved. After {MAX_FAILED} failed rehearsals in a session, none are run: ask the admin.",
+        {"plan_id": _STR},
+        [],
+    ),
+    _tool(
         "reply",
         "Say something to the admin. The only way to speak. plan: when you propose a "
-        "case. run: a run this message is about. review: after reading a run.",
-        {"text": _STR, "plan": _PLAN_SCHEMA, "run": _RUN, "review": _REVIEW_SCHEMA},
+        "case. run: a run this message is about. review: after reading a run. isolation: the id "
+        "of an isolation proposal to show for approval (its changes are added in words).",
+        {
+            "text": _STR,
+            "plan": _PLAN_SCHEMA,
+            "run": _RUN,
+            "review": _REVIEW_SCHEMA,
+            "isolation": _STR,
+        },
         ["text"],
     ),
 ]

@@ -38,7 +38,7 @@ from evalution.suite import cases, library, store
 from evalution.targets import Targets
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
-from evalution.writer import linecheck, saving
+from evalution.writer import isolating, linecheck, saving
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
@@ -125,6 +125,9 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "adapt_template": f"Adapting the library test {args.get('id')}",
         "list_conversations": "Looking at recent conversations",
         "draft_from_conversation": "Drafting a test from a conversation",
+        "read_isolation": "Reading what was found about the app's state",
+        "propose_isolation_plan": "Proposing a change to the isolation plan",
+        "rehearse_isolation": "Rehearsing the isolation plan",
     }.get(name)
 
 
@@ -253,7 +256,7 @@ class Tools:
         session = turn.session
         plan = (session.get("plans") or {}).get(str(args.get("plan_id") or ""))
         if plan is None:
-            return "Refused: no such plan. Show it with reply(plan=...) and end your turn."
+            return "Refused: no such plan. Show it with reply first and end your turn."
         if int(session.get("asks", 0)) <= plan["asks"]:
             return "Refused: the admin has not answered this plan yet. End your turn and wait."
         plan["approved"] = plan.get("approved") or "message"
@@ -263,6 +266,8 @@ class Tools:
         session = turn.session
         plan_id = str(args.get("plan_id") or "")
         plan = (session.get("plans") or {}).get(plan_id)
+        if plan is not None and plan.get("isolation"):
+            return "Refused: that is an isolation plan; rehearse it with rehearse_isolation."
         if plan is None or not plan.get("approved"):
             return (
                 "Refused: that plan is not approved. Show the plan with reply(plan=...) and end "
@@ -308,7 +313,7 @@ class Tools:
     async def save_fixture(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
         plan = (session.get("plans") or {}).get(str(args.get("plan_id") or ""))
-        if plan is None or not plan.get("approved"):
+        if plan is None or not plan.get("approved") or plan.get("isolation"):
             return "Refused: that plan is not approved. Write files only for an approved plan."
         name = str(args.get("name") or "")
         if not FIXTURE_NAME.match(name):
@@ -596,9 +601,27 @@ class Tools:
         turn.read.append(f"Drafted a test from {'trace' if trace_id else 'conversation'}")
         return {"case": found, "next": "Show it as a plan; save it with save_case once approved."}
 
+    async def read_isolation(self, turn: AgentTurn, _args: dict) -> Any:
+        turn.read.append("Read what was found about the app's state")
+        return await isolating.read(self.targets, turn.session)
+
+    async def propose_isolation_plan(self, turn: AgentTurn, args: dict) -> Any:
+        return await isolating.propose(self.targets, turn.session, args)
+
+    async def rehearse_isolation(self, turn: AgentTurn, args: dict) -> Any:
+        found = await isolating.rehearse(self.targets, turn.session, args)
+        await self._save(turn.session)
+        return found
+
     async def reply(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
         text = _text(args.get("text"), "text")
+        isolation = None
+        if args.get("isolation"):
+            # The proposal goes to the admin as data and in words: approving it is what lets
+            # rehearse_isolation run it.
+            isolation, words = isolating.shown(session, str(args["isolation"]))
+            text = f"{text}\n\n{words}"
         plan = _plan(args["plan"]) if args.get("plan") else None
         file = args["plan"].get("file") if plan is not None else None
         base = None
@@ -617,7 +640,15 @@ class Tools:
             run=run,
             review=review,
             saved=turn.saved,
+            isolation=isolation,
         )
+        plans = session.setdefault("plans", {})
+        if isolation is not None and not (plans.get(isolation["id"]) or {}).get("approved"):
+            plans[isolation["id"]] = {
+                "asks": int(session.get("asks", 0)),
+                "approved": None,
+                "isolation": True,
+            }
         if plan is not None:
             plans = session.setdefault("plans", {})
             # What the admin is shown this plan for: approving it approves this test, no other.
@@ -632,6 +663,11 @@ class Tools:
             }
         turn.read, turn.saved, turn.replied = [], None, True
         await self._save(session)
+        if isolation is not None:
+            return (
+                f"Shown to the admin as isolation plan {isolation['id']}. End your turn: "
+                "rehearse it only once they approve."
+            )
         if plan is None:
             return "Shown to the admin."
         limit = plan.get("timeout", {}).get("seconds")
@@ -737,5 +773,8 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "adapt_template": Tools.adapt_template,
     "list_conversations": Tools.list_conversations,
     "draft_from_conversation": Tools.draft_from_conversation,
+    "read_isolation": Tools.read_isolation,
+    "propose_isolation_plan": Tools.propose_isolation_plan,
+    "rehearse_isolation": Tools.rehearse_isolation,
     "reply": Tools.reply,
 }

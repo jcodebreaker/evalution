@@ -27,6 +27,8 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   is refused unless that plan was approved and not used yet. The page's "Add to tests" approves
   it (:meth:`Agent.approve`); in words, the agent calls ``approve(plan_id)`` only when the admin
   clearly said so, and only after the admin spoke since the plan. A question never approves.
+  An isolation proposal is approved the same way, and only then can ``rehearse_isolation`` run
+  it (:mod:`evalution.writer.isolating`).
 """
 
 from __future__ import annotations
@@ -291,6 +293,15 @@ class Agent:
         if plan is None:
             raise LookupError(plan_id)
         plan["approved"] = "admin"
+        if plan.get("isolation"):
+            await self._ask(
+                session,
+                "Rehearse this isolation plan",
+                f"The admin approved isolation plan {plan_id}. Rehearse it with "
+                f"rehearse_isolation(plan_id={plan_id!r}).",
+                approves=plan_id,
+            )
+            return public(session)
         edited = (
             " The admin swapped rubric lines on the page first: save_case(plan_id) alone saves the "
             "test as it is now; read_case shows it after."
