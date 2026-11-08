@@ -169,8 +169,7 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
     except ConfigError as exc:
         return f"{target} can't run: {exc}"
     if page is not None:
-        if (missing := page_missing()) is not None:
-            return f"{target} can't play through its page: {missing}"
+        # The copy first: without one, installing a browser wouldn't make the run possible.
         if not found.managed and not found.to_rehearse:
             why = found.problem or "it has no isolation plan"
             return (
@@ -178,6 +177,8 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
                 f"copy of the app, and {why}. Run `{FIX.format(target=target)}` to find and "
                 "prove one."
             )
+        if (missing := page_missing()) is not None:
+            return f"{target} can't play through its page: {missing}"
     if not config.isolation.require_proven or found.managed or found.to_rehearse:
         return None
     why = found.problem or "it has no isolation plan"
