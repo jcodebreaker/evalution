@@ -1,10 +1,51 @@
 import { useEffect, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { ApiError, api, errorText } from "../../lib/api";
+import { cn } from "../../lib/cn";
 import { count } from "../../lib/format";
+import { about } from "../../lib/isolation";
 import type { Estimate, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { ConfirmDialog } from "../../ui/dialog";
+import { HowIsolationLink } from "../shared/HowIsolationWorks";
+
+/** What a run sends, and how its tries are kept apart, in two or three short lines. */
+export function IsolationLines({ estimate, app }: { estimate: Estimate; app: string }) {
+  const isolation = estimate.isolation;
+  const sends = `${count(estimate.tries, "try", "tries")}, ${count(estimate.chats, "message")} to the app`;
+  const lines: { text: string; warn?: boolean }[] = [{ text: sends }];
+  const at = (seconds: number | null) => (seconds === null ? "" : ` (${about(seconds)})`);
+  const each = (seconds: number | null) => (seconds === null ? "" : ` (${about(seconds)} each)`);
+  const copy = (start: number | null, restore: number | null) =>
+    `Starts evalution's own copy of ${app}${at(start)}, puts it back before each try${each(restore)}, and removes it after. Your app isn't touched.`;
+  if (!isolation) {
+    if (estimate.isolation_note) lines.push({ text: estimate.isolation_note });
+  } else if (isolation.how === "proven") {
+    lines.push({ text: copy(isolation.start_seconds, isolation.restore_seconds) });
+  } else if (isolation.status === "proven" || isolation.status === "stale") {
+    lines.push({ text: `Proves the plan again first${at(isolation.rehearse_seconds)}.` });
+    lines.push({ text: copy(isolation.start_seconds, isolation.restore_seconds) });
+  } else if (isolation.how === "identity") {
+    lines.push({
+      text: "Each try is a new person; what the app keeps elsewhere isn't checked.",
+    });
+  } else {
+    lines.push({
+      text: "Not isolated: each try may see what earlier tries left behind.",
+      warn: true,
+    });
+  }
+  return (
+    <div className="flex flex-col items-center gap-1 text-center text-[12.5px]">
+      {lines.map((line) => (
+        <p key={line.text} className={cn("m-0", line.warn ? "text-warning" : "text-ink-2")}>
+          {line.text}
+        </p>
+      ))}
+      {isolation ? <HowIsolationLink /> : null}
+    </div>
+  );
+}
 
 /** What a run plays: the whole set, one of its tests, or some of them. */
 export type RunTarget = {
@@ -99,9 +140,7 @@ export function RunConfirm({
         </>
       }
     >
-      {estimate?.isolation_note ? (
-        <p className="m-0 text-center text-[12.5px] text-ink-2">{estimate.isolation_note}</p>
-      ) : null}
+      {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
       {estimate?.refused.map((item) => (
         <p key={item.case} className="m-0 text-center text-[12.5px] text-warning">
           {`Left out: ${item.case}, because ${item.why}`}

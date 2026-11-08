@@ -10,8 +10,23 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import type { Actual, LineAgreement, PlanStep } from "../../lib/schema";
+import { type BeforeWords, beforeWords } from "../../lib/isolation";
+import type { Actual, LineAgreement, PlanStep, TryIsolation } from "../../lib/schema";
 import { StepBody } from "./StepBody";
+
+/** What a try started from, under its "Before" step. */
+function BeforeNote({ words }: { words: BeforeWords }) {
+  return (
+    <div className="mt-1 flex flex-col gap-0.5 text-[12.5px]" data-testid="before-isolation">
+      {words.line ? (
+        <p className={cn("m-0", words.clean ? "font-semibold text-success" : "text-ink-2")}>
+          {words.line}
+        </p>
+      ) : null}
+      {words.warning ? <p className="m-0 font-semibold text-warning">{words.warning}</p> : null}
+    </div>
+  );
+}
 
 const ICON: Record<PlanStep["kind"], ReactNode> = {
   before: <RotateCcw />,
@@ -64,6 +79,7 @@ export function Steps({
   onSpan,
   agreement,
   onLabel,
+  isolation,
 }: {
   steps: PlanStep[];
   names: Record<string, string>;
@@ -73,6 +89,8 @@ export function Steps({
   /** By rubric item id: how often the grader agrees with a person on each line. */
   agreement?: Record<string, LineAgreement>;
   onLabel?: (item: string, agree: boolean | null) => void;
+  /** How the try shown was kept from earlier ones, said in its "Before" step. */
+  isolation?: TryIsolation | null;
 }) {
   let number = 0;
   return (
@@ -80,7 +98,11 @@ export function Steps({
       {steps.map((step, index) => {
         const numbered = step.kind !== "before" && step.kind !== "passes";
         if (numbered) number += 1;
-        const ok = result ? held(step) : null;
+        // A try's "Before" says what it started from: put back and checked, a new person, or not.
+        const before =
+          result && step.kind === "before" && isolation ? beforeWords(isolation, step.title) : null;
+        const ok = before ? before.clean : result ? held(step) : null;
+        const title = before ? before.title : step.title;
         return (
           <li
             key={index}
@@ -102,19 +124,20 @@ export function Steps({
                 {numbered ? `Step ${number} · ` : ""}
                 {kindLabel(step.kind, result, appName)}
               </span>
-              {step.title ? (
-                <h3 className="m-0 mt-px mb-2 text-[15px] font-semibold">{step.title}</h3>
+              {title ? (
+                <h3 className="m-0 mt-px mb-2 text-[15px] font-semibold">{title}</h3>
               ) : (
                 <div className="h-2" />
               )}
               <StepBody
-                step={step}
+                step={before ? { ...step, actual: undefined } : step}
                 names={names}
                 result={result}
                 onSpan={onSpan}
                 agreement={agreement}
                 onLabel={onLabel}
               />
+              {before ? <BeforeNote words={before} /> : null}
             </div>
           </li>
         );

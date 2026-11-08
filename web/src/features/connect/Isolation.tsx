@@ -6,6 +6,7 @@ import type { Isolation as IsolationView, Target } from "../../lib/schema";
 import { useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Fold, Group } from "../shared/group";
+import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { ISOLATE_COST, IsolateButton } from "../shared/IsolateButton";
 import { Steps } from "./Steps";
 
@@ -212,7 +213,8 @@ export function IsolationPlan({ target }: { target: string }) {
         ) : null}
       </div>
       <p className="m-0 text-[12px] text-ink-3">
-        {data.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}
+        {data.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}{" "}
+        <HowIsolationLink />
       </p>
       {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
     </div>

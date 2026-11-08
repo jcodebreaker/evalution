@@ -10,8 +10,6 @@ import {
   IsolationSchema,
   RunSummarySchema,
 } from "../../lib/schema";
-import { IsolationLine } from "../home/IsolationLine";
-import { TryIsolationNote } from "../shared/IsolationNote";
 import { WriterReply } from "../writer/WriterReply";
 import { IsolationPlan } from "./Isolation";
 
@@ -125,17 +123,11 @@ it("says which commit files left a plan out of date", async () => {
   await screen.findByText("Out of date: a commit changed db/utils.py.");
 });
 
-it("puts a stale plan on Home with its files and the button", () => {
-  render(
-    <IsolationLine target="bot" isolation={{ status: "stale", stale_files: ["db/utils.py"] }} />,
-  );
-  expect(screen.getByText("Isolation plan out of date: db/utils.py")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Find and prove isolation" })).toBeTruthy();
-});
-
-it("leaves Home alone when the plan is current", () => {
-  const { container } = render(<IsolationLine target="bot" isolation={null} />);
-  expect(container.textContent).toBe("");
+it("links the explainer from the Isolation section", async () => {
+  shows(view({ status: "none" }));
+  await screen.findByText("Not found yet.");
+  fireEvent.click(screen.getByRole("button", { name: "How this works" }));
+  await screen.findByText("How isolation works");
 });
 
 it("labels runs and tries by how they were isolated", () => {
@@ -165,11 +157,7 @@ it("labels runs and tries by how they were isolated", () => {
     problem: "The earlier try's code word was still in memory.idx",
   });
   expect(CompareSchema.shape.isolation.parse(undefined)).toBeUndefined();
-  render(<TryIsolationNote isolation={isolation} />);
-  expect(
-    screen.getByText("Isolated (proven plan v3) · put back in 4 s · checked 2 places"),
-  ).toBeTruthy();
-  expect(screen.getByText("The earlier try's code word was still in memory.idx")).toBeTruthy();
+  expect(isolation?.stores).toBeUndefined();
 });
 
 const PROPOSAL = AgentMessageSchema.parse({

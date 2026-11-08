@@ -788,7 +788,10 @@ class Runs:
                 }
                 await self.store.save(doc)
                 copies = isolated.Copies(self.targets.config, name, footing, self.targets.store)
+                began = time.monotonic()
                 await copies.start(slots)
+                # How long starting the copies took: the Run dialog's rough figure next time.
+                doc["copy_start_seconds"] = round(time.monotonic() - began, 1)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}

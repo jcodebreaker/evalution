@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from evalution.api import isolation_words
 from evalution.api.deps import (
     Current,
     busy,
@@ -76,9 +77,16 @@ def runs_router() -> APIRouter:
             raise invalid(f"tries: must be a whole number from 1 to {MOST_TRIES}")
         known_set(targets, name, set_name)
         try:
-            return await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
+            found = await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
         except CaseError as exc:
             raise invalid(str(exc)) from exc
+        # What the Run dialog says of how its tries are kept apart, with rough timings.
+        found["isolation"] = await asyncio.to_thread(
+            lambda: isolation_words.for_estimate(
+                targets, name, found.get("isolation") or {}, runs.all(name)
+            )
+        )
+        return found
 
     @router.post("/evals/runs", status_code=202)
     async def start_run(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
@@ -246,8 +254,11 @@ def runs_router() -> APIRouter:
         rows = await asyncio.to_thread(
             trust.lines_view, targets.docs, doc, case, list(rubric.values()), shown["try"]
         )
+        # The plan's stores in plain words, for the ids the try's ``isolation.checked`` names.
+        stores = await asyncio.to_thread(isolation_words.try_stores, targets, name)
         return {
             **shown,
+            "isolation": {**shown["isolation"], "stores": stores},
             "agreement": dict(zip(rubric, rows, strict=True)),
             "run": run,
             "verdict": verdict_kind(entry),

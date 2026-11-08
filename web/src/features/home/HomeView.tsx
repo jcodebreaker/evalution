@@ -12,7 +12,7 @@ import { Centered } from "../shared/layout";
 import { ChangeCard } from "./ChangeCard";
 import { CARD } from "./card";
 import { Dashboard } from "./Dashboard";
-import { IsolationLine } from "./IsolationLine";
+import { HowTestsRun } from "./HowTestsRun";
 import { KnowledgeLine } from "./KnowledgeLine";
 import { PERIODS } from "./period";
 import { ReportCard } from "./ReportCard";
@@ -109,12 +109,15 @@ export function HomeView({
         </header>
 
         {empty ? (
-          <div className={cn(CARD, "flex flex-col items-center gap-4 py-14 text-center")}>
-            <p className="m-0 font-display text-[19px] font-bold">
-              Run your tests to see how it's doing
-            </p>
-            {runAll}
-          </div>
+          <>
+            <div className={cn(CARD, "flex flex-col items-center gap-4 py-14 text-center")}>
+              <p className="m-0 font-display text-[19px] font-bold">
+                Run your tests to see how it's doing
+              </p>
+              {runAll}
+            </div>
+            {health ? <HowTestsRun target={scope.target} isolation={health.isolation} /> : null}
+          </>
         ) : load.status === "loading" ? (
           <>
             <Skeleton className="h-48 rounded-xl" />
@@ -142,7 +145,7 @@ export function HomeView({
               onReview={onReview}
               onUpdated={() => void reload()}
             />
-            <IsolationLine target={scope.target} isolation={health.isolation} />
+            <HowTestsRun target={scope.target} isolation={health.isolation} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

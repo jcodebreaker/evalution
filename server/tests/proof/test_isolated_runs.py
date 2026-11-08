@@ -112,6 +112,8 @@ async def test_a_stale_plan_is_rehearsed_again_and_the_run_plays_on_the_copy(
     doc = await rig.run(tries=1)
     assert rehearsed == [f"{TARGET}-0"]
     assert doc["isolation"] == {"how": "proven", "plan_version": 3}
+    # How long the copies took to start, for the Run dialog's rough figure next time.
+    assert isinstance(doc["copy_start_seconds"], float) and doc["copy_start_seconds"] >= 0
     assert store.load(TARGET).status == "proven"  # type: ignore[union-attr]
     (attempt,) = [t for c in doc["cases"].values() for t in c["tries"]]
     assert attempt["isolation"]["how"] == "proven" and attempt["isolation"]["problem"] is None

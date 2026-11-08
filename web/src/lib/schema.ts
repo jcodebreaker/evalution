@@ -370,6 +370,19 @@ export type PassMarks = z.infer<typeof PassMarksSchema>;
 export const IsolationHowSchema = z.enum(["proven", "identity", "none"]).catch("none");
 export type IsolationHow = z.infer<typeof IsolationHowSchema>;
 
+/** A place the app keeps things, as the page names it: "Conversations (Postgres database atrium)". */
+export const StoreWordsSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  /** Its own name: the database, the volume, the file. */
+  name: z.string(),
+  /** What it holds, in a person's words, when the probe showed it. */
+  holds: z.string().nullable().default(null),
+  /** The plan puts it back before each try. */
+  reset: z.boolean().default(true),
+});
+export type StoreWords = z.infer<typeof StoreWordsSchema>;
+
 /** How one try was isolated, and what was checked before it. Older runs don't say. */
 export const TryIsolationSchema = z.object({
   how: IsolationHowSchema,
@@ -378,6 +391,8 @@ export const TryIsolationSchema = z.object({
   checked: z.array(z.string()).default([]),
   /** What the check before or after the try found wrong, in words. */
   problem: z.string().nullable().default(null),
+  /** The plan's stores, to name the ids in `checked`; older servers don't send them. */
+  stores: z.array(StoreWordsSchema).nullish(),
 });
 export type TryIsolation = z.infer<typeof TryIsolationSchema>;
 
@@ -925,6 +940,17 @@ export const EstimateSchema = z.object({
   refused: z.array(z.object({ case: z.string(), why: z.string() })).default([]),
   /** What a new session leaves behind here, in one sentence. */
   isolation_note: z.string().nullable().default(null),
+  /** How its tries will be kept apart, the plan's status and rough timings; older servers don't say. */
+  isolation: RunIsolationSchema.extend({
+    status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none").default("none"),
+    stores: z.array(StoreWordsSchema).default([]),
+    /** Seconds to start evalution's copy, last time. */
+    start_seconds: z.number().nullable().default(null),
+    /** Seconds to put the copy back before a try, last time. */
+    restore_seconds: z.number().nullable().default(null),
+    /** Seconds the plan's last rehearsal took. */
+    rehearse_seconds: z.number().nullable().default(null),
+  }).nullish(),
 });
 export type Estimate = z.infer<typeof EstimateSchema>;
 
@@ -1449,9 +1475,28 @@ export const HealthSchema = z.object({
   report_pending: z.boolean().default(false),
   /** A look for code changes is going; the card may follow. */
   checking: z.boolean().default(false),
-  /** The isolation plan, when a commit left it out of date. */
+  /** How tests run: the isolation plan in plain words, whatever its status (older servers send it
+   * only when a commit left it out of date). */
   isolation: z
-    .object({ status: z.string(), stale_files: z.array(z.string()).default([]) })
+    .object({
+      status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none"),
+      version: z.number().nullable().default(null),
+      /** When the plan was last saved: proven, for a proven one. */
+      updated: z.number().nullable().default(null),
+      stores: z.array(StoreWordsSchema).default([]),
+      /** Left alone, kept as a record of what happened. */
+      exclude: z.array(z.string()).default([]),
+      /** Where the last rehearsal found what the plan misses. */
+      leaks: z.array(z.string()).default([]),
+      stale_files: z.array(z.string()).default([]),
+      /** How tries are kept apart without a plan. */
+      plain: IsolationHowSchema.default("none"),
+      /** What the connection itself promises, in one sentence. */
+      note: z.string().nullable().default(null),
+      /** The app's code folder is known, so isolation can be found. */
+      can_run: z.boolean().default(true),
+      problem: z.string().nullable().default(null),
+    })
     .nullable()
     .default(null),
 });
