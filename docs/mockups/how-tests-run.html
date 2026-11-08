@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How tests run</title>
+<style>
+/* evalution's own tokens (web/src/index.css), so the mockup looks like the app. */
+:root{
+  color-scheme:light;
+  --foreground:#14162b; --border:#e7e8ef; --input:#e1e3eb; --muted:#eff0f5;
+  --destructive:#c1301f; --success:#0d8f80; --warning:#a65a00;
+  --window:#f6f7f9; --group:#ffffff; --separator:#e9eaf0;
+  --selection-strong:rgba(85,70,216,.09); --tint:#5546d8;
+  --ink:#14162b; --ink-2:#5c6178; --ink-3:#6a6f85; --bubble:#f1f2f6; --selection:rgba(20,22,43,.04);
+  --up:#d9f5f0; --down:#fde8e6; --warn-bg:#fdf1e2; --primary:#14162b; --on-primary:#fff;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;
+  --mono:"SF Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --foreground:#eef0f6; --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#8c9bff; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28; --separator:rgba(255,255,255,.09);
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae; --bubble:#262a36; --selection:rgba(255,255,255,.06);
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --foreground:#eef0f6; --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#8c9bff; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28; --separator:rgba(255,255,255,.09);
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae; --bubble:#262a36; --selection:rgba(255,255,255,.06);
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--window);color:var(--ink);font:400 13px/1.45 var(--sans);letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:default}
+a{color:var(--tint);text-decoration:none;font-weight:500}
+a:hover{text-decoration:underline}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);height:100%}
+.side{background:var(--group);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 4px;font-size:16px;font-weight:600;letter-spacing:-.02em}
+.logo{width:22px;height:22px;border-radius:7px;background:var(--tint);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.target{margin:10px 12px 0;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--muted)}
+.target .av{width:26px;height:26px;border-radius:7px;background:var(--selection-strong);color:var(--tint);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none}
+.target b{display:block;font-weight:600}
+.target span{display:block;font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set{margin:6px 14px 8px;font-size:12px;font-weight:500;color:var(--ink-2)}
+.nav{display:flex;flex-direction:column;gap:1px;padding:4px 8px}
+.nav .h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:14px 8px 4px}
+.nav a{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;color:var(--ink);font-weight:400}
+.nav a:hover{background:var(--selection);text-decoration:none}
+.nav a.on{background:var(--selection-strong);color:var(--tint);font-weight:500}
+.nav .new{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--tint);background:var(--selection-strong);padding:1px 6px;border-radius:999px}
+.side .foot{margin-top:auto;padding:8px}
+
+.main{overflow:auto}
+.wrap{max-width:860px;margin:0 auto;padding:22px 28px 60px}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.top h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.sub{color:var(--ink-2);margin-top:2px}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:7px 12px;font-weight:500;border:1px solid var(--input);background:var(--group)}
+.btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.preview{display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-size:12px;color:var(--ink-3)}
+.seg{display:inline-flex;background:var(--muted);border-radius:9px;padding:2px}
+.seg button{border:0;background:none;padding:4px 10px;border-radius:7px;font-size:12px;color:var(--ink-2)}
+.seg button.on{background:var(--group);color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--border)}
+
+.card{background:var(--group);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-top:14px}
+.card h2{margin:0 0 4px;font-size:14px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.muted{color:var(--ink-2)} .faint{color:var(--ink-3);font-size:12.5px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 9px;border-radius:999px}
+.pill.ok{background:var(--up);color:var(--success)}
+.pill.warn{background:var(--warn-bg);color:var(--warning)}
+.pill.bad{background:var(--down);color:var(--destructive)}
+
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:10px;padding:10px 12px;margin-top:12px;font-size:13px}
+.banner.warn{background:var(--warn-bg);color:var(--warning)}
+.banner.bad{background:var(--down);color:var(--destructive)}
+.banner p{margin:0} .banner .row{display:flex;gap:10px;align-items:center;margin-top:8px}
+
+.steps{list-style:none;margin:12px 0 0;padding:0}
+.step{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 0}
+.dot{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--bubble);color:var(--ink-2)}
+.dot.good{background:var(--up);color:var(--success)}
+.dot.warn{background:var(--warn-bg);color:var(--warning)}
+.step b{font-weight:600}
+.step p{margin:2px 0 0;color:var(--ink-2)}
+.time{font-size:12px;color:var(--ink-3);white-space:nowrap;padding-top:6px;font-variant-numeric:tabular-nums}
+.loop{margin:4px 0 4px 14px;padding:4px 0 4px 18px;border-left:1.5px dashed var(--input)}
+.loop .tag{font-size:12px;font-weight:600;color:var(--tint);display:flex;align-items:center;gap:6px;margin:6px 0 2px}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.grid2 .card{margin-top:14px}
+.list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+.list li{display:flex;gap:10px;align-items:flex-start}
+.list .k{font-weight:500}
+.chip{font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:6px;flex:none;margin-top:1px}
+.chip.exact{background:var(--up);color:var(--success)}
+.chip.model{background:var(--selection-strong);color:var(--tint)}
+.chip.not{background:var(--warn-bg);color:var(--warning)}
+.links{display:flex;gap:14px;margin-top:12px;font-size:12.5px}
+
+.run{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.facts{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px}
+.facts span{color:var(--ink-2)} .facts b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.note{margin-top:10px;font-size:12.5px;color:var(--ink-3)}
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{display:none}.wrap{padding:16px}}
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside class="side" aria-label="Navigation">
+  <div class="brand"><span class="logo">e</span>evalution</div>
+  <div class="target"><span class="av">S</span><div style="min-width:0"><b>relay-lite</b><span>Relay is a personal AI assistant…</span></div></div>
+  <div class="set">Isolation smoke ▾</div>
+  <nav class="nav">
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/></svg>What it learned</a>
+    <div class="h">Your tests</div>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1"/></svg>Tests</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Runs</a>
+    <a href="#" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M7 14l3-3 3 3 5-6"/></svg>How tests run<span class="new">New</span></a>
+    <div class="h">Standard</div>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Benchmarks</a>
+  </nav>
+  <div class="foot nav">
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg>Ask AI</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h5l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1z"/></svg>Settings</a>
+  </div>
+</aside>
+
+<main class="main">
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <h1>How tests run</h1>
+      <div class="sub">relay-lite · every test, every run, the same way</div>
+    </div>
+    <span id="status-pill" class="pill ok">Isolated · proven plan v1</span>
+  </div>
+
+  <div class="preview">Mockup: preview a state
+    <div class="seg" role="tablist">
+      <button class="on" data-state="proven">Proven</button>
+      <button data-state="stale">Out of date</button>
+      <button data-state="failed">Failed</button>
+      <button data-state="none">Not set up</button>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+
+  <section class="card">
+    <h2>One run, start to finish</h2>
+    <div class="muted" id="run-intro">What happens when you press Run. Your own relay-lite is never touched.</div>
+    <ol class="steps">
+      <li class="step" id="step-prove" hidden>
+        <span class="dot warn"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span>
+        <div><b>Prove the plan again</b><p>A commit changed how relay-lite stores things, so evalution checks the plan still resets everything before using it.</p></div>
+        <span class="time">~41 s, once</span>
+      </li>
+      <li class="step" id="step-copy">
+        <span class="dot"><svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></span>
+        <div><b>Start evalution's own copy</b><p>A separate relay-lite, on its own ports and its own storage, that sends its traces to evalution.</p></div>
+        <span class="time">~18 s, once</span>
+      </li>
+    </ol>
+    <div class="loop">
+      <div class="tag"><svg class="i" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>For each try · 2 in this run</div>
+      <ol class="steps" style="margin-top:0">
+        <li class="step" id="step-clean">
+          <span class="dot good" id="clean-dot"><svg class="i" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></span>
+          <div><b id="clean-title">Start clean</b><p id="clean-text">Put back conversations and the memory index, then check they match the starting state. If they don't, the try isn't judged.</p></div>
+          <span class="time" id="clean-time">~7 s</span>
+        </li>
+        <li class="step">
+          <span class="dot"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+          <div><b>Play the test as a new person</b><p>Sends the test's messages the way a real person would. "Says hello back" sends 1 message.</p></div>
+          <span class="time">~4 s</span>
+        </li>
+        <li class="step">
+          <span class="dot"><svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          <div><b>Watch what happened</b><p>The reply, the tools it used and in what order, what reached the model, and what it stored.</p></div>
+          <span class="time"></span>
+        </li>
+        <li class="step">
+          <span class="dot"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M5 7l-3 7h6zM19 7l-3 7h6z"/></svg></span>
+          <div><b>Decide the result</b><p>Exact checks first. Then a model reads the reply for what can't be checked exactly.</p></div>
+          <span class="time">~3 s</span>
+        </li>
+      </ol>
+    </div>
+    <ol class="steps" style="margin-top:0">
+      <li class="step" id="step-remove">
+        <span class="dot"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></span>
+        <div><b>Remove the copy</b><p>Its containers and storage go with it. Nothing it made is left behind.</p></div>
+        <span class="time"></span>
+      </li>
+    </ol>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>What starts clean every try</h2>
+      <ul class="list" id="stores">
+        <li><span class="dot good" style="width:26px;height:26px"><svg class="i" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span><div><div class="k">Conversations</div><div class="faint">Postgres database atrium</div></div></li>
+        <li><span class="dot good" style="width:26px;height:26px"><svg class="i" viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 3 3h0V4zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-3 3h0V4z"/></svg></span><div><div class="k">Memory index</div><div class="faint">Docker volume artifact-data</div></div></li>
+      </ul>
+      <p class="muted" id="stores-how" style="margin:12px 0 0">Found by watching where one test message ended up on evalution's copy, then proven by a rehearsal on November 7.</p>
+      <div class="links"><a href="#">How isolation works</a><a href="#">Details</a></div>
+    </section>
+
+    <section class="card">
+      <h2>How a result is decided</h2>
+      <ul class="list">
+        <li><span class="chip exact">Exact</span><div>What was stored, and what reached the model, checked by code. These never vary.</div></li>
+        <li><span class="chip model">Model</span><div>The reply, read by claude-sonnet-5-5 against the test's lines, with quotes as evidence.</div></li>
+        <li><span class="chip not">Not judged</span><div>When it couldn't tell, or the try didn't start clean. It's never counted as a pass.</div></li>
+      </ul>
+      <p class="muted" style="margin:12px 0 0">A test passes when its tries agree. Disagree with a verdict on the test page and evalution learns which lines it gets wrong.</p>
+      <div class="links"><a href="#">How a result is decided</a></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <div class="run">
+      <div>
+        <h2 style="margin-bottom:0">Before you press Run</h2>
+        <div class="facts">
+          <span><b>1</b> test</span><span><b>2</b> tries</span><span><b>2</b> messages to the copy</span>
+          <span>about <b id="total">45 s</b></span><span>about <b>2</b> grader calls</span>
+        </div>
+      </div>
+      <button class="btn primary"><svg class="i" viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z"/></svg>Run all</button>
+    </div>
+    <div class="note" id="run-note">Timings come from the last run on the copy. The first run after setup takes longer.</div>
+  </section>
+
+</div>
+</main>
+</div>
+
+<script>
+const states = {
+  proven: {
+    pill: ["ok", "Isolated · proven plan v1"], banner: "", prove: false, total: "45 s",
+    clean: ["good", "Start clean", "Put back conversations and the memory index, then check they match the starting state. If they don't, the try isn't judged.", "~7 s"],
+  },
+  stale: {
+    pill: ["warn", "Plan out of date"],
+    banner: `<div class="banner warn"><div><p>A commit changed <b>engine/atrium/db/utils.py</b>, which the plan relies on. The next run proves the plan again first, on evalution's own copy.</p><div class="row"><button class="btn">Prove it again now</button><span class="faint">Sends two messages to evalution's copy, never to your app.</span></div></div></div>`,
+    prove: true, total: "1 min 25 s",
+    clean: ["good", "Start clean", "Put back conversations and the memory index, then check they match the starting state. If they don't, the try isn't judged.", "~7 s"],
+  },
+  failed: {
+    pill: ["bad", "Not isolated"],
+    banner: `<div class="banner bad"><div><p>The rehearsal found relay-lite keeping things the plan doesn't put back: <b>memory index (artifacts/memory_index/documents)</b>. Tries may see what earlier ones left.</p><div class="row"><button class="btn">Find and prove it again</button><a href="#">Where it leaked</a></div></div></div>`,
+    prove: false, total: "15 s",
+    clean: ["warn", "Not started clean", "Each try is a new person, but the memory index isn't put back: a pass may rest on what an earlier try left.", ""],
+  },
+  none: {
+    pill: ["warn", "Not isolated"],
+    banner: `<div class="banner warn"><div><p>Tries aren't isolated. Each try can see what earlier tries left behind: a pass may rest on leftovers, and a fail may be caused by one. On its own, the connection only starts a new conversation.</p><div class="row"><button class="btn">Find and prove isolation</button><span class="faint">Sends two messages to evalution's own copy of your app, never to your app.</span></div></div></div>`,
+    prove: false, total: "15 s",
+    clean: ["warn", "Not started clean", "Plays on your app as it is, with a new conversation. What it remembers from earlier tries stays.", ""],
+  },
+};
+function show(name) {
+  const s = states[name];
+  const pill = document.getElementById("status-pill");
+  pill.className = "pill " + s.pill[0]; pill.textContent = s.pill[1];
+  document.getElementById("banner").innerHTML = s.banner;
+  document.getElementById("step-prove").hidden = !s.prove;
+  const isolated = name === "proven" || name === "stale";
+  document.getElementById("step-copy").hidden = !isolated;
+  document.getElementById("step-remove").hidden = !isolated;
+  document.getElementById("run-intro").textContent = isolated
+    ? "What happens when you press Run. Your own relay-lite is never touched."
+    : "What happens when you press Run. Without a proven plan, tests play on your relay-lite as it is.";
+  document.getElementById("clean-dot").className = "dot " + s.clean[0];
+  document.getElementById("clean-title").textContent = s.clean[1];
+  document.getElementById("clean-text").textContent = s.clean[2];
+  document.getElementById("clean-time").textContent = s.clean[3];
+  document.getElementById("stores").style.opacity = isolated ? "1" : ".45";
+  document.getElementById("stores-how").textContent = isolated
+    ? "Found by watching where one test message ended up on evalution's copy, then proven by a rehearsal on November 7."
+    : "What evalution would put back once isolation is proven. Not reset today.";
+  document.getElementById("total").textContent = s.total;
+  document.getElementById("run-note").textContent = isolated
+    ? "Timings come from the last run on the copy. The first run after setup takes longer."
+    : "Plays on your app directly: no copy is started.";
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.state === name));
+}
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => show(b.dataset.state)));
+</script>
+</body>
+</html>

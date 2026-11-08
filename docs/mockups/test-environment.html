@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up testing</title>
+<style>
+/* evalution's own tokens (web/src/index.css). */
+:root{
+  color-scheme:light;
+  --border:#e7e8ef; --input:#e1e3eb; --muted:#eff0f5;
+  --destructive:#c1301f; --success:#0d8f80; --warning:#a65a00;
+  --window:#f6f7f9; --group:#ffffff;
+  --selection-strong:rgba(85,70,216,.09); --tint:#5546d8; --tint-soft:#eceafd;
+  --ink:#14162b; --ink-2:#5c6178; --ink-3:#6a6f85; --bubble:#f1f2f6; --selection:rgba(20,22,43,.04);
+  --up:#d9f5f0; --down:#fde8e6; --warn-bg:#fdf1e2; --primary:#14162b; --on-primary:#fff;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#2dd4bf; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28;
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff; --tint-soft:#272b45;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae; --bubble:#262a36; --selection:rgba(255,255,255,.06);
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16}}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--window);color:var(--ink);font:400 13px/1.45 var(--sans);letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+svg.i.lg{width:22px;height:22px}
+
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);height:100%}
+.side{background:var(--group);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 4px;font-size:16px;font-weight:600;letter-spacing:-.02em}
+.logo{width:22px;height:22px;border-radius:7px;background:var(--tint);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.target{margin:10px 12px 0;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--muted)}
+.target .av{width:26px;height:26px;border-radius:7px;background:var(--selection-strong);color:var(--tint);display:grid;place-items:center;font-size:12px;font-weight:700}
+.target b{font-weight:600}
+.nav{display:flex;flex-direction:column;gap:1px;padding:12px 8px}
+.nav a{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;color:var(--ink);text-decoration:none}
+.nav a.on{background:var(--selection-strong);color:var(--tint);font-weight:500}
+.nav .h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:14px 8px 4px}
+
+.main{overflow:auto}
+.wrap{max-width:980px;margin:0 auto;padding:20px 28px 60px}
+
+/* Onboarding progress */
+.flow{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.fs{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-weight:500}
+.fs .n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:var(--muted);color:var(--ink-3)}
+.fs.done{color:var(--ink-2)} .fs.done .n{background:var(--up);color:var(--success)}
+.fs.now{color:var(--ink)} .fs.now .n{background:var(--tint);color:#fff}
+.fl{flex:1;height:1.5px;background:var(--border);max-width:60px}
+
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.lede{color:var(--ink-2);margin:4px 0 0;font-size:14px}
+
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;margin-top:16px;align-items:start}
+.card{background:var(--group);border:1px solid var(--border);border-radius:14px}
+
+/* The stage: your app vs the test copy */
+.stage{padding:20px;position:relative}
+.lanes{display:grid;grid-template-columns:180px 40px minmax(0,1fr);align-items:stretch}
+.lane-h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.yours{border:1.5px dashed var(--input);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;opacity:.75}
+.mini{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;background:var(--bubble);color:var(--ink-2);font-weight:500}
+.lock{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px;margin-top:2px}
+.arrow{display:grid;place-items:center;color:var(--ink-3)}
+.copy{border:1.5px solid var(--border);border-radius:12px;padding:12px;min-height:270px;transition:border-color .4s,background .4s;position:relative}
+.copy.ready{border-color:var(--success);background:color-mix(in srgb,var(--up) 35%,transparent)}
+.copy-name{font-size:12px;color:var(--ink-3);font-family:ui-monospace,Menlo,monospace;margin-bottom:10px}
+.blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.blk{border:1px solid var(--border);background:var(--group);border-radius:11px;padding:12px;display:flex;gap:10px;align-items:center;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .45s,transform .45s}
+.blk.in{opacity:1;transform:none}
+.blk .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--tint-soft);color:var(--tint);flex:none;position:relative}
+.blk b{display:block;font-weight:600}
+.blk span{font-size:12px;color:var(--ink-3)}
+.blk .ok{margin-left:auto;color:var(--success);opacity:0;transition:opacity .3s}
+.blk.checked .ok{opacity:1}
+.blk.person{grid-column:1 / -1}
+.blk.person .ic{background:var(--up);color:var(--success);border-radius:50%;font-weight:700;font-size:13px}
+.marker{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--warning);top:-3px;right:-3px;opacity:0;transition:opacity .3s,transform .3s}
+.marker.on{opacity:1}
+.marker.gone{opacity:0;transform:scale(2)}
+.seal{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-top:10px;font-weight:600;color:var(--success);opacity:0;transition:opacity .4s}
+.copy.ready .seal{opacity:1}
+
+/* Live steps */
+.live{border-top:1px solid var(--border);padding:14px 20px;display:flex;flex-direction:column;gap:8px}
+.ls{display:flex;align-items:center;gap:10px;color:var(--ink-3)}
+.ls .st{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--input);display:grid;place-items:center;flex:none}
+.ls.now{color:var(--ink);font-weight:500}
+.ls.now .st{border-color:var(--tint);border-top-color:transparent;animation:spin .8s linear infinite}
+.ls.done{color:var(--ink-2)}
+.ls.done .st{border:0;background:var(--up);color:var(--success)}
+.ls .t{margin-left:auto;font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-top:1px solid var(--border)}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:7px 12px;font-weight:500;border:1px solid var(--input);background:var(--group)}
+.btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}
+.hint{font-size:12px;color:var(--ink-3)}
+
+/* Setup panel: what the person can change */
+.panel{padding:16px}
+.panel h2{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.sec{margin-top:16px}
+.sec .lb{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.who{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:11px}
+.who .face{width:38px;height:38px;border-radius:50%;background:var(--up);color:var(--success);display:grid;place-items:center;font-weight:700}
+.who b{display:block;font-weight:600}
+.who span{font-size:12px;color:var(--ink-3)}
+.who button{margin-left:auto}
+.edit{display:grid;gap:8px;margin-top:8px}
+.edit label{display:grid;gap:4px;font-size:12px;color:var(--ink-2)}
+.edit input,.edit select{border:1px solid var(--input);border-radius:8px;padding:6px 8px;background:var(--group)}
+.opts{display:grid;gap:6px}
+.opt{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--border);border-radius:10px}
+.opt.on{border-color:var(--tint);background:var(--selection-strong)}
+.opt .r{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--input);flex:none}
+.opt.on .r{border:4px solid var(--tint)}
+.opt span{font-size:12px;color:var(--ink-3);margin-left:auto}
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper button{width:28px;height:28px;border-radius:8px;border:1px solid var(--input);background:var(--group)}
+.stepper b{min-width:18px;text-align:center;font-variant-numeric:tabular-nums}
+.copies{display:flex;gap:4px;margin-left:auto}
+.copies i{width:14px;height:18px;border-radius:4px;background:var(--tint-soft);border:1px solid var(--tint);display:block}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border-radius:999px;background:var(--bubble);color:var(--ink-2)}
+.changed{margin-top:14px;padding:9px 10px;border-radius:10px;background:var(--warn-bg);color:var(--warning);font-size:12px;display:flex;align-items:center;gap:8px}
+@media (max-width:1240px){.layout{grid-template-columns:1fr}.panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 18px}.panel h2,.panel .changed{grid-column:1 / -1}}
+@media (max-width:640px){.lanes{grid-template-columns:1fr}.arrow{transform:rotate(90deg);padding:6px}}
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{display:none}.wrap{padding:16px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <div class="brand"><span class="logo">e</span>evalution</div>
+  <div class="target"><span class="av">S</span><b>relay-lite</b></div>
+  <nav class="nav">
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/></svg>What it learned</a>
+    <a href="#" class="on"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Test environment</a>
+    <div class="h">Your tests</div>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1"/></svg>Tests</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Runs</a>
+  </nav>
+</aside>
+
+<main class="main"><div class="wrap">
+
+  <div class="flow" aria-label="Getting started">
+    <div class="fs done"><span class="n">✓</span>Connect</div><div class="fl"></div>
+    <div class="fs done"><span class="n">✓</span>Learn</div><div class="fl"></div>
+    <div class="fs now"><span class="n">3</span>Set up testing</div><div class="fl"></div>
+    <div class="fs"><span class="n">4</span>First test</div>
+  </div>
+
+  <h1 id="title">Setting up a place to test relay-lite</h1>
+  <p class="lede" id="lede">Your app stays as it is. Tests run on a copy that starts fresh every time.</p>
+
+  <div class="layout">
+    <section class="card">
+      <div class="stage">
+        <div class="lanes">
+          <div>
+            <div class="lane-h">Your app</div>
+            <div class="yours">
+              <div class="mini"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/></svg>relay-lite</div>
+              <div class="mini"><svg class="i" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/></svg>Your database</div>
+              <div class="mini"><svg class="i" viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 3 3V4zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-3 3V4z"/></svg>Your memory</div>
+              <div class="lock"><svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Never touched</div>
+            </div>
+          </div>
+          <div class="arrow"><svg class="i lg" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          <div>
+            <div class="lane-h">Test copy</div>
+            <div class="copy" id="copy">
+              <div class="copy-name">eval-relay-lite-0</div>
+              <div class="blocks">
+                <div class="blk" id="b-app"><div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><div><b>relay-lite</b><span>own ports</span></div><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div>
+                <div class="blk" id="b-traces"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div><div><b>Traces</b><span>to evalution</span></div><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div>
+                <div class="blk" id="b-db"><div class="ic"><svg class="i" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg><i class="marker" id="m-db"></i></div><div><b>New Postgres</b><span>conversations · empty</span></div><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div>
+                <div class="blk" id="b-mem"><div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 3 3V4zM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-3 3V4z"/></svg><i class="marker" id="m-mem"></i></div><div><b>New memory</b><span>memory index · empty</span></div><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div>
+                <div class="blk person" id="b-person"><div class="ic" id="p-face">AR</div><div><b id="p-name">Alex Rivera</b><span id="p-sub">test person · alex.rivera@relay.local · new every try</span></div><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div>
+              </div>
+              <div class="seal"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Starts fresh, proven</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="live" id="live">
+        <div class="ls" data-k="app"><span class="st"></span>Copy relay-lite<span class="t">18 s</span></div>
+        <div class="ls" data-k="db"><span class="st"></span>Give it its own Postgres<span class="t">2 s</span></div>
+        <div class="ls" data-k="mem"><span class="st"></span>Give it its own memory<span class="t">1 s</span></div>
+        <div class="ls" data-k="person"><span class="st"></span>Make a test person<span class="t">1 s</span></div>
+        <div class="ls" data-k="prove"><span class="st"></span>Check it resets cleanly<span class="t">41 s</span></div>
+      </div>
+
+      <div class="bar">
+        <button class="btn ghost" id="replay"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Replay</button>
+        <span class="hint" id="hint">The agent is setting this up…</span>
+        <button class="btn primary" id="next" disabled style="opacity:.45">Write your first test</button>
+      </div>
+    </section>
+
+    <aside class="card panel" aria-label="Test setup">
+      <h2>Test setup <span class="hint">you can change this</span></h2>
+
+      <div class="sec">
+        <div class="lb">Test person</div>
+        <div class="who">
+          <div class="face" id="w-face">AR</div>
+          <div><b id="w-name">Alex Rivera</b><span id="w-meta">English · Europe/Lisbon</span></div>
+          <button class="btn" id="edit-person">Edit</button>
+        </div>
+        <div class="edit" id="person-form" hidden>
+          <label>Name<input id="f-name" value="Alex Rivera"></label>
+          <label>Language<select id="f-lang"><option>English</option><option>French</option><option>Spanish</option><option>Arabic</option></select></label>
+          <label>Time zone<select id="f-tz"><option>Europe/Lisbon</option><option>America/New_York</option><option>Asia/Tokyo</option></select></label>
+          <label style="display:flex;align-items:center;gap:8px;flex-direction:row"><input type="checkbox" id="f-new" checked style="width:auto">New person every try</label>
+          <button class="btn primary" id="save-person">Save</button>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="lb">Starts with</div>
+        <div class="opts" id="start">
+          <div class="opt on" data-v="empty"><i class="r"></i>Nothing<span>clean slate</span></div>
+          <div class="opt" data-v="seed"><i class="r"></i>Sample data<span>seed.sql</span></div>
+          <div class="opt" data-v="snap"><i class="r"></i>A snapshot<span>pick one</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="lb">Reset</div>
+        <div class="opts" id="reset">
+          <div class="opt on" data-v="try"><i class="r"></i>Before every try<span>~7 s</span></div>
+          <div class="opt" data-v="test"><i class="r"></i>Before every test<span>faster</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="lb">Copies side by side</div>
+        <div class="stepper"><button id="minus" aria-label="Fewer">−</button><b id="n">1</b><button id="plus" aria-label="More">+</button><div class="copies" id="copies"><i></i></div></div>
+      </div>
+
+      <div class="sec">
+        <div class="lb">Left alone</div>
+        <div class="tags"><span class="tag"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Traces · kept as evidence</span></div>
+      </div>
+
+      <div class="changed" id="changed" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>Changed. It's checked again before the next run.</div>
+    </aside>
+  </div>
+
+</div></main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const steps = [
+  { k: "app", blocks: ["b-app", "b-traces"], ms: 1300 },
+  { k: "db", blocks: ["b-db"], ms: 900 },
+  { k: "mem", blocks: ["b-mem"], ms: 900 },
+  { k: "person", blocks: ["b-person"], ms: 900 },
+  { k: "prove", blocks: [], ms: 2400 },
+];
+let timers = [];
+const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+
+function reset() {
+  timers.forEach(clearTimeout); timers = [];
+  document.querySelectorAll(".blk").forEach((b) => b.classList.remove("in", "checked"));
+  document.querySelectorAll(".ls").forEach((l) => l.classList.remove("now", "done"));
+  document.querySelectorAll(".marker").forEach((m) => m.classList.remove("on", "gone"));
+  $("copy").classList.remove("ready");
+  $("title").textContent = "Setting up a place to test relay-lite";
+  $("hint").textContent = "The agent is setting this up…";
+  $("next").disabled = true; $("next").style.opacity = ".45";
+}
+
+function play() {
+  reset();
+  let t = 300;
+  steps.forEach((s) => {
+    const row = document.querySelector(`.ls[data-k="${s.k}"]`);
+    later(() => {
+      row.classList.add("now");
+      s.blocks.forEach((id, i) => later(() => $(id).classList.add("in"), 250 + i * 250));
+      if (s.k === "prove") {
+        later(() => { $("m-db").classList.add("on"); $("m-mem").classList.add("on"); }, 300);
+        later(() => { $("m-db").classList.add("gone"); $("m-mem").classList.add("gone"); }, 1500);
+        later(() => document.querySelectorAll(".blk").forEach((b) => b.classList.add("checked")), 1900);
+      }
+    }, t);
+    t += s.ms;
+    later(() => { row.classList.remove("now"); row.classList.add("done"); row.querySelector(".st").innerHTML = "✓"; }, t);
+  });
+  later(() => {
+    $("copy").classList.add("ready");
+    $("title").textContent = "Ready to test relay-lite";
+    $("hint").textContent = "Every try starts from here.";
+    $("next").disabled = false; $("next").style.opacity = "1";
+  }, t + 200);
+}
+$("replay").addEventListener("click", () => { document.querySelectorAll(".ls .st").forEach((s) => (s.innerHTML = "")); play(); });
+
+const initials = (name) => name.trim().split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?";
+function markChanged() { $("changed").hidden = false; }
+$("edit-person").addEventListener("click", () => { $("person-form").hidden = !$("person-form").hidden; });
+$("save-person").addEventListener("click", () => {
+  const name = $("f-name").value.trim() || "Alex Rivera";
+  const slug = name.toLowerCase().replace(/[^a-z]+/g, ".").replace(/^\.|\.$/g, "");
+  const every = $("f-new").checked ? "new every try" : "same person every try";
+  $("w-name").textContent = name; $("p-name").textContent = name;
+  $("w-face").textContent = initials(name); $("p-face").textContent = initials(name);
+  $("w-meta").textContent = `${$("f-lang").value} · ${$("f-tz").value}`;
+  $("p-sub").textContent = `test person · ${slug}@relay.local · ${every}`;
+  $("person-form").hidden = true; markChanged();
+});
+for (const group of ["start", "reset"]) {
+  $(group).addEventListener("click", (e) => {
+    const opt = e.target.closest(".opt"); if (!opt) return;
+    $(group).querySelectorAll(".opt").forEach((o) => o.classList.toggle("on", o === opt));
+    if (group === "start") $("b-db").querySelector("span").textContent =
+      { empty: "conversations · empty", seed: "conversations · sample data", snap: "conversations · snapshot" }[opt.dataset.v];
+    markChanged();
+  });
+}
+let copies = 1;
+function setCopies(n) {
+  copies = Math.max(1, Math.min(3, n)); $("n").textContent = copies;
+  $("copies").innerHTML = "<i></i>".repeat(copies); markChanged();
+}
+$("minus").addEventListener("click", () => setCopies(copies - 1));
+$("plus").addEventListener("click", () => setCopies(copies + 1));
+play();
+</script>
+</body>
+</html>
