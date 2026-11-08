@@ -63,7 +63,10 @@ class VolumeStore:
             raise DockerError(f"volume {self.volume!r} doesn't exist") from e
 
     def covers(self, path: str) -> bool:
-        return False
+        """Whether *path*, a place the copy's canary search names as
+        ``container:volume:NAME/path``, is in this volume."""
+        where = path.partition(":")[2]
+        return where == self.name or where.startswith(f"{self.name}/")
 
     def digest(self) -> str:
         self._must_exist()

@@ -54,7 +54,8 @@ _CONTAINER_NOTE = "found inside a container, by the probe"
 #: What :func:`evalution.isolation.observe.reconcile` cites for a file no code names.
 _UNNAMED = "not named anywhere in the code"
 #: A table or schema of traces: kept as evidence of what happened, never reset.
-_TRACES = re.compile(r"(^|_)(spans?|traces?|otel|opentelemetry|telemetry)(_|$)", re.IGNORECASE)
+TRACES = re.compile(r"(^|_)(spans?|traces?|otel|opentelemetry|telemetry)(_|$)", re.IGNORECASE)
+_TRACES = TRACES
 #: What a store keyed by person is keyed by.
 _PERSON = re.compile(r"user|person|account|member|customer|owner|identity|profile", re.IGNORECASE)
 _SIDECAR = re.compile(r"-(wal|shm|journal)$")
@@ -96,6 +97,7 @@ class Plan:
         "process", ...}``. Opaque here; :mod:`evalution.isolation.launch` reads it.
     :param report: The last rehearsal's account, or the draft's, in plain words.
     :param evidence_hashes: ``path -> sha256`` of each project file the evidence cites.
+    :param leaks: Where the last rehearsal found the canary, or a write, outside the plan.
     """
 
     target: str
@@ -105,6 +107,7 @@ class Plan:
     status: Status = "draft"
     report: str = ""
     evidence_hashes: dict[str, str] = field(default_factory=dict)
+    leaks: list[str] = field(default_factory=list)
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
 
@@ -422,6 +425,19 @@ class PlanStore:
         for _, old in kept[: max(0, len(kept) + 1 - VERSIONS_KEPT)]:
             old.unlink()
         return number
+
+    def save_evidence(self, target: str, data: dict[str, Any]) -> Path:
+        """Keep what the last probe found for *target* (``evidence.json`` beside its plan): the
+        candidates with what was seen of them, the finds inside containers, and the paths
+        watched. Never a setting's value."""
+        path = self._dir(target) / "evidence.json"
+        self._write(path, json.dumps(data, indent=2, default=str) + "\n")
+        return path
+
+    def load_evidence(self, target: str) -> dict[str, Any] | None:
+        """What :meth:`save_evidence` kept; ``None`` when nothing is."""
+        path = self._dir(target) / "evidence.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
     def history(self, target: str) -> list[Plan]:
         """Every kept version, the oldest first; the last is the current plan."""

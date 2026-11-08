@@ -135,7 +135,10 @@ class PostgresStore:
     # The protocol ----------------------------------------------------------------------------
 
     def covers(self, path: str) -> bool:
-        return False
+        """Whether *path*, a place the copy's canary search names as ``container:db.schema.table``,
+        is in this database (a left-out table included: it is never a leak)."""
+        container, _, where = path.partition(":")
+        return container == self.container and where.startswith(f"{self.db}.")
 
     def tables(self) -> list[str]:
         """``schema.table`` of every table of the app's, in name order."""

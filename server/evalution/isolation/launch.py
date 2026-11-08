@@ -28,7 +28,7 @@ import shutil
 import signal
 import socket
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -552,6 +552,50 @@ class ComposeCopy:
         await self._keep_logs(log)
         return log
 
+    async def services(self) -> dict[str, str]:
+        """``container -> service`` of the copy's containers, running or stopped."""
+        project = guard(self.project)
+        label = f"label=com.docker.compose.project={project}"
+        _, out, _ = await _run(
+            _docker(), "ps", "-a", "--filter", label,
+            "--format", '{{.Names}}\t{{.Label "com.docker.compose.service"}}',
+        )  # fmt: skip
+        pairs = (line.split("\t", 1) for line in out.splitlines() if "\t" in line)
+        return {name: service for name, service in pairs if name.startswith(f"{project}-")}
+
+    async def pause(self, keep: Collection[str] = ()) -> list[str]:
+        """Stop the copy's services, keeping its containers and volumes, all but the ones whose
+        container is named in *keep* (a database a driver works in through its container). Only
+        for a project named ``eval-*``. The services stopped."""
+        project = guard(self.project)
+        stop = sorted({s for c, s in (await self.services()).items() if c not in keep and s})
+        if not stop:
+            return []
+        # By label, with no compose file, as ``down``: nothing outside the project is named.
+        code, _, err = await _run(
+            _docker(), "compose", "-p", project, "stop", *stop, limit=180, cwd=Path("/"),
+            secrets=self._secrets,
+        )  # fmt: skip
+        if code != 0:
+            raise LaunchError(f"couldn't stop {project}: {_tail(err)}")
+        return stop
+
+    async def resume(self) -> None:
+        """Start what :meth:`pause` stopped and wait until every container is healthy (and
+        :attr:`health` answers, when given). Only for a project named ``eval-*``."""
+        project = guard(self.project)
+        code, _, err = await _run(
+            _docker(), "compose", "-p", project, "start", limit=180, cwd=Path("/"),
+            secrets=self._secrets,
+        )  # fmt: skip
+        if code != 0:
+            raise LaunchError(f"couldn't start {project} again: {_tail(err)}")
+        if not await _settled(project, self.start_seconds):
+            raise LaunchError(f"{project} didn't come back healthy in {self.start_seconds:.0f}s")
+        url = self.copy.url if self.copy else ""
+        if self.health and url and not await _healthy(url + self.health, self.start_seconds):
+            raise LaunchError(f"{url}{self.health} didn't answer after a restart")
+
     async def stop(self) -> list[Extra]:
         """Take the copy down; the containers it left outside its project, never removed."""
         left = await down(self.copy or self.project)
@@ -564,6 +608,27 @@ def _write_private(path: Path, text: str) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+async def _settled(project: str, seconds: float) -> bool:
+    """Whether every container of *project* is running, and healthy where it has a check, within
+    *seconds*. One that ran and exited cleanly (a one-off job) counts as settled."""
+    label = f"label=com.docker.compose.project={project}"
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        _, out, _ = await _run(_docker(), "ps", "-a", "--filter", label, "--format", "{{.Status}}")
+        states = out.splitlines()
+        if states and all(_ready(s) for s in states):
+            return True
+        await asyncio.sleep(0.5)
+    return False
+
+
+def _ready(status: str) -> bool:
+    """Whether a container's ``docker ps`` status says it is up and well, or done cleanly."""
+    if status.startswith("Exited (0)"):
+        return True
+    return status.startswith("Up") and "starting" not in status and "unhealthy" not in status
 
 
 async def _healthy(url: str, seconds: float, *, any_answer: bool = False) -> bool:

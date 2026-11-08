@@ -37,8 +37,8 @@ class Driver(Protocol):
     name: str
 
     def covers(self, path: str) -> bool:
-        """Whether a path on this computer is part of this store (always False when it isn't
-        kept in files here)."""
+        """Whether *path* is part of this store: a path on this computer, or a place the copy's
+        canary search names inside a container (``container:where``)."""
         ...
 
     def digest(self) -> str:
