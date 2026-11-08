@@ -924,10 +924,21 @@ export const ComparisonSchema = z.object({
 });
 export type Comparison = z.infer<typeof ComparisonSchema>;
 
+/** How one layer of a try came out: stored, answered or shown (ADR 0010). */
+const LayerSchema = z.enum(["pass", "fail", "unjudged", "absent"]).catch("absent");
+/** Which layer of the try shown held, from its check kinds; older servers don't say. */
+export const LayersSchema = z.object({
+  stored: LayerSchema,
+  answered: LayerSchema,
+  shown: LayerSchema,
+});
+export type Layers = z.infer<typeof LayersSchema>;
+
 export const CompareSchema = TestPlanSchema.extend({
   run: z.string(),
   verdict: VerdictSchema.nullable().default(null),
   divergence: DivergenceSchema.nullable().catch(null).default(null),
+  layers: LayersSchema.nullish(),
   tries: z
     .array(
       z.object({

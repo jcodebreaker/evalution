@@ -16,6 +16,7 @@ from evalution.config import Config, TargetConfig, load
 from evalution.core.case import SLUG
 from evalution.results.store import RunSink
 from evalution.storage import Database, Docs
+from evalution.storage.files import Files, LocalFiles
 from evalution.traces.base import TraceSource
 from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.mirror import mirror_of
@@ -54,6 +55,9 @@ class Targets:
         #: This workspace's storage; by default this server's own, in its data folder.
         self.docs = docs or Database.open(config.data_dir).docs()
         add_folder(config.adapters_dir or config.data_dir / "adapters")
+        #: Its runs' files: a page try's screenshots and video, in the data folder. Hosted, a
+        #: workspace has none, since a page is only played locally or in CI (ADR 0010).
+        self.files: Files | None = LocalFiles(config.data_dir) if folders else None
         #: The spans apps sent this workspace (docs/architecture.md, "Traces").
         self.store = SpanStore(self.docs.database, self.docs.workspace)
         self._sources: dict[str, TraceSource] = {}

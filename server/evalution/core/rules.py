@@ -32,11 +32,19 @@ from evalution.core.judgement import (
 #: Raised whenever a rule below changes what a stored try would read as.
 #: How unlikely a move must be, by chance alone, before it's called a real one.
 CHANCE = 0.05
-RULES_VERSION = 2
+#: 3: a try played through the page gets the page's checks (ADR 0010).
+RULES_VERSION = 3
 #: Code checks that show the outcome itself. Binding steps count too (:func:`basis_of`).
 _OUTCOME_CHECKS = frozenset(
     {CheckKind.STATE, CheckKind.CONTEXT, CheckKind.REPLY_TEXT, CheckKind.TOOL_RESULT}
 )
+#: Which checks speak for each layer of a try (ADR 0010): what the app stored, what reached the
+#: model and what it answered, and what its page showed.
+_LAYERS = {
+    "stored": frozenset({CheckKind.STATE}),
+    "answered": frozenset({CheckKind.REPLY_TEXT, CheckKind.REPLY_LACKS, CheckKind.CONTEXT}),
+    "shown": frozenset({CheckKind.SHOWN, CheckKind.PAGE_HEALTH}),
+}
 
 NO_TRACES = "No traces arrived"
 TARGET_GONE = "The app's session went away mid-try"
@@ -61,6 +69,7 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.APP_BUSY: Label.SETUP_BLOCKED,
     WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
     WhyUnjudged.PAGE_MAP: Label.SETUP_BLOCKED,
+    WhyUnjudged.NO_REPLY: Label.MISSING_EVIDENCE,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.GRADER_UNRELIABLE: Label.GRADER_UNRELIABLE,
@@ -120,6 +129,19 @@ def basis_of(checks: Iterable[CheckResult]) -> Basis:
     ):
         return Basis.CHECKED
     return Basis.MODEL_ONLY if any(c.decided_by is Decider.MODEL for c in held) else Basis.NONE
+
+
+def layers(found: Judgement) -> dict[str, str]:
+    """Which layer of a try held, from its check kinds, guides included (ADR 0010): ``stored``
+    (state checks), ``answered`` (the reply's words and context checks) and ``shown`` (the page's
+    checks). Each is ``fail`` when any of its checks failed, else ``unjudged`` when any couldn't be
+    judged, else ``pass``; ``absent`` when the try has none of them."""
+    said = {Outcome.FAILED: "fail", Outcome.UNJUDGED: "unjudged", Outcome.PASSED: "pass"}
+    found_layers = {}
+    for layer, kinds in _LAYERS.items():
+        outcomes = {c.outcome for c in found.checks if c.kind in kinds}
+        found_layers[layer] = next((said[o] for o in said if o in outcomes), "absent")
+    return found_layers
 
 
 def route_of(traces_complete: bool, steps_held: bool) -> Route:

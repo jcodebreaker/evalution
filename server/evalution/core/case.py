@@ -120,3 +120,9 @@ class Case:
     #: Ask the app to fold older turns from this many tokens (``fold_at_tokens``), so a short
     #: history reaches what a long one would. An app that can't is measured as never folding.
     fold_at_tokens: int | None = None
+    #: Words the app's page must show (``page.contains``) and must not (``page.lacks``) of the last
+    #: reply, on a try played through the page (ADR 0010): decided by code, from what it showed.
+    shown_contains: tuple[str, ...] = ()
+    shown_lacks: tuple[str, ...] = ()
+    #: The page's checks decide the try (``page.decides``); otherwise they are shown as a guide.
+    page_decides: bool = False

@@ -1,8 +1,8 @@
 """Where results go: each run a document of kind :data:`RUN` under its id, which the routes read,
-with its evidence (:mod:`evalution.results.evidence`) and any request to stop it
-(:class:`RunStore`). A target may also send finished runs to a :class:`RunSink`. The data folder
-keeps the locks that let one process at a time play (:class:`RunLock`) and keep a restore apart
-from ``serve`` (:class:`FolderUse`).
+with its evidence (:mod:`evalution.results.evidence`), its files (:mod:`evalution.storage.files`)
+and any request to stop it (:class:`RunStore`). A target may also send finished runs to a
+:class:`RunSink`. The data folder keeps the locks that let one process at a time play
+(:class:`RunLock`) and keep a restore apart from ``serve`` (:class:`FolderUse`).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from evalution.core.evidence import TryEvidence
 from evalution.results import evidence as evidence_log
 from evalution.results.migrate import UNREADABLE, upcast
 from evalution.storage import Docs
+from evalution.storage.files import Files
 
 _logger = logging.getLogger(__name__)
 RUN = "run"
@@ -132,8 +133,16 @@ class RunStore:
     """A workspace's runs, their evidence and the requests to stop them; the one the routes
     read."""
 
-    def __init__(self, docs: Docs, settle: Callable[[dict[str, Any]], Any] | None = None) -> None:
+    def __init__(
+        self,
+        docs: Docs,
+        settle: Callable[[dict[str, Any]], Any] | None = None,
+        files: Files | None = None,
+    ) -> None:
         self.docs = docs
+        #: Its runs' files (:mod:`evalution.storage.files`); ``None`` where there is no data folder
+        #: of its own to keep them in (hosted).
+        self.files = files
         #: What a run is read again with just before each save, under its lock: the workspace's
         #: labelled examples (:mod:`evalution.runs.trust`), which change while a run is held.
         self.settle = settle
@@ -203,6 +212,20 @@ class RunStore:
     def evidence(self, run: str) -> list[TryEvidence]:
         """Every try kept for *run*, in the order played."""
         return list(evidence_log.read(self.docs, run))
+
+    def delete_run(self, run: str) -> bool:
+        """Forget *run*: its document, its evidence, any request to stop it and its files.
+        Whether there was such a run.
+
+        :raises ValueError: Not a run id.
+        """
+        if not is_run_id(run):
+            raise ValueError(f"not a run id: {run}")
+        if self.files is not None:
+            self.files.delete_run(run)
+        self.docs.clear_entries(evidence_log.EVIDENCE, run)
+        self.docs.delete(STOP, run)
+        return self.docs.delete(RUN, run)
 
     def ask_stop(self, run: str) -> None:
         """Ask whichever process is playing *run* to stop it."""

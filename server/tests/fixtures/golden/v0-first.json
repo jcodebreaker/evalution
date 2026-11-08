@@ -132,6 +132,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -348,6 +353,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "passed",
@@ -564,6 +574,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 3,
      "outcome": "passed",

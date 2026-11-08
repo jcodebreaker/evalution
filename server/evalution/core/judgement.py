@@ -50,6 +50,9 @@ class WhyUnjudged(StrEnum):
     GRADER_UNRELIABLE = "grader_unreliable"
     #: The page target didn't find an element its page map names (ADR 0010).
     PAGE_MAP = "page_map"
+    #: A turn ended in an error, so there was no reply for the page to show: the try's own turn
+    #: check decides it.
+    NO_REPLY = "no_reply"
 
 
 class CheckKind(StrEnum):
@@ -65,6 +68,11 @@ class CheckKind(StrEnum):
     LIMIT = "limit"
     TURN = "turn"
     TIMEOUT = "timeout"
+    #: What the app's page showed of a reply (ADR 0010): ``shown:<turn>`` and the test's own
+    #: ``shown:contains:<i>``, ``shown:lacks:<i>``.
+    SHOWN = "shown"
+    #: No console errors and no failed requests to the copy, over a page try.
+    PAGE_HEALTH = "page_health"
 
 
 class Basis(StrEnum):
@@ -120,7 +128,9 @@ class Frozen(BaseModel):
 
 
 class EvidenceRef(Frozen):
-    """Where a check looked: ``span:ab12``, ``turn:3``, ``state:2`` or ``reply``.
+    """Where a check looked: ``span:ab12``, ``turn:3``, ``state:2`` or ``reply``. On a try played
+    through the page also ``page:3`` (what turn 3 showed), ``shot:<file>`` (a screenshot),
+    ``console:2`` and ``request:2`` (a console line and a failed request, counted from 1).
 
     :param verified: For a model's quote: whether code found it in the evidence.
     """

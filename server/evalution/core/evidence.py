@@ -17,6 +17,8 @@ from typing import Any
 from evalution.core.judgement import Frozen
 
 ITEM_BYTES = 64_000
+#: The most console lines, and failed requests, a page try keeps: the first ones.
+PAGE_LINES = 200
 _TAIL_BYTES = 16_000
 #: What a span holds in place of content kept from it: not captured, whatever else it says.
 _REDACTED = re.compile(r"__REDACTED__|\[REDACTED\]|<REDACTED>", re.IGNORECASE)
@@ -187,6 +189,88 @@ class MemoryRecord(Frozen):
     compacted: bool | None = None
 
 
+class PageTurn(Frozen):
+    """One turn of the try as the page showed it, at the same place in :attr:`PageRecord.turns`
+    as in :attr:`TryEvidence.turns`. What it showed is :attr:`TurnRecord.shown`.
+
+    :param shown_at: Seconds from the try's first message when the reply appeared; ``None`` when it
+        never did.
+    :param instead: What the page's replies showed when the reply didn't appear (a placeholder, an
+        error, an old reply); empty when it did.
+    :param shot: The file name of the screenshot taken after the turn, in the run's file store
+        (:mod:`evalution.storage.files`); ``None`` when there is none.
+    """
+
+    shown_at: float | None = None
+    instead: Clipped = Clipped()
+    shot: str | None = None
+
+
+class ConsoleLine(Frozen):
+    """An error or a warning the page wrote to its console, scrubbed of secrets.
+
+    :param level: ``error`` or ``warning``.
+    :param at: Seconds from the try's first message.
+    """
+
+    level: str
+    text: Clipped
+    at: float
+
+
+class FailedRequest(Frozen):
+    """A request from the page to the copy's own address that failed.
+
+    :param path: Its path, without the query, where tokens ride.
+    :param status: What the copy answered (400 and up); ``None``: no answer came.
+    :param at: Seconds from the try's first message.
+    """
+
+    method: str
+    path: str
+    status: int | None = None
+    at: float
+
+
+class PageRecord(Frozen):
+    """What the app's page showed of a try played through it (ADR 0010). A try played through the
+    page always has one, however little it holds; one played through the API alone has none.
+
+    :param files: The try's screenshots and video, by name in the run's file store.
+    :param video_missing: Why there is no video when one was to be kept, e.g. the try was cut off
+        before the browser could finish it.
+    :param interrupted: The try was cut short (a restart, a stop) before the page was closed.
+    :param left_out: Console lines and failed requests past :data:`PAGE_LINES` each, not kept.
+    """
+
+    turns: tuple[PageTurn, ...] = ()
+    console: tuple[ConsoleLine, ...] = ()
+    failed_requests: tuple[FailedRequest, ...] = ()
+    files: tuple[str, ...] = ()
+    video_missing: str | None = None
+    interrupted: bool = False
+    left_out: int = 0
+
+    def capped(self) -> PageRecord:
+        """As stored: every text within :data:`ITEM_BYTES`, and at most :data:`PAGE_LINES` console
+        lines and failed requests, the first ones."""
+        dropped = max(len(self.console) - PAGE_LINES, 0)
+        dropped += max(len(self.failed_requests) - PAGE_LINES, 0)
+        return self.model_copy(
+            update={
+                "turns": tuple(
+                    t.model_copy(update={"instead": t.instead.capped()}) for t in self.turns
+                ),
+                "console": tuple(
+                    c.model_copy(update={"text": c.text.capped()})
+                    for c in self.console[:PAGE_LINES]
+                ),
+                "failed_requests": self.failed_requests[:PAGE_LINES],
+                "left_out": self.left_out + dropped,
+            }
+        )
+
+
 class TryEvidence(Frozen):
     """One try: its transcript, tool calls, model calls and state checks, and how far its traces
     could be read. Span times are seconds from ``t0``, the first message."""
@@ -209,6 +293,9 @@ class TryEvidence(Frozen):
     trace_note: str | None = None
     failure: Failure | None = None
     error: str | None = None
+    #: What the app's own page showed, when the try played through it (ADR 0010); ``None`` for a
+    #: try played through the API alone.
+    page: PageRecord | None = None
 
     @property
     def reply(self) -> str:
@@ -242,5 +329,6 @@ class TryEvidence(Frozen):
                     c.model_copy(update={"sent": c.sent.capped(), "said": c.said.capped()})
                     for c in self.model_calls
                 ),
+                "page": self.page.capped() if self.page is not None else None,
             }
         )

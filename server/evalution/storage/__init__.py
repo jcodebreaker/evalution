@@ -6,7 +6,8 @@ Everything is a JSON **document** under ``(workspace, kind, key)``: a run, an As
 target's profile, a test. Keys are paths, ``"<target>/profile.md"`` or ``"<set>/<case>"``, so a
 kind lists by prefix. A few things are **entries** instead, an ordered log under one key that
 is only ever added to (a run's evidence). Secrets live in their own kind, encrypted
-(:mod:`evalution.storage.secrets`).
+(:mod:`evalution.storage.secrets`). Files too big for it, a page try's screenshots and video, are
+kept beside it in the data folder (:mod:`evalution.storage.files`).
 
 Every read and write names its workspace through :class:`Docs`; this server's own is
 :data:`LOCAL`. The calls are blocking and safe from any thread: async code runs them with

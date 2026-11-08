@@ -22,8 +22,8 @@ from scripted_agent import (
 
 from evalution.adapters import infos
 from evalution.core.case import CONTEXT_CHECKS
-from evalution.core.judgement import Outcome
-from evalution.core.rules import current
+from evalution.core.judgement import CheckKind, Outcome
+from evalution.core.rules import current, layers
 from evalution.results.views import _run_test
 from evalution.suite.library import load_templates
 
@@ -138,6 +138,10 @@ async def test_the_healthy_agent_passes(make_rig, template) -> None:
             assert attempt["trajectory"], "its spans came through the real read path"
             states = [s for s in attempt["steps"] if (s["expected"] or "").startswith("state:")]
             assert all(s["status"] == "matched" for s in states), states
+            # Played through the API alone: the page has no say (ADR 0010).
+            kinds = {c.kind for c in current(attempt).checks}
+            assert not kinds & {CheckKind.SHOWN, CheckKind.PAGE_HEALTH}
+            assert layers(current(attempt))["shown"] == "absent"
 
 
 @pytest.mark.parametrize("shape", SHAPES)

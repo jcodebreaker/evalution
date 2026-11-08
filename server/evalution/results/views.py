@@ -22,6 +22,7 @@ from evalution.core.rules import (
     current,
     first_reason,
     label_of,
+    layers,
 )
 from evalution.results.record import (
     environment_of,
@@ -333,6 +334,8 @@ def _judged(attempt: Mapping[str, Any]) -> dict[str, Any]:
         "route": found.route.value,
         "different_route": found.outcome is Outcome.PASSED and found.route is Route.DIFFERENT,
         "checks": [c.model_dump(mode="json") for c in found.checks],
+        # Which layer held: stored, answered, shown (ADR 0010).
+        "layers": layers(found),
     }
 
 

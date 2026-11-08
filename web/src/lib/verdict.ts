@@ -61,6 +61,7 @@ const WHY_UNJUDGED: Record<string, string> = {
   leftover_state: "it started with leftover state",
   grader_unreliable: "grader unreliable here",
   page_map: "the page lacks what its page map names",
+  no_reply: "the turn had no reply to show",
 };
 
 /** A line whose grader a person disagrees with too often: its passes don't count. */

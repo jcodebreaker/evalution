@@ -383,6 +383,28 @@ def _limits(value: Any, where: str) -> dict[str, Any]:
     return limits
 
 
+def _page(value: Any, where: str) -> dict[str, Any]:
+    """The ``page`` block: words the page must and must not show, and whether its checks decide."""
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise CaseError(f"{where}: must be an object")
+    unknown = set(value) - {"contains", "lacks", "decides"}
+    if unknown:
+        raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
+    found: dict[str, Any] = {}
+    for key in ("contains", "lacks"):
+        words = value.get(key, [])
+        if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
+            raise CaseError(f"{where}.{key}: must be a list of words")
+        found[key] = tuple(words)
+    decides = value.get("decides", False)
+    if not isinstance(decides, bool):
+        raise CaseError(f"{where}.decides: must be true or false")
+    found["decides"] = decides
+    return found
+
+
 def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case:
     """A case from its file's JSON *data*.
 
@@ -401,6 +423,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         "must_hold",
         "needs_clean",
         "fold_at_tokens",
+        "page",
     }
     unknown = set(data) - known
     if unknown:
@@ -444,6 +467,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
     must_hold = data.get("must_hold", False)
     if not isinstance(must_hold, bool):
         raise CaseError(f"{where}: must_hold: must be true or false")
+    page = _page(data.get("page"), f"{where}: page")
     return Case(
         case=stem,
         name=name.strip(),
@@ -462,6 +486,9 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         reply_lacks=words["lacks"],
         needs_clean=tuple(needs_clean),
         fold_at_tokens=fold_at_tokens,
+        shown_contains=page["contains"],
+        shown_lacks=page["lacks"],
+        page_decides=page["decides"],
     )
 
 
@@ -509,6 +536,9 @@ _MEANING = (
     ("What a good reply does", _part("reply", "reference")),
     ("Words the reply must have", _part("reply", "contains")),
     ("Words the reply must not have", _part("reply", "lacks")),
+    ("Words the page must show", _part("page", "contains")),
+    ("Words the page must not show", _part("page", "lacks")),
+    ("Page checks decide", _part("page", "decides")),
     ("Expected tools", _part("tools", "expected")),
     ("Tool order", _part("tools", "order")),
     ("Unexpected tool calls allowed", _part("tools", "extras")),

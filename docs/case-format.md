@@ -57,6 +57,7 @@ Only these fields are allowed. `name` and `turns` are required.
     "contains": ["4,828.13"],
     "lacks": ["a word"]
   },
+  "page": {"contains": ["Biscuit"], "lacks": ["Couldn't load"], "decides": false},
   "limits": {"tries": 3, "seconds": 120}
 }
 ```
@@ -100,6 +101,15 @@ An agent varies, so `expected` is a guide: a different route to a good result is
 - `rubric`: the lines that decide, judged on the last reply of the last turn. The Grader also sees the tool calls with their results and the state checks, so a line may say what the reply must be true to ("Links both files"). Each line is one checkable fact, never a degree ("good tone").
 - `pass`: how many lines must pass, from 1 to the number of lines. Left out, every line must.
 - `contains`, `lacks`: exact words the last reply must and must not have, whatever the case and spacing. Code decides these, and every one must hold. An empty reply fails both. Use them for facts with one right spelling; a fact that could be put another way belongs in the rubric.
+
+## Page
+
+Only read on a target that plays through the app's own page (ADR 0010). There, each message turn's reply is checked to have shown on the page, and the page to have logged no console errors or failed requests to the copy, whatever the test says ([judging.md](judging.md), "The page").
+
+- `contains`, `lacks`: words what the page showed of the last reply must and must not have, read without Markdown's marks, spacing and case aside. Code decides them. A reply that never showed fails both. The reply's own words stay `reply.contains` and `reply.lacks`, which read the reply the API returned.
+- `decides`: `true` makes the page's checks decide the try. Left out, they are a guide: shown with the try, never failing it, as steps that don't bind are.
+
+On a target played through its API alone the block is not read.
 
 ## What a test needs clean
 

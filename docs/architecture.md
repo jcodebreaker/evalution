@@ -125,6 +125,7 @@ One database holds what evalution learns and writes: SQLite in `<data_dir>/evalu
 - **Documents**: a JSON value under `(workspace, kind, key)`, written whole. Keys are paths (`<target>/profile.md`, `<target>/<set>/<case>`), so a kind lists by prefix. Text stays text.
 - **Entries**: an ordered log under one key, only added to (a run's evidence).
 - **Secrets**: kind `secret`, encrypted with `$EVALUTION_SECRET_KEY` (a Fernet key) or `<data_dir>/secret.key`, made on first use and readable by its owner only. The page only ever sees the last four characters.
+- **Files**: what's too big for the database, a page try's screenshots and video (ADR 0010), in `<data_dir>/files/<run>/<case>.<try>/` (`storage/files.py`, behind the `Files` interface; `Targets.files`). Only a server with a data folder of its own has them: hosted, there are none, since a page is only played locally or in CI. Deleting a run (`RunStore.delete_run`) deletes its files with its document and evidence.
 
 `Database.open` gives one pool per database per process; `Targets.docs` is the workspace's view, which every store above reads and writes through. Calls block, so async code runs slow ones in a thread. A database made by a newer evalution is refused. Files in the data folder from before the database are left as they are and not read. Tests come in and go out as files only through `evalution sets import | export` ([case-format.md](case-format.md)); a sets folder is never read otherwise.
 

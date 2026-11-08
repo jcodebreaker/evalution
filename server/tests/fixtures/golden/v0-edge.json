@@ -132,6 +132,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -348,6 +353,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "passed",
@@ -652,6 +662,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -923,6 +938,11 @@
       "restore_seconds": null
      },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -1313,6 +1333,11 @@
       "restore_seconds": null
      },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -1640,6 +1665,11 @@
       "restore_seconds": null
      },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "unjudged",
@@ -2076,6 +2106,11 @@
       "restore_seconds": null
      },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -2391,6 +2426,11 @@
       "restore_seconds": null
      },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -2662,6 +2702,11 @@
       "restore_seconds": null
      },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "unjudged",
