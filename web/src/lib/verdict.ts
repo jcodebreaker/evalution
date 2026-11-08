@@ -34,6 +34,13 @@ export const PASSED_MODEL_ONLY = `${WORD.pass}, judged by a model only`;
 
 /** A model's words, not a result. */
 export const MODEL_ONLY = "judged by a model only";
+
+/** A pass on a target reached through its page alone: the reply is what the page showed, and
+ * nothing the app stored or sent the model was there to check. */
+export const PAGE_ONLY = "reply only, through its page";
+/** A run of such a target, in a sentence. */
+export const PAGE_ONLY_RUN =
+  "Played through its page only: each reply is what the page showed, so a pass is reply only.";
 export const ITS_READING = "Analysis";
 
 /** A model's claim whose refs or quotes code couldn't find in the evidence. */
@@ -144,12 +151,14 @@ export const PAGE_GUIDES =
 /**
  * The banner's layers: which held, and the plain words for a try only the page failed; `null` for
  * a try played through the API alone. `withoutPage` is how the try comes out on every check but
- * the page's, when the server says.
+ * the page's, when the server says. `pageOnly`: the target is reached through its page alone, so
+ * there is no API it would have passed through.
  */
 export function layerWords(
   layers: Layers | null | undefined,
   outcome: TryOutcome,
   withoutPage?: TryOutcome | null,
+  pageOnly = false,
 ): LayerWords | null {
   if (!layers || layers.shown === "absent") return null;
   const order = ["stored", "answered", "shown"] as const;
@@ -163,7 +172,7 @@ export function layerWords(
     }));
   const held = (layer: Layer) => layer === "pass" || layer === "absent";
   const onlyShown = layers.shown === "fail" && held(layers.stored) && held(layers.answered);
-  const apiAlone = onlyShown && (withoutPage ?? "passed") === "passed";
+  const apiAlone = !pageOnly && onlyShown && (withoutPage ?? "passed") === "passed";
   let headline: string | null = null;
   if (onlyShown && outcome === "failed") {
     headline =

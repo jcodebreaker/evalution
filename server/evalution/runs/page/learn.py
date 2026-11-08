@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from evalution.adapters import make
 from evalution.adapters.base import Capabilities, Target
 from evalution.config import Config
 from evalution.core.evidence import VIDEO
@@ -102,6 +103,9 @@ async def on_copy(config: Config, target: str, capabilities: Capabilities) -> As
         slot = copies.slots[0]
         assert slot.adapter is not None
         inner = slot.adapter.inner if isinstance(slot.adapter, PageTarget) else slot.adapter
+        if inner is None:
+            # Reached through its page alone: its stand-in, which the page target puts aside.
+            inner = make(config.targets[target])
         yield OnCopy(config, target, inner, slot.copy.url, copies)
     finally:
         await copies.close()
@@ -129,8 +133,9 @@ def scaffold(url: str, sign_in: Any) -> PageMap:
 
 
 async def _played(page: PageTarget, work: Any) -> Any:
-    """*work* on a session of the inner adapter, closed after, and the page target let go."""
-    session = await page.inner.open(LOOKING)
+    """*work* on a session of the inner adapter (page-only, one of its own), closed after, and the
+    page target let go."""
+    session = await page.looking_session(LOOKING)
     try:
         return await work(session)
     finally:

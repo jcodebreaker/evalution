@@ -3,7 +3,7 @@ import { count, live, when } from "../../lib/format";
 import { isolatedWords } from "../../lib/isolation";
 import type { CaseRow, RunDetail, RunSummary } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
-import { verdictWord } from "../../lib/verdict";
+import { PAGE_ONLY_RUN, verdictWord } from "../../lib/verdict";
 import { Button } from "../../ui/button";
 import { Fold, GroupHeading } from "../shared/group";
 import { BackLink, Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
@@ -104,6 +104,11 @@ export function RunView({
                   ]
                     .filter(Boolean)
                     .join(", ")}
+                </p>
+              ) : null}
+              {run.plays === "page_only" ? (
+                <p className="m-0 text-[13px] text-ink-2" data-testid="page-only-run">
+                  {PAGE_ONLY_RUN}
                 </p>
               ) : null}
             </div>

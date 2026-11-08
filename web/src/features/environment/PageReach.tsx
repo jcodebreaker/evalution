@@ -140,7 +140,11 @@ export function PageReach({
       <p className="m-0 text-[13px] text-ink-2">Couldn't load how tests reach {target}.</p>
     ) : null;
   }
-  const shown: Way = way ?? (reach.plays === "page" || reach.proposed ? "page" : "api");
+  // Reached through its page alone: there is no API way to show.
+  const only = reach.plays === "page_only";
+  const shown: Way = only
+    ? "page"
+    : (way ?? (reach.plays === "page" || reach.proposed ? "page" : "api"));
 
   const act = async (what: "approve" | "undo") => {
     setWorking(what);
@@ -188,7 +192,13 @@ export function PageReach({
     >
       <div className="flex flex-wrap items-center gap-3">
         <h3 className="m-0 text-[15px] font-semibold">How tests reach {target}</h3>
+        {only ? (
+          <span className="ms-auto text-[12.5px] text-ink-2" data-testid="page-only">
+            Its page only: no API under it, so a pass is reply only
+          </span>
+        ) : null}
         <fieldset
+          hidden={only}
           className="m-0 ms-auto flex gap-0.5 rounded-lg border-0 bg-bubble p-0.5"
           aria-label="How tests reach it"
         >

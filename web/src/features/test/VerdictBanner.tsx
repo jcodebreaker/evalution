@@ -4,6 +4,7 @@ import type { Compare, Layers, TryOutcome } from "../../lib/schema";
 import {
   layerWords,
   NEVER_REACHED,
+  PAGE_ONLY,
   PASSED_MODEL_ONLY,
   retriedWords,
   tryWord,
@@ -50,7 +51,8 @@ export function VerdictBanner({
   ];
   const lead = shown.tries.length === 1 ? "" : ` on try ${shown.try}`;
   // Played through the page: which layer held, and plain words when only the page failed.
-  const layered = layerWords(shown.layers, shown.outcome, shown.page?.without_page);
+  const pageOnly = shown.page?.page_only ?? false;
+  const layered = layerWords(shown.layers, shown.outcome, shown.page?.without_page, pageOnly);
   return (
     <div
       className={cn(
@@ -63,7 +65,7 @@ export function VerdictBanner({
         <b className="text-[15px]">
           {layered?.headline
             ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
-            : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}`}
+            : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}${shown.passed && pageOnly ? `, ${PAGE_ONLY}` : ""}`}
         </b>
         <small className="text-[12.5px] text-ink-2">
           {[

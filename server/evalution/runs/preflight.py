@@ -34,6 +34,9 @@ LIMIT_SECONDS = 120
 _PASSED = "adapter-checks.json"
 #: Who a run's first check plays as.
 RUN_KEY = "adapter-check"
+#: How a turn of a target reached through its page alone may end that is the page's to show, and
+#: the tests' to judge: it showed no reply, or was still busy when the time ran out.
+_THE_PAGES_FINDING = (Failure.APP, Failure.TIMED_OUT)
 
 
 class AdapterBroken(RuntimeError):
@@ -106,7 +109,12 @@ async def check_adapter(
     assert played.evidence is not None
     evidence = played.evidence
     problems = []
-    if played.error and played.failure is not None:
+    warnings = []
+    if played.page_only and played.failure in _THE_PAGES_FINDING:
+        # No adapter to check: what the page showed of the turn is for the tests to judge, and a
+        # page that showed nothing fails them, not the run before them.
+        warnings.append(f"The page didn't answer the check's message: {played.error}")
+    elif played.error and played.failure is not None:
         problems.append(net.no_login(played.error))
     elif not played.reply_text.strip():
         problems.append("The turn ended, but the adapter read an empty reply")
@@ -114,7 +122,6 @@ async def check_adapter(
         problems.append("The adapter read back the message it sent, not a reply")
     elif _raw_json(played.reply_text):
         problems.append("The adapter read the app's raw answer, not the reply inside it")
-    warnings = []
     if evidence.trace is TraceStatus.UNREAD:
         warnings.append(f"The traces couldn't be read: {evidence.trace_note}")
     elif evidence.trace is TraceStatus.EMPTY and source is not None:
@@ -129,7 +136,8 @@ async def check_adapter(
         tools=len(evidence.tools),
         spans=len(evidence.spans),
         traces=evidence.trace.value,
-        app_down=played.failure
+        app_down=bool(problems)
+        and played.failure
         in (
             Failure.APP,
             Failure.UNREACHABLE,

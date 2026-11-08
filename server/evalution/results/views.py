@@ -223,6 +223,10 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "environment": dict(zip(("where", "name"), environment_of(run), strict=True)),
         # How its tries were kept apart (ADR 0009): on a copy put back by a proven plan, or not.
         "isolation": isolation_of(run, run=True),
+        # How it reached the app: ``api``, ``page`` (its API with its page beside it) or
+        # ``page_only`` (its page alone, every reply what the page showed); a run stored before
+        # this was kept says nothing, and reads as it did.
+        **({"plays": run["plays"]} if run.get("plays") else {}),
         "case_ids": list(run["cases"]),
         "tests": [_run_test(run, k, c) for k, c in run["cases"].items()],
         "analyzing": bool(run.get("analyzing")),

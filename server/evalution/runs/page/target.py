@@ -14,6 +14,24 @@ with the same words is taken for it. ``Turn.shown`` is the page's text where it 
 ``None`` when the reply never showed, with the last of what did in
 ``Session.extra["page"]["last_shown"]``.
 
+A target reached through its page alone (``adapter: page``) has no inner adapter, and the page is
+the only witness (ADR 0010, amended). ``open`` makes a session of its own (an id of evalution's,
+the try's run and number for the ``X-Evalution-*`` headers, and a made-up email for a
+``{person.email}`` header), opens a new context, signs in, opens ``url`` and, when the map has
+New chat, clicks it, so a try never lands in a conversation a seeded account left open. The
+session's id is the app's, read from the page's address by the map's ``session_id`` when it shows
+there (read again after each turn: many pages name a chat only once it has a message); without
+one, the try's spans are found by its headers alone. ``send`` types and clicks Send, waits for the
+copy to answer the request that carried the message, then for the turn to be done: every ``busy``
+sign gone and the replies unchanged for ``quiet_ms`` (busy first, quiet as the tiebreaker). With no
+busy sign and nothing new showing, the page gets ``catch_up_seconds`` after Send to start. The
+reply is the newest of the assistant's replies (``replies.item`` and ``mine``) when the map marks
+them, else what the replies show after the person's message
+(:func:`evalution.core.rendered.reply_after`), and ``Turn.reply`` and ``Turn.shown`` are both that
+text. A turn the page showed no reply for is the app's failure (:data:`NOTHING_SHOWN`), never the
+adapter's: there is none. Busy still at the deadline is out of time. No reset, no state, no probe;
+New chat only when mapped.
+
 One browser per page target, so one per copy, launched on first use: Playwright's own Chromium when
 it is installed, else the system Chrome (``EVALUTION_CHROME``, or the usual place on a Mac).
 Nothing is ever downloaded. A new browser context per session, and again on reset, so cookies,
@@ -65,7 +83,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, quote_plus, urlsplit
+from urllib.parse import quote, quote_plus, unquote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from evalution.adapters.base import (
@@ -83,6 +101,7 @@ from evalution.adapters.base import (
     status_may_have_passed_on,
 )
 from evalution.adapters.http import RUN_HEADER, TRY_HEADER
+from evalution.adapters.page import page_only_capabilities
 from evalution.config import ConfigError, KeyRing, TargetConfig
 from evalution.core.evidence import (
     VIDEO,
@@ -93,10 +112,17 @@ from evalution.core.evidence import (
     PageRecord,
     PageTurn,
 )
-from evalution.core.rendered import page_words, shown_span
+from evalution.core.rendered import NOTHING_SHOWN, page_words, reply_after, shown_span
 from evalution.core.trace import Section
 from evalution.isolation.launch import scrub
-from evalution.runs.page.map import Locator, PageMap, PageMapBroken, fill_urls, page_map_of
+from evalution.runs.page.map import (
+    Locator,
+    PageMap,
+    PageMapBroken,
+    fill_urls,
+    page_map_of,
+    page_only,
+)
 from evalution.storage.files import Files
 
 _logger = logging.getLogger(__name__)
@@ -111,6 +137,11 @@ LOAD_SECONDS = 30.0
 SHOWN_KEPT = 2000
 #: A turn's error when a case carries a fresh token: a page has nowhere to keep it unseen.
 NO_FRESH = "a page can't carry a fresh token where the person can't see it"
+#: A page-only turn's error when the page was still busy, or still changing, at the deadline.
+STILL_BUSY = "the page was still busy when the time ran out"
+STILL_CHANGING = "the page's replies were still changing when the time ran out"
+#: What a page-only session's made-up email may hold of a run's key.
+_EMAIL_PART = re.compile(r"[^A-Za-z0-9-]")
 NO_PLAYWRIGHT = (
     "page mode needs Playwright, which this install doesn't have: install evalution with its "
     "page extra (uv sync --extra page)"
@@ -230,7 +261,8 @@ def on_page(
 ) -> Target:
     """*adapter*, played through the target's page on the copy at *copy_url* when it has a page
     map (or *page*, a map being learned, in its place), signing in as slot *slot*'s test account;
-    else *adapter* as it is.
+    else *adapter* as it is. A target reached through its page alone (``adapter: page``) is played
+    by the page target with no inner adapter: *adapter*, its stand-in, plays nothing.
 
     :raises ConfigError: The target's page map, or its ``page_accounts``, doesn't read.
     """
@@ -252,12 +284,14 @@ def on_page(
         account = {"email": found["email"], "password": target.keys.get(found["password_env"])}
     told = [target.keys.get(name) for name in _env_names(target.options)]
     return PageTarget(
-        adapter,
+        None if page_only(target) else adapter,
         page,
         copy_url,
         keys=target.keys,
         account=account,
         secrets=[value for value in told if value],
+        name=target.name,
+        trace_attribute=target.trace_attribute,
     )
 
 
@@ -347,18 +381,23 @@ def _api() -> Any:
 
 
 class PageTarget(Target):
-    """*inner*, played with the app's page open on evalution's copy (see the module's docstring).
+    """*inner*, played with the app's page open on evalution's copy; or, with no *inner*, the app
+    reached through its page alone (see the module's docstring).
 
     :param page: The target's page map; its ``{copy_page}`` is filled with *copy_page*.
     :param keys: Where ``{secret:NAME}`` in a sign-in header is read, as ``*_env`` options are.
     :param account: The slot's test account, ``{email, password}``, for ``{account.*}``.
     :param secrets: Values to scrub from what the page writes to its console.
     :param element_seconds: How long an element the map names may take to show.
+    :param name: The target's name, when there is no *inner* to take it from.
+    :param trace_attribute: The span attribute a page-only session's id is found by.
+    :raises ConfigError: An *inner* adapter, and a map that doesn't say how the page shows the
+        conversation it opened (``open_session``).
     """
 
     def __init__(
         self,
-        inner: Target,
+        inner: Target | None,
         page: PageMap,
         copy_page: str,
         *,
@@ -366,12 +405,27 @@ class PageTarget(Target):
         account: dict[str, str | None] | None = None,
         secrets: list[str] | None = None,
         element_seconds: float = ELEMENT_SECONDS,
+        name: str | None = None,
+        trace_attribute: str = "session.id",
     ) -> None:
         self.inner = inner
-        self.name = inner.name
-        self.person = inner.person
+        self.name = inner.name if inner is not None else name or "page"
+        self.person = inner.person if inner is not None else None
         self.page = fill_urls(page, copy_page)
-        self.capabilities = page_capabilities(inner.capabilities, page)
+        if inner is None:
+            self.capabilities = page_only_capabilities(page.actions.new_chat is not None)
+        elif page.open_session is None:
+            raise ConfigError(
+                f"targets.{self.name}.page.open_session: missing: how the page shows the "
+                "conversation its adapter opened"
+            )
+        else:
+            self.capabilities = page_capabilities(inner.capabilities, page)
+        self.trace_attribute = trace_attribute
+        #: Where the page shows a page-only conversation's id, when the map says.
+        self._id = re.compile(page.session_id.pattern) if page.session_id is not None else None
+        #: A page-only target's sessions opened so far, by run: each try's number.
+        self._tries: dict[str, int] = {}
         self.keys = keys or KeyRing()
         self.account = account or {}
         self.element_seconds = element_seconds
@@ -392,10 +446,16 @@ class PageTarget(Target):
         #: The writes refused from a page that may only look (:meth:`_new_context`), by key.
         self._blocked: dict[str, list[str]] = {}
 
+    @property
+    def page_only(self) -> bool:
+        """Reached through its page alone: no inner adapter, and the page the only witness."""
+        return self.inner is None
+
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
         self.person = person
-        self.inner.persona(person)
+        if self.inner is not None:
+            self.inner.persona(person)
 
     # The browser
 
@@ -608,7 +668,11 @@ class PageTarget(Target):
         found = self._record_of(session)
         policy = None if self.page.video == "never" else self.page.video
         if found is None:
-            return PageRecord(interrupted=True, video_missing=CUT_OFF if policy else None)
+            return PageRecord(
+                interrupted=True,
+                video_missing=CUT_OFF if policy else None,
+                page_only=self.page_only,
+            )
         files, missing = list(found.files), None
         if policy is not None and found.keep is not None:
             missing = await self._keep_video(session, found.keep)
@@ -636,6 +700,7 @@ class PageTarget(Target):
             video_missing=missing,
             video_policy=policy if VIDEO in files else None,
             interrupted=cut_short or any(not step["done"] for step in found.turns),
+            page_only=self.page_only,
         )
         found.console.clear()
         found.failed.clear()
@@ -767,8 +832,17 @@ class PageTarget(Target):
             raise ConnectionError(f"the page at {url} didn't load: {exc}") from exc
 
     async def _show(self, page: Any, session: Session) -> None:
-        """Open *session*'s conversation on the page, and wait until it is ready."""
+        """Open *session*'s conversation on the page, and wait until it is ready. A page-only
+        session's is where its page last was (:meth:`_where`), else the map's ``url``."""
+        if self.inner is None:
+            at = (session.extra.get("page") or {}).get("at")
+            await self._goto(
+                page, at if isinstance(at, str) and self._on_copy(at) else self.page.url
+            )
+            await self._find(page, self.page.ready)
+            return
         opening = self.page.open_session
+        assert opening is not None
         if opening.url is not None:
             await self._goto(page, opening.url.replace("{session}", quote(session.id, safe="")))
         else:
@@ -784,6 +858,83 @@ class PageTarget(Target):
                 ) from exc
             await self._act(item.first.click(), opening.pick.item)
         await self._find(page, self.page.ready)
+
+    # A page with no adapter under it
+
+    def _new_session(self, run: str) -> Session:
+        """A page-only session for *run*: an id of evalution's until the page shows the app's, the
+        try's run and number for the ``X-Evalution-*`` headers, and a made-up email (on a domain
+        reserved for tests) for a ``{person.email}`` header, new each try."""
+        n = self._tries[run] = self._tries.get(run, 0) + 1
+        made = f"evalution-page-{run}-t{n}-{secrets.token_hex(2)}"
+        email = f"eval+{_EMAIL_PART.sub('-', run)[:40]}-t{n}-{secrets.token_hex(2)}@evalution.test"
+        extra = {"run": run, "try": n, "email": email}
+        return Session(made, self.trace_attribute, made, extra)
+
+    async def _open_chat(self, page: Any, session: Session) -> None:
+        """Open the map's ``url`` and, when it has New chat, start a new conversation there, then
+        take the session's id from the page."""
+        await self._goto(page, self.page.url)
+        await self._find(page, self.page.ready)
+        if self.page.actions.new_chat is not None:
+            await self._new_chat(page)
+        self._where(page, session)
+
+    async def _new_chat(self, page: Any) -> None:
+        """Click New chat, and wait for what it set going to settle: no request of the page's in
+        flight and its address unchanged for ``quiet_ms`` (a new chat may be made by a request,
+        then opened at an address of its own), within the time an element gets to show. Then
+        the page it leads to, the same one or another, must be ready."""
+        new_chat = self.page.actions.new_chat
+        assert new_chat is not None
+        button = await self._find(page, new_chat.click)
+        going: set[Any] = set()
+
+        def began(request: Any) -> None:
+            going.add(request)
+
+        def ended(request: Any) -> None:
+            going.discard(request)
+
+        page.on("request", began)
+        page.on("requestfinished", ended)
+        page.on("requestfailed", ended)
+        try:
+            was, still = page.url, time.time()
+            await self._act(button.click(timeout=self._ms()), new_chat.click)
+            quiet = max(self.page.quiet_ms / 1000, 0.3)
+            until = time.time() + self.element_seconds
+            while time.time() < until:
+                await asyncio.sleep(0.05)
+                if going or page.url != was:
+                    was, still = page.url, time.time()
+                elif time.time() - still >= quiet:
+                    break
+        finally:
+            page.remove_listener("request", began)
+            page.remove_listener("requestfinished", ended)
+            page.remove_listener("requestfailed", ended)
+        with contextlib.suppress(_api().Error):
+            await page.wait_for_load_state("domcontentloaded", timeout=LOAD_SECONDS * 1000)
+        await self._find(page, self.page.ready)
+
+    def _where(self, page: Any, session: Session) -> None:
+        """Keep where *session*'s page is (to open it there again), and the app's id for its
+        conversation when the page's address shows it (``session_id``): the spans are found by
+        it from then on."""
+        url = page.url
+        if not self._on_copy(url):
+            return
+        session.extra["page"]["at"] = url
+        if self._id is None:
+            return
+        parts = urlsplit(url)
+        where = parts.path + (f"?{parts.query}" if parts.query else "")
+        where += f"#{parts.fragment}" if parts.fragment else ""
+        found = self._id.search(where)
+        named = unquote(found.group("id")) if found and found.group("id") else None
+        if named and named != session.trace_value:
+            session.id = session.trace_value = named
 
     async def _live(self, session: Session) -> Any:
         """*session*'s page; a new one in its context, showing its conversation, when the last
@@ -950,7 +1101,7 @@ class PageTarget(Target):
         :raises ConnectionError: The page didn't load.
         :raises PageUnavailable: No Playwright or no browser here.
         """
-        session = await self.inner.open(run)
+        session = await self.looking_session(run)
         missing: list[str] = []
         try:
             page = await self._new_context(session, looking=True)
@@ -970,28 +1121,42 @@ class PageTarget(Target):
         finally:
             with contextlib.suppress(Exception):
                 await self._drop(session)
-            with contextlib.suppress(Exception):
-                await self.inner.close(session)
+            if self.inner is not None:
+                with contextlib.suppress(Exception):
+                    await self.inner.close(session)
         return missing
+
+    async def looking_session(self, run: str) -> Session:
+        """A session to look at the page in: the inner adapter's, or a page-only one of its own,
+        with nothing open in the app."""
+        if self.inner is None:
+            return self._new_session(run)
+        return await self.inner.open(run)
 
     # The contract
 
     async def open(self, run: str) -> Session:
-        """The inner adapter's session, with its conversation open on the page.
+        """The inner adapter's session, with its conversation open on the page; page-only, a
+        session of its own with a new chat open (see the module's docstring).
 
         :raises PageMapBroken: The page lacks what the map names.
         :raises ConnectionError: The page didn't load.
         :raises PageUnavailable: No Playwright or no browser here.
         """
-        session = await self.inner.open(run)
+        inner = self.inner
+        session = await inner.open(run) if inner is not None else self._new_session(run)
         try:
             page = await self._new_context(session)
-            await self._show(page, session)
+            if inner is None:
+                await self._open_chat(page, session)
+            else:
+                await self._show(page, session)
         except BaseException:
             with contextlib.suppress(Exception):
                 await self._drop(session)
-            with contextlib.suppress(Exception):
-                await self.inner.close(session)
+            if inner is not None:
+                with contextlib.suppress(Exception):
+                    await inner.close(session)
             raise
         return session
 
@@ -1033,9 +1198,22 @@ class PageTarget(Target):
         deadline: float,
         step: dict[str, Any],
     ) -> Turn:
-        """The turn, with the page sending or watching, then caught up with."""
+        """The turn, with the page sending or watching, then caught up with; page-only, with the
+        page sending and its own signs saying when it is done."""
         # What the replies' region held before: an earlier reply with the same words isn't this.
         before = await self._region_text(page)
+        if self.inner is None:
+            mine = await self._mine_count(page)
+            sent = await self._page_sends(page, message, started, deadline)
+            if isinstance(sent, Turn):
+                return sent
+            turn = await self._settled(page, session, message, before, mine, started, deadline)
+            self._where(page, session)
+            if turn.shown is not None:
+                step["shown_at"] = turn.ended
+            else:
+                step["instead"] = session.extra["page"].get("last_shown", "")
+            return turn
         if self.inner.capabilities.watch:
             # The page sends, as a person would; the inner adapter waits for that turn.
             sent = await self._page_sends(page, message, started, deadline)
@@ -1050,6 +1228,101 @@ class PageTarget(Target):
             if turn.shown is None:
                 step["instead"] = session.extra["page"].get("last_shown", "")
         return turn
+
+    def _mine(self, region: Any) -> Any | None:
+        """The assistant's replies in *region*, when the map marks them (``replies.mine``, within
+        ``replies.item`` when it has one); ``None`` when it doesn't."""
+        replies = self.page.replies
+        if replies.mine is None:
+            return None
+        mine = self._locator(region, replies.mine)
+        return self._locator(region, replies.item).and_(mine) if replies.item else mine
+
+    async def _mine_count(self, page: Any) -> int:
+        """How many of the assistant's replies the page shows now; 0 when it doesn't mark them."""
+        region = self._locator(page, self.page.replies.in_).first
+        mine = self._mine(region)
+        with contextlib.suppress(_api().Error):
+            if mine is not None and await region.count():
+                return int(await mine.count())
+        return 0
+
+    async def _reply_now(
+        self, region: Any, text: str, message: str, before: str, mine_before: int
+    ) -> str | None:
+        """The newest reply the page shows for this turn: the newest of the assistant's replies
+        marked on the page, when there are more than before the turn; else what the replies show
+        after the person's message, past what they showed before. ``None`` when nothing has."""
+        mine = self._mine(region)
+        if mine is not None:
+            count = int(await mine.count())
+            if count <= mine_before:
+                return None
+            said = str(await mine.nth(count - 1).inner_text(timeout=1000)).strip()
+            return said or None
+        earlier, now = page_words(before), page_words(text)
+        kept = next(
+            (i for i, (a, b) in enumerate(zip(earlier, now, strict=False)) if a != b),
+            min(len(earlier), len(now)),
+        )
+        return reply_after(text, message=message, after=kept) or None
+
+    async def _settled(
+        self,
+        page: Any,
+        session: Session,
+        message: str,
+        before: str,
+        mine_before: int,
+        started: float,
+        deadline: float,
+    ) -> Turn:
+        """A page-only turn, once the page is done with it: no ``busy`` sign showing and the
+        replies unchanged for ``quiet_ms`` (busy first, quiet as the tiebreaker). While nothing
+        has stirred (no busy sign seen, no reply showing), the page gets ``catch_up_seconds``
+        from Send to start. The reply, and what was shown, is :meth:`_reply_now`'s; none is the
+        app's failure (:data:`NOTHING_SHOWN`); still going at *deadline* is out of time."""
+        api = _api()
+        region = self._locator(page, self.page.replies.in_).first
+        busy = [self._locator(page, mark).first for mark in self.page.busy]
+        quiet = self.page.quiet_ms / 1000
+        sent = time.time()
+        last, changed, stirred, seen = before, sent, False, False
+        text, reply, busy_now = before, None, False
+        while True:
+            now = time.time()
+            try:
+                if await region.count():
+                    seen = True
+                    text = str(await region.inner_text(timeout=1000))
+                busy_now = any([await b.is_visible() for b in busy])
+                reply = await self._reply_now(region, text, message, before, mine_before)
+            except api.Error as exc:
+                if "has been closed" in str(exc):
+                    raise TargetGone(f"the page closed: {exc}") from exc
+                # Redrawn while it was read: the next look reads it whole. The deadline holds.
+                _logger.debug("evals: the page of %s was read mid-change", session.id)
+                busy_now, changed = False, now
+            if busy_now or text != last:
+                last, changed = text, now
+            stirred = stirred or busy_now or reply is not None
+            waited = stirred or now - sent >= self.page.catch_up_seconds
+            if not busy_now and now - changed >= quiet and waited:
+                break
+            if now >= deadline:
+                said = STILL_BUSY if busy_now else STILL_CHANGING
+                session.extra["page"]["last_shown"] = text[-SHOWN_KEPT:]
+                return Turn("", started, now, error=said, failure=Failure.TIMED_OUT, heard=True)
+            await asyncio.sleep(0.1)
+        ended = time.time()
+        if not seen:
+            said = f"the page has no {_said(self.page.replies.in_)}"
+            return Turn("", started, ended, error=said, failure=Failure.PAGE_MAP)
+        if reply is None:
+            session.extra["page"]["last_shown"] = text[-SHOWN_KEPT:]
+            return Turn("", started, ended, error=NOTHING_SHOWN, failure=Failure.APP, heard=True)
+        session.extra["page"].pop("last_shown", None)
+        return Turn(reply, started, ended, shown=reply)
 
     async def _region_text(self, page: Any) -> str:
         """What the replies' region shows now; empty when it isn't there (yet)."""
@@ -1158,20 +1431,40 @@ class PageTarget(Target):
         return None
 
     async def reset(self, session: Session) -> None:
-        """The inner adapter's reset, then a fresh context with the session's page open."""
+        """The inner adapter's reset, then a fresh context with the session's page open. A
+        page-only target has none: a new context and a new chat wouldn't put back what the app
+        keeps on its server, which the copy's restore does before each try, in a new session."""
+        if self.inner is None:
+            await super().reset(session)
+            return
         await self.inner.reset(session)
         page = await self._new_context(session)
         await self._show(page, session)
 
     async def break_conversation(self, session: Session) -> None:
-        """The inner adapter's new conversation, then its page open."""
+        """The inner adapter's new conversation, then its page open; page-only, New chat clicked
+        on the page, and the new conversation's id taken from it when it shows one (else a new id
+        of evalution's, whose spans the try's headers find)."""
         if not self.capabilities.conversation_break:
             raise NotImplementedError(f"{self.name} can't start a new conversation on its page")
+        if self.inner is None:
+            page = await self._live(session)
+            await self._new_chat(page)
+            named = session.trace_value
+            self._where(page, session)
+            if session.trace_value == named:
+                run, n = session.extra.get("run"), session.extra.get("try")
+                made = f"evalution-page-{run}-t{n}-{secrets.token_hex(2)}"
+                session.id = session.trace_value = made
+            return
         await self.inner.break_conversation(session)
         await self._show(await self._live(session), session)
 
     async def cancel(self, session: Session) -> None:
         """The inner adapter's: the work in flight is the app's, not the page's."""
+        if self.inner is None:
+            await super().cancel(session)
+            return
         await self.inner.cancel(session)
 
     async def close(self, session: Session) -> None:
@@ -1181,11 +1474,13 @@ class PageTarget(Target):
             await self._drop(session)
         except Exception:
             _logger.warning("evals: the page of %s not closed", session.id, exc_info=True)
-        await self.inner.close(session)
+        if self.inner is not None:
+            await self.inner.close(session)
 
     async def dispose(self) -> None:
         await self.dispose_browser()
-        await self.inner.dispose()
+        if self.inner is not None:
+            await self.inner.dispose()
 
     async def dispose_browser(self) -> None:
         """Close the browser and every context in it; the inner adapter stays as it is."""
@@ -1206,25 +1501,32 @@ class PageTarget(Target):
                 await self._playwright.stop()
             self._playwright = None
 
-    # The rest is the inner adapter's
+    # The rest is the inner adapter's; page-only, the contract's defaults: none of it
 
     async def read_memory(self, session: Session) -> MemoryRead | None:
+        if self.inner is None:
+            return await super().read_memory(session)
         return await self.inner.read_memory(session)
 
     async def fold_at(self, session: Session, tokens: int) -> None:
-        await self.inner.fold_at(session, tokens)
+        if self.inner is not None:
+            await self.inner.fold_at(session, tokens)
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
+        if self.inner is None:
+            return await super().state(session, check)
         return await self.inner.state(session, check)
 
     async def probe(self, session: Session, check: dict[str, Any]) -> StateResult:
+        if self.inner is None:
+            return await super().probe(session, check)
         return await self.inner.probe(session, check)
 
     def sections(self, request: dict[str, Any]) -> list[Section]:
-        return self.inner.sections(request)
+        return [] if self.inner is None else self.inner.sections(request)
 
     def answers(self) -> list[dict[str, Any]]:
-        return self.inner.answers()
+        return [] if self.inner is None else self.inner.answers()
 
 
 #: The entries :meth:`PageTarget.try_entry` tries.

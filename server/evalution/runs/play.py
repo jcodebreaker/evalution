@@ -158,6 +158,9 @@ class Played:
     lost: bool = False
     #: What the app's page showed, when the try played through it (ADR 0010).
     page: PageRecord | None = None
+    #: The target is reached through its page alone: no adapter to blame, the page the only
+    #: witness (:func:`_check_the_page`).
+    page_only: bool = False
 
     @property
     def gone(self) -> bool:
@@ -214,11 +217,12 @@ async def play_try(
     on_page = target if isinstance(target, PageTarget) else None
     if on_page is not None:
         on_page.begin(session, page_files)
-    played = Played(t0=time.time())
+    played = Played(t0=time.time(), page_only=on_page is not None and on_page.page_only)
     limit = float(case.limits.get("seconds") or DEFAULT_SECONDS)
     deadline = played.t0 + limit
     last_end = played.t0
-    if target.capabilities.background:
+    if target.capabilities.background or played.page_only:
+        # Done is the page's own signs, and only the deadline ends the wait: nothing waits on.
         stuck = 0.0
     watch = _Watch(source if stuck else None, stuck, reused or set())
     played.on_turn = on_turn
@@ -276,8 +280,12 @@ async def play_try(
         # The page target's: the page lacks what its map names, which is neither side's fault.
         _ended(played, Failure.PAGE_MAP, str(exc))
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
-        # Nothing the app answered: an adapter tells that as a turn's error, not by raising.
-        _ended(played, Failure.ADAPTER, net.said(exc))
+        if played.page_only:
+            # No adapter to have misread it: the page couldn't be played, so nothing was learned.
+            _ended(played, Failure.NOT_SUPPORTED, f"the page couldn't be played: {net.said(exc)}")
+        else:
+            # Nothing the app answered: an adapter tells that as a turn's error, not by raising.
+            _ended(played, Failure.ADAPTER, net.said(exc))
     # A try cut short ran until now: its spans up to here are its own.
     ended = time.time() if played.failure else max(last_end, played.t0)
     played.seconds = round(ended - played.t0, 1)
@@ -359,8 +367,9 @@ async def _still_out(
         await _sleep(WATCH_EVERY)
         now = time.time()
         if now > deadline + DEADLINE_GRACE:
+            who = "The page" if played.page_only else "The adapter"
             return (
-                f"The adapter hadn't come back {now - played.t0:.0f} s in, past the "
+                f"{who} hadn't come back {now - played.t0:.0f} s in, past the "
                 f"{deadline - played.t0:.0f} s limit"
             )
         if watch.source is None:
@@ -453,7 +462,8 @@ async def _send(
                 error=turn,
             )
         )
-        _ended(played, Failure.ADAPTER, turn)
+        # With no adapter, a page that never came back ran out of time: it isn't anyone's misread.
+        _ended(played, Failure.TIMED_OUT if played.page_only else Failure.ADAPTER, turn)
         raise _TryEnded
     played.trace_ids += [t for t in turn.trace_ids if t not in played.trace_ids]
     played.reply_text = turn.reply
@@ -630,7 +640,10 @@ async def _read_traces(
     once = played.gone or not played.turns_sent
     found = await collect(source, wanted, settle, once=once, wait=trace_wait)
     reused.update(values)
-    _check_the_adapter(played, found.spans, stuck)
+    if played.page_only:
+        _check_the_page(played, found.spans)
+    else:
+        _check_the_adapter(played, found.spans, stuck)
     if found.status in (TraceStatus.EMPTY, TraceStatus.UNREAD):
         played.error = played.error or found.note or NO_TRACES
     sectioner = target.sections if target.capabilities.sections else None
@@ -644,7 +657,8 @@ def _check_the_adapter(played: Played, spans: Sequence[Span], stuck: float) -> N
     """Hold what the adapter said against the traces: an empty reply to a turn the agent answered,
     or a wait that never came back well after the agent had finished (it timed out or lost the
     connection), is the adapter's, not the app's. A reply it did read, and then an error, and any
-    status the app really returned, are the app's to answer for."""
+    status the app really returned, are the app's to answer for. Never for a target reached
+    through its page alone (:func:`_check_the_page`)."""
     if played.failure is None:
         last = next((r for r in reversed(played.records) if r.kind == "message"), None)
         if last is None or last.reply.text.strip() or last.ended_as is TurnEnd.BLOCKED:
@@ -667,6 +681,26 @@ def _check_the_adapter(played: Played, spans: Sequence[Span], stuck: float) -> N
     ):
         said = _kept_waiting(played, at, played.t0 + played.seconds, "waiting")
         _ended(played, Failure.ADAPTER, f"{said} Then: {played.error}")
+
+
+def _check_the_page(played: Played, spans: Sequence[Span]) -> None:
+    """:func:`_check_the_adapter` for a target reached through its page alone, which has no adapter
+    to blame: the page is the only witness. A turn the page showed no reply for, or was still busy
+    with at the deadline, stays what the page target said it was, the app's failure or out of time,
+    never ``ADAPTER``. The traces can only add what the agent did: when they show it answered, the
+    reply was lost on its way to the page (answered, not shown), and the try says so. Without
+    that, the app plainly didn't answer on its page."""
+    if played.failure not in (Failure.APP, Failure.TIMED_OUT) or played.error is None:
+        return
+    last = played.records[-1] if len(played.records) == played.turns_sent else None
+    if last is None or last.error is None or last.reply.text.strip():
+        return
+    # Whatever the page did, only what the model said matters here.
+    at = answered_at(spans, played.sent_at, enclosed=False)
+    if at is None:
+        return
+    said = f"The traces show the agent answered at {at - played.t0:.0f} s: answered, not shown."
+    played.error = f"{played.error.rstrip('.')}. {said}"
 
 
 def _reply_read(played: Played) -> bool:

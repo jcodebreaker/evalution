@@ -20,6 +20,7 @@ import httpx
 
 from evalution.adapters import adapter_info, infos
 from evalution.adapters.base import AdapterInfo, flat_options, part
+from evalution.adapters.page import NAME as PAGE_ONLY
 from evalution.code import HASH_CAP, Code
 from evalution.config import (
     CodeConfig,
@@ -301,6 +302,12 @@ def _reached(exc: httpx.HTTPError) -> str:
 
 async def _adapter(conf: TargetConfig, lookup: Any) -> dict[str, Any]:
     info = adapter_info(conf.adapter)
+    if info is None and conf.adapter == PAGE_ONLY:
+        return part(
+            True,
+            "Reached through its page alone: there's no API to try. A run plays the page on "
+            "evalution's own copy of the app.",
+        )
     if info is None:
         return part(False, f"No adapter {conf.adapter!r}")
     async with net.client(timeout=CHECK_SECONDS) as client:

@@ -840,10 +840,15 @@ def _on_page(
         "failed_requests": [r.model_dump(mode="json") for r in page.failed_requests],
         "left_out": page.left_out,
         "health": _decided(checks.get("page_health")),
-        # How the try comes out on every check but the page's: through the API alone.
-        "without_page": judge_try(
+        # How the try comes out on every check but the page's: through the API alone. A target
+        # reached through its page alone has no API to have played through: none.
+        "without_page": None
+        if page.page_only
+        else judge_try(
             c for c in judged.checks if c.kind not in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH)
         ).value,
+        # Reached through its page alone: each reply is what the page showed (reply only).
+        "page_only": page.page_only,
         "video": {"name": video, "url": url} if video else None,
         "video_missing": missing,
         "interrupted": page.interrupted,

@@ -248,6 +248,8 @@ class PageRecord(Frozen):
         ``always``; ``None`` when none was recorded.
     :param interrupted: The try was cut short (a restart, a stop) before the page was closed.
     :param left_out: Console lines and failed requests past :data:`PAGE_LINES` each, not kept.
+    :param page_only: The target was reached through its page alone, with no API adapter: each
+        turn's reply is what the page showed, and nothing else saw it (ADR 0010, amended).
     """
 
     turns: tuple[PageTurn, ...] = ()
@@ -258,6 +260,7 @@ class PageRecord(Frozen):
     video_policy: str | None = None
     interrupted: bool = False
     left_out: int = 0
+    page_only: bool = False
 
     def capped(self) -> PageRecord:
         """As stored: every text within :data:`ITEM_BYTES`, and at most :data:`PAGE_LINES` console

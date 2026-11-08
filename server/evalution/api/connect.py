@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from evalution.adapters import adapter_info, broken, infos
+from evalution.adapters.page import LABEL as PAGE_ONLY_LABEL
 from evalution.api.deps import (
     Current,
     busy,
@@ -27,7 +28,7 @@ from evalution.config import ConfigError, TargetConfig
 from evalution.connect import connect, discover, probe
 from evalution.core.case import SLUG
 from evalution.project.profile import connection, update_connection
-from evalution.runs.page.map import described, page_map_of
+from evalution.runs.page.map import described, page_map_of, page_only
 from evalution.targets import Targets
 
 
@@ -55,19 +56,23 @@ def _page(conf: TargetConfig) -> dict[str, Any] | None:
     """How a target plays through its page (ADR 0010), in plain words; ``None`` when it plays
     through its API. Read only here: the map is learned and approved on the Test environment page
     (:mod:`evalution.connect.page`), or written by hand in the target's ``page:`` block."""
+    only = page_only(conf)
     try:
         found = page_map_of(conf)
     except ConfigError as exc:
-        return {"map": [], "error": str(exc)}
-    return None if found is None else {"map": described(found), "error": None}
+        return {"map": [], "error": str(exc), "only": only}
+    if found is None:
+        return None
+    return {"map": described(found, only=only), "error": None, "only": only}
 
 
 def _view(targets: Targets, name: str) -> dict[str, Any]:
     conf = targets.conf(name)
     info = adapter_info(conf.adapter)
+    label = info.label if info else PAGE_ONLY_LABEL if page_only(conf) else conf.adapter
     return {
         **connect.view(conf, name in targets.config.managed),
-        "adapter_label": info.label if info else conf.adapter,
+        "adapter_label": label,
         "page": _page(conf),
         #: Why its adapter doesn't load, when it doesn't: none of its runs can start.
         "adapter_error": broken().get(conf.adapter),

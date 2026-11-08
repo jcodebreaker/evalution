@@ -35,6 +35,17 @@ describe("Plays through", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
+  it("says a target reached through its page alone plays through its page only, reply only", () => {
+    const page = target({
+      only: true,
+      map: [{ what: "Done when", where: "nothing is busy" }],
+    }).page;
+    render(<PlaysThrough page={page} />);
+    expect(screen.getByText("Its page only")).toBeTruthy();
+    expect(screen.getByText(/a pass is reply only/)).toBeTruthy();
+    expect(screen.getByText("Done when: nothing is busy")).toBeTruthy();
+  });
+
   it("says why a page map doesn't read", () => {
     render(<PlaysThrough page={target({ error: "targets.x.page.url: must start" }).page} />);
     expect(screen.getByText(/Its page map doesn't read: targets.x.page.url/)).toBeTruthy();

@@ -106,7 +106,7 @@ async function render() {
   const data = await (await fetch("/api/messages/" + encodeURIComponent(session))).json();
   const log = document.getElementById("log");
   let answers = 0;
-  log.innerHTML = data.messages.map(m => {
+  log.innerHTML = data.messages.filter(m => !(data.hide && m.role === "assistant")).map(m => {
     const mine = m.role === "assistant";
     const dropped = mine && data.drop_from !== null && answers++ >= data.drop_from;
     return "<p>" + html(dropped ? "Couldn't load this reply" : m.text) + "</p>";
@@ -158,6 +158,10 @@ class ChatApp:
     def __init__(self, other: str) -> None:
         #: The page drops the app's replies from this one on (0 is the first).
         self.drop_from: int | None = None
+        #: The page shows none of the app's replies, and nothing in their place.
+        self.hide = False
+        #: The app never says it's done: the page says Stop for good.
+        self.never_idle = False
         self.rename = False
         #: The page writes an error, a warning and an uncaught error, and asks for what isn't there.
         self.noisy = False
@@ -188,7 +192,8 @@ class ChatApp:
         @self.app.get("/api/messages/{session:path}")
         async def messages(session: str) -> dict[str, Any]:
             said = self.messages.get(session, [])
-            return {"messages": said, "busy": session in self.busy, "drop_from": self.drop_from}
+            busy = session in self.busy
+            return {"messages": said, "busy": busy, "drop_from": self.drop_from, "hide": self.hide}
 
         @self.app.get("/api/state/{session:path}")
         async def state(session: str) -> dict[str, Any]:
@@ -214,7 +219,8 @@ class ChatApp:
                 said.append(
                     {"role": "assistant", "text": f"Echo: **{message}**", "at": time.time()}
                 )
-                self.busy.discard(session)
+                if not self.never_idle:
+                    self.busy.discard(session)
 
             asyncio.get_running_loop().create_task(answer())
             return {"ok": True}

@@ -226,7 +226,30 @@ Written alongside phase 3, since phase 3's tests need it.
 - **Versions and undo** like the isolation plan: every approved map, and each change of its status, is a version (`page-maps/<target>/versions/`). Undo goes back to the map before, or to no `page:` block (its API) when there was none. A map written by hand before is kept as the version an approved one replaces. A target set in `evalution.yaml` is never written: approving says to add the block there.
 - **Kept current like a claim.** The map's evidence files and their hashes are kept with it. A commit touching one marks it `stale` (the background check, as for the isolation plan), and Home says so. Before a run plays through the page, a stale or broken map, or one whose evidence changed, is checked on the copy: every element a turn needs is found, none is acted on, no message is sent. Found: approved again. Not found: `broken`, saying what's missing, and the run ends `page_map_broken` with no try played and a proposal to re-learn the page.
 - **Only while the block is the map as approved.** A `page:` block edited by hand afterwards is the person's: nothing marks or checks it. Editing a connected target in the form keeps its `page:` and `page_accounts`.
-- **Page-only targets** (no inner adapter): reply-only and labelled so, done by page signals (`busy` clearing, Stop turning back to Send) with quiet time as a tiebreaker, no `probe`, no state checks.
+- **Page-only targets** (no inner adapter): reply-only and labelled so, done by page signals (`busy` clearing, Stop turning back to Send) with quiet time as a tiebreaker, no `probe`, no state checks. **Built (2026-11-08)**, as below.
+
+#### A target reached through its page alone (2026-11-08)
+
+Decision: ADR 0010, "Amended 2026-11-08".
+
+```yaml
+targets:
+  chat:
+    adapter: page                        # no adapter: a stand-in outside a run, no INFO
+    page:
+      url: "{copy_page}/chat"
+      session_id: {from: url, pattern: "/chat/(?P<id>[\\w-]+)"}   # optional
+      quiet_ms: 800                      # replies unchanged this long, nothing busy: done
+      ready: …, sign_in: …, actions: {type, send, new_chat?}, replies: {in, item?, mine?}, busy: […]
+    page_accounts: […]                   # for a form or cookie sign-in, as before
+```
+
+- **Plays:** `PageTarget(None, map)` on the copy. Open: new context, sign in, `url`, New chat when mapped, the id from the address when `session_id` says. Send: type, Send, the copy answers the message's request; then busy gone and replies quiet for `quiet_ms` (busy first), the page given `catch_up_seconds` to start. Reply: the newest `mine` item, else the replies after the person's message. `Turn.reply` = `Turn.shown`.
+- **Can:** managed isolation, New chat when mapped, language and time zone. **Can't:** reset (the copy's restore is the reset), state, probe, files, Stop, watch, sections, parallel (page targets stall side by side on relay-lite: one slot).
+- **Says so:** `PageRecord.page_only`, the run's `plays: page_only`, "Plays through: Its page only", "a pass is reply only", never "through the API alone".
+- **Fails on the page, never the adapter:** a page that settled with no reply is `app` (the try fails, `shown` fails), "answered, not shown" when the traces show the agent answered; busy at the deadline is out of time. The run's first check only warns of it.
+- **Tests:** `tests/test_page_only.py` (browser: reply read from the page, busy then quiet, busy forever → out of time, nothing shown → the app's failure, renamed Send → page map, the id from the URL or evalution's own), `tests/test_page_only_contract.py` (no browser: capabilities, the stand-in, map reading, refusals, the adapter rule) and `tests/acceptance/test_page_only_runs.py` (the made-up app's page alone: a reply-only pass, `drop_reply` a fail with "answered, not shown").
+- **Not yet:** an isolation plan's rehearsal sends through an adapter, so a page-only target's plan is proven by hand for now.
 - **A new person per try** through the page, when sign-up can be mapped.
 - **Per-test page mode**, if per-target proves too coarse.
 

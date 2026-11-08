@@ -49,6 +49,7 @@ from evalution.adapters.base import (
     TargetGone,
     failure_of,
 )
+from evalution.config import TargetConfig
 from evalution.core import net
 from evalution.core.case import MOST_TRIES, Case, EvalSet
 from evalution.core.evidence import VIDEO, Failure, TraceStatus, TryEvidence
@@ -96,7 +97,7 @@ from evalution.runs import isolated, trust
 from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
 from evalution.runs.page import learn
-from evalution.runs.page.map import PageMapBroken, page_map_of
+from evalution.runs.page.map import PageMapBroken, page_map_of, page_only
 from evalution.runs.page.target import PageFiles, PageTarget, page_capabilities
 from evalution.runs.play import (
     ADAPTER_FAILURES,
@@ -207,6 +208,14 @@ def _last_turn(evidence: TryEvidence) -> tuple[float, float] | None:
         return None
     last = evidence.turns[-1]
     return last.started - evidence.t0, last.ended - evidence.t0
+
+
+def _plays(conf: TargetConfig) -> str:
+    """How a run of *conf* reaches the app: ``api``, ``page`` (its API, with its page open beside
+    it) or ``page_only`` (its page alone: every reply is what the page showed, ADR 0010)."""
+    if page_only(conf):
+        return "page_only"
+    return "page" if conf.options.get("page") is not None else "api"
 
 
 def _plan_beside(docs: Docs, target: str, set_name: str) -> dict[str, Any] | None:
@@ -445,6 +454,8 @@ class Runs:
             "environment": place,
             # How its tries are kept apart: set once the run knows what it stands on.
             "isolation": run_isolation(),
+            # How it reaches the app: its API, its page beside it, or its page alone.
+            "plays": _plays(self.targets.conf(plan.target)),
             "scope": plan.scope,
             "started_at": started,
             # How a benchmark was chosen to play, when a plan chose it.

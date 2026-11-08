@@ -21,6 +21,14 @@ evalution's own copy (ADR 0009). :func:`fill_urls` fills it in where the copy's 
 and refuses a URL that would leave it. ``{session}`` (in ``open_session.url``) and
 ``{account.email}``, ``{account.password}`` (in sign-in values) are filled later, per try.
 
+A target reached only through its page (``adapter: page``, no API adapter under it) opens its
+chat at ``url``, or by ``actions.new_chat``, and needs no ``open_session``. It may say where the
+page shows the conversation's id (``session_id: {from: url, pattern: "/chat/(?P<id>[^/?#]+)"}``),
+so its spans are found by it; without one, they are found by the try's ``X-Evalution-Run`` and
+``X-Evalution-Try`` headers alone. Its turn is done when every ``busy`` sign is gone and the
+replies have stayed the same for ``quiet_ms`` (800 by default): busy first, quiet as the
+tiebreaker.
+
 A test person signs in one of four ways (``sign_in``): ``none``, a ``cookie``, a ``form`` with a
 seeded account (``accounts: seed``), or ``headers`` sent with every request, for an app that
 trusts a proxy in front of it to say who is signed in. A header's value is a template
@@ -47,12 +55,15 @@ from pydantic import (
     model_validator,
 )
 
+from evalution.adapters.page import NAME as PAGE_ONLY
 from evalution.config import ConfigError, TargetConfig
 
 #: Where the copy's page address goes in a URL.
 COPY_PAGE = "{copy_page}"
 #: The longest the page may take, after the inner adapter's send returns, to show the reply.
 CATCH_UP_MOST = 120.0
+#: The longest the replies must stay the same before a page-only turn is taken as done.
+QUIET_MOST_MS = 60_000
 #: The entries a map's ``evidence`` may speak for.
 ENTRIES = frozenset(
     {
@@ -61,6 +72,7 @@ ENTRIES = frozenset(
         "sign_in",
         "accounts",
         "open_session",
+        "session_id",
         "actions.new_chat",
         "actions.type",
         "actions.send",
@@ -347,6 +359,25 @@ class OpenSession(_Strict):
         return self
 
 
+def _id_pattern(pattern: str) -> str:
+    """A regular expression with an ``id`` group, read against the page's address."""
+    try:
+        found = re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"{pattern!r} isn't a regular expression: {exc}") from None
+    if "id" not in found.groupindex:
+        raise ValueError(f"{pattern!r} needs a group named id, like /chat/(?P<id>[^/?#]+)")
+    return pattern
+
+
+class SessionId(_Strict):
+    """Where a page-only target's page shows its conversation's id: in its address, as the
+    ``id`` group of ``pattern`` finds it there (its path, query and fragment, not its host)."""
+
+    from_: Literal["url"] = Field(alias="from")
+    pattern: Annotated[str, AfterValidator(_id_pattern)] = Field(min_length=1)
+
+
 class Actions(_Strict):
     """What a person does. ``attach`` and ``stop`` aren't used in v1."""
 
@@ -374,8 +405,15 @@ class PageMap(_Strict):
     :param accounts: ``seed``: one account per slot, seeded in the copy's setup, for a form or
         cookie to sign in with. Not needed with ``headers``.
     :param busy: The page is still working while any of these is there.
+    :param open_session: How the page shows the conversation the inner adapter opened. A target
+        reached through its page alone has no inner adapter, and leaves it out.
+    :param session_id: Where a page-only target's page shows its conversation's id.
     :param catch_up_seconds: After the inner adapter's send returns, how long the page gets to
-        stop being busy and show the reply.
+        stop being busy and show the reply. On a page-only target, how long after Send the page
+        gets to show any sign of answering (busy, or something new in the replies) before the
+        turn is taken as one it showed nothing for.
+    :param quiet_ms: On a page-only target, how long the replies must stay the same, nothing
+        busy, before the turn is done.
     :param evidence: Per entry (one of :data:`ENTRIES`), why it is what it is.
     :param video: When a try's video is kept (:data:`Video`).
     """
@@ -384,11 +422,13 @@ class PageMap(_Strict):
     ready: Element
     sign_in: SignIn = Field(default_factory=SignIn)
     accounts: Literal["seed"] | None = None
-    open_session: OpenSession
+    open_session: OpenSession | None = None
+    session_id: SessionId | None = None
     actions: Actions
     replies: Replies
     busy: tuple[Mark, ...] = ()
     catch_up_seconds: float = Field(default=10.0, gt=0, le=CATCH_UP_MOST)
+    quiet_ms: int = Field(default=800, ge=0, le=QUIET_MOST_MS)
     status: Status = "draft"
     evidence: dict[str, Evidence] = Field(default_factory=dict)
     video: Video = "failed"
@@ -446,7 +486,7 @@ def fill_urls(page: PageMap, copy_page: str) -> PageMap:
         form = sign_in.form.model_copy(update={"url": _filled(sign_in.form.url, copy_page)})
         sign_in = sign_in.model_copy(update={"form": form})
     opening = page.open_session
-    if opening.url is not None:
+    if opening is not None and opening.url is not None:
         opening = opening.model_copy(update={"url": _filled(opening.url, copy_page)})
     return page.model_copy(
         update={
@@ -486,15 +526,30 @@ def read_map(block: Any, where: str = "page") -> PageMap:
         raise ConfigError(reasons) from None
 
 
+def page_only(target: TargetConfig) -> bool:
+    """Whether *target* is reached through its page alone (``adapter: page``), with no API
+    adapter under it."""
+    return target.adapter == PAGE_ONLY
+
+
 def page_map_of(target: TargetConfig) -> PageMap | None:
     """The target's page map, from its ``page:`` block; ``None`` when it has none.
 
     :raises ConfigError: The block isn't a page map; the message says where and why.
     """
     block = target.options.get("page")
+    where = f"targets.{target.name}.page"
     if block is None:
+        if target.adapter == PAGE_ONLY:
+            raise ConfigError(f"{where}: missing: adapter: page plays through the page map alone")
         return None
-    return read_map(block, f"targets.{target.name}.page")
+    found = read_map(block, where)
+    if target.adapter != PAGE_ONLY and found.open_session is None:
+        raise ConfigError(
+            f"{where}.open_session: missing: how the page shows the conversation its adapter "
+            "opened (adapter: page plays through the page alone, and needs none)"
+        )
+    return found
 
 
 def as_block(page: PageMap) -> dict[str, Any]:
@@ -528,6 +583,12 @@ _SIGN_IN = {
 }
 
 
+def _id_where(page: PageMap) -> str:
+    if page.session_id is None:
+        return "not on the page: spans are found by the try's own headers"
+    return f"the page's address, by {page.session_id.pattern}"
+
+
 _VIDEO = {
     "failed": "kept when a try doesn't pass",
     "always": "kept for every try",
@@ -535,9 +596,9 @@ _VIDEO = {
 }
 
 
-def described(page: PageMap) -> list[dict[str, str]]:
+def described(page: PageMap, *, only: bool = False) -> list[dict[str, str]]:
     """The map in plain words, entry by entry, as ``{what, where}``: how the page is played, as a
-    person reads it."""
+    person reads it. *only*: the target is reached through its page alone."""
     rows = [
         ("Opens", page.url.replace(COPY_PAGE, "", 1) or "/"),
         ("Signs in with", _SIGN_IN[page.sign_in.kind]),
@@ -550,6 +611,10 @@ def described(page: PageMap) -> list[dict[str, str]]:
     rows.append(("Replies", _where(page.replies.in_)))
     if page.busy:
         rows.append(("Busy while", " or ".join(_where(found) for found in page.busy)))
+    if only:
+        rows.append(("Session id", _id_where(page)))
+        quiet = f"the replies stay the same for {page.quiet_ms / 1000:g} s"
+        rows.append(("Done when", f"nothing is busy and {quiet}" if page.busy else quiet))
     rows.append(("Waits for the reply", f"up to {page.catch_up_seconds:g} s"))
     rows.append(("Video", _VIDEO[page.video]))
     return [{"what": what, "where": where} for what, where in rows]

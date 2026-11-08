@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import re
 
+#: A turn's error when a target reached through its page alone settled and showed no reply: the
+#: page target says it, and the ``shown`` check reads it as the page's failure.
+NOTHING_SHOWN = "the page showed no reply"
+
 _FENCE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
 _LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _AUTOLINK = re.compile(r"<(https?://[^>\s]+)>")
@@ -83,6 +87,21 @@ def shown_span(
             continue
         return found[start][1], found[end][2]
     return None
+
+
+def reply_after(page: str, *, message: str = "", after: int = 0) -> str:
+    """What *page* shows after the person's *message*, as the page renders it: a page's reply when
+    nothing on the page says which part is the reply (ADR 0010, a target reached through its page
+    alone). Read from the first showing of the whole message at or after word *after* (where what
+    the page shows for this turn starts): the person's message comes before the reply, which may
+    repeat its words. When the page doesn't echo the message, from word *after* itself. Empty when
+    nothing follows."""
+    found = _spans(page)
+    echoes = [(lo, hi) for lo, hi in _showings(found, message) if lo >= after]
+    start = echoes[0][1] + 1 if echoes else after
+    if start >= len(found):
+        return ""
+    return page[found[start][1] :].strip()
 
 
 def shows(reply: str, page: str, *, message: str = "", after: int = 0) -> bool:

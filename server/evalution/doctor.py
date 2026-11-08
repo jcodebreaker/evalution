@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from evalution.adapters import adapter_info, broken, infos
+from evalution.adapters.page import NAME as PAGE_ONLY
 from evalution.config import Config
 from evalution.connect.connect import check
 from evalution.core import net
@@ -83,6 +84,10 @@ async def _target(targets: Targets, name: str) -> list[Finding]:
         file = where / f"{conf.adapter}.py"
         fix = f"Fix {file}: an evalution update may have changed what it imports"
         return [Finding(False, f"{name}: adapter {conf.adapter!r} doesn't load ({why})", fix)]
+    if conf.adapter == PAGE_ONLY:
+        # No API to try: the page is played, and its map checked, on evalution's copy in a run.
+        said = f"{name}: reached through its page alone; a run plays it on evalution's own copy"
+        return [Finding(True, said)]
     if adapter_info(conf.adapter) is None:
         where = targets.config.adapters_dir or targets.config.data_dir / "adapters"
         have = ", ".join(infos())

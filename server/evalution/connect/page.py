@@ -16,7 +16,7 @@ from evalution.config import ConfigError, page_targets, save_page_target
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap
 from evalution.runs.page.learn import refusal
-from evalution.runs.page.map import as_block, described, read_map
+from evalution.runs.page.map import as_block, described, page_only, read_map
 from evalution.targets import Targets
 
 #: What a map written into the ``page:`` block by hand is kept as, when an approved one replaces
@@ -26,6 +26,13 @@ BY_HAND = "Written by hand in the target's page: block."
 
 class PageMapError(ValueError):
     """The map can't be approved or undone here; the message says why, in plain words."""
+
+
+def _plays(targets: Targets, name: str, block: Any) -> str:
+    """``api``, ``page`` (its API, its page beside it) or ``page_only`` (its page alone)."""
+    if page_only(targets.conf(name)):
+        return "page_only"
+    return "page" if block is not None else "api"
 
 
 def _block(targets: Targets, name: str) -> dict[str, Any]:
@@ -80,6 +87,11 @@ def undo(targets: Targets, name: str) -> KeptMap | None:
     :raises PageMapError: The target can't be written from here.
     """
     block = _block(targets, name)
+    if page_only(targets.conf(name)) and not pagemaps.store(targets).history(name)[1:]:
+        raise PageMapError(
+            f"{name} is reached through its page alone: there is no API to go back to, and no "
+            "map before this one."
+        )
     back = pagemaps.store(targets).undo(name)
     if back is None:
         block.pop("page", None)
@@ -151,7 +163,7 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
         why_not = f"{name}'s adapter can't be made: {exc}"
     return {
         "target": name,
-        "plays": "page" if block is not None else "api",
+        "plays": _plays(targets, name, block),
         "managed": name in targets.config.managed,
         "current": current,
         "proposed": _kept(name, waiting) if waiting is not None else None,

@@ -77,6 +77,8 @@ export const TargetDetailSchema = z.object({
       map: z.array(z.object({ what: z.string(), where: z.string() })).default([]),
       /** Why its `page:` block doesn't read. */
       error: z.string().nullable().default(null),
+      /** Reached through its page alone (`adapter: page`): no API under it. */
+      only: z.boolean().default(false),
     })
     .nullish(),
 });
@@ -506,7 +508,7 @@ export type KeptPageMap = z.infer<typeof KeptPageMapSchema>;
  * learned and a person approved once. */
 export const PageReachSchema = z.object({
   target: z.string().default(""),
-  plays: z.enum(["api", "page"]).catch("api").default("api"),
+  plays: z.enum(["api", "page", "page_only"]).catch("api").default("api"),
   /** Connected from the page, so its page: block can be written here. */
   managed: z.boolean().default(false),
   current: KeptPageMapSchema.nullable().default(null),
@@ -641,6 +643,9 @@ export const RunSummarySchema = z.object({
   tests: z.array(RunTestSchema).default([]),
   /** How its tries were isolated; older runs don't say. */
   isolation: RunIsolationSchema.nullish(),
+  /** How it reached the app: its API, its page beside it, or its page alone; older runs don't
+   * say. */
+  plays: z.enum(["api", "page", "page_only"]).nullable().catch(null).default(null),
   progress: z
     .object({
       done: z.number(),
@@ -1028,8 +1033,10 @@ export const TryPageSchema = z.object({
   left_out: z.number().default(0),
   /** The `page_health` check. */
   health: PageCheckSchema.nullable().default(null),
-  /** How the try comes out on every check but the page's. */
+  /** How the try comes out on every check but the page's; none when it had no API to play. */
   without_page: TryOutcomeSchema.nullable().catch(null).default(null),
+  /** Reached through its page alone: each reply is what the page showed (reply only). */
+  page_only: z.boolean().default(false),
   video: z.object({ name: z.string(), url: z.string().nullable() }).nullable().default(null),
   /** Why there is no video when one was to be kept. */
   video_missing: z.string().nullable().default(null),

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CompareSchema, PlanStepSchema, StepPageSchema, TryPageSchema } from "../../lib/schema";
-import { API_ALONE, layerWords, shownWords } from "../../lib/verdict";
+import { API_ALONE, layerWords, PAGE_ONLY, shownWords } from "../../lib/verdict";
 import { pageLines } from "./Page";
 import { Steps } from "./Steps";
 import { VerdictBanner } from "./VerdictBanner";
@@ -85,6 +85,23 @@ describe("The layered banner", () => {
     // A rubric line failed besides: the API alone would have failed it too.
     expect(layerWords(layers, "failed", "failed")?.line).toBeNull();
     expect(layerWords(layers, "failed", "failed")?.headline).toBe(
+      "Failed on the page, not in the answer",
+    );
+  });
+
+  it("says a pass through the page alone is reply only, and never speaks of an API", () => {
+    banner({
+      outcome: "passed",
+      passed: true,
+      label: "Passed",
+      layers: { stored: "absent", answered: "pass", shown: "pass" },
+      page: { without_page: null, page_only: true },
+    });
+    expect(screen.getByText(`Passed on try 3, ${PAGE_ONLY}`)).toBeTruthy();
+    const layers = { stored: "absent", answered: "pass", shown: "fail" } as const;
+    expect(layerWords(layers, "failed", null, true)?.line).toBeNull();
+    expect(layerWords(layers, "failed", null, true)?.apiAlone).toBe(false);
+    expect(layerWords(layers, "failed", null, true)?.headline).toBe(
       "Failed on the page, not in the answer",
     );
   });

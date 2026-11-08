@@ -36,7 +36,7 @@ from evalution.core.judgement import (
     Route,
     WhyUnjudged,
 )
-from evalution.core.rendered import reply_words, shows
+from evalution.core.rendered import NOTHING_SHOWN, reply_words, shows
 from evalution.core.rules import route_of, steps_bind, timeout_outcome
 from evalution.judging.steps import EXTRA_OK, Step, arg_problem
 
@@ -295,6 +295,13 @@ def _shown_check(evidence: TryEvidence, at: int, role: Role) -> CheckResult | No
     the page target waited with). ``None`` for a turn with no reply to look for."""
     turn = evidence.turns[at - 1]
     id_, kind, refs = f"shown:{at}", CheckKind.SHOWN, _page_turn_refs(evidence, at)
+    page = evidence.page
+    if turn.error and page is not None and page.page_only and turn.error == NOTHING_SHOWN:
+        # Reached through its page alone, the page settled and showed nothing: that is this.
+        instead = page.turns[at - 1].instead.text if at <= len(page.turns) else ""
+        said = f"; it showed {_cut(instead)!r}" if instead.strip() else ""
+        why = f"turn {at}'s reply never showed on the page{said}"
+        return _code(id_, kind, Outcome.FAILED, why, role=role, evidence=refs)
     if turn.error:
         why = f"turn {at} ended in an error, so there was no reply to show"
         return _code(
