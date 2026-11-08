@@ -23,7 +23,9 @@
       trace_id: null                  # optional JSON path to a trace id in the response
 
 ``{message}``, ``{session}`` and ``{fresh}`` (a new token each try of a case with a ``fresh``
-turn, else empty) are replaced in the URL, headers and every string of the body.
+turn, else empty) are replaced in the URL, headers and every string of the body, and so are
+``{person_name}``, ``{person_language}`` and ``{person_timezone}``: the test person's, as the
+session was opened (empty when not chosen). The target honors the ones its templates use.
 Each try gets a new session id, ``evalution-<run>-t<try>-<random>``, and every request carries
 ``X-Evalution-Run`` and ``X-Evalution-Try`` (an app may copy them onto its spans as
 ``evalution.run`` / ``evalution.try``), so tries may play side by side: no reset, no state checks,
@@ -52,6 +54,7 @@ import httpx
 from evalution.adapters.base import (
     NO_FILES,
     NO_STOP,
+    PERSON_FIELDS,
     AdapterInfo,
     Capabilities,
     Isolation,
@@ -144,6 +147,12 @@ def _fill(value: Any, fields: dict[str, str]) -> Any:
     return value
 
 
+def person_used(*templates: Any) -> frozenset[str]:
+    """The test person's fields *templates* name, as ``{person_<field>}`` anywhere in them."""
+    text = json.dumps([t for t in templates if t], ensure_ascii=False, default=str)
+    return frozenset(key for key in PERSON_FIELDS if "{person_" + key + "}" in text)
+
+
 def _check_poll(poll: dict[str, Any]) -> None:
     """:raises ValueError: An expression or path of *poll* that doesn't read."""
     for key in ("failed_when", "blocked_when"):
@@ -201,10 +210,13 @@ class HttpTarget(Target):
             isinstance(self.cancel_conf, dict) and isinstance(self.cancel_conf.get("url"), str)
         ):
             raise ConfigError(f"targets.{target.name}.http.cancel: needs url")
+        done = conf.get("done")
+        poll_conf = done.get("poll") if isinstance(done, dict) else None
         self.capabilities = replace(
             self.capabilities,
             background=bool(conf.get("background")),
             cancel=self.cancel_conf is not None,
+            person=person_used(send, self.open_conf, poll_conf, self.cancel_conf),
         )
         self.reply_path = str(conf.get("reply") or "$")
         self.session_header = conf.get("session_header")
@@ -243,21 +255,39 @@ class HttpTarget(Target):
             headers[str(self.session_header)] = fields["session"]
         return headers
 
+    @staticmethod
+    def _fields(session: Session, message: str = "", fresh: str = "") -> dict[str, str]:
+        """What the templates are filled with: the test person's as the session was opened."""
+        person = session.extra.get("person") or {}
+        fields = {"message": message, "session": session.id, "fresh": fresh}
+        return fields | {f"person_{key}": str(person.get(key) or "") for key in PERSON_FIELDS}
+
     async def open(self, run: str) -> Session:
         self._tries[run] = self._tries.get(run, 0) + 1
         n = self._tries[run]
         session = f"{SESSION_PREFIX}{run}-t{n}-{secrets.token_hex(2)}"
+        extra: dict[str, Any] = {"run": run, "try": n}
+        # What the templates use of the test person, kept so every request of the session plays
+        # the person it opened as.
+        chosen = self.person
+        person = {
+            key: value
+            for key in sorted(self.capabilities.person)
+            if chosen is not None and (value := getattr(chosen, key))
+        }
+        if person:
+            extra["person"] = person
         if self.open_conf is not None:
-            session = await self._new_session(session, run, n)
-        return Session(session, self.trace_attribute, session, {"run": run, "try": n})
+            session = await self._new_session(Session(session, "", session, extra), run, n)
+        return Session(session, self.trace_attribute, session, extra)
 
-    async def _new_session(self, name: str, run: str, n: int) -> str:
-        """The id the app gives a session it makes for this try.
+    async def _new_session(self, made: Session, run: str, n: int) -> str:
+        """The id the app gives a session it makes for this try, *made* named as evalution would.
 
         :raises ValueError: Its answer doesn't hold one at the configured path.
         """
         conf = {"method": "POST", **self.open_conf}
-        fields = {"message": "", "session": name, "fresh": ""}
+        fields = self._fields(made)
         tags = {RUN_HEADER: run, TRY_HEADER: str(n)}
         data = await self._request(conf, fields, time.time() + OPEN_SECONDS, tags)
         made = json_path(data, str(self.open_conf["id"]))
@@ -279,11 +309,7 @@ class HttpTarget(Target):
             return Turn("", started, started, error=NO_FILES)
         if stop_after:
             return Turn("", started, started, error=NO_STOP)
-        fields = {
-            "message": message,
-            "session": session.id,
-            "fresh": str(session.extra.get("fresh") or ""),
-        }
+        fields = self._fields(session, message, str(session.extra.get("fresh") or ""))
         tags = {
             RUN_HEADER: str(session.extra.get("run", "")),
             TRY_HEADER: str(session.extra.get("try", "")),
@@ -381,7 +407,7 @@ class HttpTarget(Target):
             await super().cancel(session)
             return
         conf = {"method": "POST", **self.cancel_conf}
-        fields = {"message": "", "session": session.id, "fresh": ""}
+        fields = self._fields(session)
         tags = {
             RUN_HEADER: str(session.extra.get("run", "")),
             TRY_HEADER: str(session.extra.get("try", "")),
@@ -412,6 +438,8 @@ async def _check(
         return part(ok, f"Health answered {response.status_code}")
     url = str((http.get("send") or {}).get("url") or "")
     url = url.replace("{session}", "check").replace("{message}", "")
+    for key in PERSON_FIELDS:
+        url = url.replace("{person_" + key + "}", "")
     # A harmless call: OPTIONS asks what the endpoint allows and sends no message.
     response = await client.options(url, headers=headers)
     ok = response.status_code < 500 and response.status_code not in (401, 403)

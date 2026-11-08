@@ -3,10 +3,11 @@ anyone who wants it in their own tests.
 
 It plays a short sequence over a real target and checks the adapter, never the agent: sessions are
 unique, a turn returns a reply and ends, the deadline holds, ``close`` works from a rebuilt
-``Session``, what is declared really works (``probe`` on a session yet to send anything), and the
-session's trace value finds spans. What an app answers is not judged, only that the adapter read an
-answer. It spends :func:`messages_needed` messages. Nothing here raises for an adapter that doesn't
-work: that is what it reports, naming what isn't supported, with no stack trace.
+``Session``, what is declared really works (``probe`` on a session yet to send anything, a session
+opened as a chosen test person), and the session's trace value finds spans. What an app answers
+is not judged, only that the adapter read an answer. It spends :func:`messages_needed` messages.
+Nothing here raises for an adapter that doesn't work: that is what it reports, naming what isn't
+supported, with no stack trace.
 
 The traces live above this layer, so the caller hands in a :data:`SpanCount`.
 
@@ -33,8 +34,10 @@ import httpx
 from evalution.adapters.base import (
     NO_FILES,
     NO_STOP,
+    PERSON_FIELDS,
     AdapterInfo,
     Capabilities,
+    Person,
     Session,
     Target,
     Turn,
@@ -52,11 +55,22 @@ MESSAGE = "Reply with only the word OK."
 LONG_MESSAGE = "Count from 1 to 500, one number per line."
 #: Sent to state checks: words no app holds, so the answer doesn't matter, only that it comes.
 PROBE = "evalution-contract-probe"
+#: Who a session is opened as, for an adapter that declares ``person``.
+CONTRACT_PERSON = Person(name="Contract Check", language="English", timezone="Europe/Lisbon")
 _404ISH = frozenset({404, 405, 501})
 #: The fields of :class:`Capabilities` that say how a session behaves, and aren't a thing to try.
 _DESCRIPTIVE = frozenset({"isolation", "isolation_note", "clean"})
 _EXERCISED = frozenset(
-    {"reset", "conversation_break", "files", "stop", "state_checks", "probe", "sections"}
+    {
+        "reset",
+        "conversation_break",
+        "files",
+        "stop",
+        "state_checks",
+        "probe",
+        "sections",
+        "person",
+    }
 )
 _NOT_EXERCISED = {
     "parallel": "two turns at once aren't tried here",
@@ -335,6 +349,28 @@ class _Sequence:
             else:
                 self.said(name, "failed", f"declared, but couldn't read it: {found.reason}")
 
+    async def person(self) -> None:
+        """A session opened as :data:`CONTRACT_PERSON` opens; what the app makes of it isn't
+        judged. The person the target had before is put back."""
+        name = "opens as a test person"
+        declared = self.target.capabilities.person
+        unknown = sorted(declared - set(PERSON_FIELDS))
+        if unknown:
+            known = ", ".join(PERSON_FIELDS)
+            self.said(name, "failed", f"declares {', '.join(unknown)}, not one of {known}")
+            return
+        before = self.target.person
+        try:
+            self.target.persona(CONTRACT_PERSON)
+            await self.open(f"contract-{self.token}-p")
+        except Exception as exc:
+            self.said(name, "failed", explain("open as a test person", exc))
+        else:
+            self.said(name, "ok", "honors " + ", ".join(sorted(declared)))
+        finally:
+            with contextlib.suppress(Exception):
+                self.target.persona(before or Person())
+
     def sections(self) -> None:
         request = {"messages": [{"role": "user", "content": MESSAGE}], "tools": []}
         try:
@@ -422,6 +458,8 @@ async def run(
         if opened is None:
             return steps.report
         first, second = opened
+        if declared.person:
+            await steps.person()
         if await steps.a_turn(first, spans, settle):
             if declared.state_checks:
                 await steps.state_checks(first)
@@ -556,6 +594,9 @@ class AppTarget(Target):
     #   files=True, stop=True    honour send()'s files and stop_after
     #   background=True          the app answers first and works on, and send() waits for the work
     #   parallel=True            sessions don't share anything, so tries may play side by side
+    #   person=frozenset({"name"})
+    #                            open() plays as self.person, the test person persona() set: of
+    #                            name, language and timezone, the ones named here (empty: yours)
     # IDENTITY isolation is a new user per session; SESSION is a new session id, and no more.
     capabilities = Capabilities(
         isolation=Isolation.SESSION,

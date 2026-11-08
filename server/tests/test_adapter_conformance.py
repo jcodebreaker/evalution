@@ -645,12 +645,13 @@ def _matrix() -> str:
     plain = [
         f.name
         for f in dataclasses.fields(Capabilities)
-        if f.name not in ("isolation", "isolation_note", "clean", "state_checks")
+        if f.name not in ("isolation", "isolation_note", "clean", "state_checks", "person")
     ]
     columns |= {f"`{name}`": (lambda c, n=name: _yes(getattr(c, n))) for name in plain}
     columns["State checks"] = lambda c: (
         ", ".join(f"`{key}`" for key in sorted(c.state_checks)) or "none"
     )
+    columns["Test person"] = lambda c: ", ".join(f"`{key}`" for key in sorted(c.person)) or "none"
     head = ["Adapter", *columns, "App versions"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for name, info in infos().items():

@@ -35,6 +35,16 @@ An adapter of your own that stops importing after an update (it used something e
 - **`close(session)`** ends it. It's also called for sessions an earlier server process left open, rebuilt from `Session`'s fields, so it can't rely on anything in memory, and `Session.extra` must survive JSON.
 - **Never delete by default.** Leaving a session behind costs little and losing someone's data can't be undone. Delete only what the adapter can prove it made, like a namespace holding the eval user's own name. Never act on a real person's data, and never reuse a real session id.
 
+## The test person
+
+A person can choose who plays the tests: a name, a language and a time zone (`Person` in [`adapters/base.py`](../server/evalution/adapters/base.py)). An empty field is the adapter's own choice.
+
+- **`persona(person)`** is called before a run opens its sessions, and the person stays until it's called again. The default keeps it as `self.person`; `open` plays as that person.
+- **Declare what you honor** in `Capabilities.person`, any of `name`, `language` and `timezone`, and only what your app really takes. `persona` never raises for the rest: it ignores them. Nothing declared means the adapter can't take a test person.
+- **`new_every_try`** is on by default. Off, reuse one person across a run's tries where you can; you may still need a new session id per try.
+- **A session keeps the person it opened as.** Keep what you used in `Session.extra` if a later call needs it.
+- **The `http` adapter** fills `{person_name}`, `{person_language}` and `{person_timezone}` in its templates, like `{session}`, and honors the ones its templates use.
+
 ## What a new session starts clean of
 
 `isolation` and `clean` promise what a try can rely on finding nothing of from earlier ones. There are three kinds:
@@ -63,6 +73,7 @@ It looks at the adapter, never the agent: what your app answers isn't judged, on
 |---|---|
 | Declares what it implements, exports `INFO` | A capability and its method don't match, or there's no `INFO` |
 | `open` gives unique sessions | Two sessions share an `id` or a `trace_value` |
+| Opens as a test person, if `person` is declared | `open` raises after `persona(Person(name="Contract Check", ...))`, or it declares a field that isn't one. What the app makes of the person isn't judged |
 | `send` returns a reply and ends | It raises, ends on an error, or reads an empty reply |
 | The trace value finds spans | No AI spans carry the session's value. Skipped while no traces have come from the target |
 | Each state check declared | It raises, or says it couldn't read (`observed=False`). What it finds isn't judged |
@@ -103,11 +114,11 @@ INFO = AdapterInfo(..., check=_check, supports=">=1.2,<2")
 Generated from each adapter's `Capabilities` and `INFO`; a test fails when this table drifts. To update it: `UPDATE_DOCS=1 uv run --all-groups pytest tests/test_adapter_conformance.py`.
 
 <!-- matrix:start -->
-| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `probe` | `background` | `cancel` | `blocks` | `deletes` | State checks | App versions |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | no | none | any |
-| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | any |
-| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | any |
+| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `probe` | `background` | `cancel` | `blocks` | `deletes` | State checks | Test person | App versions |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | no | none | none | any |
+| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | none | any |
+| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | none | any |
 <!-- matrix:end -->
 
 What each one does to deliver those: [architecture](architecture.md), and each module's opening comment.

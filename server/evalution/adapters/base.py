@@ -52,6 +52,11 @@ holds the two together.
 * ``cancel(session)`` stops the work in flight, child work the adapter owns included. It is called
   when a run is stopped, when a turn is given up on or runs out of time, and for sessions an
   earlier server process left open. Failures are logged, never raised.
+* ``persona(person)`` says who the test person is (:class:`Person`): a name, a language, a time
+  zone, each empty for the adapter's own choice. It is called before a run opens its sessions, and
+  the person stays until it is called again; ``open`` plays as ``self.person``. The default keeps it
+  there; an adapter honors the fields its ``Capabilities.person`` names and ignores the rest, and
+  ``persona`` never raises for one it can't honor. A session keeps the person it opened as.
 * ``close`` ends the session and keeps what it left in the app, to look at. An adapter that removes
   anything there declares ``deletes``, off unless the target asks. ``cancel``, ``close`` and any
   cleanup touch only what this run's sessions made: a session's id, and the identity it plays as,
@@ -79,6 +84,24 @@ from evalution.core.trace import Section
 
 #: A turn's error on an adapter that doesn't declare ``files``, and ``stop``.
 NO_FILES, NO_STOP = "this target takes no files", "this target cannot stop a turn"
+
+
+#: What a :class:`Person` can say, as :attr:`Capabilities.person` names it.
+PERSON_FIELDS = ("name", "language", "timezone")
+
+
+@dataclass(frozen=True)
+class Person:
+    """Who the test person is. Empty fields are the adapter's own choice.
+
+    :param new_every_try: A new person for every try. ``False`` reuses one person across a run's
+        tries where the adapter can; it may still need a new session id per try.
+    """
+
+    name: str = ""
+    language: str = ""  # e.g. "English", or a BCP 47 tag; adapters map it
+    timezone: str = ""  # IANA, e.g. "Europe/Lisbon"
+    new_every_try: bool = True
 
 
 class Isolation(Enum):
@@ -109,6 +132,8 @@ class Capabilities:
     :param blocks: It can tell when the work is waiting on something (``TurnEnd.BLOCKED``), so a
         test may expect that.
     :param deletes: ``close`` removes what the session left in the app. Off, everything stays.
+    :param person: Which of :data:`PERSON_FIELDS` it honors when it opens a session as the test
+        person :meth:`Target.persona` set. None means it can't take a test person.
     """
 
     isolation: Isolation
@@ -125,6 +150,7 @@ class Capabilities:
     cancel: bool = False
     blocks: bool = False
     deletes: bool = False
+    person: frozenset[str] = frozenset()
     #: What a try starts clean of, where it isn't what ``isolation`` implies.
     clean: frozenset[str] | None = None
 
@@ -155,6 +181,7 @@ class Capabilities:
             "cancel": self.cancel,
             "blocks": self.blocks,
             "background": self.background,
+            "person": bool(self.person),
         }
         return sorted(name for name, has in named.items() if has)
 
@@ -264,6 +291,13 @@ class Target(ABC):
 
     name: str
     capabilities: ClassVar[Capabilities]
+    #: Who ``open`` plays as, from :meth:`persona`; ``None`` is the adapter's own choice.
+    person: Person | None = None
+
+    def persona(self, person: Person) -> None:
+        """Play the sessions opened from now on as *person*. Fields it doesn't honor (not in
+        ``capabilities.person``) are ignored, never refused."""
+        self.person = person
 
     @abstractmethod
     async def open(self, run: str) -> Session: ...
