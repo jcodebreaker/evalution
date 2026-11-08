@@ -5,6 +5,7 @@ import type { StepPage, TryPage } from "../../lib/schema";
 import { CHECKED_ON_PAGE, shownWords } from "../../lib/verdict";
 import { PictureDialog } from "../../ui/dialog";
 import { Fold } from "../shared/group";
+import { MissingPieceNote } from "../shared/next-step";
 
 /** What the app's page showed of one message: in a line, decided by code, with its screenshot. */
 export function PageShown({ page, n }: { page: StepPage; n: number }) {
@@ -88,12 +89,12 @@ export function PageNotes({ page }: { page: TryPage }) {
   const errors = lines.filter((line) => line.tone === "error").length;
   const notes = [
     page.interrupted ? "The try was cut short before the page was closed." : null,
-    page.video_missing ? `No video: ${page.video_missing}` : null,
+    page.video_missing && !page.video_fix ? `No video: ${page.video_missing}` : null,
     page.video && !page.video.url && !page.video_missing
       ? "Its video stayed on the computer that played it."
       : null,
   ].filter(Boolean);
-  if (!lines.length && !page.video?.url && !notes.length) return null;
+  if (!lines.length && !page.video?.url && !notes.length && !page.video_fix) return null;
   return (
     <div className="flex flex-col gap-2">
       {lines.length ? (
@@ -142,6 +143,7 @@ export function PageNotes({ page }: { page: TryPage }) {
           />
         </Fold>
       ) : null}
+      {page.video_fix ? <MissingPieceNote piece={page.video_fix} /> : null}
       {notes.map((note) => (
         <p key={note} className="m-0 text-[12.5px] text-ink-2">
           {note}

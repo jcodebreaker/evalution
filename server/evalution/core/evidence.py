@@ -208,6 +208,17 @@ class PageTurn(Frozen):
     shown_at: float | None = None
     instead: Clipped = Clipped()
     shot: str | None = None
+    #: The error status the app answered the page's request that carried the message with: it
+    #: refused the message (a 503, say). ``None``: it didn't, or the adapter under the page sent.
+    refused: int | None = None
+    #: The app didn't answer the page's request that carried the message in the map's
+    #: ``send_seconds``, or the request failed on the way: it didn't take the message.
+    unanswered: bool = False
+
+    @property
+    def not_taken(self) -> bool:
+        """The app refused the page's message, or never answered it: the app's, not the page's."""
+        return self.refused is not None or self.unanswered
 
 
 class ConsoleLine(Frozen):
@@ -228,12 +239,15 @@ class FailedRequest(Frozen):
     :param path: Its path, without the query, where tokens ride.
     :param status: What the copy answered (400 and up); ``None``: no answer came.
     :param at: Seconds from the try's first message.
+    :param message: It carried the person's message: the app's answer to it is its turn's
+        (:attr:`PageTurn.refused`), not the page's health.
     """
 
     method: str
     path: str
     status: int | None = None
     at: float
+    message: bool = False
 
 
 class PageRecord(Frozen):

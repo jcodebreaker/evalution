@@ -215,8 +215,9 @@ def test_the_try_view_lays_the_page_over_its_turns(client, home) -> None:
     page = shown["page"]
     assert [c["level"] for c in page["console"]] == ["warning", "error"]
     assert page["failed_requests"] == [
-        {"method": "GET", "path": "/v1/me", "status": 500, "at": 0.1}
+        {"method": "GET", "path": "/v1/me", "status": 500, "at": 0.1, "message": False}
     ]
+    assert page["not_taken"] is None and page["broken_map"] is None
     assert page["health"] == {"outcome": "failed", "why": "1 console error(s)"}
     assert page["without_page"] == "passed", "its state held: through the API alone, it passed"
     assert page["video"] == {"name": "try.webm", "url": None}

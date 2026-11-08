@@ -57,6 +57,8 @@ class KeptMap:
     :param shots: The rehearsal's screenshots, kept in the file store at *shots_at*
         (``{run, case, n}``).
     :param missing: What the last check before a run didn't find on the page, in words.
+    :param missing_shot: The page as that check (or a try) found it, a screenshot kept in the
+        file store at *missing_shot_at* (``{run, case, n}``).
     :param stale_files: The files a commit changed under the evidence, when marked ``stale``.
     """
 
@@ -68,6 +70,8 @@ class KeptMap:
     shots: list[str] = field(default_factory=list)
     shots_at: dict[str, Any] | None = None
     missing: list[str] = field(default_factory=list)
+    missing_shot: str | None = None
+    missing_shot_at: dict[str, Any] | None = None
     stale_files: list[str] = field(default_factory=list)
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
@@ -286,12 +290,21 @@ def to_check(targets: Targets, name: str) -> KeptMap | None:
     return kept if root is not None and moved(kept.evidence_hashes, root) else None
 
 
-def checked(targets: Targets, name: str, kept: KeptMap, missing: list[str]) -> KeptMap:
+def checked(
+    targets: Targets,
+    name: str,
+    kept: KeptMap,
+    missing: list[str],
+    shot: str | None = None,
+    shot_at: dict[str, Any] | None = None,
+) -> KeptMap:
     """Save what the check before a run found: *kept* approved again, its evidence's hashes taken
-    afresh, when nothing was *missing*; else ``broken``, saying what wasn't there."""
+    afresh, when nothing was *missing*; else ``broken``, saying what wasn't there, with the
+    screenshot of the page the check kept (*shot*, in the file store at *shot_at*)."""
     if missing:
         kept.status = "broken"
         kept.missing = list(missing)
+        kept.missing_shot, kept.missing_shot_at = (shot, shot_at) if shot_at else (None, None)
         kept.report = (
             f"Checked before a run on evalution's copy: the page has no {', '.join(missing)}. "
             "Re-learn the page to propose a new map."
@@ -299,6 +312,7 @@ def checked(targets: Targets, name: str, kept: KeptMap, missing: list[str]) -> K
     else:
         kept.status = "approved"
         kept.missing, kept.stale_files = [], []
+        kept.missing_shot = kept.missing_shot_at = None
         if (root := _root(targets, name)) is not None:
             kept.evidence_hashes = hashes_of(kept.page, root)
         kept.report = (
@@ -306,6 +320,28 @@ def checked(targets: Targets, name: str, kept: KeptMap, missing: list[str]) -> K
         )
     store(targets).save(kept)
     return kept
+
+
+def found_broken(
+    targets: Targets,
+    name: str,
+    missing: list[str],
+    shot: str | None = None,
+    shot_at: dict[str, Any] | None = None,
+) -> KeptMap | None:
+    """A try found the page without what the map in use names: it is saved ``broken``, as the
+    check before a run would (:func:`checked`), with the try's screenshot. ``None`` when no kept
+    map is in use (one written by hand is the person's)."""
+    kept = in_use(targets, name)
+    if kept is None or kept.status not in ("approved", "stale", "broken"):
+        return None
+    found = checked(targets, name, kept, missing, shot, shot_at)
+    found.report = (
+        f"A run found the page without what its map names: it has no {', '.join(missing)}. "
+        "Re-learn the page to propose a new map."
+    )
+    store(targets).save(found)
+    return found
 
 
 def brief(targets: Targets, name: str) -> dict[str, Any] | None:
@@ -318,4 +354,6 @@ def brief(targets: Targets, name: str) -> dict[str, Any] | None:
         "status": kept.status,
         "stale_files": kept.stale_files,
         "missing": kept.missing,
+        # The page as the check found it, by name; the API says where it is read.
+        "shot": kept.missing_shot if kept.status == "broken" and kept.missing_shot_at else None,
     }

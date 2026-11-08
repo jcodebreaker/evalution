@@ -448,6 +448,54 @@ async def test_no_answer_to_the_pages_message_is_out_of_time_and_heard(chat) -> 
         await target.dispose()
 
 
+async def test_a_message_the_app_holds_past_send_seconds_isnt_taken_and_ends_soon(chat) -> None:
+    """The message's own limit, not the turn's: still out at ``send_seconds``, it may have
+    reached the app, so it is heard (never played again), and the turn ends long before its
+    deadline."""
+    chat.send_seconds = 30.0
+    inner = Watching(chat.url)
+    page = PageMap.model_validate({**MAP, "send_seconds": 1})
+    target = PageTarget(inner, page, chat.url, element_seconds=1.5)  # type: ignore[attr-defined]
+    try:
+        session = await target.open("r")
+        target.begin(session, None)
+        t0 = time.time()
+        turn = await target.send(session, "hello", deadline=time.time() + 25)
+        took = time.time() - t0
+        found = await target.record(session, t0)
+    finally:
+        chat.send_seconds = 0.0
+        await target.dispose()
+    assert (turn.failure, turn.heard) == (Failure.TRANSIENT, True), turn.error
+    assert "send_seconds" in (turn.error or "") and took < 10
+    (said,) = found.turns
+    assert said.unanswered and said.refused is None and said.not_taken
+    assert inner.watched == []
+
+
+async def test_a_refused_message_is_its_turns_and_not_the_pages_health(chat) -> None:
+    chat.send_status = 503
+    target = _page_target(chat, Watching(chat.url))
+    try:
+        session = await target.open("r")
+        target.begin(session, None)
+        t0 = time.time()
+        turn = await target.send(session, "hello", deadline=time.time() + 20)
+        found = await target.record(session, t0)
+    finally:
+        await target.dispose()
+    assert (turn.failure, turn.heard) == (Failure.TRANSIENT, False)
+    (said,) = found.turns
+    assert said.refused == 503 and not said.unanswered
+    (request,) = found.failed_requests
+    assert (request.method, request.path, request.status, request.message) == (
+        "POST",
+        "/api/send",
+        503,
+        True,
+    )
+
+
 async def test_a_renamed_send_is_the_page_maps_failure(chat) -> None:
     chat.rename = True
     target = _page_target(chat, Watching(chat.url))

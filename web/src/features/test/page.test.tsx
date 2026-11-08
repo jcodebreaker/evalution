@@ -89,6 +89,25 @@ describe("The layered banner", () => {
     );
   });
 
+  it("blames the app, not the page, for a message it refused or never took", () => {
+    banner({
+      outcome: "unjudged",
+      label: "App busy",
+      reason: "The app, or a gateway in front of it, was busy or down",
+      layers: { stored: "absent", answered: "unjudged", shown: "unjudged" },
+      page: { without_page: "unjudged", not_taken: { status: 503 } },
+    });
+    expect(screen.getByText("The app refused the message (503) · try 3")).toBeTruthy();
+    expect(screen.queryByText(/Failed on the page/)).toBeNull();
+    expect(pills()).toEqual(["Answered: couldn't judge", "Shown: couldn't judge"]);
+    // Even where only the page's own checks failed, a message the app didn't take is the app's.
+    const layers = { stored: "absent", answered: "absent", shown: "fail" } as const;
+    expect(layerWords(layers, "failed", "passed", false, { status: null })?.headline).toBe(
+      "The app didn't take the message",
+    );
+    expect(layerWords(layers, "failed", "passed")?.headline).toBe("Failed on the page");
+  });
+
   it("says a pass through the page alone is reply only, and never speaks of an API", () => {
     banner({
       outcome: "passed",

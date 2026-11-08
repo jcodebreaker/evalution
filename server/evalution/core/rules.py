@@ -135,13 +135,29 @@ def layers(found: Judgement) -> dict[str, str]:
     """Which layer of a try held, from its check kinds, guides included (ADR 0010): ``stored``
     (state checks), ``answered`` (the reply's words and context checks) and ``shown`` (the page's
     checks). Each is ``fail`` when any of its checks failed, else ``unjudged`` when any couldn't be
-    judged, else ``pass``; ``absent`` when the try has none of them."""
+    judged, else ``pass``; ``absent`` when the try has none of them.
+
+    A try cut short in a turn (its ``turn`` or ``timeout`` check) is the answered layer's: the app
+    refused the message, never took it, failed or ran out of time on it. Not when the page showed
+    nothing (its evidence is on the page: the shown layer's), and not a page map that's off, which
+    is no layer of the app's."""
     said = {Outcome.FAILED: "fail", Outcome.UNJUDGED: "unjudged", Outcome.PASSED: "pass"}
     found_layers = {}
     for layer, kinds in _LAYERS.items():
-        outcomes = {c.outcome for c in found.checks if c.kind in kinds}
+        outcomes = {c.outcome for c in found.checks if c.kind in kinds or _layer_of(c) == layer}
         found_layers[layer] = next((said[o] for o in said if o in outcomes), "absent")
     return found_layers
+
+
+def _layer_of(check: CheckResult) -> str | None:
+    """The layer a try's ``turn`` or ``timeout`` check is (:func:`layers`); ``None`` for others."""
+    if check.kind not in (CheckKind.TURN, CheckKind.TIMEOUT):
+        return None
+    if check.unjudged is WhyUnjudged.PAGE_MAP:
+        return None
+    if any(ref.ref.startswith("page:") for ref in check.evidence):
+        return "shown"
+    return "answered"
 
 
 def route_of(traces_complete: bool, steps_held: bool) -> Route:

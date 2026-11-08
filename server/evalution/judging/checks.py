@@ -367,9 +367,10 @@ def _shown_words(case: Case, evidence: TryEvidence, role: Role) -> list[CheckRes
 
 def _page_health(page: PageRecord, role: Role) -> CheckResult:
     """No console errors and no failed requests to the copy, over the whole try. A warning is
-    kept and decides nothing."""
+    kept and decides nothing. The request that carried a message the app refused is the app's
+    answer, its turn's to say, not the page's health."""
     errors = [(i, c) for i, c in enumerate(page.console, 1) if c.level == "error"]
-    failed = list(enumerate(page.failed_requests, 1))
+    failed = [(i, r) for i, r in enumerate(page.failed_requests, 1) if not r.message]
     refs = [EvidenceRef(ref=f"console:{i}") for i, _ in errors[:_MAX_REFS]]
     refs += [EvidenceRef(ref=f"request:{i}") for i, _ in failed[:_MAX_REFS]]
     if not errors and not failed:
@@ -508,6 +509,10 @@ def _turn_check(evidence: TryEvidence) -> CheckResult | None:
     id_ = f"turn:{len(evidence.turns)}"
     ref = [EvidenceRef(ref=id_)]
     why = evidence.error or "the try stopped"
+    last = evidence.turns[-1] if evidence.turns else None
+    if evidence.page is not None and last is not None and last.error == NOTHING_SHOWN:
+        # The page showed nothing: its evidence is the page's, and the shown layer's to say.
+        ref.append(EvidenceRef(ref=f"page:{len(evidence.turns)}"))
     if evidence.failure is Failure.APP:
         return _code(id_, CheckKind.TURN, Outcome.FAILED, why, evidence=ref)
     if evidence.failure is Failure.TIMED_OUT:

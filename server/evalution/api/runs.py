@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from evalution.api import isolation_words
 from evalution.api.deps import (
@@ -31,6 +32,8 @@ from evalution.results.upload import UploadError, read_upload
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs import trust
+from evalution.runs.isolated import NotIsolated
+from evalution.runs.page.target import NO_VIDEO, page_lacks
 from evalution.runs.runner import RunBusyError
 from evalution.storage.files import FileNameError, Files
 from evalution.suite.cases import CaseError, parse_case
@@ -105,6 +108,12 @@ def runs_router() -> APIRouter:
         known_set(targets, name, set_name)
         try:
             found = await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
+        except NotIsolated as exc:
+            if exc.missing is None:
+                raise invalid(str(exc)) from exc
+            # What UI testing lacks, for the Run dialog to offer what fixes it.
+            said = {"detail": str(exc), "missing": exc.missing.as_dict()}
+            return JSONResponse(said, status_code=400)  # type: ignore[return-value]
         except CaseError as exc:
             raise invalid(str(exc)) from exc
         # What the Run dialog says of how its tries are kept apart, with rough timings.
@@ -313,6 +322,11 @@ def runs_router() -> APIRouter:
         )
         # The plan's stores in plain words, for the ids the try's ``isolation.checked`` names.
         stores = await asyncio.to_thread(isolation_words.try_stores, targets, name)
+        page = shown.get("page")
+        if page is not None and page.get("video_missing") == NO_VIDEO:
+            # No video for want of ffmpeg: what installs it, while it's still missing here.
+            lacks = await asyncio.to_thread(page_lacks, True)
+            page["video_fix"] = next((m.as_dict() for m in lacks if m.part == "ffmpeg"), None)
         return {
             **shown,
             "isolation": {**shown["isolation"], "stores": stores},

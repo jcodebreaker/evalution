@@ -135,7 +135,8 @@ export type LayerPill = { layer: keyof Layers; text: string; label: string; stat
 /** What the banner says of a try's layers. */
 export type LayerWords = {
   pills: LayerPill[];
-  /** Said in place of the try's outcome, when only the page failed it. */
+  /** Said in place of the try's outcome: only the page failed it, or the app didn't take the
+   * page's message. */
   headline: string | null;
   /** Only the page failed: through the API alone, the try would have passed. */
   apiAlone: boolean;
@@ -149,16 +150,28 @@ export const PAGE_GUIDES =
   "The page didn't show everything, but this test doesn't let the page decide.";
 
 /**
+ * What the banner says of a try whose message the app refused (its status) or never took (no
+ * status): the app's, never "failed on the page".
+ */
+export function notTakenWords(notTaken: { status: number | null }): string {
+  return notTaken.status === null
+    ? "The app didn't take the message"
+    : `The app refused the message (${notTaken.status})`;
+}
+
+/**
  * The banner's layers: which held, and the plain words for a try only the page failed; `null` for
  * a try played through the API alone. `withoutPage` is how the try comes out on every check but
  * the page's, when the server says. `pageOnly`: the target is reached through its page alone, so
- * there is no API it would have passed through.
+ * there is no API it would have passed through. `notTaken`: the app refused the page's message,
+ * or never took it, which is the app's, whatever the layers say.
  */
 export function layerWords(
   layers: Layers | null | undefined,
   outcome: TryOutcome,
   withoutPage?: TryOutcome | null,
   pageOnly = false,
+  notTaken?: { status: number | null } | null,
 ): LayerWords | null {
   if (!layers || layers.shown === "absent") return null;
   const order = ["stored", "answered", "shown"] as const;
@@ -174,7 +187,9 @@ export function layerWords(
   const onlyShown = layers.shown === "fail" && held(layers.stored) && held(layers.answered);
   const apiAlone = !pageOnly && onlyShown && (withoutPage ?? "passed") === "passed";
   let headline: string | null = null;
-  if (onlyShown && outcome === "failed") {
+  if (notTaken && outcome !== "passed") {
+    headline = notTakenWords(notTaken);
+  } else if (onlyShown && outcome === "failed") {
     headline =
       layers.stored === "pass"
         ? "Failed on the page, not in memory"

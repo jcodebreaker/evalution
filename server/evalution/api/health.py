@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from evalution.api import isolation_words
 from evalution.api.deps import Current, busy, invalid, local_only, target_name
+from evalution.connect.page import shot_url
 from evalution.project import drift, impact, pagemaps
 from evalution.review import health
 
@@ -31,6 +32,8 @@ def health_router() -> APIRouter:
         checking = watcher.kick(name, last_run) if watcher else False
         found = await asyncio.to_thread(isolation_words.card, targets, name)
         page = await asyncio.to_thread(pagemaps.brief, targets, name)
+        if page is not None and page.get("shot"):
+            page["shot"] = shot_url(name, page["shot"])
         return {**doc, "checking": checking, "isolation": found, "page": page}
 
     @router.get("/targets/{target}/drift")

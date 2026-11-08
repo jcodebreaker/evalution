@@ -66,7 +66,7 @@ from evalution.isolation.plan import Plan, PlanStore, hashes, stale
 from evalution.isolation.setup import Setup, SetupError, person_name, seed_path, setup_for
 from evalution.results.record import isolation, run_isolation
 from evalution.runs.page.map import page_map_of
-from evalution.runs.page.target import on_page, page_missing
+from evalution.runs.page.target import Missing, on_page, page_lacks
 from evalution.suite.cases import CaseError
 from evalution.traces import otlp, setup
 from evalution.traces.builtin import TARGET_PREFIX, SpanStore
@@ -86,7 +86,12 @@ _FILE_KINDS = ("volume", "dir")
 class NotIsolated(CaseError):
     """The target has no proven isolation plan, and ``isolation.require_proven`` asks for one.
     A :class:`~evalution.suite.cases.CaseError`, so every caller of an estimate shows it as it
-    shows a test that can't run."""
+    shows a test that can't run. *missing*: the piece UI testing lacks, when that's why, for the
+    page to offer what fixes it."""
+
+    def __init__(self, message: str, missing: Missing | None = None) -> None:
+        super().__init__(message)
+        self.missing = missing
 
 
 @dataclass
@@ -171,17 +176,13 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
         page = page_map_of(conf) if conf is not None else None
     except ConfigError as exc:
         return f"{target} can't run: {exc}"
-    if page is not None:
-        # The copy first: without one, installing a browser wouldn't make the run possible.
-        if not found.managed and not found.to_rehearse:
-            why = found.problem or "it has no isolation plan"
-            return (
-                f"{target} can't play through its page: that only happens on evalution's own "
-                f"copy of the app, and {why}. Run `{FIX.format(target=target)}` to find and "
-                "prove one."
+    if page is not None and (missing := page_refusal(target, found)) is not None:
+        if missing.command is None:
+            fix = (
+                f"Set up testing on the Test environment page, or run `{FIX.format(target=target)}`"
             )
-        if (missing := page_missing()) is not None:
-            return f"{target} can't play through its page: {missing}"
+            return f"{missing.said} {fix} to find and prove one."
+        return f"{missing.said} Run: {missing.command}"
     if (found.managed or found.to_rehearse) and (off := off_copy(config, target)) is not None:
         return f"{target} can't play on evalution's own copy of the app: {off}"
     if not config.isolation.require_proven or found.managed or found.to_rehearse:
@@ -191,6 +192,21 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
         f"{target} can't run: {why}, and isolation.require_proven is on. "
         f"Run `{FIX.format(target=target)}` to find and prove one."
     )
+
+
+def page_refusal(target: str, found: Footing) -> Missing | None:
+    """What a target that plays through its page lacks for a run, in one sentence with what fixes
+    it: the copy first (installing a browser wouldn't make the run possible without one), then
+    Playwright and a browser. ``None`` when it lacks none of them."""
+    if not found.managed and not found.to_rehearse:
+        why = found.problem or "it has no proven isolation plan yet"
+        said = (
+            f"{target} can't play through its page: that only happens on evalution's own copy "
+            f"of the app, and {why}."
+        )
+        return Missing("copy", said)
+    lacks = page_lacks()
+    return lacks[0] if lacks else None
 
 
 def covered(plan: Plan) -> frozenset[str]:

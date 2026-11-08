@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AgentMessageSchema, HealthSchema } from "../../lib/schema";
+import { AgentMessageSchema, HealthSchema, MissingPieceSchema } from "../../lib/schema";
 import { PageMapCard } from "../home/PageMapCard";
+import { BrokenMapNote, MissingPieceNote } from "../shared/next-step";
 import { WriterReply } from "../writer/WriterReply";
 import { PageReach } from "./PageReach";
+import { OpenEnvironment } from "./use-isolation";
 
 type Call = { method: string; path: string };
 let calls: Call[] = [];
@@ -101,15 +103,71 @@ it("says why the page can't be learned without the copy, and offers nothing to s
   expect(learn.disabled).toBe(true);
 });
 
+it("a missing piece says what it is in a sentence, with the one action that fixes it", async () => {
+  const said = "UI testing needs a browser, and there's none here: no Chromium and no Chrome.";
+  const command = "uv run --project server playwright install chromium";
+  serve({
+    [`GET ${T}/page`]: reach({
+      can_learn: false,
+      why_not: `${said} Run: ${command}`,
+      missing: { part: "browser", said, command },
+    }),
+  });
+  render(<PageReach target="relay-lite" onAsk={vi.fn()} />);
+  await screen.findByText(/Tests send each message through relay-lite's API/);
+  fireEvent.click(screen.getByRole("button", { name: "Its page" }));
+  expect(screen.getByText(said)).toBeTruthy();
+  const field = screen.getByLabelText("The command that installs a browser") as HTMLInputElement;
+  expect(field.value).toBe(command);
+  expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+  cleanup();
+
+  // No copy of the app: the one action is Set up testing, which opens the Test environment.
+  const open = vi.fn();
+  const copy =
+    "relay-lite can't play through its page: that only happens on evalution's own copy of the app, and it has no proven isolation plan yet.";
+  render(
+    <OpenEnvironment.Provider value={open}>
+      <MissingPieceNote piece={MissingPieceSchema.parse({ part: "copy", said: copy })} />
+    </OpenEnvironment.Provider>,
+  );
+  expect(screen.getByText(copy)).toBeTruthy();
+  expect(screen.queryByRole("textbox")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Set up testing" }));
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it("a try the page map ended shows the page then, what it lacked, and Re-learn the page", () => {
+  const onRelearn = vi.fn();
+  render(
+    <BrokenMapNote
+      target="relay-lite"
+      missing={["button 'Send'"]}
+      shot="/v1/files/turn-1.png"
+      onRelearn={onRelearn}
+    />,
+  );
+  expect(screen.getByText(/no longer matches relay-lite's page: it has no button 'Send'/));
+  expect(screen.getByRole("img").getAttribute("src")).toBe("/v1/files/turn-1.png");
+  fireEvent.click(screen.getByRole("button", { name: "Re-learn the page" }));
+  expect(onRelearn.mock.calls[0]?.[0]).toContain("it has no button 'Send'");
+});
+
 it("Home says a broken page map, and what it lacks, with a way to learn it again", () => {
   const health = HealthSchema.parse({
-    page: { status: "broken", stale_files: [], missing: ["button 'Send'"] },
+    page: {
+      status: "broken",
+      stale_files: [],
+      missing: ["button 'Send'"],
+      shot: `${T}/page/shots/page-map-check.png`,
+    },
   });
   const onAsk = vi.fn();
   render(<PageMapCard target="relay-lite" page={health.page} onAsk={onAsk} />);
   expect(
     screen.getByText(/no longer matches relay-lite's page: it has no button 'Send'/),
   ).toBeTruthy();
+  expect(screen.getByRole("img").getAttribute("src")).toBe(`${T}/page/shots/page-map-check.png`);
   fireEvent.click(screen.getByRole("button", { name: "Re-learn the page" }));
   expect(onAsk.mock.calls[0]?.[0]).toContain("it has no button 'Send'");
   render(<PageMapCard target="relay-lite" page={HealthSchema.parse({}).page} onAsk={onAsk} />);

@@ -34,7 +34,13 @@ from evalution.config import Config
 from evalution.core.evidence import VIDEO
 from evalution.runs import isolated
 from evalution.runs.page.map import PageMap, read_map
-from evalution.runs.page.target import PageFiles, PageTarget, on_page, page_missing
+from evalution.runs.page.target import (
+    Missing,
+    PageFiles,
+    PageTarget,
+    on_page,
+    page_lacks,
+)
 from evalution.storage.files import Files
 
 #: What a rehearsal says: one plain message, as a person might send it.
@@ -43,6 +49,8 @@ MESSAGE = "Hello, this is a test."
 REHEARSAL_SECONDS = 180.0
 #: Where a target's rehearsal screenshots are kept in the file store: run, then case.
 SHOTS_CASE = "rehearsal"
+#: The file store's "case" the check before a run keeps its screenshot under.
+CHECK_CASE = "check"
 _RUN_ID = re.compile(r"[^A-Za-z0-9_-]")
 #: The run key each of these opens its session under, on the copy.
 LOOKING = "page-map-look"
@@ -56,7 +64,7 @@ def shots_run(target: str) -> str:
 def refusal(config: Config, target: str, capabilities: Capabilities) -> str | None:
     """Why the page of *target* can't be opened now, in plain words; ``None`` when it can. A page
     is only ever opened on evalution's own copy, which a proven isolation plan starts (ADR 0009),
-    and only with Playwright here."""
+    and only with Playwright and a browser here."""
     found = isolated.footing(config, target, capabilities)
     if not found.managed:
         why = found.problem or "it has no isolation plan yet"
@@ -67,7 +75,23 @@ def refusal(config: Config, target: str, capabilities: Capabilities) -> str | No
         )
     if (off := isolated.off_copy(config, target)) is not None:
         return f"{target}'s page can't be opened on evalution's own copy: {off}"
-    return page_missing()
+    lacks = page_lacks()
+    return f"{lacks[0].said} Run: {lacks[0].command}" if lacks else None
+
+
+def lacking(config: Config, target: str, capabilities: Capabilities) -> Missing | None:
+    """What :func:`refusal` refuses for, when it's a piece the page can offer to fix: no copy
+    (Set up testing makes one), or Playwright or a browser (a command installs it). ``None``
+    when nothing is missing, or what stands in the way is something else."""
+    found = isolated.footing(config, target, capabilities)
+    if not found.managed:
+        why = found.problem or "it has no proven isolation plan yet"
+        said = f"{target}'s page is only ever opened on evalution's own copy of the app, and {why}."
+        return Missing("copy", said)
+    if isolated.off_copy(config, target) is not None:
+        return None
+    lacks = page_lacks()
+    return lacks[0] if lacks else None
 
 
 @dataclass
@@ -245,7 +269,26 @@ async def rehearse(
     )
 
 
-async def check(page: PageTarget) -> list[str]:
+@dataclass
+class Checked:
+    """What the check before a run found: what a turn needs that the page doesn't have, in words,
+    and a screenshot of the page as it was when something was missing (*shot*, kept in the file
+    store at *at*, ``{run, case, n}``)."""
+
+    missing: list[str]
+    shot: str | None = None
+    at: dict[str, Any] | None = None
+
+
+async def check(page: PageTarget, target: str = "", files: Files | None = None) -> Checked:
     """The run's re-try of an approved map on its copy's page, before it plays: what a turn needs
-    that the page doesn't have, in words. No message is sent."""
-    return await page.check("page-map-check")
+    that the page doesn't have, in words, with a screenshot of the page kept in *files* (under
+    *target*'s page map screenshots) when something was missing. No message is sent."""
+    keep = (
+        PageFiles(files, shots_run(target), CHECK_CASE, int(time.time()))
+        if files is not None and target
+        else None
+    )
+    missing, shot = await page.checked("page-map-check", keep)
+    at = {"run": keep.run, "case": keep.case, "n": keep.n} if keep and shot else None
+    return Checked(missing, shot, at)

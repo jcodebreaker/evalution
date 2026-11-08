@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import type { Scope } from "../../lib/api";
-import { ApiError, api, errorText } from "../../lib/api";
+import { ApiError, api, errorText, missingOf } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { count } from "../../lib/format";
 import { about } from "../../lib/isolation";
-import type { Estimate, RunSummary } from "../../lib/schema";
+import type { Estimate, MissingPiece, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { ConfirmDialog } from "../../ui/dialog";
 import { useOpenEnvironment } from "../environment/use-isolation";
 import { TextLink } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
+import { MissingPieceNote } from "../shared/next-step";
 
 /** "How this works": the Test environment screen, or the explainer where the page can't move. */
 function HowItWorks() {
@@ -81,6 +82,8 @@ export function RunConfirm({
 }) {
   const [estimate, setEstimate] = useState<Estimate | null>(target.estimate ?? null);
   const [error, setError] = useState<string | null>(null);
+  /** What UI testing lacks, when that's why the run is refused: said with what fixes it. */
+  const [missing, setMissing] = useState<MissingPiece | null>(null);
   const [busy, setBusy] = useState(false);
 
   const given = !!target.estimate;
@@ -96,7 +99,9 @@ export function RunConfirm({
         if (!cancelled) setEstimate(found);
       },
       (failure: unknown) => {
-        if (!cancelled) setError(errorText(failure, "Couldn't estimate this run."));
+        if (cancelled) return;
+        setMissing(missingOf(failure));
+        setError(errorText(failure, "Couldn't estimate this run."));
       },
     );
     return () => {
@@ -154,7 +159,11 @@ export function RunConfirm({
           {`Left out: ${item.case}, because ${item.why}`}
         </p>
       ))}
-      {error ? <p className="m-0 text-center text-[12.5px] text-destructive">{error}</p> : null}
+      {missing ? (
+        <MissingPieceNote piece={missing} onLeave={onClose} />
+      ) : error ? (
+        <p className="m-0 text-center text-[12.5px] text-destructive">{error}</p>
+      ) : null}
     </ConfirmDialog>
   );
 }

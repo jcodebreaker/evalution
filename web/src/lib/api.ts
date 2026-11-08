@@ -3,6 +3,7 @@ import { currentWorkspace } from "./router";
 import type {
   AgentSession,
   Knowledge,
+  MissingPiece,
   ModelBody,
   PassMarks,
   Period,
@@ -33,6 +34,7 @@ import {
   LineAgreementSchema,
   MemberSchema,
   MeSchema,
+  MissingPieceSchema,
   ModelKeySchema,
   ModelListSchema,
   ModelSettingsSchema,
@@ -52,6 +54,7 @@ import {
   TestPlanSchema,
   TestSetupSchema,
   TracesSchema,
+  UiTestingSchema,
   UnderstandingSchema,
   UpdatesSchema,
   WorkspaceSchema,
@@ -70,6 +73,13 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** What UI testing lacks, when that's why the server refused (ADR 0010); `null` otherwise. */
+export function missingOf(error: unknown): MissingPiece | null {
+  if (!(error instanceof ApiError) || !error.data || typeof error.data !== "object") return null;
+  const found = MissingPieceSchema.safeParse((error.data as { missing?: unknown }).missing);
+  return found.success ? found.data : null;
 }
 
 /** A failure in words a person may read, else `fallback`. */
@@ -129,7 +139,7 @@ async function call(
   const type = response.headers.get("content-type") ?? "";
   const data: unknown = type.includes("json") && text ? JSON.parse(text) : text;
   if (!response.ok) {
-    throw new ApiError(response.status, detailText(data));
+    throw new ApiError(response.status, detailText(data), data);
   }
   return data;
 }
@@ -274,6 +284,8 @@ export const api = {
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
   /** How tests reach it: its API, or its page by a learned map, and the map waiting for approval. */
   pageReach: (name: string) => get(one(PageReachSchema), `/v1/targets/${enc(name)}/page`),
+  /** What UI testing has on this computer, as `evalution doctor` reads it. */
+  uiTesting: () => get(one(UiTestingSchema), "/v1/settings/ui-testing"),
   /** Approve the map tried on evalution's copy: tests reach the app through its page from now. */
   approvePage: (name: string) =>
     post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/approve`),

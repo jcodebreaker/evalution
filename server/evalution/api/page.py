@@ -13,6 +13,7 @@ from evalution.api.deps import Current, busy, local_only, not_found, target_name
 from evalution.api.workspaces import Workspace
 from evalution.connect import page
 from evalution.project import pagemaps
+from evalution.runs.page.target import page_lacks
 from evalution.storage.files import FileNameError
 
 
@@ -29,6 +30,14 @@ def _not_playing(ws: Workspace, name: str) -> None:
 def page_router() -> APIRouter:
     router = APIRouter()
     hosted_off = [Depends(local_only)]
+
+    @router.get("/settings/ui-testing", dependencies=hosted_off)
+    async def get_ui_testing() -> dict[str, Any]:
+        """What UI testing has on this computer, without launching anything (ADR 0010): ready,
+        or each piece it lacks in a sentence, with the command that installs it. The same
+        reading as ``evalution doctor``'s."""
+        missing = await asyncio.to_thread(page_lacks, True)
+        return {"ready": not missing, "missing": [m.as_dict() for m in missing]}
 
     @router.get("/targets/{target}/page")
     async def get_page(ws: Current, target: str) -> dict[str, Any]:
@@ -85,9 +94,13 @@ def page_router() -> APIRouter:
         except ValueError as exc:
             raise not_found("Screenshot") from exc
         kept = next((k for k in found if k is not None and shot in k.shots and k.shots_at), None)
-        if files is None or kept is None or kept.shots_at is None:
+        at = kept.shots_at if kept is not None else None
+        used = found[1]
+        if at is None and used is not None and used.missing_shot == shot:
+            # The page as the check before a run, or a try, found it lacking what the map names.
+            at = used.missing_shot_at
+        if files is None or at is None:
             raise not_found("Screenshot")
-        at = kept.shots_at
 
         def read() -> bytes:
             with files.open(str(at["run"]), str(at["case"]), int(at["n"]), shot) as handle:

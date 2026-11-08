@@ -479,6 +479,22 @@ export type TestSetupChange = {
   copies?: number;
 };
 
+/** A piece UI testing lacks here (ADR 0010), in one sentence, and what fixes it: a copy of the
+ * app (Set up testing makes one), or the command that installs Playwright, a browser or ffmpeg. */
+export const MissingPieceSchema = z.object({
+  part: z.enum(["copy", "playwright", "browser", "ffmpeg"]).catch("browser"),
+  said: z.string(),
+  command: z.string().nullable().default(null),
+});
+export type MissingPiece = z.infer<typeof MissingPieceSchema>;
+
+/** What UI testing has on this computer: ready, or each piece it lacks. */
+export const UiTestingSchema = z.object({
+  ready: z.boolean().default(false),
+  missing: z.array(MissingPieceSchema).default([]),
+});
+export type UiTesting = z.infer<typeof UiTestingSchema>;
+
 /** One entry of a page map in plain words: what it is, and where on the page. */
 export const MapWordsSchema = z.object({ what: z.string(), where: z.string() });
 
@@ -497,6 +513,8 @@ export const KeptPageMapSchema = z.object({
   shots: z.array(z.string()).default([]),
   /** What the check before a run didn't find on the page. */
   missing: z.array(z.string()).default([]),
+  /** The page as that check (or a try) found it, a screenshot URL on this server. */
+  missing_shot: z.string().nullable().default(null),
   /** The files a commit changed under its evidence, when it's out of date. */
   stale_files: z.array(z.string()).default([]),
   updated: z.number().nullable().default(null),
@@ -520,6 +538,8 @@ export const PageReachSchema = z.object({
   /** The page can be opened on evalution's copy; else `why_not` says why, in words. */
   can_learn: z.boolean().default(false),
   why_not: z.string().nullable().default(null),
+  /** What UI testing lacks, when that's why not, with what fixes it. */
+  missing: MissingPieceSchema.nullable().catch(null).default(null),
   problem: z.string().nullable().default(null),
 });
 export type PageReach = z.infer<typeof PageReachSchema>;
@@ -1037,9 +1057,23 @@ export const TryPageSchema = z.object({
   without_page: TryOutcomeSchema.nullable().catch(null).default(null),
   /** Reached through its page alone: each reply is what the page showed (reply only). */
   page_only: z.boolean().default(false),
+  /** The app refused the page's message (its status), or never took it (`status: null`). */
+  not_taken: z
+    .object({ status: z.number().nullable().default(null) })
+    .nullable()
+    .catch(null)
+    .default(null),
   video: z.object({ name: z.string(), url: z.string().nullable() }).nullable().default(null),
   /** Why there is no video when one was to be kept. */
   video_missing: z.string().nullable().default(null),
+  /** What installs ffmpeg, when that's why there is no video and it's still missing here. */
+  video_fix: MissingPieceSchema.nullable().catch(null).default(null),
+  /** The page map ended the try: what the page lacked, and its screenshot of the page then. */
+  broken_map: z
+    .object({ missing: z.string(), shot_url: z.string().nullable().default(null) })
+    .nullable()
+    .catch(null)
+    .default(null),
   /** The try was cut short before the page was closed. */
   interrupted: z.boolean().default(false),
 });
@@ -1710,6 +1744,8 @@ export const HealthSchema = z.object({
       status: z.enum(["stale", "broken"]).catch("stale"),
       stale_files: z.array(z.string()).default([]),
       missing: z.array(z.string()).default([]),
+      /** The page as the check found it, lacking what's missing: a screenshot URL. */
+      shot: z.string().nullable().default(null),
     })
     .nullable()
     .catch(null)

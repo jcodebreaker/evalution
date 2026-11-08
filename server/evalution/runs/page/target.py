@@ -162,10 +162,20 @@ CUT_OFF = "the try was cut off before its video was finished"
 UNFINISHED = "the browser didn't finish the try's video"
 NOT_KEPT = "the try's video couldn't be kept"
 NO_PAGE = "nothing of the try was on the page to record"
+#: The screenshot the check before a run keeps of a page that lacks what its map names.
+MISSING_SHOT = "page-map-check.png"
 #: The shortest value scrubbed from what the page wrote: shorter ones are words, not secrets.
 _SCRUB_SHORTEST = 6
 #: Methods a page sends a message with.
 _SENDS = frozenset({"POST", "PUT", "PATCH"})
+#: How the browser says a request never got as far as the app: nothing reached it to hear.
+_NEVER_REACHED = (
+    "ERR_CONNECTION_REFUSED",
+    "ERR_NAME_NOT_RESOLVED",
+    "ERR_ADDRESS_UNREACHABLE",
+    "ERR_CONNECTION_FAILED",
+    "ERR_INTERNET_DISCONNECTED",
+)
 #: Methods that only read: all a page may do while its map is looked at or tried.
 _READS = frozenset({"GET", "HEAD", "OPTIONS"})
 #: What a message box is filled with when its entry is tried: never sent, cleared after.
@@ -238,6 +248,53 @@ def page_parts() -> dict[str, bool]:
         or system_chrome() is not None,
         "ffmpeg": installed("ffmpeg-"),
     }
+
+
+@dataclass(frozen=True)
+class Missing:
+    """A piece UI testing lacks here, in one sentence, and what fixes it.
+
+    :param part: ``copy`` (no proven copy of the app to play on), ``playwright``, ``browser`` or
+        ``ffmpeg`` (video only).
+    :param said: What's missing, in one sentence a person reads.
+    :param command: The exact command that installs it; ``None`` for a copy, which the page's
+        Set up testing makes.
+    """
+
+    part: str
+    said: str
+    command: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"part": self.part, "said": self.said, "command": self.command}
+
+
+def _project() -> str:
+    """The ``--project`` the install commands name: this evalution's own server folder, when it
+    runs from a checkout; else ``server``, as ``./install.sh`` names it."""
+    here = Path(__file__).resolve().parents[3]
+    return str(here) if (here / "pyproject.toml").is_file() else "server"
+
+
+def page_lacks(video: bool = False) -> list[Missing]:
+    """What UI testing lacks here, from :func:`page_parts`, without launching anything: Playwright
+    and a browser, which a page run can't do without, and, with *video*, ffmpeg, which only a
+    try's video needs. Each with the command that installs it."""
+    parts = page_parts()
+    project = _project()
+    install = f"uv run --project {project} playwright install"
+    found = []
+    if not parts["playwright"]:
+        command = f"uv sync --project {project} --extra page && {install} chromium ffmpeg"
+        said = "UI testing needs Playwright, which this install of evalution doesn't have."
+        return [Missing("playwright", said, command)]
+    if not parts["browser"]:
+        said = "UI testing needs a browser, and there's none here: no Chromium and no Chrome."
+        found.append(Missing("browser", said, f"{install} chromium"))
+    if video and not parts["ffmpeg"]:
+        said = "Video of a try needs Playwright's ffmpeg, which isn't installed here."
+        found.append(Missing("ffmpeg", said, f"{install} ffmpeg"))
+    return found
 
 
 def system_chrome() -> str | None:
@@ -343,7 +400,9 @@ class _Record:
     console: list[tuple[str, str, float]] = field(default_factory=list)
     #: ``(method, path, status, at)``.
     failed: list[tuple[str, str, int | None, float]] = field(default_factory=list)
-    #: One per ``send``: ``{done, shown_at, instead, shot}``.
+    #: One per ``send``: ``{done, shown_at, instead, shot}``, and how the app took the page's
+    #: message when it didn't: ``refused`` (its status) with the ``request`` (method, path), or
+    #: ``unanswered``.
     turns: list[dict[str, Any]] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     keep: PageFiles | None = None
@@ -683,19 +742,30 @@ class PageTarget(Target):
                 shown_at=None if step["shown_at"] is None else round(step["shown_at"] - t0, 3),
                 instead=Clipped(text=step["instead"]),
                 shot=step["shot"],
+                refused=step.get("refused"),
+                unanswered=bool(step.get("unanswered")),
             )
             for step in found.turns
         )
+        # The request that carried a refused message is the app's answer to it, said by its turn.
+        refused = [(*s["request"], s["refused"]) for s in found.turns if s.get("request")]
+        failed = []
+        for method, path, status, at in found.failed:
+            message = (method, path, status) in refused
+            if message:
+                refused.remove((method, path, status))
+            failed.append(
+                FailedRequest(
+                    method=method, path=path, status=status, at=round(at - t0, 3), message=message
+                )
+            )
         made = PageRecord(
             turns=turns,
             console=tuple(
                 ConsoleLine(level=level, text=Clipped(text=text), at=round(at - t0, 3))
                 for level, text, at in found.console
             ),
-            failed_requests=tuple(
-                FailedRequest(method=method, path=path, status=status, at=round(at - t0, 3))
-                for method, path, status, at in found.failed
-            ),
+            failed_requests=tuple(failed),
             files=tuple(files),
             video_missing=missing,
             video_policy=policy if VIDEO in files else None,
@@ -745,7 +815,14 @@ class PageTarget(Target):
     async def _shoot(self, page: Any, record: _Record, index: int) -> str | None:
         """A screenshot of the page after turn *index*, with sign-in boxes masked, kept as the
         try's file; its name, or ``None`` when there is nowhere to keep it or it failed."""
-        keep = record.keep
+        name = await self._keep_shot(page, record.keep, f"turn-{index}.png")
+        if name is not None:
+            record.files.append(name)
+        return name
+
+    async def _keep_shot(self, page: Any, keep: PageFiles | None, name: str) -> str | None:
+        """A screenshot of *page*, with sign-in boxes masked, kept in *keep* as *name*; *name*,
+        or ``None`` when there is nowhere to keep it or it failed."""
         if keep is None:
             return None
         form = self.page.sign_in.form
@@ -753,15 +830,13 @@ class PageTarget(Target):
         try:
             png = await page.screenshot(mask=mask, timeout=10_000)
         except _api().Error:
-            _logger.warning("evals: no screenshot of turn %s", index, exc_info=True)
+            _logger.warning("evals: no screenshot %s", name, exc_info=True)
             return None
-        name = f"turn-{index}.png"
         try:
             await asyncio.to_thread(keep.files.put, keep.run, keep.case, keep.n, name, png)
         except (OSError, ValueError):
             _logger.warning("evals: screenshot %s not kept", name, exc_info=True)
             return None
-        record.files.append(name)
         return name
 
     async def _sign_in(self, context: Any, page: Any, session: Session) -> None:
@@ -1101,6 +1176,12 @@ class PageTarget(Target):
         :raises ConnectionError: The page didn't load.
         :raises PageUnavailable: No Playwright or no browser here.
         """
+        return (await self.checked(run, None))[0]
+
+    async def checked(self, run: str, keep: PageFiles | None) -> tuple[list[str], str | None]:
+        """:meth:`check`, and when something wasn't there, a screenshot of the page as it was,
+        kept in *keep* as :data:`MISSING_SHOT`: what wasn't there, and the screenshot's name
+        (``None`` when nothing was missing, or it couldn't be kept)."""
         session = await self.looking_session(run)
         missing: list[str] = []
         try:
@@ -1108,23 +1189,25 @@ class PageTarget(Target):
             try:
                 await self._show(page, session)
             except PageMapBroken as exc:
-                return [str(exc).removeprefix("the page has no ")]
-            actions = self.page.actions
-            wanted = [actions.type.fill, actions.send.click, self.page.replies.in_]
-            if actions.new_chat is not None:
-                wanted.append(actions.new_chat.click)
-            for found in wanted:
-                try:
-                    await self._find(page, found)
-                except PageMapBroken:
-                    missing.append(_said(found))
+                missing.append(str(exc).removeprefix("the page has no "))
+            else:
+                actions = self.page.actions
+                wanted = [actions.type.fill, actions.send.click, self.page.replies.in_]
+                if actions.new_chat is not None:
+                    wanted.append(actions.new_chat.click)
+                for found in wanted:
+                    try:
+                        await self._find(page, found)
+                    except PageMapBroken:
+                        missing.append(_said(found))
+            shot = await self._keep_shot(page, keep, MISSING_SHOT) if missing else None
         finally:
             with contextlib.suppress(Exception):
                 await self._drop(session)
             if self.inner is not None:
                 with contextlib.suppress(Exception):
                     await self.inner.close(session)
-        return missing
+        return missing, shot
 
     async def looking_session(self, run: str) -> Session:
         """A session to look at the page in: the inner adapter's, or a page-only one of its own,
@@ -1172,7 +1255,15 @@ class PageTarget(Target):
         started = time.time()
         # One step of the record per send, so its turns line up with the try's.
         record = self._record_of(session)
-        step = {"done": False, "shown_at": None, "instead": "", "shot": None}
+        step = {
+            "done": False,
+            "shown_at": None,
+            "instead": "",
+            "shot": None,
+            "refused": None,
+            "request": None,
+            "unanswered": False,
+        }
         if record is not None:
             record.turns.append(step)
         if files:
@@ -1204,7 +1295,7 @@ class PageTarget(Target):
         before = await self._region_text(page)
         if self.inner is None:
             mine = await self._mine_count(page)
-            sent = await self._page_sends(page, message, started, deadline)
+            sent = await self._page_sends(page, message, started, deadline, step)
             if isinstance(sent, Turn):
                 return sent
             turn = await self._settled(page, session, message, before, mine, started, deadline)
@@ -1216,7 +1307,7 @@ class PageTarget(Target):
             return turn
         if self.inner.capabilities.watch:
             # The page sends, as a person would; the inner adapter waits for that turn.
-            sent = await self._page_sends(page, message, started, deadline)
+            sent = await self._page_sends(page, message, started, deadline, step)
             if isinstance(sent, Turn):
                 return sent
             turn = await self.inner.watch(session, sent, deadline=deadline)
@@ -1333,8 +1424,8 @@ class PageTarget(Target):
         return ""
 
     def _carries(self, message: str) -> Callable[[Any], bool]:
-        """Whether a response answers the page's request that sent *message*: a POST, PUT or PATCH
-        to the copy's origin whose body holds it, or has no body to read (a stream)."""
+        """Whether a request is the page's that sent *message*: a POST, PUT or PATCH to the copy's
+        origin whose body holds it, or has no body to read (a stream)."""
         spelled = {
             message,
             json.dumps(message)[1:-1],
@@ -1342,8 +1433,7 @@ class PageTarget(Target):
             quote_plus(message),
         }
 
-        def carries(response: Any) -> bool:
-            request = response.request
+        def carries(request: Any) -> bool:
             if request.method not in _SENDS or not self._on_copy(request.url):
                 return False
             try:
@@ -1355,28 +1445,69 @@ class PageTarget(Target):
         return carries
 
     async def _page_sends(
-        self, page: Any, message: str, started: float, deadline: float
+        self, page: Any, message: str, started: float, deadline: float, step: dict[str, Any]
     ) -> float | Turn:
         """Type *message* and click Send, then wait for the copy to answer the request that
-        carried it. When it was sent (just before the click), or the turn, when it went no
-        further: a map that's off, an error status, or no answer by *deadline*."""
-        api = _api()
+        carried it, for the map's ``send_seconds`` at most. When it was sent (just before the
+        click), or the turn, when it went no further, said on *step* too: a map that's off; the
+        app refusing the message (an error status: a 503 or 429 is busy, and not heard, so the
+        try is played again); the request failing on the way, never having reached the app
+        (unreachable, not heard); or no answer by the limit, which isn't heard either way: a
+        request still out may have reached the app, so it is never played again. Out of time
+        when the turn's *deadline* comes first."""
         actions = self.page.actions
+        carries = self._carries(message)
+        ended: asyncio.Future[tuple[Any, Any]] = asyncio.get_running_loop().create_future()
+
+        def answered(response: Any) -> None:
+            if not ended.done() and carries(response.request):
+                ended.set_result((response, None))
+
+        def failed(request: Any) -> None:
+            if not ended.done() and carries(request):
+                ended.set_result((None, request))
+
         try:
             box = await self._find(page, actions.type.fill, deadline)
             await self._act(box.fill(message, timeout=self._ms(deadline)), actions.type.fill)
             button = await self._find(page, actions.send.click, deadline)
-            wait = max(deadline - time.time(), 0.1) * 1000
-            since = time.time()
-            async with page.expect_response(self._carries(message), timeout=wait) as answered:
+            page.on("response", answered)
+            page.on("requestfailed", failed)
+            limit = deadline
+            try:
+                since = time.time()
+                limit = since + self.page.send_seconds
                 await self._act(button.click(timeout=self._ms(deadline)), actions.send.click)
-            response = await answered.value
+                left = max(min(limit, deadline) - time.time(), 0.1)
+                response, request = await asyncio.wait_for(asyncio.shield(ended), left)
+            finally:
+                page.remove_listener("response", answered)
+                page.remove_listener("requestfailed", failed)
         except PageMapBroken as exc:
             return Turn("", started, time.time(), error=str(exc), failure=Failure.PAGE_MAP)
-        except api.TimeoutError:
-            said = "the app didn't answer the page's message in time"
-            return Turn("", started, time.time(), error=said, failure=Failure.TIMED_OUT, heard=True)
+        except TimeoutError:
+            if deadline <= limit:
+                said = "the app didn't answer the page's message in time"
+                return Turn(
+                    "", started, time.time(), error=said, failure=Failure.TIMED_OUT, heard=True
+                )
+            step["unanswered"] = True
+            said = (
+                f"no answer to the page's message in {self.page.send_seconds:g} s "
+                "(the page map's send_seconds)"
+            )
+            return Turn("", started, time.time(), error=said, failure=Failure.TRANSIENT, heard=True)
+        if request is not None:
+            why = str(request.failure or "it failed")
+            if any(code in why for code in _NEVER_REACHED):
+                said = f"the page's message never reached the app: {why}"
+                return Turn("", started, time.time(), error=said, failure=Failure.UNREACHABLE)
+            step["unanswered"] = True
+            said = f"the page's message request failed with no answer ({why})"
+            return Turn("", started, time.time(), error=said, failure=Failure.TRANSIENT, heard=True)
         if response.status >= 400:
+            step["refused"] = response.status
+            step["request"] = (response.request.method, urlsplit(response.url).path)
             return Turn(
                 "",
                 started,

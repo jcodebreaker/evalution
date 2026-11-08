@@ -7,6 +7,7 @@ import { Button } from "../../ui/button";
 import { PictureDialog } from "../../ui/dialog";
 import { Spinner } from "../../ui/loading";
 import { Group } from "../shared/group";
+import { MissingPieceNote, PageShot, relearnWords } from "../shared/next-step";
 
 type Way = "api" | "page";
 
@@ -14,7 +15,7 @@ type Way = "api" | "page";
 export function learnPage(target: string, reach: Reach | null): string {
   const current = reach?.current;
   if (current?.status === "broken") {
-    return `The page map of ${target} no longer matches its page: it has no ${current.missing.join(", ")}. Learn the page again and propose a new map.`;
+    return relearnWords(target, current.missing);
   }
   if (current?.status === "stale") {
     return `The page map of ${target} is out of date: a commit changed ${current.stale_files.join(", ") || "a file it rests on"}. Learn the page again and propose a new map.`;
@@ -258,6 +259,13 @@ export function PageReach({
               <p className={cn("m-0 max-w-[68ch]", standing(target, current).tone)}>
                 {standing(target, current).text}
               </p>
+              {current.status === "broken" && current.missing_shot ? (
+                <PageShot
+                  src={current.missing_shot}
+                  title={`${target}'s page, without ${current.missing.join(", ")}`}
+                  alt={`${target}'s page as the check found it`}
+                />
+              ) : null}
               <MapWords kept={current} />
               <Shots shots={reach.proposed ? [] : current.shots} />
             </div>
@@ -269,7 +277,9 @@ export function PageReach({
             </p>
           ) : null}
 
-          {!reach.can_learn && reach.why_not ? (
+          {!reach.can_learn && reach.missing ? (
+            <MissingPieceNote piece={reach.missing} />
+          ) : !reach.can_learn && reach.why_not ? (
             <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{reach.why_not}</p>
           ) : null}
           {reach.problem ? <p className="m-0 text-destructive">{reach.problem}</p> : null}

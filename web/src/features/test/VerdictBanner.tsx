@@ -52,7 +52,13 @@ export function VerdictBanner({
   const lead = shown.tries.length === 1 ? "" : ` on try ${shown.try}`;
   // Played through the page: which layer held, and plain words when only the page failed.
   const pageOnly = shown.page?.page_only ?? false;
-  const layered = layerWords(shown.layers, shown.outcome, shown.page?.without_page, pageOnly);
+  const layered = layerWords(
+    shown.layers,
+    shown.outcome,
+    shown.page?.without_page,
+    pageOnly,
+    shown.page?.not_taken,
+  );
   return (
     <div
       className={cn(

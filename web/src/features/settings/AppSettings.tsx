@@ -5,6 +5,7 @@ import type { Hooks, Knowledge } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { useAccount } from "../account/account";
 import { Group } from "../shared/group";
+import { MissingPieceNote } from "../shared/next-step";
 import { Row } from "../shared/Row";
 
 const UPDATE_MODES: { value: Knowledge["mode"]; label: string }[] = [
@@ -20,6 +21,8 @@ export function AppSettings({ target }: { target: string }) {
   const [hooks, reloadHooks] = useLoad(hosted ? null : `hooks:${target}`, () =>
     api.hooks.get(target),
   );
+  // What UI testing has on this computer, as `evalution doctor` reads it.
+  const [testing] = useLoad(hosted ? null : "ui-testing", () => api.uiTesting());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mode = updates.status === "ready" ? updates.data.mode : null;
@@ -87,6 +90,21 @@ export function AppSettings({ target }: { target: string }) {
                 {hook} {why}
               </span>
             ))}
+          </Row>
+        )}
+        {hosted ? null : (
+          <Row label="UI testing" group>
+            {testing.status !== "ready" ? (
+              <span className="pt-1.5 text-[13px] text-ink-3">…</span>
+            ) : testing.data.ready ? (
+              <span className="pt-1.5 text-[13px]" data-testid="ui-testing-ready">
+                Ready: Playwright, a browser, and ffmpeg for video.
+              </span>
+            ) : (
+              testing.data.missing.map((piece) => (
+                <MissingPieceNote key={piece.part} piece={piece} className="pt-1.5" />
+              ))
+            )}
           </Row>
         )}
       </Group>

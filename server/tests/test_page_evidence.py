@@ -23,6 +23,7 @@ from evalution.core.evidence import (
     TurnRecord,
 )
 from evalution.core.judgement import CheckKind, Outcome, Role, Route, WhyUnjudged
+from evalution.core.rendered import NOTHING_SHOWN
 from evalution.core.rules import RULES_VERSION, current, judge_try, judgement, layers
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
@@ -332,6 +333,71 @@ def test_the_layers_say_which_held_stored_answered_not_shown() -> None:
         "answered": "absent",
         "shown": "absent",
     }
+
+
+def _layered(case, evidence: TryEvidence) -> dict[str, str]:
+    return layers(
+        judgement(code_checks(case, evidence, [], 1.0, {"tools": 0.8}).checks, None, Route.UNKNOWN)
+    )
+
+
+@pytest.mark.parametrize(
+    ("failure", "error", "refused", "unanswered", "answered", "outcome"),
+    [
+        (Failure.TRANSIENT, "busy or down: answered 503", 503, False, "unjudged", "unjudged"),
+        (Failure.TRANSIENT, "no answer in 30 s", None, True, "unjudged", "unjudged"),
+        (Failure.APP, "the app answered the page's message with 500", 500, False, "fail", "failed"),
+    ],
+)
+def test_a_message_the_app_refused_or_never_took_is_answered_not_shown(
+    failure, error, refused, unanswered, answered, outcome
+) -> None:
+    """The app's, under answered: the page did its part, and its request carrying the message
+    failing is no fault of the page's health."""
+    message = FailedRequest(method="POST", path="/send", status=refused, at=0.1, message=True)
+    evidence = _evidence(
+        _turn("", None, error=error),
+        page=_page(
+            PageTurn(refused=refused, unanswered=unanswered),
+            failed_requests=(message,) if refused else (),
+        ),
+        failure=failure,
+        error=error,
+    )
+    case = _case(reply={"contains": ["Biscuit"]}, page={"decides": True})
+    found = _checks(case, evidence)
+    assert found["page_health"].outcome is Outcome.PASSED
+    assert found["shown:1"].outcome is Outcome.UNJUDGED
+    assert _layered(case, evidence) == {
+        "stored": "absent",
+        "answered": answered,
+        "shown": "unjudged",
+    }
+    assert judge_try(found.values()).value == outcome
+
+
+def test_a_page_that_showed_nothing_is_still_the_shown_layers() -> None:
+    evidence = _evidence(
+        _turn("", None, error=NOTHING_SHOWN),
+        page=_page(PageTurn(instead=Clipped(text="…")), page_only=True),
+        failure=Failure.APP,
+        error=NOTHING_SHOWN,
+    )
+    assert _layered(_case(), evidence) == {
+        "stored": "absent",
+        "answered": "absent",
+        "shown": "fail",
+    }
+
+
+def test_a_broken_page_map_is_no_layer_of_the_apps() -> None:
+    evidence = _evidence(
+        _turn("", None, error="the page has no button 'Send'"),
+        page=_page(PageTurn()),
+        failure=Failure.PAGE_MAP,
+        error="the page has no button 'Send'",
+    )
+    assert _layered(_case(), evidence)["answered"] == "absent"
 
 
 def test_a_claim_may_cite_the_page() -> None:

@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
-from evalution.core.evidence import VIDEO_ON_FAILURE, PageTurn, TryEvidence
+from evalution.core.evidence import VIDEO_ON_FAILURE, Failure, PageRecord, PageTurn, TryEvidence
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
 from evalution.core.rules import (
     called_of,
@@ -849,10 +849,29 @@ def _on_page(
         ).value,
         # Reached through its page alone: each reply is what the page showed (reply only).
         "page_only": page.page_only,
+        # The app refused the page's message (its status) or never took it (none): the app's.
+        "not_taken": next(
+            ({"status": t.refused} for t in page.turns if t.not_taken),
+            None,
+        ),
+        "broken_map": _broken_map(kept, page, file_url),
         "video": {"name": video, "url": url} if video else None,
         "video_missing": missing,
         "interrupted": page.interrupted,
     }
+
+
+def _broken_map(
+    kept: TryEvidence, page: PageRecord, file_url: Callable[[str], str | None]
+) -> dict[str, Any] | None:
+    """A try the page map ended (ADR 0010): what the page lacked, in words, and its last
+    screenshot of the page as it was, when it has one. ``None`` for any other try."""
+    if kept.failure is not Failure.PAGE_MAP:
+        return None
+    error = kept.error or ""
+    missing = error.split("the page has no ", 1)[1] if "the page has no " in error else error
+    shots = [t.shot for t in page.turns if t.shot]
+    return {"missing": missing, "shot_url": file_url(shots[-1]) if shots else None}
 
 
 def _code_check(item: str, judged: Judgement) -> CheckResult | None:

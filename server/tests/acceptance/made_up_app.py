@@ -21,9 +21,11 @@ Switches break the page when told (POST /admin/page with any of them, all off at
 rename_send (Send says "Ask"), never_clear_busy (Stop and aria-busy stay after the reply),
 throw_on_reply (a TypeError drawing a reply, "Couldn't load this reply" in its place),
 error_after_text (the text streams, then an error replaces it) and drop_reply (the reply never
-shows, though the API has it). The page's code is told them in its #page-data, and does the rest.
-PAGE_SWITCHES (names, comma-separated) turns some on from the start, for a copy of the app that
-evalution starts itself.
+shows, though the API has it). Two break the app's side of the page's Send instead:
+refuse_message_once (the next message is answered 503 and not taken, as a busy app does, then the
+switch goes off) and hang_message (the message's request never gets an answer, and isn't taken).
+The page's code is told them in its #page-data, and does the rest. PAGE_SWITCHES (names,
+comma-separated) turns some on from the start, for a copy of the app that evalution starts itself.
 
 The gateway answers like an OpenAI-compatible server, and goes down when told.
 
@@ -89,13 +91,24 @@ setup = {"model": "made-up-model", "answer": "It's 42."}
 signed_in: dict[str, str] = {}
 #: Ways to break the page, as a change someone made to it.
 page_switches = dict.fromkeys(
-    ("rename_send", "never_clear_busy", "throw_on_reply", "error_after_text", "drop_reply"), False
+    (
+        "rename_send",
+        "never_clear_busy",
+        "throw_on_reply",
+        "error_after_text",
+        "drop_reply",
+        "refuse_message_once",
+        "hang_message",
+    ),
+    False,
 )
 page_switches.update(
     dict.fromkeys(
         (n for n in os.environ.get("PAGE_SWITCHES", "").split(",") if n in page_switches), True
     )
 )
+#: Switches on the app's side of the page's Send, which the page's code isn't told.
+MESSAGE_SWITCHES = ("refuse_message_once", "hang_message")
 _background: set[asyncio.Task] = set()
 
 
@@ -376,6 +389,11 @@ async def page_message(sid: str, request: Request) -> Response:
         return JSONResponse({"error": "sign in first"}, status_code=401)
     if sid not in sessions:
         return JSONResponse({"error": "no such chat"}, status_code=404)
+    if page_switches["refuse_message_once"]:
+        page_switches["refuse_message_once"] = False
+        return JSONResponse({"error": "busy, try again"}, status_code=503)
+    if page_switches["hang_message"]:
+        await asyncio.Event().wait()  # never answered, till the copy goes
     _accept(sid, (await request.json())["message"], request)
     session = sessions[sid]
     return StreamingResponse(
@@ -433,7 +451,8 @@ def _chat_page(person: str, sid: str | None) -> str:
     data = {
         "session": sid,
         "messages": [item["data"] for item in sessions[sid]["items"]] if sid else [],
-        "switches": page_switches,
+        # The page's own: the message switches are the app's side of Send, not its code's.
+        "switches": {k: on for k, on in page_switches.items() if k not in MESSAGE_SWITCHES},
     }
     return CHAT.substitute(
         style=STYLE,

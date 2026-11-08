@@ -4,19 +4,20 @@ import type { Health } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { useOpenEnvironment } from "../environment/use-isolation";
 import { TextLink } from "../shared/group";
+import { PageShot, relearnWords } from "../shared/next-step";
 import { CARD } from "./card";
 
 /** What the test writer is asked when Home offers to learn the page again. */
 export function relearn(target: string, page: NonNullable<Health["page"]>): string {
   return page.status === "broken"
-    ? `The page map of ${target} no longer matches its page: it has no ${page.missing.join(", ")}. Learn the page again and propose a new map.`
+    ? relearnWords(target, page.missing)
     : `The page map of ${target} is out of date: a commit changed ${page.stale_files.join(", ") || "a file it rests on"}. Learn the page again and propose a new map.`;
 }
 
 /**
  * Home's word on the page map, as it says an isolation plan is out of date: only when a commit
- * changed a file its evidence cites, or the check before a run found the page without what it
- * names. Offers to learn the page again.
+ * changed a file its evidence cites, or the check before a run (or a try) found the page without
+ * what it names, shown as it was then. Offers to learn the page again.
  */
 export function PageMapCard({
   target,
@@ -43,11 +44,20 @@ export function PageMapCard({
         />
         How tests reach {target}
       </h2>
-      <p className="m-0 max-w-[68ch]">
-        {broken
-          ? `The page map no longer matches ${target}'s page: it has no ${page.missing.join(", ")}. Runs through the page stop until it's learned again.`
-          : `The page map is out of date: a commit changed ${page.stale_files.join(", ") || "a file it rests on"}. The next run checks it on evalution's copy first, without sending a message.`}
-      </p>
+      <div className="flex flex-wrap items-start gap-3">
+        {broken && page.shot ? (
+          <PageShot
+            src={page.shot}
+            title={`${target}'s page, without ${page.missing.join(", ")}`}
+            alt={`${target}'s page as the check found it`}
+          />
+        ) : null}
+        <p className="m-0 max-w-[68ch] min-w-0 flex-1">
+          {broken
+            ? `The page map no longer matches ${target}'s page: it has no ${page.missing.join(", ")}. Runs through the page stop until it's learned again.`
+            : `The page map is out of date: a commit changed ${page.stale_files.join(", ") || "a file it rests on"}. The next run checks it on evalution's copy first, without sending a message.`}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           variant={broken ? "default" : "secondary"}

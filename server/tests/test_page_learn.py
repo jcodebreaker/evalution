@@ -25,7 +25,14 @@ from evalution.adapters.base import Capabilities, Isolation, Session, Target, Tu
 from evalution.isolation.launch import free_port
 from evalution.runs.page.learn import scaffold
 from evalution.runs.page.map import PageMap
-from evalution.runs.page.target import HARMLESS, PageTarget, system_chrome
+from evalution.runs.page.target import (
+    HARMLESS,
+    MISSING_SHOT,
+    PageFiles,
+    PageTarget,
+    system_chrome,
+)
+from evalution.storage.files import LocalFiles
 
 
 def _a_browser() -> bool:
@@ -200,14 +207,21 @@ async def test_an_entry_the_page_lacks_is_not_found_and_says_why(chat) -> None:
     assert chat.writes == []
 
 
-async def test_the_check_before_a_run_finds_everything_or_says_what_is_missing(chat) -> None:
+async def test_the_check_before_a_run_finds_everything_or_says_what_is_missing(
+    chat, tmp_path
+) -> None:
     target = _target(chat)
+    files = LocalFiles(tmp_path)
     try:
         assert await target.check("page-map-check") == []
         chat.rename = True
-        assert await target.check("page-map-check") == ["button 'Send'"]
+        keep = PageFiles(files, "page-map-bot", "check", 1)
+        missing, shot = await target.checked("page-map-check", keep)
     finally:
         await target.dispose_browser()
+    assert missing == ["button 'Send'"] and shot == MISSING_SHOT
+    with files.open("page-map-bot", "check", 1, MISSING_SHOT) as kept:
+        assert kept.read(4) == b"\x89PNG", "the page as the check found it"
     inner = target.inner
     assert isinstance(inner, Inner) and inner.closed == ["s1", "s1"]
     assert chat.writes == []

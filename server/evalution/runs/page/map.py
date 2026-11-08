@@ -62,6 +62,8 @@ from evalution.config import ConfigError, TargetConfig
 COPY_PAGE = "{copy_page}"
 #: The longest the page may take, after the inner adapter's send returns, to show the reply.
 CATCH_UP_MOST = 120.0
+#: The longest ``send_seconds`` a map may give the page's message request.
+SEND_MOST = 600.0
 #: The longest the replies must stay the same before a page-only turn is taken as done.
 QUIET_MOST_MS = 60_000
 #: The entries a map's ``evidence`` may speak for.
@@ -414,6 +416,10 @@ class PageMap(_Strict):
         turn is taken as one it showed nothing for.
     :param quiet_ms: On a page-only target, how long the replies must stay the same, nothing
         busy, before the turn is done.
+    :param send_seconds: When the page sends, how long the app gets to answer the request that
+        carried the message (its status; a stream's first bytes) before the message counts as
+        not taken. An app whose message request returns only with the whole reply needs it
+        longer than its slowest reply.
     :param evidence: Per entry (one of :data:`ENTRIES`), why it is what it is.
     :param video: When a try's video is kept (:data:`Video`).
     """
@@ -429,6 +435,7 @@ class PageMap(_Strict):
     busy: tuple[Mark, ...] = ()
     catch_up_seconds: float = Field(default=10.0, gt=0, le=CATCH_UP_MOST)
     quiet_ms: int = Field(default=800, ge=0, le=QUIET_MOST_MS)
+    send_seconds: float = Field(default=30.0, gt=0, le=SEND_MOST)
     status: Status = "draft"
     evidence: dict[str, Evidence] = Field(default_factory=dict)
     video: Video = "failed"
@@ -615,6 +622,7 @@ def described(page: PageMap, *, only: bool = False) -> list[dict[str, str]]:
         rows.append(("Session id", _id_where(page)))
         quiet = f"the replies stay the same for {page.quiet_ms / 1000:g} s"
         rows.append(("Done when", f"nothing is busy and {quiet}" if page.busy else quiet))
+    rows.append(("Waits for the app to take a message", f"up to {page.send_seconds:g} s"))
     rows.append(("Waits for the reply", f"up to {page.catch_up_seconds:g} s"))
     rows.append(("Video", _VIDEO[page.video]))
     return [{"what": what, "where": where} for what, where in rows]

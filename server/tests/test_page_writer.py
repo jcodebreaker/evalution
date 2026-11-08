@@ -396,6 +396,7 @@ async def test_a_commit_under_its_evidence_marks_the_map_stale(agent, copy) -> N
         "status": "stale",
         "stale_files": ["web/Chat.tsx"],
         "missing": [],
+        "shot": None,
     }
     view = page_connect.view(targets, "bot")
     assert (
@@ -405,11 +406,20 @@ async def test_a_commit_under_its_evidence_marks_the_map_stale(agent, copy) -> N
 
     # The run's check finds what's missing: broken, saying what, for Home to show.
     found = pagemaps.to_check(targets, "bot")
-    pagemaps.checked(targets, "bot", found, ["button 'Send'"])
-    assert pagemaps.brief(targets, "bot")["missing"] == ["button 'Send'"]
+    at = {"run": "page-map-bot", "case": "check", "n": 1}
+    pagemaps.checked(targets, "bot", found, ["button 'Send'"], "page-map-check.png", at)
+    said = pagemaps.brief(targets, "bot")
+    assert said["missing"] == ["button 'Send'"] and said["shot"] == "page-map-check.png"
+    shown = page_connect.view(targets, "bot")["current"]
+    assert shown["missing_shot"] == "/v1/targets/bot/page/shots/page-map-check.png"
     assert pagemaps.to_check(targets, "bot") is not None, "a broken map is checked again"
     # Undo still goes back version by version.
     assert [k.status for _, k in kept_maps.history("bot")] == ["approved", "stale", "broken"]
+    # A try that meets the same says so too, with its own screenshot.
+    tried = {"run": "r1", "case": "c", "n": 1}
+    again = pagemaps.found_broken(targets, "bot", ["button 'Send'"], "turn-1.png", tried)
+    assert again is not None and again.missing_shot_at == tried
+    assert "A run found the page without" in again.report
 
     # A block edited by hand since is the person's: nothing here follows it.
     edited = {**targets.conf("bot").options["page"], "catch_up_seconds": 20}
@@ -418,6 +428,7 @@ async def test_a_commit_under_its_evidence_marks_the_map_stale(agent, copy) -> N
     await targets.reload("bot")
     assert pagemaps.in_use(targets, "bot") is None and pagemaps.brief(targets, "bot") is None
     assert page_connect.view(targets, "bot")["current"]["by_hand"] is True
+    assert pagemaps.found_broken(targets, "bot", ["button 'Send'"]) is None
 
 
 def test_the_page_approves_a_tried_map_shows_its_screenshot_and_keeps_it(tmp_path) -> None:

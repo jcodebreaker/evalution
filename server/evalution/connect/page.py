@@ -15,7 +15,7 @@ from typing import Any
 from evalution.config import ConfigError, page_targets, save_page_target
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap
-from evalution.runs.page.learn import refusal
+from evalution.runs.page.learn import lacking, refusal
 from evalution.runs.page.map import as_block, described, page_only, read_map
 from evalution.targets import Targets
 
@@ -101,8 +101,13 @@ def undo(targets: Targets, name: str) -> KeptMap | None:
     return back
 
 
+def shot_url(name: str, shot: str) -> str:
+    """Where the page reads a screenshot of *name*'s page map."""
+    return f"/v1/targets/{name}/page/shots/{shot}"
+
+
 def _shots(name: str, kept: KeptMap) -> list[str]:
-    return [f"/v1/targets/{name}/page/shots/{shot}" for shot in kept.shots]
+    return [shot_url(name, shot) for shot in kept.shots]
 
 
 def _described(page: Any) -> tuple[list[dict[str, str]], str | None]:
@@ -121,6 +126,10 @@ def _kept(name: str, kept: KeptMap) -> dict[str, Any]:
         "report": kept.report,
         "shots": _shots(name, kept),
         "missing": list(kept.missing),
+        # The page as the check before a run (or a try) found it, lacking what's missing.
+        "missing_shot": shot_url(name, kept.missing_shot)
+        if kept.missing_shot and kept.missing_shot_at
+        else None,
         "stale_files": list(kept.stale_files),
         "updated": kept.updated,
     }
@@ -151,14 +160,19 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
             "report": BY_HAND,
             "shots": [],
             "missing": [],
+            "missing_shot": None,
             "stale_files": [],
             "updated": None,
             "by_hand": True,
         }
     else:
         current = None
+    missing = None
     try:
-        why_not = refusal(targets.config, name, targets.adapter(name).capabilities)
+        capabilities = targets.adapter(name).capabilities
+        why_not = refusal(targets.config, name, capabilities)
+        if why_not is not None:
+            missing = lacking(targets.config, name, capabilities)
     except Exception as exc:  # an adapter that can't be made can't be played through its page
         why_not = f"{name}'s adapter can't be made: {exc}"
     return {
@@ -173,5 +187,7 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
         "can_undo": bool(history) and name in targets.config.managed,
         "can_learn": why_not is None,
         "why_not": why_not,
+        # What UI testing lacks, when that's why not, with what fixes it (ADR 0010).
+        "missing": missing.as_dict() if missing is not None else None,
         "problem": problem,
     }

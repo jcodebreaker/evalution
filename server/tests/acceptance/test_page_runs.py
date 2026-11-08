@@ -149,6 +149,17 @@ class PageWorld(World):
         )
         PlanStore(self.root / "data").save(plan)
 
+    def page_map(self, **changes) -> None:
+        """The paged target's map with *changes*, and the server started again to read it. The
+        check before a first run on a new setup is off: its message would meet what the try is
+        to show."""
+        config = yaml.safe_load(self.config.read_text())
+        config["targets"]["paged"]["page"] = {**PAGE, **changes}
+        config["check_adapters"] = False
+        self.config.write_text(yaml.safe_dump(config))
+        self.kill()
+        self.start()
+
     def play(self, target: str) -> dict:
         asked = {"target": target, "set": "main", "cases": ["answer-shown"], "tries": 1}
         found = self.client.post("/v1/evals/runs/estimate", json=asked).json()
@@ -251,6 +262,12 @@ def test_a_test_plays_through_the_page_and_each_broken_page_reads_as_what_broke(
     found = current(attempt)
     assert found.outcome is Outcome.UNJUDGED
     assert any(c.unjudged is not None and c.unjudged.value == "page_map" for c in found.checks)
+    # The try says what wasn't there, with the page as it was; no layer of the app's is blamed.
+    view = _view(world, doc["run"])
+    broken = view["page"]["broken_map"]
+    assert broken["missing"] == "button 'Send'" and broken["shot_url"]
+    assert world.client.get(broken["shot_url"]).content[:4] == b"\x89PNG"
+    assert layers(found)["answered"] == "absent"
 
 
 async def test_the_writers_page_tools_reach_the_copy_and_only_the_rehearsal_sends(world) -> None:
@@ -299,10 +316,49 @@ def test_a_stale_page_map_is_checked_on_the_copy_before_the_run_plays(world) -> 
     assert doc["cases"]["answer-shown"]["tries"] == []
     broken = kept.load("paged")
     assert broken.status == "broken" and broken.missing == ["button 'Send'"]
-    # Home says so, as it says an isolation plan is out of date.
+    # Home says so, as it says an isolation plan is out of date, with the page as it was.
     health = world.client.get("/v1/targets/paged/health").json()
+    shot = f"/v1/targets/paged/page/shots/{broken.missing_shot}"
     assert health["page"] == {
         "status": "broken",
         "stale_files": ["web/chat.html"],
         "missing": ["button 'Send'"],
+        "shot": shot,
     }
+    served = world.client.get(shot)
+    assert served.status_code == 200 and served.content[:4] == b"\x89PNG"
+    reach = world.client.get("/v1/targets/paged/page").json()
+    assert reach["current"]["missing_shot"] == shot
+
+
+def test_a_message_the_app_refuses_is_played_again_and_one_it_never_takes_ends_soon(
+    world,
+) -> None:
+    """The app's side of the page's Send. A 503 on the message is the app busy, and nothing
+    reached it: the try is played again, as through the API, and passes. A message the app holds
+    with no answer ends at the map's ``send_seconds``, not the try's limit; it may have reached
+    the app, so it isn't played again; and either way it is the app's, under answered, never
+    "failed on the page"."""
+    world.switches("refuse_message_once")
+    doc = world.play("paged")
+    assert doc["status"] == "done", doc.get("error")
+    attempt = _try(doc)
+    assert current(attempt).outcome is Outcome.PASSED, _checks(attempt)
+    (again,) = attempt["retried"]
+    assert again["what"] == "app" and "503" in again["why"]
+
+    world.page_map(send_seconds=4)
+    world.switches("hang_message")
+    doc = world.play("paged")
+    assert doc["status"] == "done", doc.get("error")
+    attempt = _try(doc)
+    found = current(attempt)
+    assert found.outcome is Outcome.UNJUDGED, _checks(attempt)
+    assert not attempt.get("retried"), "it may have reached the app: never sent twice"
+    assert layers(found) == {"stored": "absent", "answered": "unjudged", "shown": "unjudged"}
+    (evidence,) = world.evidence(doc["run"])
+    assert evidence.failure is not None and evidence.failure.value == "transient"
+    assert "send_seconds" in (evidence.error or "") and evidence.seconds < 40
+    view = _view(world, doc["run"])
+    assert view["page"]["not_taken"] == {"status": None}
+    assert view["page"]["health"]["outcome"] == "passed"

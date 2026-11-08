@@ -354,7 +354,12 @@ class Runs:
         chosen = [load_case(docs, target, set_name, c) for c in cases] if cases else every
         found = isolated.footing(self.targets.config, target, self._declared(target))
         if (why := isolated.refusal(self.targets.config, target, found)) is not None:
-            raise isolated.NotIsolated(why)
+            missing = (
+                isolated.page_refusal(target, found)
+                if page_map_of(self.targets.conf(target)) is not None
+                else None
+            )
+            raise isolated.NotIsolated(why, missing)
         capabilities = isolated.capabilities_on(self._declared(target), found)
         # Through the app's page, when it has a page map: refusal above read it already.
         page = page_map_of(self.targets.conf(target))
@@ -909,6 +914,7 @@ class Runs:
                         if played.gone:
                             raise TargetGone(attempt["error"] or "")
                         if played.failure is Failure.PAGE_MAP:
+                            await self._map_broke(name, played, (doc["run"], case.case, n))
                             raise PageMapBroken(attempt["error"] or "")
                         lost_adapter = played.failure is Failure.ADAPTER
                         adapter_failures = adapter_failures + 1 if lost_adapter else 0
@@ -1022,13 +1028,31 @@ class Runs:
             return
         doc["current"] = {"case": "", "name": "Checking the page map again", "try": 1}
         await self.store.save(doc)
-        missing = await learn.check(target)
-        await asyncio.to_thread(pagemaps.checked, self.targets, name, kept, missing)
+        found = await learn.check(target, name, self.targets.files)
+        missing = found.missing
+        await asyncio.to_thread(
+            pagemaps.checked, self.targets, name, kept, missing, found.shot, found.at
+        )
         if missing:
             raise PageMapBroken(
                 f"The page map no longer matches {name}'s page: checked on evalution's copy "
                 f"before playing, the page has no {', '.join(missing)}. Re-learn the page to "
                 "propose a new map."
+            )
+
+    async def _map_broke(self, name: str, played: Played, at: tuple[str, str, int]) -> None:
+        """A try found the page without what its map names: the map in use is marked broken,
+        saying what wasn't there, with the try's last screenshot of the page, so Home says so
+        and the next run checks it first."""
+        error = played.error or ""
+        missing = error.split("the page has no ", 1)[1] if "the page has no " in error else error
+        page = played.page
+        shots = [t.shot for t in page.turns if t.shot] if page is not None else []
+        shot = shots[-1] if shots else None
+        where = {"run": at[0], "case": at[1], "n": at[2]} if shot else None
+        with contextlib.suppress(OSError, ValueError):
+            await asyncio.to_thread(
+                pagemaps.found_broken, self.targets, name, [missing], shot, where
             )
 
     def _bases(self, doc: Mapping[str, Any], base: Mapping[str, Any] | None) -> dict[str, Verdict]:

@@ -9,6 +9,7 @@ import { Button, buttonClass } from "../../ui/button";
 import { Fold } from "../shared/group";
 import { BackLink, Centered, Page, Toolbar } from "../shared/layout";
 import { StaleChip } from "../shared/marks";
+import { BrokenMapNote } from "../shared/next-step";
 import { Earlier } from "./Earlier";
 import { EditFile } from "./EditFile";
 import { FindingNote } from "./FindingNote";
@@ -175,6 +176,14 @@ export function TestView({
                 setTryN(n);
                 setFocus(null);
               }}
+            />
+          ) : null}
+          {view === "result" && shown?.page?.broken_map ? (
+            <BrokenMapNote
+              target={scope.target}
+              missing={[shown.page.broken_map.missing]}
+              shot={shown.page.broken_map.shot_url}
+              onRelearn={(text) => onAsk(text)}
             />
           ) : null}
           {view === "result" && shown?.trace_note ? (

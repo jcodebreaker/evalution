@@ -193,3 +193,47 @@ def test_a_try_names_the_plans_stores(config) -> None:
     _save(config)
     ids = [s["id"] for s in isolation_words.try_stores(targets, "relay-lite")]
     assert ids == ["postgres-atrium", "volume-artifact-data"]
+
+
+#: A page map, so the target plays through its page (ADR 0010).
+PAGE = {
+    "url": "{copy_page}/chat",
+    "ready": {"role": "textbox", "name": "Message"},
+    "open_session": {"url": "{copy_page}/chat/{session}"},
+    "actions": {
+        "type": {"fill": {"role": "textbox", "name": "Message"}},
+        "send": {"click": {"role": "button", "name": "Send"}},
+    },
+    "replies": {"in": {"role": "log", "name": "Messages"}},
+}
+
+
+def test_a_page_run_refused_for_a_missing_piece_says_which_with_its_fix(
+    config, tmp_path, monkeypatch
+) -> None:
+    """The Run dialog's refusal names what UI testing lacks, for the page to offer what fixes
+    it: Set up testing for a copy, the command for a browser."""
+    from evalution.runs.page import target as page_target
+
+    file = tmp_path / "evalution.yaml"
+    raw = yaml.safe_load(file.read_text())
+    raw["targets"]["relay-lite"]["page"] = PAGE
+    file.write_text(yaml.safe_dump(raw))
+    found = load(file)
+    asked = {"target": "relay-lite", "set": "main"}
+    with TestClient(create_app(found)) as client:
+        refused = client.post("/v1/evals/runs/estimate", json=asked)
+    assert refused.status_code == 400
+    body = refused.json()
+    assert body["missing"]["part"] == "copy" and body["missing"]["command"] is None
+    assert "evalution's own copy" in body["detail"]
+
+    _save(found)
+    parts = {"playwright": True, "browser": False, "ffmpeg": True}
+    monkeypatch.setattr(page_target, "page_parts", lambda: parts)
+    with TestClient(create_app(found)) as client:
+        refused = client.post("/v1/evals/runs/estimate", json=asked)
+        ready = client.get("/v1/settings/ui-testing").json()
+    missing = refused.json()["missing"]
+    assert missing["part"] == "browser" and missing["command"].endswith("install chromium")
+    assert ready == {"ready": False, "missing": [missing]}
