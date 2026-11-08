@@ -290,6 +290,14 @@ export const api = {
   pageReach: (name: string) => get(one(PageReachSchema), `/v1/targets/${enc(name)}/page`),
   /** What UI testing has on this computer, as `evalution doctor` reads it. */
   uiTesting: () => get(one(UiTestingSchema), "/v1/settings/ui-testing"),
+  /** Install what UI testing lacks, on the server's computer, with its own fixed commands. */
+  installUiTesting: () => post(one(UiTestingSchema), "/v1/settings/ui-testing/install"),
+  /** Set up UI testing: the agent learns the page on evalution's copy, sending it one message. */
+  learnPage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/learn`, { confirm: true }),
+  /** Stop the agent learning the page. */
+  stopLearningPage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/learn/stop`),
   /** Approve the map tried on evalution's copy: tests reach the app through its page from now. */
   approvePage: (name: string) =>
     post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/approve`),

@@ -124,15 +124,12 @@ export function TestEnvironment({
   mode,
   onFirstTest,
   onStanding,
-  onAsk,
 }: {
   target: string;
   mode: "setup" | "page";
   onFirstTest?: () => void;
   /** Where it stands, each time that changes. */
   onStanding?: (standing: Standing) => void;
-  /** Hands the test writer a message: to learn the app's page. */
-  onAsk?: (text: string) => void | Promise<void>;
 }) {
   const { data, failed, set } = useIsolation(target);
   const [health, reloadHealth] = useLoad(`environment:${target}`, () => api.health(target, "7d"));
@@ -301,7 +298,7 @@ export function TestEnvironment({
           />
         ) : null}
       </div>
-      {settled ? <PageReach target={target} onAsk={onAsk} /> : null}
+      {settled ? <PageReach target={target} /> : null}
       {mode === "page" && data.plan && settled ? (
         <Fold title="Details">
           <PlanDetails isolation={data} onChange={set} />
@@ -312,20 +309,14 @@ export function TestEnvironment({
 }
 
 /** The Test environment screen: the copy as it stands, its setup, and how tests reach it. */
-export function TestEnvironmentView({
-  target,
-  onAsk,
-}: {
-  target: string;
-  onAsk?: (text: string) => void | Promise<void>;
-}) {
+export function TestEnvironmentView({ target }: { target: string }) {
   return (
     <>
       <Toolbar>
         <ToolbarTitle title="Test environment" />
       </Toolbar>
       <Page wide>
-        <TestEnvironment target={target} mode="page" onAsk={onAsk} />
+        <TestEnvironment target={target} mode="page" />
       </Page>
     </>
   );

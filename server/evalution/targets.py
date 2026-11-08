@@ -108,7 +108,12 @@ class Targets:
         fresh = load(self.config.file, self.docs, self.config.keys)
         if not self.folders:
             fresh = _without_folders(fresh)
-        self.config = replace(self.config, targets=fresh.targets, managed=fresh.managed)
+        self.config = replace(
+            self.config,
+            targets=fresh.targets,
+            managed=fresh.managed,
+            page_beside=fresh.page_beside,
+        )
         forget(name, self.docs.workspace)
         if source := self._sources.pop(name, None):
             await source.close()

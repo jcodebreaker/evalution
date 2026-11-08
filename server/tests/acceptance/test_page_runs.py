@@ -31,7 +31,7 @@ from evalution.project.pagemaps import KeptMap, PageMapStore
 from evalution.results.store import RunStore
 from evalution.runs.page import learn
 from evalution.runs.page.map import PageMap
-from evalution.runs.page.target import NO_VIDEO, system_chrome
+from evalution.runs.page.target import NO_VIDEO, page_parts, system_chrome
 from evalution.storage import Database
 from evalution.targets import Targets
 
@@ -308,9 +308,14 @@ async def test_the_writers_page_tools_reach_the_copy_and_only_the_rehearsal_send
 
     done = await learn.rehearse(config, "paged", capabilities, page, targets.files)
     assert done.passed, done.said()
-    assert done.reply and done.shots == ["turn-1.png"] and done.at is not None
-    shot = config.data_dir / "files" / done.at["run"] / f"rehearsal.{done.at['n']}" / "turn-1.png"
-    assert shot.read_bytes()[:4] == b"\x89PNG"
+    # A person approves the map by its screenshots and its video: a passed rehearsal keeps both.
+    # (Video only where Playwright's ffmpeg is.)
+    video = page_parts()["ffmpeg"]
+    assert done.reply and done.shots == ["turn-1.png", *([VIDEO] if video else [])]
+    assert done.at is not None
+    kept = config.data_dir / "files" / done.at["run"] / f"rehearsal.{done.at['n']}"
+    assert (kept / "turn-1.png").read_bytes()[:4] == b"\x89PNG"
+    assert not video or (kept / VIDEO).stat().st_size > 0
     # The copy went with each: the plan is as it was, proven.
     assert PlanStore(config.data_dir).load("paged").status == "proven"
 

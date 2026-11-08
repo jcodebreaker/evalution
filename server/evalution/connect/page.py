@@ -1,12 +1,15 @@
 """How tests reach a target: through its API, or through its own page by a map the test writer
 learned and a person approved once (ADR 0010, after v1).
 
-:func:`approve` saves the map tried on evalution's copy into the target's ``page:`` block, the way
-the page saves any connected target (:func:`evalution.config.save_page_target`), and keeps it as a
-new version of the map in use (:class:`~evalution.project.pagemaps.PageMapStore`), so
-:func:`undo` can go back. A target set in ``evalution.yaml`` is never written: its owner adds the
-block there. :func:`set_proof` changes what each try keeps of the page (its screenshots and
-video), a setting beside the map. :func:`view` is what the page shows of it all.
+:func:`approve` saves the map tried on evalution's copy as the target's ``page:`` block and keeps
+it as a new version of the map in use (:class:`~evalution.project.pagemaps.PageMapStore`), so
+:func:`undo` can go back. A target connected from the page gets it in its block, the way the page
+saves any connected target (:func:`evalution.config.save_page_target`). A target set in
+``evalution.yaml``, which is never written, gets it stored beside the file in the data folder
+(:func:`evalution.config.save_beside_page`), read as its ``page:`` when the file gives none; one
+whose file has a ``page:`` block of its own keeps it, and that wins. :func:`set_proof` changes
+what each try keeps of the page (its screenshots and video), a setting beside the map.
+:func:`view` is what the page shows of it all.
 """
 
 from __future__ import annotations
@@ -15,8 +18,15 @@ import contextlib
 from collections.abc import Mapping
 from typing import Any
 
-from evalution.config import ConfigError, page_targets, save_page_target
+from evalution.config import (
+    ConfigError,
+    beside_pages,
+    page_targets,
+    save_beside_page,
+    save_page_target,
+)
 from evalution.core.case import PROOF_KEEPS, PROOF_PARTS
+from evalution.core.evidence import VIDEO
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap
 from evalution.runs.page.learn import lacking, refusal
@@ -55,17 +65,52 @@ def proof_for_test(targets: Targets, name: str, own: Mapping[str, str]) -> dict[
     return {**proof.over(own).model_dump(), "own": dict(own), "target": proof.model_dump()}
 
 
-def _block(targets: Targets, name: str) -> dict[str, Any]:
-    """*name*'s block as the page saved it.
+def _own_page(targets: Targets, name: str) -> bool:
+    """Whether *name* is set in the config file with a ``page:`` block of its own, which wins."""
+    config = targets.config
+    return (
+        name not in config.managed
+        and name not in config.page_beside
+        and pagemaps.block_of(targets, name) is not None
+    )
 
-    :raises PageMapError: It's set in the config file, which is never written.
+
+def writable(targets: Targets, name: str) -> bool:
+    """Whether *name*'s page map can be approved, undone or its proof changed from here: not when
+    the config file gives it a ``page:`` block of its own."""
+    return not _own_page(targets, name)
+
+
+def _page(targets: Targets, name: str) -> dict[str, Any] | None:
+    """*name*'s ``page:`` block as it was saved from here, where it can be.
+
+    :raises PageMapError: The config file gives it one of its own, which is never written.
     """
-    if name not in targets.config.managed:
+    if _own_page(targets, name):
         raise PageMapError(
-            f"{name} is set in {targets.config.file.name}, which evalution never writes: add the "
-            "map to its page: block there."
+            f"{name}'s page: block in {targets.config.file.name} wins over a map approved here, "
+            "and evalution never writes that file: change the map there, or take the block out "
+            "to use the one approved here."
         )
-    return dict(page_targets(targets.docs).get(name) or {})
+    if name in targets.config.managed:
+        found = (page_targets(targets.docs).get(name) or {}).get("page")
+    else:
+        found = beside_pages(targets.docs).get(name)
+    return found if isinstance(found, dict) else None
+
+
+def _save(targets: Targets, name: str, page: dict[str, Any] | None) -> None:
+    """Save *page* as *name*'s ``page:`` block: into its block when it was connected from the
+    page, else beside the config file. ``None`` takes it away."""
+    if name in targets.config.managed:
+        block = dict(page_targets(targets.docs).get(name) or {})
+        if page is None:
+            block.pop("page", None)
+        else:
+            block["page"] = page
+        save_page_target(targets.docs, name, block)
+    else:
+        save_beside_page(targets.docs, name, page)
 
 
 def approve(targets: Targets, name: str) -> KeptMap:
@@ -79,12 +124,11 @@ def approve(targets: Targets, name: str) -> KeptMap:
     kept = kept_maps.proposed(name)
     if kept is None:
         raise LookupError("No tried page map is waiting for approval.")
-    block = _block(targets, name)
+    before = _page(targets, name)
     try:
         page = read_map(kept.page)
     except ConfigError as exc:
         raise PageMapError(f"The tried map doesn't read: {exc}") from exc
-    before = block.get("page")
     if isinstance(before, dict) and pagemaps.in_use(targets, name) is None:
         # A map written by hand before: kept as the version this one replaces.
         kept_maps.save(KeptMap(name, before, status="approved", report=BY_HAND))
@@ -93,7 +137,7 @@ def approve(targets: Targets, name: str) -> KeptMap:
         with contextlib.suppress(ConfigError):
             page = page.model_copy(update={"proof": read_map(before).proof})
     approved = {**as_block(page), "status": "approved"}
-    save_page_target(targets.docs, name, {**block, "page": approved})
+    _save(targets, name, approved)
     kept.page, kept.status = approved, "approved"
     if (code := targets.code(name)) is not None:
         kept.evidence_hashes = pagemaps.hashes_of(approved, code.root.resolve())
@@ -110,18 +154,14 @@ def undo(targets: Targets, name: str) -> KeptMap | None:
     :raises LookupError: No map was approved here.
     :raises PageMapError: The target can't be written from here.
     """
-    block = _block(targets, name)
+    _page(targets, name)
     if page_only(targets.conf(name)) and not pagemaps.store(targets).history(name)[1:]:
         raise PageMapError(
             f"{name} is reached through its page alone: there is no API to go back to, and no "
             "map before this one."
         )
     back = pagemaps.store(targets).undo(name)
-    if back is None:
-        block.pop("page", None)
-    else:
-        block["page"] = back.page
-    save_page_target(targets.docs, name, block)
+    _save(targets, name, back.page if back is not None else None)
     return back
 
 
@@ -142,16 +182,15 @@ def set_proof(targets: Targets, name: str, given: Any) -> Proof:
         raise PageMapError(f"Say what a try keeps: {' and '.join(PROOF_PARTS)}.")
     if bad := [part for part, keep in given.items() if keep not in PROOF_KEEPS]:
         raise PageMapError(f"{bad[0]}: one of {', '.join(PROOF_KEEPS)}.")
-    block = _block(targets, name)
-    page = block.get("page")
-    if not isinstance(page, dict):
+    page = _page(targets, name)
+    if page is None:
         raise PageMapError(f"{name} has no page map: its tests play through its API.")
     try:
         proof = read_map(page).proof.over(given)
     except ConfigError as exc:
         raise PageMapError(f"Its page map doesn't read: {exc}") from exc
     page = {k: v for k, v in page.items() if k != "video"}
-    save_page_target(targets.docs, name, {**block, "page": {**page, "proof": proof.model_dump()}})
+    _save(targets, name, {**page, "proof": proof.model_dump()})
     return proof
 
 
@@ -168,7 +207,13 @@ def proof_of(targets: Targets, name: str) -> Proof | None:
 
 
 def _shots(name: str, kept: KeptMap) -> list[str]:
-    return [shot_url(name, shot) for shot in kept.shots]
+    """The rehearsal's screenshots, as the page reads them: its video apart."""
+    return [shot_url(name, shot) for shot in kept.shots if shot != VIDEO]
+
+
+def _video(name: str, kept: KeptMap) -> str | None:
+    """Where the page reads the rehearsal's video, when it kept one."""
+    return shot_url(name, VIDEO) if VIDEO in kept.shots and kept.shots_at else None
 
 
 def _described(page: Any) -> tuple[list[dict[str, str]], str | None]:
@@ -186,6 +231,8 @@ def _kept(name: str, kept: KeptMap) -> dict[str, Any]:
         "error": error,
         "report": kept.report,
         "shots": _shots(name, kept),
+        # The rehearsal's video: the page plays it before the map is approved.
+        "video": _video(name, kept),
         "missing": list(kept.missing),
         # The page as the check before a run (or a try) found it, lacking what's missing.
         "missing_shot": shot_url(name, kept.missing_shot)
@@ -220,6 +267,7 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
             "error": error,
             "report": BY_HAND,
             "shots": [],
+            "video": None,
             "missing": [],
             "missing_shot": None,
             "stale_files": [],
@@ -241,6 +289,9 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
         "target": name,
         "plays": _plays(targets, name, block),
         "managed": name in targets.config.managed,
+        # Its map can be approved, undone and its proof changed here: all but a target whose
+        # evalution.yaml block has a page: of its own.
+        "writable": writable(targets, name),
         # What a try played through the page keeps; none through the API (nothing to capture).
         "proof": proof.model_dump() if proof is not None else None,
         "current": current,
@@ -248,7 +299,7 @@ def view(targets: Targets, name: str) -> dict[str, Any]:
         "history": [
             {"version": n, "status": kept.status, "updated": kept.updated} for n, kept in history
         ],
-        "can_undo": bool(history) and name in targets.config.managed,
+        "can_undo": bool(history) and writable(targets, name),
         "can_learn": why_not is None,
         "why_not": why_not,
         # What UI testing lacks, when that's why not, with what fixes it (ADR 0010).

@@ -2,19 +2,11 @@ import { useState } from "react";
 import { cn } from "../../lib/cn";
 import type { MissingPiece } from "../../lib/schema";
 import { Button } from "../../ui/button";
-import { CopyField } from "../../ui/copy-field";
 import { PictureDialog } from "../../ui/dialog";
 import { useOpenEnvironment } from "../environment/use-isolation";
+import { InstallPieces } from "./ui-install";
 
-const PART: Record<MissingPiece["part"], string> = {
-  copy: "a copy of the app",
-  playwright: "Playwright",
-  browser: "a browser",
-  ffmpeg: "ffmpeg",
-};
-
-/** Said under a command to copy: where it runs, and what then. */
-export const RUN_IT = "Run it where evalution is installed, then try again.";
+export { RUN_IT } from "./ui-install";
 
 /** What the test writer is asked to learn the page again, saying what the page lacked. */
 export function relearnWords(target: string, missing: readonly string[]): string {
@@ -23,16 +15,20 @@ export function relearnWords(target: string, missing: readonly string[]): string
 
 /**
  * A piece UI testing lacks (ADR 0010), in one sentence, and the one action that fixes it: Set up
- * testing for a copy of the app, else the exact command that installs it, to copy. `onLeave`:
- * called before the page moves to the Test environment (a dialog closes, say).
+ * testing for a copy of the app; else Install, which installs it on the server's computer with
+ * its progress where the server can, the exact command to copy staying as the way by hand.
+ * `onLeave`: called before the page moves to the Test environment (a dialog closes, say);
+ * `onInstalled`: once an install leaves nothing missing.
  */
 export function MissingPieceNote({
   piece,
   onLeave,
+  onInstalled,
   className,
 }: {
   piece: MissingPiece;
   onLeave?: () => void;
+  onInstalled?: () => void;
   className?: string;
 }) {
   const open = useOpenEnvironment();
@@ -59,13 +55,7 @@ export function MissingPieceNote({
           <p className="m-0 text-ink-2">Set up testing on the Test environment page makes one.</p>
         )
       ) : (
-        <>
-          <CopyField
-            value={piece.command}
-            label={`The command that installs ${PART[piece.part]}`}
-          />
-          <p className="m-0 text-ink-3">{RUN_IT}</p>
-        </>
+        <InstallPieces pieces={[piece]} onInstalled={onInstalled} />
       )}
     </div>
   );

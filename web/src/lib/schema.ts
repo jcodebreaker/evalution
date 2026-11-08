@@ -488,10 +488,29 @@ export const MissingPieceSchema = z.object({
 });
 export type MissingPiece = z.infer<typeof MissingPieceSchema>;
 
-/** What UI testing has on this computer: ready, or each piece it lacks. */
+/** A job the page follows as it goes: its steps, each waiting, running, done or failed. */
+const LiveJobSchema = z.object({
+  state: z.enum(["running", "done", "failed"]).catch("failed"),
+  started: z.number().default(0),
+  ended: z.number().nullable().default(null),
+  steps: z.array(IsolationStepSchema).default([]),
+  error: z.string().nullable().default(null),
+});
+
+/** Installing what UI testing lacks on the server's computer: its steps and its last lines. */
+export const InstallJobSchema = LiveJobSchema.extend({
+  lines: z.array(z.string()).default([]),
+});
+export type InstallJob = z.infer<typeof InstallJobSchema>;
+
+/** What UI testing has on this computer: ready, or each piece it lacks, and whether the page can
+ * install them here (else `why_not_install` says how). */
 export const UiTestingSchema = z.object({
   ready: z.boolean().default(false),
   missing: z.array(MissingPieceSchema).default([]),
+  can_install: z.boolean().default(false),
+  why_not_install: z.string().nullable().default(null),
+  job: InstallJobSchema.nullable().catch(null).default(null),
 });
 export type UiTesting = z.infer<typeof UiTestingSchema>;
 
@@ -511,6 +530,8 @@ export const KeptPageMapSchema = z.object({
   report: z.string().default(""),
   /** The rehearsal's screenshots, as URLs on this server. */
   shots: z.array(z.string()).default([]),
+  /** The rehearsal's video, a URL on this server, when it kept one. */
+  video: z.string().nullable().default(null),
   /** What the check before a run didn't find on the page. */
   missing: z.array(z.string()).default([]),
   /** The page as that check (or a try) found it, a screenshot URL on this server. */
@@ -551,14 +572,26 @@ export const TestProofChangeSchema = z.object({
 export const PageOfferSchema = z.object({
   target: z.string(),
   offer: z.boolean().default(false),
+  /** Set up UI testing was pressed: the agent is learning the page, or its map waits for
+   * Approve, which the card shows in place of the offer. */
+  underway: z.boolean().default(false),
   /** The file the chat page was found in. */
   found_in: z.string().nullable().default(null),
   dismissed: z.boolean().default(false),
   /** The agent can learn the page now; else `why_not` says what comes first. */
   can_learn: z.boolean().default(false),
   why_not: z.string().nullable().default(null),
+  /** What UI testing lacks, when that's why not, with what fixes it. */
+  missing: MissingPieceSchema.nullable().catch(null).default(null),
 });
 export type PageOffer = z.infer<typeof PageOfferSchema>;
+
+/** The agent learning a target's page from Set up UI testing, as the page follows it. */
+export const PageLearnSchema = LiveJobSchema.extend({
+  /** The writer session doing it, kept among the app's chats. */
+  session: z.string().nullable().default(null),
+});
+export type PageLearn = z.infer<typeof PageLearnSchema>;
 
 /** How tests reach a target: through its API, or through its page by a map the test writer
  * learned and a person approved once. */
@@ -567,6 +600,9 @@ export const PageReachSchema = z.object({
   plays: PlaysSchema,
   /** Connected from the page, so its page: block can be written here. */
   managed: z.boolean().default(false),
+  /** Its map can be approved here: all but a target whose evalution.yaml block has a page: of
+   * its own (one set there gets its approved map stored beside the file). */
+  writable: z.boolean().default(false),
   /** What a try played through the page keeps; none through the API. */
   proof: ProofSchema.nullable().catch(null).default(null),
   current: KeptPageMapSchema.nullable().default(null),
@@ -581,6 +617,8 @@ export const PageReachSchema = z.object({
   /** What UI testing lacks, when that's why not, with what fixes it. */
   missing: MissingPieceSchema.nullable().catch(null).default(null),
   problem: z.string().nullable().default(null),
+  /** The agent learning the page from Set up UI testing, while it does and after. */
+  learn: PageLearnSchema.nullable().catch(null).default(null),
 });
 export type PageReach = z.infer<typeof PageReachSchema>;
 

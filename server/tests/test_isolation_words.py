@@ -236,4 +236,4 @@ def test_a_page_run_refused_for_a_missing_piece_says_which_with_its_fix(
         ready = client.get("/v1/settings/ui-testing").json()
     missing = refused.json()["missing"]
     assert missing["part"] == "browser" and missing["command"].endswith("install chromium")
-    assert ready == {"ready": False, "missing": [missing]}
+    assert ready["ready"] is False and ready["missing"] == [missing]

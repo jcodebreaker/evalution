@@ -122,7 +122,7 @@ export function HomeView({
             {health ? (
               <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
             ) : null}
-            <UiOffer target={scope.target} onAsk={(text) => onAsk(text)} className={CARD} />
+            <UiOffer target={scope.target} className={CARD} />
           </>
         ) : load.status === "loading" ? (
           <>
@@ -153,7 +153,7 @@ export function HomeView({
             />
             <HowTestsRun target={scope.target} isolation={health.isolation} />
             <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
-            <UiOffer target={scope.target} onAsk={(text) => onAsk(text)} className={CARD} />
+            <UiOffer target={scope.target} className={CARD} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

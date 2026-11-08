@@ -19,7 +19,14 @@ from fastapi.testclient import TestClient
 
 from evalution import llm
 from evalution.api.app import create_app
-from evalution.config import ModelConfig, load, page_targets, save_page_target
+from evalution.config import (
+    ModelConfig,
+    beside_pages,
+    load,
+    page_targets,
+    save_beside_page,
+    save_page_target,
+)
 from evalution.connect import page as page_connect
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap, PageMapStore
@@ -30,7 +37,7 @@ from evalution.storage import Database
 from evalution.storage.files import LocalFiles
 from evalution.suite.store import save_set
 from evalution.targets import Targets
-from evalution.writer import paging
+from evalution.writer import pagelearn, paging
 from evalution.writer.agent import Agent
 from evalution.writer.sessions import SessionStore
 from evalution.writer.tools import AgentTurn
@@ -360,15 +367,61 @@ async def test_the_loop_learns_the_page_and_the_admin_approves_it_once(tmp_path,
     assert page_connect.view(targets, "bot")["plays"] == "api"
 
 
-async def test_a_target_set_in_the_config_file_is_never_written(tmp_path) -> None:
+async def test_a_target_set_in_the_config_file_keeps_its_approved_map_beside_it(tmp_path) -> None:
+    """The file is never written: the approved map is stored in the data folder under the
+    target's name, and read as its page: block when the file gives none."""
     block = {"adapter": "http", "http": {"send": {"url": "x"}}}
-    (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"targets": {"bot": block}}))
-    targets = Targets(load(tmp_path / "evalution.yaml"))
+    config = tmp_path / "evalution.yaml"
+    config.write_text(yaml.safe_dump({"targets": {"bot": block}}))
+    before = config.read_text()
+    targets = Targets(load(config))
+    PageMapStore(targets.config.data_dir).propose(KeptMap("bot", {**MAP, "status": "tried"}))
+    assert page_connect.view(targets, "bot")["writable"] is True
+
+    page_connect.approve(targets, "bot")
+    await targets.reload("bot")
+    assert config.read_text() == before, "the file is never written"
+    assert beside_pages(targets.docs)["bot"]["status"] == "approved"
+    assert targets.config.page_beside == {"bot"}
+    found = page_map_of(targets.conf("bot"))
+    assert found is not None and found.actions.send.click.name == "Send"
+    assert load(config).targets["bot"].options["page"]["status"] == "approved", "a CLI run too"
+    view = page_connect.view(targets, "bot")
+    assert view["plays"] == "page" and view["current"]["status"] == "approved"
+    assert not view["managed"] and view["can_undo"]
+
+    # Proof is saved beside it too, and the file still isn't touched.
+    page_connect.set_proof(targets, "bot", {"video": "always"})
+    await targets.reload("bot")
+    assert beside_pages(targets.docs)["bot"]["proof"]["video"] == "always"
+    assert page_connect.view(targets, "bot")["current"]["status"] == "approved"
+
+    page_connect.undo(targets, "bot")
+    await targets.reload("bot")
+    assert "bot" not in beside_pages(targets.docs)
+    assert "page" not in targets.conf("bot").options
+    assert page_connect.view(targets, "bot")["plays"] == "api"
+    assert config.read_text() == before
+
+
+async def test_a_page_block_in_the_config_file_wins_and_is_never_written(tmp_path) -> None:
+    block = {"adapter": "http", "http": {"send": {"url": "x"}}, "page": {**MAP, "url": "/own"}}
+    config = tmp_path / "evalution.yaml"
+    config.write_text(yaml.safe_dump({"targets": {"bot": block}}))
+    docs = Database.open(tmp_path / "data").docs()
+    # One approved before the file got its own: the file's wins.
+    save_beside_page(docs, "bot", {**MAP, "url": "/approved"})
+    targets = Targets(load(config))
+    assert targets.conf("bot").options["page"]["url"] == "/own"
+    assert targets.config.page_beside == frozenset()
     PageMapStore(targets.config.data_dir).propose(KeptMap("bot", {**MAP, "status": "tried"}))
     with pytest.raises(page_connect.PageMapError, match="evalution never writes"):
         page_connect.approve(targets, "bot")
+    with pytest.raises(page_connect.PageMapError, match="wins over a map approved here"):
+        page_connect.set_proof(targets, "bot", {"video": "off"})
     view = page_connect.view(targets, "bot")
-    assert view["proposed"]["status"] == "tried" and not view["managed"]
+    assert view["proposed"]["status"] == "tried" and not view["writable"]
+    assert yaml.safe_load(config.read_text())["targets"]["bot"]["page"]["url"] == "/own"
 
 
 async def test_a_commit_under_its_evidence_marks_the_map_stale(agent, copy) -> None:
@@ -471,3 +524,81 @@ def test_a_kept_map_reads_back() -> None:
     assert KeptMap.from_json(kept.to_json()) == kept
     with pytest.raises(ValueError, match="newer"):
         KeptMap.from_json(json.dumps({"version": 99, "target": "bot", "page": {}}))
+
+
+# Set up UI testing in one flow: the page follows the agent, no chat open
+
+
+async def test_set_up_learns_the_page_and_approves_its_one_message_for_the_admin(
+    tmp_path, copy, monkeypatch
+) -> None:
+    monkeypatch.setattr(pagelearn, "POLL_SECONDS", 0.01)
+    script: list[Step] = []
+    agent = _agent(tmp_path)
+    agent.llm = _model(script, agent._live)
+    learns = pagelearn.PageLearns(agent)
+    script += [
+        ("read_page_code", {}),
+        ("look_at_page", {"url": "/chat"}),
+        ("propose_page_map", {"map": MAP}),
+        lambda s: ("reply", {"text": "This is how tests reach it.", "page_map": _latest(s)}),
+        "Waiting for the admin.",
+        # The page approved its rehearsal: the agent tries it with one message.
+        lambda s: ("rehearse_page_map", {"plan_id": _latest(s)}),
+        "It showed its reply.",
+    ]
+    job = await learns.start("bot")
+    assert learns.running("bot") and job.steps[0]["state"] == "running"
+    with pytest.raises(RuntimeError, match="already"):
+        await learns.start("bot")
+    await learns._tasks["bot"]
+
+    view = job.view()
+    assert view["state"] == "done" and view["error"] is None
+    assert [(s["key"], s["state"]) for s in view["steps"]] == [
+        ("code", "done"),
+        ("look", "done"),
+        ("find", "done"),
+        ("propose", "done"),
+        ("rehearse", "done"),
+    ]
+    assert view["steps"][0]["label"] == "Read bot's page code"
+    session = await agent._session(job.session)
+    asked = [m["text"] for m in session["messages"] if m["role"] == "admin"]
+    assert asked[0].startswith("Learn how tests reach bot's page") and pagelearn.AGREED in asked[0]
+    assert asked[1] == "Try this page map with one message", "approved as the chat's button does"
+    assert job.approved == [_latest(session)] and len(copy.rehearsed) == 1
+    waiting = PageMapStore(agent.targets.config.data_dir).proposed("bot")
+    assert waiting is not None and waiting.status == "tried"
+    # The map itself still waits for the person's one Approve.
+    assert "page" not in agent.targets.conf("bot").options
+    assert job.session not in agent.watching
+
+
+async def test_set_up_fails_with_the_agents_words_when_it_finds_no_map(
+    tmp_path, copy, monkeypatch
+) -> None:
+    monkeypatch.setattr(pagelearn, "POLL_SECONDS", 0.01)
+    script: list[Step] = [("read_page_code", {}), "The page has no message box I can find."]
+    agent = _agent(tmp_path)
+    agent.llm = _model(script, agent._live)
+    learns = pagelearn.PageLearns(agent)
+    job = await learns.start("bot")
+    await learns._tasks["bot"]
+    assert job.state == "failed" and job.error == "The page has no message box I can find."
+    assert [s["state"] for s in job.steps] == ["failed", "waiting", "waiting", "waiting", "waiting"]
+    assert job.steps[0]["detail"] == job.error
+    assert copy.rehearsed == []
+
+
+async def test_set_up_asks_to_learn_a_broken_map_again(tmp_path) -> None:
+    agent = _agent(tmp_path)
+    targets = agent.targets
+    PageMapStore(targets.config.data_dir).propose(KeptMap("bot", {**MAP, "status": "tried"}))
+    page_connect.approve(targets, "bot")
+    await targets.reload("bot")
+    assert pagelearn.learn_words(targets, "bot").startswith("Learn how tests reach bot's page")
+    pagemaps.found_broken(targets, "bot", ["button named “Send”"])
+    said = pagelearn.learn_words(targets, "bot")
+    assert said.startswith("The page map of bot no longer matches its page")
+    assert "button named “Send”" in said

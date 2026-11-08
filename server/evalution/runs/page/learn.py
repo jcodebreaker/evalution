@@ -13,14 +13,14 @@ opened on a person's own app.
   Only the message box is typed into (a fixed harmless text, cleared again); Send is never
   clicked, and any request but a read is refused while it looks.
 * :func:`rehearse` plays one real message through the whole map, as a run would: it spends one
-  turn of the app. Its screenshots are kept in the file store.
+  turn of the app. Its screenshots, and its video when ffmpeg is here, are kept in the file
+  store, passed or not: a person approves the map by them.
 * :func:`check` is the run's re-try of an approved map before it plays: every element a turn needs
   is found, none is acted on, no message is sent.
 """
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import re
 import time
@@ -31,7 +31,6 @@ from typing import Any
 from evalution.adapters import make
 from evalution.adapters.base import Capabilities, Target
 from evalution.config import Config
-from evalution.core.evidence import VIDEO
 from evalution.runs import isolated
 from evalution.runs.page.map import PageMap, read_map
 from evalution.runs.page.target import (
@@ -232,9 +231,9 @@ async def rehearse(
     spends one turn of the app. Passed when the turn ended and its reply showed on the page."""
     async with on_copy(config, target, capabilities) as copy:
         page = copy.page(page_map)
-        # A person approves the map by its screenshots: the rehearsal keeps them, whatever the
-        # map's proof says of a run's.
-        page.prove({"screenshots": "always"})
+        # A person approves the map by its screenshots and its video (when ffmpeg is here): the
+        # rehearsal keeps both, whatever the map's proof says of a run's.
+        page.prove({"screenshots": "always", "video": "always"})
         started = time.time()
         keep = (
             PageFiles(files, shots_run(target), SHOTS_CASE, int(started))
@@ -254,11 +253,6 @@ async def rehearse(
     instead = record.turns[0].instead.text if record.turns else ""
     passed = turn.error is None and turn.shown is not None
     kept = list(record.files)
-    if passed and keep is not None and record.video_policy == "failed" and VIDEO in kept:
-        # As a run does: a video is kept only of a try that didn't pass.
-        with contextlib.suppress(OSError, ValueError):
-            await asyncio.to_thread(keep.files.delete, keep.run, keep.case, keep.n, VIDEO)
-        kept.remove(VIDEO)
     return Rehearsed(
         passed=passed,
         reply=turn.reply,

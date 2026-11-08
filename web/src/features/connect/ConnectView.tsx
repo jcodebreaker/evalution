@@ -339,7 +339,6 @@ export function ConnectView({
               mode="setup"
               onStanding={setCopy}
               onFirstTest={onFirstTest}
-              onAsk={onAsk}
             />
           ) : null}
         </SetupStep>
@@ -351,7 +350,6 @@ export function ConnectView({
                 // Read again once the copy is proven: the agent can learn the page from then.
                 key={proven ? "proven" : "not yet"}
                 target={name}
-                onAsk={onAsk}
                 className="rounded-[14px] border border-border bg-group p-5 max-md:p-4"
               />
               <Composer target={name} onAsk={onAsk} />

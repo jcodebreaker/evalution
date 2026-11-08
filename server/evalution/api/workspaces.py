@@ -25,11 +25,13 @@ from evalution.config import Config, ConfigError, KeyRing, load
 from evalution.connect import discover, probe
 from evalution.llm import LLM
 from evalution.project import impact, isolating, knowledge
+from evalution.runs.page.install import Installer
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.storage.secrets import SecretKeyError, Secrets
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
+from evalution.writer.pagelearn import PageLearns
 from evalution.writer.sessions import SessionStore
 
 #: A workspace id, safe as a folder name. User namespaces (``user:<id>``) are not workspaces.
@@ -57,6 +59,10 @@ class Workspace:
     watcher: impact.Watcher | None
     #: Finding and proving each target's isolation from the page; local only.
     isolations: isolating.Isolations = field(default_factory=isolating.Isolations)
+    #: Installing what UI testing lacks on this computer, from the page; local only.
+    installs: Installer = field(default_factory=Installer)
+    #: The agent learning each target's page map, followed on the page; local only.
+    page_learns: PageLearns | None = None
 
     @property
     def hosted(self) -> bool:
@@ -64,6 +70,9 @@ class Workspace:
 
     async def close(self) -> None:
         await self.isolations.close()
+        await self.installs.close()
+        if self.page_learns is not None:
+            await self.page_learns.close()
         if self.watcher is not None:
             await self.watcher.close()
         await self.targets.close()
@@ -114,18 +123,20 @@ def open_workspace(
             targets.store,
         )
         watcher = impact.Watcher(runs, knowledge.refresh)
+    agent = Agent(runs, SessionStore(targets.docs), llm)
     return Workspace(
         id=workspace,
         targets=targets,
         traces_url=traces_url,
         llm=llm,
         runs=runs,
-        agent=Agent(runs, SessionStore(targets.docs), llm),
+        agent=agent,
         plans=CasePlans(runs),
         probes=probe.Probes(busy=runs.probing),
         lock=asyncio.Lock(),
         found=found,
         watcher=watcher,
+        page_learns=PageLearns(agent),
     )
 
 

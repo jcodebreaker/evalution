@@ -24,13 +24,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import secrets
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from evalution.code import HASH_CAP, CodeError
+from evalution.code import HASH_CAP, HASH_SIZE, READ_CAP, SKIP_DIRS, CodeError, is_secret
 from evalution.config import ConfigError
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap
@@ -271,15 +273,74 @@ def _frontend(targets: Targets, target: str) -> dict[str, str]:
     return found
 
 
+#: Where a frontend usually is in a code folder, looked through for a chat page even when the
+#: target's code settings leave it out (``code.include`` set to its prompts, say).
+FRONTEND_ROOTS = ("web", "frontend", "client", "app", "src")
+#: Files of a page's kind, as a frontend's own; the files looked through at most.
+PAGE_FILES = re.compile(r"\.(tsx|jsx|vue|svelte|html?)$")
+BEYOND_FILES = 400
+#: Folders never looked in: built, copied or tests.
+_NOT_FRONTEND = SKIP_DIRS | {"out", "coverage", "vendor", "test", "tests", "__tests__", "e2e"}
+_TEST_FILE = re.compile(r"\.(test|spec|stories)\.[a-z]+$")
+
+
+def frontend_beyond(root: Path) -> dict[str, str]:
+    """A frontend's page files under *root*'s usual frontend folders (:data:`FRONTEND_ROOTS`),
+    whatever the target's code settings include: read only, at most :data:`BEYOND_FILES`, each
+    file cut at the code read's limit, nothing hidden, built, a test or a secret, and nothing
+    that leads out of *root*."""
+    root = root.resolve()
+    found: dict[str, str] = {}
+    for top in FRONTEND_ROOTS:
+        start = root / top
+        if not start.is_dir() or not start.resolve().is_relative_to(root):
+            continue
+        for folder, dirs, names in os.walk(start):
+            dirs[:] = sorted(d for d in dirs if d not in _NOT_FRONTEND and not d.startswith("."))
+            for name in sorted(names):
+                if len(found) >= BEYOND_FILES:
+                    return found
+                path = Path(folder) / name
+                rel = path.relative_to(root).as_posix()
+                if not PAGE_FILES.search(name) or _TEST_FILE.search(name) or is_secret(rel):
+                    continue
+                try:
+                    if not path.resolve().is_relative_to(root) or path.stat().st_size > HASH_SIZE:
+                        continue
+                    with path.open("rb") as handle:
+                        found[rel] = handle.read(READ_CAP).decode("utf-8", errors="replace")
+                except OSError:
+                    continue
+    return found
+
+
+def outside_code(targets: Targets, target: str) -> list[str]:
+    """The frontend folders of *target*'s code folder that hold a page's files its code
+    settings leave out."""
+    code = targets.code(target)
+    if code is None:
+        return []
+    beyond = frontend_beyond(code.root)
+    return sorted({rel.split("/")[0] for rel in beyond if not code.allowed(rel)})
+
+
 #: Seconds what :func:`chat_page` found in a code folder is taken as still true.
 CHAT_PAGE_SECONDS = 300.0
 _chat_pages: dict[tuple[str, str], tuple[float, str | None]] = {}
 
 
+def _chat_in(files: dict[str, str]) -> str | None:
+    candidates = scan(files)["candidates"]
+    boxes, sends = candidates.get("actions.type"), candidates.get("actions.send")
+    return str(boxes[0]["file"]) if boxes and sends else None
+
+
 def chat_page(targets: Targets, target: str) -> str | None:
-    """Where *target*'s code has a chat page, as ``read_page_code`` reads it: the file with a
-    message box, when the code also has a Send. ``None`` without a code folder, or when its code
-    has no such page. Read again at most every :data:`CHAT_PAGE_SECONDS`."""
+    """Where *target*'s code has a chat page: the file with a message box, when the code also has
+    a Send. Read as ``read_page_code`` reads it, else in the code folder's usual frontend folders
+    even when its code settings leave them out (:func:`frontend_beyond`): an app whose settings
+    name only its prompts still has a page. ``None`` without a code folder, or when its code has
+    no such page. Read again at most every :data:`CHAT_PAGE_SECONDS`."""
     code = targets.code(target)
     if code is None:
         return None
@@ -287,9 +348,7 @@ def chat_page(targets: Targets, target: str) -> str | None:
     now = time.monotonic()
     if (kept := _chat_pages.get(key)) is not None and now - kept[0] < CHAT_PAGE_SECONDS:
         return kept[1]
-    candidates = scan(_frontend(targets, target))["candidates"]
-    boxes, sends = candidates.get("actions.type"), candidates.get("actions.send")
-    found = str(boxes[0]["file"]) if boxes and sends else None
+    found = _chat_in(_frontend(targets, target)) or _chat_in(frontend_beyond(code.root))
     _chat_pages[key] = (now, found)
     return found
 
@@ -304,6 +363,18 @@ async def read_code(targets: Targets, session: dict[str, Any]) -> Any:
         )
     files = await asyncio.to_thread(_frontend, targets, target)
     if not files:
+        left_out = await asyncio.to_thread(outside_code, targets, target)
+        if left_out:
+            return {
+                "files_read": 0,
+                "left_out": left_out,
+                "note": (
+                    f"The target's code settings leave its page's code out ({', '.join(left_out)}"
+                    "/), so none can be read or cited. Learn the page from the page itself: "
+                    "look_at_page, then find each entry with try_page_entry, which is its "
+                    "evidence."
+                ),
+            }
         return {"files_read": 0, "note": "No page code found: no markup in the code folder."}
     found = await asyncio.to_thread(scan, files)
     folders = sorted({rel.split("/")[0] for rel in files if "/" in rel})[:20]

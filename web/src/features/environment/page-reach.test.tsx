@@ -19,7 +19,8 @@ function serve(routes: Record<string, unknown>) {
     vi.fn(async (path: string, init: RequestInit = {}) => {
       const method = init.method ?? "GET";
       calls.push({ method, path });
-      const body = routes[`${method} ${path.split("?")[0]}`] ?? {};
+      const found = routes[`${method} ${path.split("?")[0]}`];
+      const body = (typeof found === "function" ? found() : found) ?? {};
       return new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
       });
@@ -44,6 +45,7 @@ const reach = (extra: Record<string, unknown>) => ({
   target: "relay-lite",
   plays: "api",
   managed: true,
+  writable: true,
   can_learn: true,
   ...extra,
 });
@@ -83,23 +85,26 @@ it("says a map a commit left out of date, and asks the agent to learn the page a
       current: kept({ status: "stale", stale_files: ["web/Chat.tsx"] }),
     }),
   });
-  const onAsk = vi.fn();
-  render(<PageReach target="relay-lite" onAsk={onAsk} />);
+  render(<PageReach target="relay-lite" />);
   await screen.findByText(/Out of date: a commit changed web\/Chat.tsx/);
   fireEvent.click(screen.getByRole("button", { name: "Re-learn the page" }));
-  await waitFor(() => expect(onAsk).toHaveBeenCalledTimes(1));
-  expect(onAsk.mock.calls[0]?.[0]).toContain("a commit changed web/Chat.tsx");
+  // The agent learns it again on the card: the server says why, from the map it keeps.
+  await waitFor(() =>
+    expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
+      `${T}/page/learn`,
+    ]),
+  );
 });
 
 it("says why the page can't be learned without the copy, and offers nothing to start", async () => {
   const why =
     "relay-lite's page is only ever opened on evalution's own copy of the app, and it has no isolation plan yet.";
   serve({ [`GET ${T}/page`]: reach({ can_learn: false, why_not: why }) });
-  render(<PageReach target="relay-lite" onAsk={vi.fn()} />);
+  render(<PageReach target="relay-lite" />);
   await screen.findByText(/Tests send each message through relay-lite's API/);
   fireEvent.click(screen.getByRole("button", { name: "Its page" }));
   expect(screen.getByText(why)).toBeTruthy();
-  const learn = screen.getByRole("button", { name: "Learn the page" }) as HTMLButtonElement;
+  const learn = screen.getByRole("button", { name: "Set up UI testing" }) as HTMLButtonElement;
   expect(learn.disabled).toBe(true);
 });
 
@@ -113,7 +118,7 @@ it("a missing piece says what it is in a sentence, with the one action that fixe
       missing: { part: "browser", said, command },
     }),
   });
-  render(<PageReach target="relay-lite" onAsk={vi.fn()} />);
+  render(<PageReach target="relay-lite" />);
   await screen.findByText(/Tests send each message through relay-lite's API/);
   fireEvent.click(screen.getByRole("button", { name: "Its page" }));
   expect(screen.getByText(said)).toBeTruthy();

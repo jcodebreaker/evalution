@@ -1,62 +1,70 @@
-import { MousePointerClick } from "lucide-react";
+import { Check, MousePointerClick } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import type { PageOffer } from "../../lib/schema";
+import type { PageOffer, PageReach } from "../../lib/schema";
 import { Button } from "../../ui/button";
+import { CopyField } from "../../ui/copy-field";
 import { Spinner } from "../../ui/loading";
-import { learnPage } from "./PageReach";
+import { MissingPieceNote } from "../shared/next-step";
+import { LearnSteps, oneMessage, ProposedMap, useLearnPoll } from "./LearnFlow";
 import { useOpenEnvironment } from "./use-isolation";
+
+/** The demo (plan section 5): it runs from the terminal, so the card gives its command. */
+export const DEMO = "uv run --project server evalution demo ui";
 
 /**
  * The offer to test an app through its page, made where the person already is (Connect's last
  * step, a Home card) when its code has a chat page and nothing of it is set up. "Set up UI
- * testing" hands the test writer the page to learn, or opens the Test environment page when the
- * copy it learns on comes first; "Not now" turns the offer down for good, on the server.
+ * testing" is the whole flow on this card: the agent learns the page on evalution's copy (its
+ * steps as it goes), its rehearsal's screenshots and video show, and one Approve. What comes
+ * first, when the page can't be learned yet, is offered here too: Install for a missing browser,
+ * Set up testing for the copy. "Not now" turns the offer down for good, on the server.
  */
-export function UiOffer({
-  target,
-  onAsk,
-  className,
-}: {
-  target: string;
-  /** Hands the test writer a message; without it, the button opens the Test environment page. */
-  onAsk?: (text: string) => void | Promise<void>;
-  className?: string;
-}) {
+export function UiOffer({ target, className }: { target: string; className?: string }) {
   const [offer, setOffer] = useState<PageOffer | null>(null);
+  const [reach, setReach] = useState<PageReach | null>(null);
   const [working, setWorking] = useState<"setup" | "dismiss" | null>(null);
-  const [asked, setAsked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const open = useOpenEnvironment();
+  const follow = useCallback(async () => {
+    try {
+      setReach(await api.pageReach(target));
+    } catch {
+      // Read again at the next tick.
+    }
+  }, [target]);
   const read = useCallback(async () => {
     try {
-      setOffer(await api.pageOffer(target));
+      const found = await api.pageOffer(target);
+      setOffer(found);
+      // Set up earlier, and not done: the card picks it up where it is.
+      if (found.underway) await follow();
     } catch {
       setOffer(null);
     }
-  }, [target]);
+  }, [target, follow]);
   useEffect(() => {
     setOffer(null);
-    setAsked(false);
+    setReach(null);
     void read();
   }, [read]);
+  useLearnPoll(reach, follow);
 
-  if (!offer?.offer) return null;
-  const learn = offer.can_learn && onAsk;
+  // Once started, the card follows the setup to its end, whatever the offer says now.
+  if (!reach && !offer?.offer) return null;
 
   const setUp = async () => {
-    if (!learn) {
+    if (!offer?.can_learn) {
       open?.();
       return;
     }
     setWorking("setup");
     setError(null);
     try {
-      await onAsk(learnPage(target, null));
-      setAsked(true);
+      setReach(await api.learnPage(target));
     } catch (failure) {
-      setError(errorText(failure, "Couldn't ask the agent."));
+      setError(errorText(failure, "Couldn't start setting up UI testing."));
     }
     setWorking(null);
   };
@@ -70,6 +78,12 @@ export function UiOffer({
     }
     setWorking(null);
   };
+  const learn = reach?.learn ?? null;
+  const approved = reach !== null && reach.plays !== "api" && !reach.proposed;
+  const missing = offer?.missing ?? null;
+  // A piece to install comes first, with its own button; else Set up UI testing opens the Test
+  // environment for what comes first there (the copy).
+  const installFirst = missing !== null && missing.part !== "copy";
 
   return (
     <section
@@ -81,22 +95,44 @@ export function UiOffer({
         <MousePointerClick className="size-4 text-tint" aria-hidden />
         {target} has a page. Test it the way people use it?
       </h2>
-      {asked ? (
-        <p className="m-0 max-w-[68ch] text-ink-2">
-          The agent is learning the page on evalution's copy. Approve its map on the Test
-          environment page, and tests play through the page from the next run.
-        </p>
+      {reach ? (
+        <>
+          {learn && learn.state !== "done" ? (
+            <LearnSteps target={target} learn={learn} onStopped={setReach} />
+          ) : null}
+          {reach.proposed && learn?.state !== "running" ? (
+            <ProposedMap target={target} reach={reach} onApproved={setReach} />
+          ) : null}
+          {approved ? (
+            <p className="m-0 flex items-center gap-1.5" data-testid="ui-approved">
+              <Check className="size-4 text-success" aria-hidden />
+              Approved. From the next run, tests reach {target} through its page.
+            </p>
+          ) : null}
+          {learn?.state === "failed" ? (
+            <div>
+              <Button disabled={working !== null} onClick={() => void setUp()}>
+                {working === "setup" ? <Spinner /> : null}
+                Try again
+              </Button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <p className="m-0 max-w-[68ch] text-ink-2">
             Tests can type each message into its page and check the reply shows, on evalution's
             copy, keeping a screenshot of every message and a video when a try fails.
           </p>
-          {!offer.can_learn && offer.why_not ? (
+          {offer?.can_learn ? (
+            <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{oneMessage(target)}</p>
+          ) : missing && installFirst ? (
+            <MissingPieceNote piece={missing} onInstalled={() => void read()} />
+          ) : offer?.why_not ? (
             <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{offer.why_not}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-3">
-            {learn || open ? (
+            {offer?.can_learn || (open && !installFirst) ? (
               <Button disabled={working !== null} onClick={() => void setUp()}>
                 {working === "setup" ? <Spinner /> : null}
                 Set up UI testing
@@ -106,6 +142,17 @@ export function UiOffer({
               Not now
             </Button>
           </div>
+          <details className="text-[12.5px] text-ink-2" data-testid="ui-demo">
+            <summary className="cursor-pointer select-none">Try the demo first</summary>
+            <div className="mt-2 flex max-w-[68ch] flex-col gap-2">
+              <p className="m-0">
+                Plays two tests through a made-up app's page in about a minute, and opens the result
+                with its screenshots and video. It spends nothing.
+              </p>
+              <CopyField value={DEMO} label="The command that starts the demo" />
+              <p className="m-0 text-ink-3">Run it in the folder evalution is installed in.</p>
+            </div>
+          </details>
         </>
       )}
       {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}

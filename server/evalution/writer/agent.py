@@ -41,7 +41,7 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from evalution.code import CodeError
@@ -225,6 +225,9 @@ class Agent:
         self._live: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
+        #: Told of each tool call a session's loop makes, by session id: what follows a session
+        #: on the page without its chat (:mod:`evalution.writer.pagelearn`).
+        self.watching: dict[str, Callable[[str, dict[str, Any]], None]] = {}
 
     # Sessions
 
@@ -267,6 +270,19 @@ class Agent:
 
     async def get(self, session_id: str) -> dict[str, Any]:
         return public(await self._session(session_id))
+
+    async def raw(self, session_id: str) -> dict[str, Any]:
+        """The whole session, its plans and work included, as the loop keeps it: read, never
+        changed.
+
+        :raises LookupError: No such session.
+        """
+        return await self._session(session_id)
+
+    def working(self, session_id: str) -> bool:
+        """Whether the session's loop is going."""
+        task = self._tasks.get(session_id)
+        return task is not None and not task.done()
 
     async def message(
         self, session_id: str, text: str, run: str | None = None, *, learn: bool = False
@@ -655,6 +671,8 @@ class Agent:
                 return f"Error: no tool {name}"
             # Steps count across the session, so a result can point back to an earlier one.
             turn.session["steps"] = int(turn.session.get("steps") or 0) + 1
+            if (watch := self.watching.get(turn.session["id"])) is not None:
+                watch(name, args)
             if doing := activity_line(name, args):
                 _doing(turn.session, doing)
                 await self._save(turn.session)
