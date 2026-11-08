@@ -179,8 +179,11 @@ def system_chrome() -> str | None:
 def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
     """What a target played through *page* can do: what its adapter can, without files or Stop
     (v1). A new conversation is its adapter's, and the page then opens it, so it needs no New chat
-    on the page. It can't be watched."""
-    return replace(inner, files=False, stop=False, watch=False)
+    on the page. It can't be watched. One try at a time: tries played side by side through
+    relay-lite's page stalled (2026-11-08, cause not yet known), the same tries one at a time
+    and through its API side by side didn't, so a page run plays one slot until that is
+    understood."""
+    return replace(inner, files=False, stop=False, watch=False, parallel=False)
 
 
 def on_page(

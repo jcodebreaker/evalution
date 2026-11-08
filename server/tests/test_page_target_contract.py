@@ -151,7 +151,8 @@ def test_it_declares_its_inner_adapters_capabilities_less_what_a_page_cant(wrapp
     target, inner = wrapped
     declared, theirs = target.capabilities, inner.capabilities
     assert not declared.files and not declared.stop and not declared.watch
-    changed = {"files", "stop", "watch"}
+    changed = {"files", "stop", "watch", "parallel"}
+    assert not declared.parallel, "one try at a time through a page"
     for item in fields(Capabilities):
         if item.name not in changed:
             assert getattr(declared, item.name) == getattr(theirs, item.name), item.name
