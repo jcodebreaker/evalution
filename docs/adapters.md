@@ -53,6 +53,8 @@ An adapter of your own that stops importing after an update (it used something e
 
 Promise only what's true: where the promise fails, a pass can rest on what an earlier try left behind. `evalution check --target <name> --isolation` tries one case of it, a word said in one session and asked for in another, and spends two messages.
 
+A proven isolation plan ([ADR 0009](adr/0009-isolation-is-found-and-proven.md)) overrides `isolation` and `clean` for the stores it covers. `evalution isolate --target <name>`, or *Find and prove isolation* in Connect, finds where the app keeps what it remembers on evalution's own copy of it, writes a plan to reset each place, and rehearses it there. What it covers is what a try starts clean of, whatever the adapter promises; for anything it doesn't cover, the adapter's promise still holds. A commit that changes a file the plan's evidence cites marks it out of date until it's proven again. An adapter's `INFO` may add hints about where its framework keeps state, so vendor knowledge stays behind the adapter.
+
 ## What `adapter test` checks
 
 It looks at the adapter, never the agent: what your app answers isn't judged, only that the adapter read an answer. Before spending anything it runs the adapter's own `check`, then tells you how many messages the sequence sends and asks (`--yes` to skip that). That's 2, plus one each for `reset`, `conversation_break`, `files` and `stop` if declared. It refuses while a run is going.

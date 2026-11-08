@@ -319,6 +319,7 @@ def test_an_app_without_runs_reads_empty(tmp_path) -> None:
         "recent": [],
         "code_change": None,
         "checking": False,
+        "isolation": None,
     }
 
 

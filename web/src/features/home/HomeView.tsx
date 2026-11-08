@@ -12,6 +12,7 @@ import { Centered } from "../shared/layout";
 import { ChangeCard } from "./ChangeCard";
 import { CARD } from "./card";
 import { Dashboard } from "./Dashboard";
+import { IsolationLine } from "./IsolationLine";
 import { KnowledgeLine } from "./KnowledgeLine";
 import { PERIODS } from "./period";
 import { ReportCard } from "./ReportCard";
@@ -141,6 +142,7 @@ export function HomeView({
               onReview={onReview}
               onUpdated={() => void reload()}
             />
+            <IsolationLine target={scope.target} isolation={health.isolation} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

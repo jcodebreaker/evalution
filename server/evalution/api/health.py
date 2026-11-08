@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from evalution.api.deps import Current, busy, invalid, local_only, target_name
-from evalution.project import drift, impact
+from evalution.project import drift, impact, isolating
 from evalution.review import health
 
 
@@ -28,7 +28,8 @@ def health_router() -> APIRouter:
         doc = await asyncio.to_thread(health.for_target, targets, runs, name, period)
         last_run = doc["recent"][0]["run"] if doc["recent"] else None
         checking = watcher.kick(name, last_run) if watcher else False
-        return {**doc, "checking": checking}
+        found = await asyncio.to_thread(isolating.brief, targets, name)
+        return {**doc, "checking": checking, "isolation": found}
 
     @router.get("/targets/{target}/drift")
     async def get_drift(ws: Current, target: str) -> dict[str, Any]:

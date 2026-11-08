@@ -295,7 +295,7 @@ export function ConnectView({
           {name ? <Probe target={name} checked={!!row?.checked} onChange={reloadTargets} /> : null}
         </SetupStep>
 
-        <SetupStep n={4} title="Clean start" state={later}>
+        <SetupStep n={4} title="Isolation" state={later}>
           {row ? <Isolation target={row} onChange={reloadTargets} /> : null}
         </SetupStep>
 

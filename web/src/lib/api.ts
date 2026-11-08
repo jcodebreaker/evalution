@@ -27,6 +27,7 @@ import {
   HealthSchema,
   HooksSchema,
   InviteSchema,
+  IsolationSchema,
   LibraryRowSchema,
   LineAgreementSchema,
   MemberSchema,
@@ -261,6 +262,13 @@ export const api = {
   redraft: (name: string) => post(one(RedraftSchema), `/v1/targets/${enc(name)}/check/redraft`),
   setIsolation: (name: string, required: string[]) =>
     call("PUT", `/v1/targets/${enc(name)}/isolation`, { required }),
+  /** Its isolation plan, how far it is proven, and the job finding it when one is going. */
+  isolation: (name: string) => get(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation`),
+  /** Find and prove isolation on evalution's own copy of the app: two messages to that copy. */
+  runIsolation: (name: string) =>
+    post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
+  undoIsolation: (name: string) =>
+    post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
   benchmarks: (target: string) => get(one(BenchmarksSchema), `/v1/benchmarks${query({ target })}`),
   /** Work out how the benchmark plays on this app, and try it with a few real messages. */
   planBenchmark: (target: string) => post((data) => data, "/v1/benchmarks/plan", { target }),

@@ -1,5 +1,6 @@
 import { Square } from "lucide-react";
 import { count, live, when } from "../../lib/format";
+import { isolatedWords } from "../../lib/isolation";
 import type { CaseRow, RunDetail, RunSummary } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { verdictWord } from "../../lib/verdict";
@@ -65,6 +66,7 @@ export function RunView({
             <>
               {scopeLabel} · {when(run.started_at)}
               {run.environment.name ? ` · ${run.environment.name}` : null}
+              {run.isolation ? ` · ${isolatedWords(run.isolation)}` : null}
               {run.interrupted ? " · Interrupted" : null}
               {!run.interrupted && run.status === "stopped" ? " · Stopped" : null}
               {!run.interrupted && run.status === "failed" ? " · Didn't finish" : null}

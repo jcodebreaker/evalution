@@ -366,6 +366,102 @@ export const PassMarksSchema = z.object({
 });
 export type PassMarks = z.infer<typeof PassMarksSchema>;
 
+/** How a try was isolated: by a proven plan, by its own person only, or not at all. */
+export const IsolationHowSchema = z.enum(["proven", "identity", "none"]).catch("none");
+export type IsolationHow = z.infer<typeof IsolationHowSchema>;
+
+/** How one try was isolated, and what was checked before it. Older runs don't say. */
+export const TryIsolationSchema = z.object({
+  how: IsolationHowSchema,
+  plan_version: z.number().nullable().default(null),
+  restore_seconds: z.number().nullable().default(null),
+  checked: z.array(z.string()).default([]),
+  /** What the check before or after the try found wrong, in words. */
+  problem: z.string().nullable().default(null),
+});
+export type TryIsolation = z.infer<typeof TryIsolationSchema>;
+
+/** How a run's tries were isolated. */
+export const RunIsolationSchema = z.object({
+  how: IsolationHowSchema,
+  plan_version: z.number().nullable().default(null),
+});
+export type RunIsolation = z.infer<typeof RunIsolationSchema>;
+
+const IsolationStepSchema = z.object({
+  key: z.string(),
+  text: z.string(),
+  state: z.enum(["doing", "done", "problem"]),
+});
+
+/** A target's isolation plan (ADR 0009): where the app keeps what it remembers, how each place
+ * is reset between tries, and how far that is proven. */
+export const IsolationSchema = z.object({
+  target: z.string(),
+  status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none"),
+  version: z.number().nullable().default(null),
+  plan: z
+    .object({
+      stores: z
+        .array(
+          z.object({
+            id: z.string(),
+            kind: z.string(),
+            locator: z.string(),
+            strategy: z.enum(["relocate", "snapshot", "identity", "none"]).catch("none"),
+            moved_by: z.array(z.string()).default([]),
+            keyed_by: z.string().nullable().default(null),
+            /** The probe saw the app use it. */
+            seen: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+      /** Found holding the probe and left alone: traces, kept as evidence. */
+      exclude: z.array(z.string()).default([]),
+      report: z.string().default(""),
+      /** Where the last rehearsal found the probe, or a write, the plan doesn't cover. */
+      leaks: z.array(z.string()).default([]),
+      updated: z.number().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** Files its evidence cites that a commit changed. */
+  stale_files: z.array(z.string()).default([]),
+  evidence: z
+    .object({
+      candidates: z.number(),
+      touched: z.number(),
+      found: z.array(z.string()).default([]),
+      watched: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .default(null),
+  history: z
+    .array(
+      z.object({
+        version: z.number(),
+        status: z.string(),
+        updated: z.number(),
+        stores: z.number(),
+      }),
+    )
+    .default([]),
+  can_undo: z.boolean().default(false),
+  can_run: z.boolean().default(false),
+  job: z
+    .object({
+      state: z.enum(["running", "done", "failed"]),
+      started: z.number(),
+      ended: z.number().nullable().default(null),
+      steps: z.array(IsolationStepSchema).default([]),
+      error: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  problem: z.string().nullable().default(null),
+});
+export type Isolation = z.infer<typeof IsolationSchema>;
+
 /** How one test of a run went. */
 export const RunTestSchema = z.object({
   case: z.string(),
@@ -415,6 +511,8 @@ export const RunSummarySchema = z.object({
   cases: z.array(z.string()).default([]),
   scope: z.enum(["all", "some"]).default("all"),
   tests: z.array(RunTestSchema).default([]),
+  /** How its tries were isolated; older runs don't say. */
+  isolation: RunIsolationSchema.nullish(),
   progress: z
     .object({
       done: z.number(),
@@ -780,6 +878,8 @@ export const CompareSchema = TestPlanSchema.extend({
   seconds: z.number().nullable().default(null),
   /** What's missing of the try's traces, when any is. */
   trace_note: z.string().nullable().default(null),
+  /** How this try was isolated; older runs don't say. */
+  isolation: TryIsolationSchema.nullish(),
   explain: ExplainSchema.optional(),
   /** By rubric item id (`rubric-0`). */
   agreement: z.record(z.string(), LineAgreementSchema).default({}),
@@ -899,6 +999,16 @@ export const AgentMessageSchema = z.object({
       /** The test it would replace, and what that changes in what it checks. */
       replaces: z.string().optional(),
       changes: z.array(MeaningChangeSchema).optional(),
+    })
+    .optional(),
+  /** A change the writer proposes to the isolation plan, approved like a test plan. */
+  isolation: z
+    .object({
+      id: z.string(),
+      version: z.number(),
+      status: z.string(),
+      from: z.string(),
+      changes: z.array(z.string()).default([]),
     })
     .optional(),
   run: z.string().optional(),
@@ -1339,6 +1449,11 @@ export const HealthSchema = z.object({
   report_pending: z.boolean().default(false),
   /** A look for code changes is going; the card may follow. */
   checking: z.boolean().default(false),
+  /** The isolation plan, when a commit left it out of date. */
+  isolation: z
+    .object({ status: z.string(), stale_files: z.array(z.string()).default([]) })
+    .nullable()
+    .default(null),
 });
 export type Health = z.infer<typeof HealthSchema>;
 export type Period = "7d" | "30d" | "all";

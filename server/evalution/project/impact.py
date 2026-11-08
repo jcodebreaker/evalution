@@ -31,7 +31,7 @@ from evalution.code import Code, CodeError
 from evalution.core.case import Case
 from evalution.core.rules import judged_tries
 from evalution.llm import Caller, cut, fenced, json_answer
-from evalution.project import codemap, drift
+from evalution.project import codemap, drift, isolating
 from evalution.project.history import History
 from evalution.project.profile import (
     FINGERPRINT_DOC,
@@ -475,6 +475,8 @@ class Watcher:
                 await drift.check_code(targets, name)
         except Exception:
             _logger.warning("impact: %s not checked", name, exc_info=True)
+        # A commit under the isolation plan's evidence marks it out of date, like a claim. Free.
+        await isolating.mark_stale_quietly(targets, name)
         if self._knowledge is not None:
             try:
                 await self._knowledge(self.runs, name)

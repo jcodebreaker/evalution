@@ -7,6 +7,7 @@ import type { Load } from "../../lib/use-load";
 import { POLL_MS, ready, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button, buttonClass } from "../../ui/button";
 import { Fold } from "../shared/group";
+import { TryIsolationNote } from "../shared/IsolationNote";
 import { BackLink, Centered, Page, Toolbar } from "../shared/layout";
 import { StaleChip } from "../shared/marks";
 import { Earlier } from "./Earlier";
@@ -179,6 +180,7 @@ export function TestView({
           {view === "result" && shown?.trace_note ? (
             <p className="m-0 text-[12.5px] text-warning">{shown.trace_note}</p>
           ) : null}
+          {view === "result" ? <TryIsolationNote isolation={shown?.isolation} /> : null}
           {view === "result" && ready(finding) ? (
             <FindingNote finding={ready(finding) as Finding} onSpan={setFocus} />
           ) : null}

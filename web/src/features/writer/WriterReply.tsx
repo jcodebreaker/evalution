@@ -59,7 +59,7 @@ export function WriterReply({
   onTest: (id: string, run?: string) => void;
   onLearned: () => void;
 }) {
-  const { plan, review, run, saved } = message;
+  const { plan, review, run, saved, isolation } = message;
   const changed = !!plan?.changes?.length;
   return (
     <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
@@ -161,6 +161,9 @@ export function WriterReply({
           </div>
         </Group>
       ) : null}
+      {isolation ? (
+        <IsolationProposal proposal={isolation} latest={latest} onApprove={onApprove} />
+      ) : null}
       {saved ? (
         <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13.5px]">
           <Check className="size-4 shrink-0 text-success" aria-hidden />
@@ -235,5 +238,50 @@ export function WriterReply({
         </div>
       ) : null}
     </div>
+  );
+}
+
+const PROPOSAL_STATUS: Record<string, string> = {
+  draft: "Not approved yet",
+  approved: "Approved",
+  proven: "Proven on evalution's copy of the app",
+  failed: "Not proven: the rehearsal found what it misses",
+};
+
+/** A change the writer proposes to the isolation plan, approved like a test plan. Approving it
+ * rehearses it on evalution's own copy of the app; the saved plan changes only once it's proven. */
+function IsolationProposal({
+  proposal,
+  latest,
+  onApprove,
+}: {
+  proposal: NonNullable<AgentMessage["isolation"]>;
+  latest: boolean;
+  onApprove: (planId: string) => void;
+}) {
+  return (
+    <Group>
+      <p className="m-0 px-3.5 pt-2.5 text-[12px] text-ink-2">
+        Changes to the isolation plan, from {proposal.from}
+      </p>
+      <ul className="m-0 flex list-none flex-col p-0">
+        {proposal.changes.map((change, index) => (
+          <li key={index} className="border-separator px-3.5 py-2 text-[13px] not-first:border-t">
+            {change}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
+        <span className="text-[13px] text-ink-2">
+          {PROPOSAL_STATUS[proposal.status] ?? proposal.status}
+        </span>
+        {latest && proposal.status === "draft" ? (
+          <Button size="sm" className="ms-auto" onClick={() => onApprove(proposal.id)}>
+            <Check />
+            Approve and rehearse
+          </Button>
+        ) : null}
+      </div>
+    </Group>
   );
 }

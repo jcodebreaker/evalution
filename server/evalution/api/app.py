@@ -26,6 +26,7 @@ from evalution.api.benchmarks import benchmarks_router
 from evalution.api.connect import connect_router
 from evalution.api.deps import answers_to, guard
 from evalution.api.health import health_router
+from evalution.api.isolation import isolation_router
 from evalution.api.runs import runs_router
 from evalution.api.sets import sets_router
 from evalution.api.settings import settings_router
@@ -36,7 +37,7 @@ from evalution.api.understanding import understanding_router
 from evalution.api.workspaces import Workspaces
 from evalution.api.writer import writer_router
 from evalution.config import Config, ConfigError
-from evalution.project import drift, knowledge
+from evalution.project import drift, isolating, knowledge
 from evalution.results.store import FolderUse
 from evalution.storage import LOCAL, Database
 from evalution.traces.builtin import prune
@@ -64,6 +65,7 @@ def create_router(url: str = "http://127.0.0.1:8080") -> APIRouter:
         target_router(),
         understanding_router(url),
         health_router(),
+        isolation_router(),
         sets_router(),
         benchmarks_router(),
         tests_router(),
@@ -88,6 +90,7 @@ async def _daily_drift(workspaces: Workspaces) -> None:
             for name in ws.targets.names():
                 await drift.check_quietly(ws.targets, name)
                 await knowledge.refresh_quietly(ws.runs, name)
+                await isolating.mark_stale_quietly(ws.targets, name)
 
 
 async def _daily_prune(database: Database, keep_days: int) -> None:
