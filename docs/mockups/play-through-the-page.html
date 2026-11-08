@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play through the page</title>
+<style>
+/* evalution's own tokens (web/src/index.css). */
+:root{
+  color-scheme:light;
+  --border:#e7e8ef; --input:#e1e3eb; --muted:#eff0f5;
+  --destructive:#c1301f; --success:#0d8f80; --warning:#a65a00;
+  --window:#f6f7f9; --group:#ffffff;
+  --selection-strong:rgba(85,70,216,.09); --tint:#5546d8; --tint-soft:#eceafd;
+  --ink:#14162b; --ink-2:#5c6178; --ink-3:#6a6f85; --bubble:#f1f2f6; --selection:rgba(20,22,43,.04);
+  --up:#d9f5f0; --down:#fde8e6; --warn-bg:#fdf1e2; --primary:#14162b; --on-primary:#fff;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;
+  --mono:ui-monospace,Menlo,monospace;
+  /* The app under test: relay-lite's own look, so it reads as someone else's page. */
+  --sc-bg:#fbfaf7; --sc-side:#f2efe8; --sc-ink:#26231d; --sc-ink-2:#77705f; --sc-line:#e6e1d6;
+  --sc-accent:#c2571a; --sc-me:#26231d; --sc-on-me:#fbfaf7; --sc-them:#ffffff;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#2dd4bf; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28;
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff; --tint-soft:#272b45;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae; --bubble:#262a36; --selection:rgba(255,255,255,.06);
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16;
+  --sc-bg:#1d1b17; --sc-side:#25221d; --sc-ink:#efe9dc; --sc-ink-2:#a69d8a; --sc-line:#38332b;
+  --sc-accent:#e8834a; --sc-me:#efe9dc; --sc-on-me:#1d1b17; --sc-them:#2b2822}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#2dd4bf; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28;
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff; --tint-soft:#272b45;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae; --bubble:#262a36; --selection:rgba(255,255,255,.06);
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16;
+  --sc-bg:#1d1b17; --sc-side:#25221d; --sc-ink:#efe9dc; --sc-ink-2:#a69d8a; --sc-line:#38332b;
+  --sc-accent:#e8834a; --sc-me:#efe9dc; --sc-on-me:#1d1b17; --sc-them:#2b2822}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--window);color:var(--ink);font:400 13px/1.45 var(--sans);letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);height:100%}
+.side{background:var(--group);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 4px;font-size:16px;font-weight:600;letter-spacing:-.02em}
+.logo{width:22px;height:22px;border-radius:7px;background:var(--tint);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.target{margin:10px 12px 0;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--muted)}
+.target .av{width:26px;height:26px;border-radius:7px;background:var(--selection-strong);color:var(--tint);display:grid;place-items:center;font-size:12px;font-weight:700}
+.target b{font-weight:600}
+.nav{display:flex;flex-direction:column;gap:1px;padding:12px 8px}
+.nav a{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;color:var(--ink);text-decoration:none}
+.nav a.on{background:var(--selection-strong);color:var(--tint);font-weight:500}
+.nav .h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:14px 8px 4px}
+
+.main{overflow:auto}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 28px 60px}
+.crumb{color:var(--ink-3);font-size:12px;display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.crumb a{color:var(--ink-2);text-decoration:none}
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.lede{color:var(--ink-2);margin:4px 0 0;font-size:14px;max-width:70ch}
+.card{background:var(--group);border:1px solid var(--border);border-radius:14px}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:6px 11px;font-weight:500;border:1px solid var(--input);background:var(--group)}
+.btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.hint{font-size:12px;color:var(--ink-3)}
+.lb{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+
+/* How tests reach the app */
+.reach{margin-top:16px;padding:14px 16px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px 22px;align-items:start}
+.seg{display:inline-flex;padding:3px;border-radius:10px;background:var(--muted);gap:2px}
+.seg button{border:0;background:none;padding:6px 12px;border-radius:8px;font-weight:500;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
+.seg button.on{background:var(--group);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.reach .say{color:var(--ink-2);margin-top:8px;max-width:38ch}
+.found{display:flex;flex-direction:column;gap:8px}
+.found .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--border);background:var(--group);font-weight:500}
+.chip .ok{color:var(--success)}
+.chip:hover,.chip.lit{border-color:var(--tint);background:var(--selection-strong);color:var(--tint)}
+.chip code{font-family:var(--mono);font-size:11px;color:var(--ink-3);font-weight:400}
+.src{font-size:12px;color:var(--ink-3)}
+.src code{font-family:var(--mono);font-size:11.5px}
+
+/* The try */
+.tries{display:flex;align-items:center;gap:6px;margin:22px 0 10px;flex-wrap:wrap}
+.tries .lb{margin-right:6px}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:9px;border:1px solid var(--border);background:var(--group);font-weight:500;color:var(--ink-2)}
+.tab.on{border-color:var(--tint);color:var(--ink);box-shadow:inset 0 0 0 1px var(--tint)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+.dot.bad{background:var(--destructive)}
+
+.verdict{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;margin-bottom:12px}
+.verdict.pass{background:var(--up)}
+.verdict.fail{background:var(--down)}
+.verdict .ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;color:#fff}
+.verdict.pass .ic{background:var(--success)}
+.verdict.fail .ic{background:var(--destructive)}
+.verdict b{display:block;font-size:14px;font-weight:600}
+.verdict p{margin:2px 0 0;color:var(--ink-2)}
+.verdict .split{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 8px;border-radius:999px;background:var(--group);color:var(--ink-2)}
+.pill.ok{color:var(--success)} .pill.bad{color:var(--destructive)}
+
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+
+/* Player */
+.player{overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)}
+.ph b{font-weight:600}
+.rec{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--destructive);letter-spacing:.04em}
+.rec i{width:7px;height:7px;border-radius:50%;background:var(--destructive)}
+.ph .hint{margin-left:auto}
+.stagewrap{padding:14px;background:var(--muted)}
+.browser{border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--sc-bg);box-shadow:0 6px 22px rgba(20,22,43,.08);position:relative}
+.bbar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--group);border-bottom:1px solid var(--border)}
+.lights{display:flex;gap:5px}.lights i{width:9px;height:9px;border-radius:50%;background:var(--input)}
+.url{flex:1;display:flex;align-items:center;gap:6px;background:var(--muted);border-radius:7px;padding:3px 9px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);min-width:0;overflow:hidden;white-space:nowrap}
+.url em{font-style:normal;color:var(--ink-3)}
+.copytag{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--tint-soft);color:var(--tint);font-weight:600;white-space:nowrap}
+
+/* relay-lite, as the copy serves it */
+.sc{display:grid;grid-template-columns:150px minmax(0,1fr);height:360px;color:var(--sc-ink);font-family:Georgia,"Iowan Old Style",serif}
+.sc-side{background:var(--sc-side);border-right:1px solid var(--sc-line);padding:10px;display:flex;flex-direction:column;gap:6px;font-family:var(--sans);font-size:12px}
+.sc-logo{font-weight:700;letter-spacing:-.02em;font-family:Georgia,serif;font-size:14px;padding:2px 4px 6px}
+.sc-new{border:1px solid var(--sc-line);background:var(--sc-bg);border-radius:8px;padding:6px 8px;text-align:left;color:var(--sc-ink);font-weight:500}
+.sc-chat{padding:5px 8px;border-radius:7px;color:var(--sc-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-chat.on{background:var(--sc-bg);color:var(--sc-ink)}
+.sc-main{display:flex;flex-direction:column;min-width:0}
+.sc-msgs{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow:hidden;font-size:13.5px;line-height:1.4}
+.sc-empty{margin:auto;color:var(--sc-ink-2);font-style:italic}
+.m{max-width:80%;padding:8px 11px;border-radius:13px;animation:pop .25s ease}
+.m.me{align-self:flex-end;background:var(--sc-me);color:var(--sc-on-me);border-bottom-right-radius:4px}
+.m.them{align-self:flex-start;background:var(--sc-them);border:1px solid var(--sc-line);border-bottom-left-radius:4px}
+.m.err{align-self:flex-start;background:none;border:1px dashed var(--sc-accent);color:var(--sc-accent);font-family:var(--sans);font-size:12px}
+.typing{align-self:flex-start;display:flex;gap:4px;padding:10px 12px;border-radius:13px;background:var(--sc-them);border:1px solid var(--sc-line)}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--sc-ink-2);animation:bl 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes bl{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes pop{from{opacity:0;transform:translateY(4px)}}
+.sc-box{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--sc-line);font-family:var(--sans)}
+.sc-in{flex:1;border:1px solid var(--sc-line);border-radius:9px;padding:7px 10px;background:var(--sc-them);min-height:32px;color:var(--sc-ink);white-space:nowrap;overflow:hidden}
+.sc-in .ph2{color:var(--sc-ink-2)}
+.caret{display:inline-block;width:1.5px;height:14px;background:var(--sc-ink);vertical-align:-2px;margin-left:1px;animation:bl 1s infinite}
+.sc-send{border:0;border-radius:9px;background:var(--sc-accent);color:#fff;padding:0 12px;font-weight:600}
+.lit-el{outline:2px solid var(--tint)!important;outline-offset:2px;border-radius:8px}
+
+.pointer{position:absolute;left:0;top:0;width:20px;height:20px;pointer-events:none;transition:transform .55s cubic-bezier(.4,0,.2,1);z-index:5}
+.pointer.click::after{content:"";position:absolute;left:-8px;top:-8px;width:20px;height:20px;border-radius:50%;border:2px solid var(--tint);animation:ring .5s ease-out}
+@keyframes ring{from{transform:scale(.3);opacity:1}to{transform:scale(1.4);opacity:0}}
+
+.controls{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border)}
+.play{width:30px;height:30px;border-radius:50%;border:0;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;flex:none}
+.track{position:relative;flex:1;height:30px}
+.track input{position:absolute;inset:0;width:100%;margin:0;opacity:0;cursor:pointer;z-index:2}
+.rail{position:absolute;left:0;right:0;top:13px;height:4px;border-radius:2px;background:var(--muted)}
+.fill{position:absolute;left:0;top:13px;height:4px;border-radius:2px;background:var(--tint)}
+.mk{position:absolute;top:9px;width:4px;height:12px;border-radius:2px;background:var(--ink-3);transform:translateX(-2px)}
+.mk.bad{background:var(--destructive);height:14px;top:8px;width:5px}
+.mk.ok{background:var(--success)}
+.knob{position:absolute;top:8px;width:14px;height:14px;border-radius:50%;background:var(--group);border:2px solid var(--tint);transform:translateX(-7px)}
+.time{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:12px;min-width:76px;text-align:right}
+.proof{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--border);flex-wrap:wrap}
+.proof .hint{margin-right:auto;display:flex;align-items:center;gap:6px}
+
+/* Steps */
+.steps{padding:6px 0}
+.steps h2{margin:0;padding:10px 14px 6px;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.st{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;padding:8px 14px;cursor:pointer;border-left:2px solid transparent;align-items:start}
+.st:hover{background:var(--selection)}
+.st.now{background:var(--selection-strong);border-left-color:var(--tint)}
+.st.future{opacity:.5}
+.st .s{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:1px}
+.s.pass{background:var(--up);color:var(--success)}
+.s.fail{background:var(--down);color:var(--destructive)}
+.s.info{background:var(--muted);color:var(--ink-3)}
+.st b{font-weight:600;display:block}
+.st .d{color:var(--ink-2);font-size:12.5px;margin-top:1px}
+.st .how{display:inline-flex;align-items:center;gap:4px;margin-top:5px;font-size:11px;font-weight:500;color:var(--ink-3);background:var(--muted);padding:2px 7px;border-radius:999px}
+.st .how.page{background:var(--tint-soft);color:var(--tint)}
+.st .t{font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-top:2px}
+.quote{margin-top:6px;padding:6px 9px;border-left:2px solid var(--input);color:var(--ink-2);font-size:12px;background:var(--bubble);border-radius:0 7px 7px 0}
+.quote code{font-family:var(--mono);font-size:11px;color:var(--destructive)}
+.why{margin:6px 14px 10px;padding:12px;border-radius:11px;background:var(--warn-bg)}
+.why b{display:flex;align-items:center;gap:6px;color:var(--warning);font-weight:600}
+.why p{margin:6px 0 0;color:var(--ink-2)}
+.why .btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+
+@media (max-width:1100px){.layout{grid-template-columns:1fr}}
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{display:none}.wrap{padding:16px}.reach{grid-template-columns:1fr}.sc{grid-template-columns:1fr}.sc-side{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <div class="brand"><span class="logo">e</span>evalution</div>
+  <div class="target"><span class="av">S</span><b>relay-lite</b></div>
+  <nav class="nav">
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/></svg>What it learned</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Test environment</a>
+    <div class="h">Your tests</div>
+    <a href="#" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1"/></svg>Tests</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Runs</a>
+  </nav>
+</aside>
+
+<main class="main"><div class="wrap">
+  <div class="crumb"><a href="#">Tests</a><span>›</span><span>Memory</span></div>
+  <h1>Remembers the dog's name in a new chat</h1>
+  <p class="lede">Tell relay-lite about a dog, open a new chat, ask for its name. Played through relay-lite's own page, so you see what a person would see.</p>
+
+  <!-- How tests reach the app -->
+  <section class="card reach" aria-label="How tests reach relay-lite">
+    <div>
+      <div class="lb" style="margin-bottom:8px">Plays through</div>
+      <div class="seg" id="mode">
+        <button data-v="api"><svg class="i" viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>Its API</button>
+        <button data-v="page" class="on"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>Its page</button>
+      </div>
+      <div class="say" id="mode-say">Types and clicks in relay-lite's page on the test copy, records it, and checks what showed on screen as well as what was stored.</div>
+    </div>
+    <div class="found" id="found">
+      <div class="lb">What it found on your page</div>
+      <div class="row">
+        <button class="chip" data-el="sc-in"><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>Message box <code>textbox "Message"</code></button>
+        <button class="chip" data-el="sc-send"><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>Send <code>button "Send"</code></button>
+        <button class="chip" data-el="sc-msgs"><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>Replies <code>log "Messages"</code></button>
+        <button class="chip" data-el="sc-new"><svg class="i ok" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>New chat <code>button "New chat"</code></button>
+      </div>
+      <div class="src">Read from <code>web/src/chat/Composer.tsx</code> and <code>MessageList.tsx</code>, then tried once on the copy. Point at one to see it on the page.</div>
+    </div>
+  </section>
+
+  <!-- Tries -->
+  <div class="tries" id="tries">
+    <span class="lb">Run 14 · 3 tries</span>
+  </div>
+
+  <div class="verdict" id="verdict"></div>
+
+  <div class="layout">
+    <section class="card player" aria-label="Recording of the try">
+      <div class="ph"><span class="rec"><i></i>REC</span><b id="ph-title">Try 3</b><span class="hint">Recorded on the test copy, as it happened</span></div>
+      <div class="stagewrap">
+        <div class="browser" id="browser">
+          <div class="bbar">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <div class="url"><svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>127.0.0.1:41873<em>/chat</em></div>
+            <span class="copytag">eval-relay-lite-0</span>
+          </div>
+          <div class="sc">
+            <div class="sc-side">
+              <div class="sc-logo">relay</div>
+              <button class="sc-new" id="sc-new">+ New chat</button>
+              <div id="sc-list"></div>
+            </div>
+            <div class="sc-main">
+              <div class="sc-msgs" id="sc-msgs" role="log" aria-label="Messages"></div>
+              <div class="sc-box">
+                <div class="sc-in" id="sc-in"></div>
+                <button class="sc-send" id="sc-send">Send</button>
+              </div>
+            </div>
+          </div>
+          <svg class="pointer" id="pointer" viewBox="0 0 22 22"><path d="M4 2.5v14.6l4-3.7 2.6 6 2.7-1.2-2.6-5.9 5.5-.3z" fill="#14161a" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="play" id="play" aria-label="Play"><svg class="i" viewBox="0 0 24 24" id="play-ic"><path d="M7 5l12 7-12 7z" fill="currentColor"/></svg></button>
+        <div class="track" id="track">
+          <div class="rail"></div><div class="fill" id="fill"></div>
+          <div id="marks"></div>
+          <div class="knob" id="knob"></div>
+          <input type="range" id="scrub" min="0" max="14" step="0.05" value="0" aria-label="Time in the try">
+        </div>
+        <span class="time" id="time">0.0 / 14.0 s</span>
+      </div>
+      <div class="proof">
+        <span class="hint"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Kept with run 14 · 14 s · 1.2 MB</span>
+        <button class="btn sm"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Video</button>
+        <button class="btn sm"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Trace</button>
+        <button class="btn sm"><svg class="i" viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Console</button>
+      </div>
+    </section>
+
+    <section class="card steps" aria-label="Steps">
+      <h2>Steps <span class="hint">click one to jump there</span></h2>
+      <div id="steps"></div>
+      <div id="why"></div>
+    </section>
+  </div>
+</div></main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const END = 14;
+const FIRST = "I just adopted a dog. Her name is Biscuit.";
+const SECOND = "What's my dog called?";
+const HELLO = "Congratulations! Biscuit is a lovely name. How is she settling in?";
+const ANSWER = "Your dog is called Biscuit 🐶";
+
+// Each try: the same conversation; try 3's second reply never reaches the screen.
+const TRIES = [
+  { n: 1, ok: true, answerAt: 9.6 },
+  { n: 2, ok: true, answerAt: 10.1 },
+  { n: 3, ok: false, answerAt: null },
+];
+
+function stepsFor(tr) {
+  const common = [
+    { t: 0, s: "info", title: "Before", d: "A fresh copy and a new person, Alex Rivera. Checked empty.", how: "checked by code" },
+    { t: 0.6, s: "info", title: "Typed in the message box", d: `“${FIRST}”`, how: "on the page", page: true },
+    { t: 4.2, s: "pass", title: "Reply showed on the page", d: "1.5 s after Send.", how: "on the page", page: true },
+    { t: 4.5, s: "pass", title: "Stored: a dog named Biscuit", d: "Memory has one new entry for Alex.", how: "checked by code" },
+    { t: 5.6, s: "info", title: "Clicked New chat", d: "A second conversation started. The first is still in the list.", how: "on the page", page: true },
+    { t: 6.5, s: "info", title: "Typed in the message box", d: `“${SECOND}”`, how: "on the page", page: true },
+  ];
+  if (tr.ok) return [...common,
+    { t: tr.answerAt, s: "pass", title: "Reply showed, and it names Biscuit", d: "Judged by a model.", quote: ANSWER, how: "on the page", page: true },
+    { t: 12.8, s: "pass", title: "Page stayed healthy", d: "No errors in the console. Nothing failed to load.", how: "checked by code" },
+  ];
+  return [...common,
+    { t: 9.7, s: "pass", title: "Model answered: Biscuit", d: "In the trace, 1.5 s after Send. Memory did its job.", quote: ANSWER, how: "from the trace" },
+    { t: 12.4, s: "fail", title: "Reply never showed on the page", d: "The page showed “Couldn't load this reply” instead.", how: "on the page", page: true },
+    { t: 12.5, s: "fail", title: "Error in the page", d: "In the console, right as the answer arrived:", quote: "TypeError: Cannot read properties of undefined (reading 'parts') — MessageList.tsx:48", code: true, how: "checked by code" },
+  ];
+}
+
+const VERDICT = {
+  true: (tr) => `<div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg></div><div><b>Passed: Biscuit was remembered, and the page showed it</b><p>Try ${tr.n} of 3. Same result through the API and through the page.</p><div class="split"><span class="pill ok">✓ Stored</span><span class="pill ok">✓ Model answered</span><span class="pill ok">✓ Shown on the page</span></div></div>`,
+  false: (tr) => `<div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></div><div><b>Failed on the page, not in memory</b><p>relay-lite remembered Biscuit and the model said so, but the reply never reached the screen. Through the API alone, this try would have passed.</p><div class="split"><span class="pill ok">✓ Stored</span><span class="pill ok">✓ Model answered</span><span class="pill bad">✕ Shown on the page</span></div></div>`,
+};
+
+let cur = TRIES[2];
+let t = 0, playing = false, last = 0, steps = [];
+
+// --- The page at time t: worked out from the clock, so scrubbing lands anywhere. ---
+function pageAt(t, tr) {
+  const typed = (text, from, to) => (t < from ? "" : text.slice(0, Math.round(text.length * Math.min(1, (t - from) / (to - from)))));
+  const st = { chat: t < 5.6 ? 1 : 2, msgs: [], input: "", caret: false, pointer: "sc-in", click: null };
+  if (t < 0.6) st.pointer = "center";
+  if (t >= 0.6 && t < 2.6) { st.input = typed(FIRST, 0.6, 2.4); st.caret = true; }
+  if (t >= 2.6) st.pointer = "sc-send";
+  if (t >= 2.7 && t < 2.9) st.click = "sc-send";
+  if (st.chat === 1) {
+    if (t >= 2.7) st.msgs.push({ who: "me", text: FIRST });
+    if (t >= 2.9 && t < 4.2) st.msgs.push({ who: "typing" });
+    if (t >= 4.2) st.msgs.push({ who: "them", text: HELLO });
+    if (t >= 5.0) st.pointer = "sc-new";
+    if (t >= 5.5) st.click = "sc-new";
+  } else {
+    st.pointer = t < 6.5 ? "sc-new" : t < 8.2 ? "sc-in" : "sc-send";
+    if (t >= 6.5 && t < 8.3) { st.input = typed(SECOND, 6.5, 8.0); st.caret = true; }
+    if (t >= 8.3 && t < 8.5) st.click = "sc-send";
+    if (t >= 8.3) st.msgs.push({ who: "me", text: SECOND });
+    const shown = tr.ok ? tr.answerAt : 12.4;
+    if (t >= 8.5 && t < shown) st.msgs.push({ who: "typing" });
+    if (t >= shown) st.msgs.push(tr.ok ? { who: "them", text: ANSWER } : { who: "err", text: "⚠ Couldn't load this reply. Retry" });
+    if (t >= 10.5) st.pointer = "rest";
+  }
+  return st;
+}
+
+let lastKey = "";
+function render() {
+  const st = pageAt(t, cur);
+  const key = JSON.stringify([st.chat, st.msgs, st.input, st.caret]);
+  if (key !== lastKey) {
+    lastKey = key;
+    $("sc-list").innerHTML = (st.chat === 2 ? `<div class="sc-chat on">New chat</div>` : "") +
+      `<div class="sc-chat ${st.chat === 1 ? "on" : ""}">${st.chat === 1 && !st.msgs.length ? "New chat" : "Adopted a dog"}</div>`;
+    $("sc-msgs").innerHTML = st.msgs.length ? st.msgs.map((m) => m.who === "typing"
+      ? `<div class="typing"><i></i><i></i><i></i></div>`
+      : `<div class="m ${m.who}">${m.text}</div>`).join("") : `<div class="sc-empty">What's on your mind?</div>`;
+    $("sc-in").innerHTML = st.input ? `${st.input}${st.caret ? '<span class="caret"></span>' : ""}` : `<span class="ph2">Message</span>${st.caret ? '<span class="caret"></span>' : ""}`;
+  }
+  movePointer(st.pointer, st.click);
+  const pct = (t / END) * 100;
+  $("fill").style.width = pct + "%";
+  $("knob").style.left = pct + "%";
+  $("scrub").value = t;
+  $("time").textContent = `${t.toFixed(1)} / ${END.toFixed(1)} s`;
+  let nowIdx = -1;
+  steps.forEach((s, i) => { if (t >= s.t) nowIdx = i; });
+  document.querySelectorAll(".st").forEach((el, i) => {
+    el.classList.toggle("now", i === nowIdx);
+    el.classList.toggle("future", t < steps[i].t);
+  });
+}
+
+let pointerAt = "", clicked = null;
+function movePointer(where, click) {
+  const b = $("browser"), p = $("pointer");
+  if (where !== pointerAt) {
+    pointerAt = where;
+    const box = b.getBoundingClientRect();
+    let x = box.width * 0.55, y = box.height * 0.45;
+    if (where === "rest") { x = box.width * 0.8; y = box.height * 0.55; }
+    else if (where !== "center") {
+      const r = $(where).getBoundingClientRect();
+      x = r.left - box.left + Math.min(r.width * 0.5, 40); y = r.top - box.top + r.height * 0.6;
+    }
+    p.style.transform = `translate(${x}px,${y}px)`;
+  }
+  if (click !== clicked) {
+    clicked = click;
+    if (click) { p.classList.remove("click"); void p.offsetWidth; p.classList.add("click"); }
+  }
+}
+
+function tick(now) {
+  if (!playing) return;
+  t = Math.min(END, t + (now - last) / 1000);
+  last = now;
+  render();
+  if (t >= END) return setPlaying(false);
+  requestAnimationFrame(tick);
+}
+function setPlaying(on) {
+  playing = on;
+  $("play-ic").innerHTML = on ? '<path d="M8 5v14M16 5v14" stroke-width="3"/>' : '<path d="M7 5l12 7-12 7z" fill="currentColor"/>';
+  $("play").setAttribute("aria-label", on ? "Pause" : "Play");
+  if (on) { if (t >= END) t = 0; last = performance.now(); requestAnimationFrame(tick); }
+}
+$("play").addEventListener("click", () => setPlaying(!playing));
+$("scrub").addEventListener("input", (e) => { t = +e.target.value; render(); });
+
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+function showTry(tr) {
+  cur = tr; steps = stepsFor(tr); lastKey = ""; pointerAt = "";
+  $("ph-title").textContent = `Try ${tr.n}`;
+  const v = $("verdict"); v.className = `verdict ${tr.ok ? "pass" : "fail"}`; v.innerHTML = VERDICT[tr.ok](tr);
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", +b.dataset.n === tr.n));
+  $("steps").innerHTML = steps.map((s, i) => `
+    <div class="st" data-i="${i}">
+      <span class="s ${s.s}">${s.s === "pass" ? "✓" : s.s === "fail" ? "✕" : "·"}</span>
+      <div><b>${s.title}</b><div class="d">${esc(s.d)}</div>
+        ${s.quote ? `<div class="quote">${s.code ? `<code>${esc(s.quote)}</code>` : `“${esc(s.quote)}”`}</div>` : ""}
+        <span class="how ${s.page ? "page" : ""}">${s.how}</span></div>
+      <span class="t">${s.t.toFixed(1)} s</span>
+    </div>`).join("");
+  $("marks").innerHTML = steps.filter((s) => s.t > 0).map((s) =>
+    `<i class="mk ${s.s === "fail" ? "bad" : s.s === "pass" ? "ok" : ""}" style="left:${(s.t / END) * 100}%"></i>`).join("");
+  $("why").innerHTML = tr.ok ? "" : `
+    <div class="why"><b><svg class="i" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>Our reading</b>
+      <p>The answer came back in a shape the page didn't expect: no <code>parts</code> on a reply that used memory. Tries 1 and 2 got the same answer as plain text and showed fine. Likely since the change to <code>MessageList.tsx</code> yesterday.</p>
+      <div class="btns"><button class="btn sm primary">Ask about this</button><button class="btn sm">Open MessageList.tsx:48</button><button class="btn sm ghost">Not a bug</button></div></div>`;
+  document.querySelectorAll(".st").forEach((el) => el.addEventListener("click", () => {
+    t = Math.max(0, steps[+el.dataset.i].t - 0.3); render(); setPlaying(true);
+  }));
+  t = 0; render();
+}
+
+$("tries").insertAdjacentHTML("beforeend", TRIES.map((tr) =>
+  `<button class="tab" data-n="${tr.n}"><i class="dot ${tr.ok ? "" : "bad"}"></i>Try ${tr.n}</button>`).join(""));
+document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => {
+  setPlaying(false); showTry(TRIES[+b.dataset.n - 1]);
+}));
+
+// Point at what it found, and see it on the page.
+document.querySelectorAll(".chip").forEach((c) => {
+  const on = (yes) => { $(c.dataset.el).classList.toggle("lit-el", yes); c.classList.toggle("lit", yes); };
+  c.addEventListener("mouseenter", () => on(true));
+  c.addEventListener("mouseleave", () => on(false));
+  c.addEventListener("focus", () => on(true));
+  c.addEventListener("blur", () => on(false));
+});
+
+// API or page: what changes is said, not hidden.
+const SAY = {
+  page: "Types and clicks in relay-lite's page on the test copy, records it, and checks what showed on screen as well as what was stored.",
+  api: "Sends messages straight to relay-lite's API. Faster and cheaper, but it can't see what a person sees: try 3 would have passed.",
+};
+$("mode").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  $("mode").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("mode-say").textContent = SAY[b.dataset.v];
+  $("found").style.opacity = b.dataset.v === "page" ? "1" : ".4";
+});
+
+window.addEventListener("resize", () => { pointerAt = ""; render(); });
+showTry(TRIES[2]);
+setTimeout(() => setPlaying(true), 600);
+</script>
+</body>
+</html>
