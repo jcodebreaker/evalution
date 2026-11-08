@@ -40,7 +40,15 @@ from typing import Any
 
 import httpx
 
-from evalution.adapters.base import AppError, AppRefused, Session, Target, TargetGone, failure_of
+from evalution.adapters.base import (
+    AppError,
+    AppRefused,
+    Capabilities,
+    Session,
+    Target,
+    TargetGone,
+    failure_of,
+)
 from evalution.core import net
 from evalution.core.case import MOST_TRIES, Case, EvalSet
 from evalution.core.evidence import Failure, TraceStatus, TryEvidence
@@ -75,13 +83,14 @@ from evalution.results.record import (
     add_judgement,
     environment,
     pass_marks,
+    run_isolation,
     verdict_of,
 )
 from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
-from evalution.runs import trust
+from evalution.runs import isolated, trust
 from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
 from evalution.runs.play import (
@@ -327,7 +336,11 @@ class Runs:
         load_set(docs, target, set_name)
         every = load_cases(docs, target, set_name)
         chosen = [load_case(docs, target, set_name, c) for c in cases] if cases else every
-        refused = self._refused(target, chosen)
+        found = isolated.footing(self.targets.config, target, self._declared(target))
+        if (why := isolated.refusal(self.targets.config, target, found)) is not None:
+            raise isolated.NotIsolated(why)
+        capabilities = isolated.capabilities_on(self._declared(target), found)
+        refused = self._refused(target, chosen, capabilities)
         chosen = [c for c in chosen if c.case not in refused]
         least = {c.case: tries or int(c.limits["tries"]) for c in chosen}
         most = {c.case: tries or MOST_TRIES for c in chosen}
@@ -348,12 +361,21 @@ class Runs:
             "chats": sum(least[c.case] * messages(c) for c in chosen),
             # Tests this app can't serve, left out of the run.
             "refused": [{"case": case, "why": why} for case, why in refused.items()],
-            "isolation_note": self.targets.adapter(target).capabilities.isolation_note,
+            "isolation_note": capabilities.isolation_note,
+            # How its tries will be kept apart: ``proven`` plays on evalution's own copy.
+            "isolation": found.run_label(),
         }
 
-    def _refused(self, target: str, cases: Sequence[Case]) -> dict[str, str]:
-        """``test -> why it can't run on *target*``."""
-        capabilities = self.targets.adapter(target).capabilities
+    def _declared(self, target: str) -> Capabilities:
+        """What *target*'s adapter declares, before any plan is laid over it."""
+        return self.targets.adapter(target).capabilities
+
+    def _refused(
+        self, target: str, cases: Sequence[Case], capabilities: Capabilities | None = None
+    ) -> dict[str, str]:
+        """``test -> why it can't run on *target*``, as it plays with *capabilities* (by default
+        what its adapter declares)."""
+        capabilities = capabilities or self._declared(target)
         traced = self.targets.source(target) is not None
         found = {c.case: why_not(c, capabilities, traced) for c in cases}
         return {case: why for case, why in found.items() if why}
@@ -405,6 +427,8 @@ class Runs:
             "target": plan.target,
             "set": plan.set,
             "environment": place,
+            # How its tries are kept apart: set once the run knows what it stands on.
+            "isolation": run_isolation(),
             "scope": plan.scope,
             "started_at": started,
             # How a benchmark was chosen to play, when a plan chose it.
@@ -728,11 +752,21 @@ class Runs:
         """Play every try of *cases*: one case after another, or up to the target's
         ``max_parallel`` cases at once when its adapter declares ``parallel``, each slot in its own
         session; a case's tries stay in order in one slot. *tries* of each, else until they say
-        something against *base*."""
+        something against *base*.
+
+        On a target with a proven isolation plan, each slot plays on evalution's own copy of the
+        app, put back and checked before every try (:mod:`evalution.runs.isolated`)."""
         name = doc["target"]
         target = self.targets.adapter(name)
         source = self.targets.source(name)
         sessions: dict[int, Session] = {}
+        # Each slot's adapter, when it plays on a copy of the app; else the target's own.
+        on: dict[int, Target] = {}
+        copies: isolated.Copies | None = None
+
+        def pairs() -> list[tuple[Target, Session]]:
+            return [(on.get(i, target), s) for i, s in sessions.items()]
+
         try:
             await self.recover()
             await self.store.save(doc)
@@ -742,17 +776,33 @@ class Runs:
             for case in cases:
                 doc["cases"][case.case]["stale"] = drift.stale(case, found)
             bases = await asyncio.to_thread(self._bases, doc, base)
+            parallel = target.capabilities.parallel
+            slots = min(self.targets.conf(name).max_parallel, len(cases)) if parallel else 1
+            footing = await self._footing(doc, name, target)
+            doc["isolation"] = footing.run_label()
+            if footing.managed:
+                doc["current"] = {
+                    "case": "",
+                    "name": "Starting evalution's copy of the app",
+                    "try": 1,
+                }
+                await self.store.save(doc)
+                copies = isolated.Copies(self.targets.config, name, footing)
+                await copies.start(slots)
+                on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
                 await self.store.save(doc)
-                await self._check_first(name, target, source)
+                await self._check_first(name, on.get(0, target), source)
             grader = self.caller(eval_set.grader)
             filler = (
                 filler_writer(self.caller(eval_set.filler))
                 if any(t.filler for c in cases for t in c.turns)
                 else None
             )
-            reset = target.capabilities.reset
+            # On a copy, a try opens its own session once the copy is put back: a session kept
+            # from the try before would name what putting it back took away.
+            reset = target.capabilities.reset and copies is None
             # What the turns send, written out where the adapter can be handed paths.
             set_dir = await asyncio.to_thread(
                 unpack_files,
@@ -761,8 +811,6 @@ class Runs:
                 eval_set.set,
                 self.targets.config.data_dir / "sent" / name / eval_set.set,
             )
-            parallel = target.capabilities.parallel
-            slots = min(self.targets.conf(name).max_parallel, len(cases)) if parallel else 1
             queue = list(cases)
             # Trace values earlier tries played on: their spans aren't the next one's.
             reused: set[str] = set()
@@ -775,6 +823,7 @@ class Runs:
             async def slot(index: int) -> None:
                 nonlocal adapter_failures, hangs
                 key = doc["run"] if slots == 1 else f"{doc['run']}-{index + 1}"
+                adapter = on.get(index, target)
                 while queue:
                     case = queue.pop(0)
                     entry = doc["cases"][case.case]
@@ -782,14 +831,19 @@ class Runs:
                     while more:
                         n += 1
                         doc["current"] = {"case": case.case, "name": case.name, "try": n}
+                        label = footing.try_label()
+                        if copies is not None:
+                            doc["current"]["stage"] = "restoring"
+                            await self.store.save(doc)
+                            label = await copies.restore(index)
                         if index not in sessions:
-                            sessions[index] = await _in_time("open a session", target.open(key))
+                            sessions[index] = await _in_time("open a session", adapter.open(key))
                             opened()
                         if reset:
-                            await _in_time("reset", target.reset(sessions[index]))
+                            await _in_time("reset", adapter.reset(sessions[index]))
                         await self.store.save(doc)
                         attempt, played = await self._try(
-                            target,
+                            adapter,
                             sessions[index],
                             source,
                             grader,
@@ -799,7 +853,9 @@ class Runs:
                             case,
                             n,
                             reused,
+                            unclean=label["problem"] if copies is not None else None,
                         )
+                        attempt["isolation"] = label
                         entry["tries"].append(attempt)
                         doc["totals"] = totals(doc)
                         if tries:
@@ -825,10 +881,10 @@ class Runs:
                             or played.failure is Failure.TIMED_OUT
                             or (played.failure is Failure.TRANSIENT and played.heard)
                         )
-                        if left_going and target.capabilities.background and not played.cancelled:
+                        if left_going and adapter.capabilities.background and not played.cancelled:
                             raise StillWorking(STILL_WORKING)
                         if not reset:
-                            await close_quietly(target, sessions.pop(index))
+                            await close_quietly(adapter, sessions.pop(index))
                             opened()
                         await self.store.save(doc)
 
@@ -842,8 +898,10 @@ class Runs:
             doc["status"] = "done"
         except asyncio.CancelledError:
             doc.update(status="stopped", stop_reason=self._stop_reason or SERVER_SHUTDOWN)
-            await self._finish(target, list(sessions.values()), doc)
+            await self._finish(pairs(), doc, copies)
             raise
+        except (isolated.NotIsolated, isolated.CopyLost) as exc:
+            doc.update(status="failed", failure=APP_NOT_READY, stop_reason=str(exc), error=str(exc))
         except AdapterBroken as exc:
             _logger.warning("evals: run %s: the adapter isn't reading the app", doc["run"])
             doc.update(
@@ -880,9 +938,24 @@ class Runs:
         doc["analyzing"] = doc["status"] in ("done", "failed") and (
             failed or (played and self.caller(doc["judge"]["key"]) is not None)
         )
-        await self._finish(target, list(sessions.values()), doc)
+        await self._finish(pairs(), doc, copies)
         if doc["analyzing"]:
             await self._analyze(doc)
+
+    async def _footing(self, doc: dict[str, Any], name: str, target: Target) -> isolated.Footing:
+        """What the run stands on: a proven plan, rehearsed again first when its evidence changed.
+
+        :raises NotIsolated: It has none, and ``isolation.require_proven`` asks for one.
+        """
+        config = self.targets.config
+        found = await asyncio.to_thread(isolated.footing, config, name, target.capabilities)
+        if found.to_rehearse:
+            doc["current"] = {"case": "", "name": "Rehearsing the isolation plan again", "try": 1}
+            await self.store.save(doc)
+            found = await isolated.rehearse_again(config, name, found)
+        if (why := isolated.refusal(config, name, found)) is not None:
+            raise isolated.NotIsolated(why)
+        return found
 
     def _bases(self, doc: Mapping[str, Any], base: Mapping[str, Any] | None) -> dict[str, Verdict]:
         """Each case's result in the run *doc* will be compared with: *base*, else the one a
@@ -923,18 +996,27 @@ class Runs:
         remember_setup(self.targets.config.data_dir, name, key)
 
     async def _finish(
-        self, target: Target, sessions: Sequence[Session], doc: dict[str, Any]
+        self,
+        sessions: Sequence[tuple[Target, Session]],
+        doc: dict[str, Any],
+        copies: isolated.Copies | None = None,
     ) -> None:
+        """End the run: its sessions closed, each by its own adapter, then the copies of the app
+        it played on put back and taken down, then the run saved as it ended."""
         doc["totals"] = totals(doc)
         doc["current"] = None
         self._running = self._playing = None
         doc["ended_at"] = time.time()
-        for session in sessions:
+        for target, session in sessions:
             # Stopped or failed mid-try: a side-by-side session may still have work going.
             if doc["status"] != "done":
                 await asyncio.shield(cancel_quietly(target, session))
             await asyncio.shield(close_quietly(target, session))
         doc["sessions"] = []
+        if copies is not None:
+            left = await asyncio.shield(copies.close())
+            if left:
+                _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
         await asyncio.shield(self._save(doc))
 
     async def _try(
@@ -949,6 +1031,7 @@ class Runs:
         case: Case,
         n: int,
         reused: set[str],
+        unclean: str | None = None,
     ) -> tuple[dict[str, Any], Played]:
         async def on_turn(sent: int, planned: int) -> None:
             playing = doc.get("current")
@@ -978,6 +1061,7 @@ class Runs:
             trace_wait=NO_TRACES_WAIT if doc["run"] in self._no_traces else None,
             on_turn=on_turn,
             on_stage=on_stage,
+            unclean=unclean,
         )
         if played.evidence is not None and played.evidence.trace is TraceStatus.EMPTY:
             self._no_traces.add(doc["run"])

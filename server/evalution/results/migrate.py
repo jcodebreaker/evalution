@@ -11,6 +11,9 @@ Their judge is on record by key only, so they are comparable with nothing.
 
 Schema 1 didn't say where a run played: every run then played on the computer that kept it, so it
 reads as ``local``, with no name.
+
+Schema 2 didn't say how tries were kept apart: no run then played on a copy evalution put back, so
+the run and each try read as ``isolation: {"how": "none", ...}``.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from evalution.core.judgement import (
     WhyUnjudged,
 )
 from evalution.core.rules import judgement, line_outcome, rubric_outcome, tools_bind
-from evalution.results.record import SCHEMA, environment
+from evalution.results.record import SCHEMA, environment, isolation, run_isolation
 from evalution.results.views import totals
 
 #: What reading something that isn't a run raises, whichever part of it is off.
@@ -420,10 +423,22 @@ def _one_to_two(old: Mapping[str, Any]) -> dict[str, Any]:
     return {**old, "schema": 2, "environment": environment("local")}
 
 
+def _two_to_three(old: Mapping[str, Any]) -> dict[str, Any]:
+    cases = {
+        stem: {
+            **entry,
+            "tries": [{**t, "isolation": isolation()} for t in entry.get("tries") or []],
+        }
+        for stem, entry in (old.get("cases") or {}).items()
+    }
+    return {**old, "schema": 3, "isolation": run_isolation(), "cases": cases}
+
+
 def upcast(doc: dict[str, Any]) -> dict[str, Any]:
     """*doc* as today's schema: the same object when it already is."""
     schema = int(doc.get("schema") or 0)
     if schema >= SCHEMA:
         return doc
     found = _zero_to_one(doc) if schema < 1 else doc
-    return _one_to_two(found)
+    found = _one_to_two(found) if schema < 2 else found
+    return _two_to_three(found)

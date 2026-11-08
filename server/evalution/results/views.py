@@ -24,6 +24,7 @@ from evalution.core.rules import (
 )
 from evalution.results.record import (
     environment_of,
+    isolation_of,
     judgements,
     key_of,
     noted,
@@ -216,6 +217,8 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "prompt": run.get("prompt") or "",
         "pass_marks": pass_marks(run),
         "environment": dict(zip(("where", "name"), environment_of(run), strict=True)),
+        # How its tries were kept apart (ADR 0009): on a copy put back by a proven plan, or not.
+        "isolation": isolation_of(run, run=True),
         "case_ids": list(run["cases"]),
         "tests": [_run_test(run, k, c) for k, c in run["cases"].items()],
         "analyzing": bool(run.get("analyzing")),
@@ -416,6 +419,7 @@ def case_detail(run: Mapping[str, Any], stem: str) -> dict[str, Any] | None:
             "retried": t.get("retried") or [],
             "context": t.get("context") or [],
             "trajectory": t.get("trajectory") or [],
+            "isolation": isolation_of(t),
             **_automatic_rows(t),
         }
         for t in entry["tries"]

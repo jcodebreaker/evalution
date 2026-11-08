@@ -65,7 +65,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
@@ -89,6 +89,9 @@ class Isolation(Enum):
     SESSION = "session"
     #: A new user, who has nothing of anyone else's.
     IDENTITY = "identity"
+    #: Evalution puts the app's stores back itself, on its own copy of the app, by a plan it proved
+    #: (ADR 0009). What a try starts clean of is what that plan covers, not what the adapter says.
+    MANAGED = "managed"
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,13 @@ class Capabilities:
         if self.isolation is Isolation.IDENTITY:
             return frozenset(CLEAN_KINDS)
         return frozenset({"conversation"} if self.isolation is Isolation.SESSION else ())
+
+    def managed(self, covered: frozenset[str], note: str) -> Capabilities:
+        """These capabilities on evalution's own copy of the app, whose stores a proven plan puts
+        back before every try: a try starts clean of what the adapter promised and of what the
+        plan *covers* (some of ``conversation``, ``memory``, ``files``)."""
+        clean = self.starts_clean() | (covered & frozenset(CLEAN_KINDS))
+        return replace(self, isolation=Isolation.MANAGED, isolation_note=note, clean=clean)
 
     def names(self) -> list[str]:
         """The API's and the test writer's words for it, sorted."""

@@ -101,7 +101,7 @@ def launch_spec(folder: Path, options: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _copy_of(spec: dict[str, Any], target: str, slot: int, folder: Path) -> Copy:
+def copy_of(spec: dict[str, Any], target: str, slot: int, folder: Path) -> Copy:
     if spec.get("kind") == "compose":
         return ComposeCopy(
             [Path(f) for f in spec.get("files") or []],
@@ -123,7 +123,7 @@ def _copy_of(spec: dict[str, Any], target: str, slot: int, folder: Path) -> Copy
     raise LookupError(f"not a way to start a copy: {spec.get('kind')!r}")
 
 
-def _roots(copy: Copy, spec: dict[str, Any]) -> list[Path]:
+def roots_of(copy: Copy, spec: dict[str, Any]) -> list[Path]:
     """Folders here that belong to the copy alone: a file store may be put back only in them.
     A compose copy has none (its bind mounts are the person's)."""
     if isinstance(copy, ComposeCopy):
@@ -378,7 +378,7 @@ class ProcessRunner:
 # The pipeline ----------------------------------------------------------------------------------
 
 
-def _work(config: Config, target: str) -> Path:
+def work_folder(config: Config, target: str) -> Path:
     """An empty folder of evalution's own for one copy and its kept stores."""
     folder = config.data_dir / "isolation" / target / "work" / time.strftime("%Y%m%d-%H%M%S")
     folder = folder.with_name(f"{folder.name}-{secrets.token_hex(3)}")
@@ -386,7 +386,7 @@ def _work(config: Config, target: str) -> Path:
     return folder
 
 
-def _folder(config: Config, target: str) -> Path:
+def code_folder(config: Config, target: str) -> Path:
     conf = config.targets.get(target)
     if conf is None:
         raise LookupError(f"no target {target}")
@@ -422,7 +422,7 @@ async def _rehearse_on(
     folder: Path, work: Path,
 ) -> tuple[Rehearsal, list[str]]:  # fmt: skip
     notes: list[str] = []
-    drivers = await drivers_for(plan, copy, roots=_roots(copy, spec), notes=notes)
+    drivers = await drivers_for(plan, copy, roots=roots_of(copy, spec), notes=notes)
     if isinstance(copy, ComposeCopy):
         keep = [d.container for d in drivers if isinstance(d, PostgresStore)]
         runner: ComposeRunner | ProcessRunner = ComposeRunner(copy, probe, keep)
@@ -456,6 +456,7 @@ async def isolate(
     yes: bool = False,
     ask: Ask | None = None,
     keep: bool = False,
+    on_stage: Callable[[str], object] | None = None,
 ) -> Plan:
     """Find *target*'s stores on a copy of the app, draft a plan, rehearse it there, save it.
 
@@ -463,15 +464,22 @@ async def isolate(
     :param launch: How to start the copy (:func:`launch_spec`); by default found from *folder*.
     :param yes: Send the probes without asking; else *ask* is shown the copy first.
     :param keep: Leave the copy running afterwards (it is otherwise always taken down).
+    :param on_stage: Told each stage as it begins: ``start``, ``find``, ``plan``, ``rehearse``.
     :raises Declined: The person said no; the copy is already taken down.
     """
-    folder = (folder or _folder(config, target)).resolve()
+
+    def stage(key: str) -> None:
+        if on_stage is not None:
+            on_stage(key)
+
+    folder = (folder or code_folder(config, target)).resolve()
     spec = launch or launch_spec(folder, config.targets[target].options)
-    work = _work(config, target)
-    copy = _copy_of(spec, target, slot, work)
+    work = work_folder(config, target)
+    copy = copy_of(spec, target, slot, work)
     left: list[str] = []
     downed = False
     try:
+        stage("start")
         if isinstance(copy, ComposeCopy):
             await copy.start()
             pid = None
@@ -483,6 +491,7 @@ async def isolate(
         tag = secrets.token_hex(4)
 
         # The probe: the code read, this computer watched, the copy's containers searched.
+        stage("find")
         stores = await asyncio.to_thread(discover.scan, folder)
         canary = f"eval-canary-{secrets.token_hex(6)}"
         send = prober(adapter, f"isolation-find-{tag}")
@@ -491,10 +500,12 @@ async def isolate(
         found = await containers.search(boxes, canary)
         stores = observe.reconcile(folder, stores, seen)
         stores = containers.reconcile(stores, boxes, found)
+        stage("plan")
         plan = draft_from(folder, stores, seen, found, target=target)
         plan.launch = {**spec, "project": plan.launch.get("project")}
         PlanStore(config.data_dir).save_evidence(target, evidence(stores, found, seen))
 
+        stage("rehearse")
         result, notes = await _rehearse_on(
             plan, copy, spec, prober(adapter, f"isolation-rehearse-{tag}"), folder, work
         )
@@ -511,6 +522,17 @@ async def isolate(
             await _quietly(take_down(copy))
 
 
+def plan_spec(config: Config, target: str, plan: Plan) -> dict[str, Any]:
+    """How to start a copy for *plan*: its own ``launch`` when that says enough, else what
+    :func:`launch_spec` finds in the target's code folder.
+
+    :raises LookupError: No such target, or nothing says how to start a copy.
+    """
+    if plan.launch.get("files") or plan.launch.get("command"):
+        return plan.launch
+    return launch_spec(code_folder(config, target).resolve(), config.targets[target].options)
+
+
 async def rehearse_plan(config: Config, target: str, plan: Plan, *, slot: int = 0) -> Plan:
     """Rehearse *plan* as it is on a fresh copy of the app and take the copy down. Sends one
     probe message. The plan comes back ``proven`` or ``failed``, with the rehearsal's account in
@@ -519,11 +541,10 @@ async def rehearse_plan(config: Config, target: str, plan: Plan, *, slot: int = 
     :raises LookupError: No such target, or nothing says how to start a copy.
     :raises LaunchError: The copy didn't start.
     """
-    folder = _folder(config, target).resolve()
-    spec = plan.launch if plan.launch.get("files") or plan.launch.get("command") else None
-    spec = spec or launch_spec(folder, config.targets[target].options)
-    work = _work(config, target)
-    copy = _copy_of(spec, target, slot, work)
+    folder = code_folder(config, target).resolve()
+    spec = plan_spec(config, target, plan)
+    work = work_folder(config, target)
+    copy = copy_of(spec, target, slot, work)
     left: list[str] = []
     downed = False
     try:

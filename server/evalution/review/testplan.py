@@ -31,6 +31,7 @@ from evalution.core.rules import called_of, current, label_of, line_reason, step
 from evalution.core.trace import Call
 from evalution.judging.steps import actual, describe_arg
 from evalution.llm import Caller, ask_json, fenced, json_answer
+from evalution.results.record import isolation_of
 
 _logger = logging.getLogger(__name__)
 
@@ -924,6 +925,8 @@ def compare(
         "trace_url": attempt.get("trace_url"),
         "seconds": attempt.get("seconds"),
         "trace_note": trace_words(attempt, judged),
+        # How this try was kept from earlier ones (ADR 0009); an older run reads as none.
+        "isolation": isolation_of(attempt),
         "explain": explain(judged, attempt, len(ids), marks or {}),
         "tool_rows": _tool_rows(attempt),
         "trajectory": _trajectory(tries, expected, names),

@@ -19,7 +19,7 @@ from evalution.core.rules import (
     verdict_note,
 )
 
-SCHEMA = 2
+SCHEMA = 3
 #: Where a run played: ``hosted``, by a hosted server against an app on the internet, or ``local``,
 #: on someone's computer or in CI (``evalution run``, uploaded or not). Runs of one app in two
 #: places aren't one series: the app, its data and its network differ.
@@ -47,6 +47,46 @@ def environment_of(run: Mapping[str, Any]) -> tuple[str, str | None]:
     """Where *run* played, as a key to group or match runs by."""
     found = run.get("environment") or {}
     return found.get("where") or "local", found.get("name")
+
+
+#: How a try was kept from what earlier ones left (ADR 0009): ``proven``, on evalution's own copy
+#: of the app, its stores put back by a proven plan and checked before the try; ``identity``, as a
+#: new person, as the adapter promises; ``none``, nothing evalution made or checked.
+ISOLATION_HOWS = ("proven", "identity", "none")
+
+
+def isolation(
+    how: str = "none",
+    plan_version: int | None = None,
+    restore_seconds: float | None = None,
+    checked: list[str] | None = None,
+    problem: str | None = None,
+) -> dict[str, Any]:
+    """A try's ``isolation``: how it was kept from earlier tries, the plan that did it, how long
+    putting the copy back took, the stores whose hash matched the starting state's after that, and
+    why it didn't hold, when it didn't."""
+    if how not in ISOLATION_HOWS:
+        raise ValueError(f"isolation: how is one of {', '.join(ISOLATION_HOWS)}")
+    return {
+        "how": how,
+        "plan_version": plan_version,
+        "restore_seconds": restore_seconds,
+        "checked": list(checked or []),
+        "problem": problem,
+    }
+
+
+def run_isolation(how: str = "none", plan_version: int | None = None) -> dict[str, Any]:
+    """A run's ``isolation``: how its tries were kept apart, and by which version of the plan."""
+    return {k: v for k, v in isolation(how, plan_version).items() if k in ("how", "plan_version")}
+
+
+def isolation_of(record: Mapping[str, Any], *, run: bool = False) -> dict[str, Any]:
+    """The ``isolation`` a run or a try keeps; one stored before it was kept reads as none."""
+    found = record.get("isolation")
+    if isinstance(found, Mapping) and found.get("how") in ISOLATION_HOWS:
+        return dict(found)
+    return run_isolation() if run else isolation()
 
 
 def judgements(entry: Mapping[str, Any]) -> list[Judgement]:

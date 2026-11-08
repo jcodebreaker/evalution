@@ -19,6 +19,7 @@ import asyncio
 import json
 import math
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -42,6 +43,7 @@ from evalution.config import TargetConfig
 from evalution.config import load as load_config
 from evalution.core.evidence import Failure, TurnEnd
 from evalution.core.trace import Section
+from evalution.isolation.plan import Plan, PlannedStore, PlanStore
 from evalution.judging.rubric import FILLER_INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
 from evalution.judging.rubric import INSTRUCTIONS as GRADER_INSTRUCTIONS
 from evalution.llm import LLMError
@@ -117,6 +119,21 @@ LATE_SECONDS = 60.0
 #: ``evalution.traces.base.MAX_SPANS``: the read stops at this many AI spans.
 OVER_THE_CAP = 20_000
 MODEL = "scripted-model"
+#: ``rig folder -> (clock, span store)``: what an agent made for a rig's target is wired to, so a
+#: copy of it made later (pointed at evalution's own copy of the app) plays on the same clock.
+WIRES: dict[str, tuple[Any, Any]] = {}
+#: The app evalution starts its own copy of, for a managed target: it only answers on its port.
+#: With a second argument it writes a line to that file each time it starts, as an app that
+#: changes its store on start does, so putting the store back never holds.
+COPY_APP = """\
+import http.server, sys
+if len(sys.argv) > 2:
+    with open(sys.argv[2], "a") as f:
+        f.write("started\\n")
+http.server.ThreadingHTTPServer(
+    ("127.0.0.1", int(sys.argv[1])), http.server.SimpleHTTPRequestHandler
+).serve_forever()
+"""
 
 
 class Clock:
@@ -207,7 +224,14 @@ class ScriptedAgent(Target):
         #: ``unreachable_mid_try``: the app stops answering ("connect"), or the session goes.
         self.unreachable_how = "connect"
         #: ``forgets_to_store`` holds from this try on.
-        self.store_fails_from_try = 1
+        self.store_fails_from_try = int(target.options.get("store_fails_from_try") or 1)
+        #: Where the person's memory is kept, as an app keeps it on disk: read before and written
+        #: after every turn, so what a store holds is what the next try finds. ``None``: in memory.
+        found = target.options.get("memory_file")
+        rig = Path(str(target.options.get("rig") or "."))
+        self.memory_file = rig / found if found else None
+        #: With a memory file a try begins at a reset or a new session, whichever comes first.
+        self._fresh = False
         #: Tries whose spans never reach the source.
         self.no_spans_on_tries: set[int] = set()
         #: A reset keeps the session's trace value, as an adapter that resets one conversation does.
@@ -230,15 +254,39 @@ class ScriptedAgent(Target):
         self._ids = 0
         self._conversations = 0
         self._outbox: list[tuple[float, dict[str, Any]]] = []
+        # A copy of this agent made for evalution's own copy of the app is wired as the rig's.
+        if (wired := WIRES.get(str(target.options.get("rig")))) is not None:
+            self.wire(*wired)
 
     def wire(self, clock: Clock, store: Any) -> None:
         self.clock, self.store = clock, store
         clock.on_sleep.append(self.deliver)
 
+    def _person(self, session: Session) -> Person:
+        """The session's person, its memory read from the memory file when there is one."""
+        key = session.extra["person"]
+        person = self.people.setdefault(key, Person())
+        if self.memory_file is not None:
+            kept = json.loads(self.memory_file.read_text()) if self.memory_file.is_file() else {}
+            person.memory = list(kept.get(key) or [])
+        return person
+
+    def _keep(self, session: Session) -> None:
+        """Write the session's person's memory to the memory file, when there is one."""
+        if self.memory_file is None:
+            return
+        key = session.extra["person"]
+        kept = json.loads(self.memory_file.read_text()) if self.memory_file.is_file() else {}
+        kept[key] = self.people[key].memory
+        self.memory_file.parent.mkdir(parents=True, exist_ok=True)
+        self.memory_file.write_text(json.dumps(kept))
+
     # The Target
 
     async def open(self, run: str) -> Session:
         self.people[run] = Person()
+        if self.memory_file is not None:
+            self._fresh, self.sends = True, 0
         return Session(run, "session.id", self._conversation_id(run), {"person": run})
 
     def _conversation_id(self, run: str) -> str:
@@ -246,12 +294,15 @@ class ScriptedAgent(Target):
         return f"scripted-{run}-c{self._conversations}"
 
     async def reset(self, session: Session) -> None:
-        self.tries += 1
+        if self.memory_file is None:
+            self.tries += 1
+        self._fresh = True
         self.sends = 0
-        person = self.people[session.extra["person"]]
+        person = self._person(session)
         if "leak_across_tries" not in self.faults:
             person.memory, person.shadow = [], []
         person.conversation = Conversation()
+        self._keep(session)
         if not self.stable_trace_value:
             session.trace_value = self._conversation_id(session.extra["person"])
 
@@ -271,7 +322,7 @@ class ScriptedAgent(Target):
 
     async def state(self, session: Session, check: dict[str, Any]) -> StateResult:
         ((key, value),) = check.items()
-        person = self.people[session.extra["person"]]
+        person = self._person(session)
         if key == "checkpoint":
             done = person.conversation.compacted
             return StateResult(done == bool(value), f"compacted: {done}", f"compacted: {done}")
@@ -313,12 +364,15 @@ class ScriptedAgent(Target):
             if self.unreachable_how == "gone":
                 raise TargetGone("the app went away")
             raise httpx.ConnectError("connection refused")
-        person = self.people[session.extra["person"]]
+        if self.memory_file is not None and self._fresh:
+            self.tries, self._fresh = self.tries + 1, False
+        person = self._person(session)
         conversation = person.conversation
         conversation.turn += 1
         started = self.clock.now
         request = self._request(person, conversation, message)
         reply, tools = self._act(person, conversation, message)
+        self._keep(session)
         conversation.messages += [
             {"role": "user", "content": message},
             {"role": "assistant", "content": reply},
@@ -878,11 +932,13 @@ class Rig:
         options: dict[str, Any] | None = None,
     ) -> None:
         self.faults = frozenset(faults)
+        self.root = root
         traces: dict[str, Any] = {**(traces_options or {})}
         block = {
             "adapter": "scripted_agent",
             "faults": sorted(self.faults),
             "shape": shape,
+            "rig": str(root),
             **(options or {}),
         }
         (root / "evalution.yaml").write_text(
@@ -906,6 +962,36 @@ class Rig:
         # Its spans reach nothing evalution reads.
         sent_to = None if "sends_no_traces" in self.faults else self.targets.store
         self.agent.wire(clock, sent_to)
+        WIRES[str(root)] = (clock, sent_to)
+
+    def manage(self, *, drifts: bool = False) -> Path:
+        """Make the target a managed one: a plan, saved as proven, whose one store is the folder
+        the agent keeps its memory in (option ``memory_file``, inside it), and whose copy of the
+        app is :data:`COPY_APP` started from its command. With *drifts*, the copy writes into
+        that folder each time it starts. The folder."""
+        memory = Path(self.agent.memory_file or "").parent
+        if self.agent.memory_file is None or not memory.is_relative_to(self.root):
+            raise RuntimeError("the rig is broken: give the agent a memory_file in its folder")
+        memory.mkdir(parents=True, exist_ok=True)
+        app = self.root / "copy_app.py"
+        app.write_text(COPY_APP)
+        command = [sys.executable, str(app), "{port}"]
+        if drifts:
+            command.append(str(memory / "started.log"))
+        plan = Plan(
+            target=TARGET,
+            stores=[PlannedStore("memory", "dir", str(memory), strategy="snapshot")],
+            launch={
+                "kind": "process",
+                "command": command,
+                "cwd": str(self.root),
+                "roots": [str(memory)],
+                "health": None,
+            },
+            status="proven",
+        )
+        PlanStore(self.config.data_dir).save(plan)
+        return memory
 
     def fill(self, template_id: str) -> str:
         """Library test *template_id* through the real fit and fill paths, saved as a case."""

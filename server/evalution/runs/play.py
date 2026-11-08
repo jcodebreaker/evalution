@@ -195,12 +195,15 @@ async def play_try(
     on_turn: OnTurn | None = None,
     on_stage: OnStage | None = None,
     second_go: bool = False,
+    unclean: str | None = None,
 ) -> Played:
     """Play *case* once in *session* and read its spans back. Never raises for a failed turn (that
     is ``Played.failure``). *reused* holds the trace values earlier tries of the run played on, and
     gets this one's. *stuck* is how long after the agent's answer the adapter may go on waiting.
-    *second_go*: what started before this go is the go before's, whatever marks it carries."""
-    left_over = await leftover(target, session, case)
+    *second_go*: what started before this go is the go before's, whatever marks it carries.
+    *unclean*: why the app can't be taken to start clean (a reset of evalution's copy that didn't
+    hold); the try isn't played, as when it starts holding what an earlier one left."""
+    left_over = unclean or await leftover(target, session, case)
     played = Played(t0=time.time())
     limit = float(case.limits.get("seconds") or DEFAULT_SECONDS)
     deadline = played.t0 + limit

@@ -109,6 +109,8 @@ class Plan:
     report: str = ""
     evidence_hashes: dict[str, str] = field(default_factory=dict)
     leaks: list[str] = field(default_factory=list)
+    #: The files a commit changed under the evidence, when the plan was marked ``stale``.
+    stale_files: list[str] = field(default_factory=list)
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
 
@@ -426,6 +428,11 @@ class PlanStore:
         for _, old in kept[: max(0, len(kept) + 1 - VERSIONS_KEPT)]:
             old.unlink()
         return number
+
+    def version(self, target: str) -> int | None:
+        """The number of the target's current plan, as :meth:`save` gave it; ``None`` for none."""
+        kept = self._versions(target)
+        return kept[-1][0] if kept else None
 
     def save_evidence(self, target: str, data: dict[str, Any]) -> Path:
         """Keep what the last probe found for *target* (``evidence.json`` beside its plan): the

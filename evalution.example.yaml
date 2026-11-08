@@ -8,6 +8,10 @@ traces:                          # apps send OTLP to this server's /v1/traces
   # keep_days: 30                # spans received longer ago than this go, once a day
   # settle_seconds: 6            # a try's spans must hold still this long before they count as all
 
+# isolation:                     # an app with a proven plan (`evalution isolate --target T`) plays on
+#   require_proven: false        # evalution's own copy, put back before every try; true refuses to
+#                                # run an app without one, false runs it as it is, "not isolated"
+
 # evalution's own model. Set it on the page (Settings, Model), or uncomment this: a model here wins
 # over the page, which then can't change it.
 # model:
