@@ -152,15 +152,9 @@ def normalised(text: str) -> str:
 
 def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
     """What a target played through *page* can do: what its adapter can, without files or Stop
-    (v1), and a new conversation only when the page can follow it there. It can't be watched."""
-    follows = not inner.watch or page.actions.new_chat is not None
-    return replace(
-        inner,
-        files=False,
-        stop=False,
-        watch=False,
-        conversation_break=inner.conversation_break and follows,
-    )
+    (v1). A new conversation is its adapter's, and the page then opens it, so it needs no New chat
+    on the page. It can't be watched."""
+    return replace(inner, files=False, stop=False, watch=False)
 
 
 def on_page(target: TargetConfig, adapter: Target, copy_url: str, slot: int = 0) -> Target:

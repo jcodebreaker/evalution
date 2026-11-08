@@ -81,7 +81,8 @@ _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 _URL_PLACEHOLDERS = {"copy_page", "session"}
 _VALUE_PLACEHOLDERS = {"account.email", "account.password"}
 _HEADER_PLACEHOLDERS = {"account.email", "person.email"}
-_SECRET_PLACEHOLDER = re.compile(r"^secret:[A-Za-z_][A-Za-z0-9_]*$")
+#: A stored secret is named like ``targets/<target>/<key>``; an env var like ``MY_KEY``.
+_SECRET_PLACEHOLDER = re.compile(r"^secret:[A-Za-z_][A-Za-z0-9_./-]*$")
 _HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 _SECRET_NAME = re.compile(r"secret|token|key|password|authorization", re.IGNORECASE)
 
@@ -352,9 +353,11 @@ class Actions(_Strict):
 
 class Replies(_Strict):
     """Where the replies are: the list (``in``), each one in it (``item``), and which are the
-    assistant's (``mine``). A page whose messages have no roles leaves ``item`` and ``mine`` out."""
+    assistant's (``mine``). A page whose messages have no roles leaves ``item`` and ``mine`` out,
+    and one whose conversation is an unnamed landmark (``{role: main}``) may name the role alone:
+    the first such element is the one."""
 
-    in_: Element = Field(alias="in")
+    in_: Repeated = Field(alias="in")
     item: Repeated | None = None
     mine: Mark | None = None
 

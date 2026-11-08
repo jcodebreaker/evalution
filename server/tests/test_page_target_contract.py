@@ -148,9 +148,7 @@ def test_it_declares_its_inner_adapters_capabilities_less_what_a_page_cant(wrapp
     target, inner = wrapped
     declared, theirs = target.capabilities, inner.capabilities
     assert not declared.files and not declared.stop and not declared.watch
-    follows = not theirs.watch or target.page.actions.new_chat is not None
-    assert declared.conversation_break == (theirs.conversation_break and follows)
-    changed = {"files", "stop", "watch", "conversation_break"}
+    changed = {"files", "stop", "watch"}
     for item in fields(Capabilities):
         if item.name not in changed:
             assert getattr(declared, item.name) == getattr(theirs, item.name), item.name
@@ -217,10 +215,8 @@ def test_page_capabilities_follow_the_inner_adapters() -> None:
     plain = Capabilities(Isolation.SESSION, "New id.", conversation_break=True, files=True)
     page = PageMap.model_validate(MAP)
     assert page_capabilities(plain, page).conversation_break
-    watching = replace(plain, watch=True)
-    assert not page_capabilities(watching, page).conversation_break
-    with_new = PageMap.model_validate({**MAP, "actions": {**MAP["actions"], **NEW_CHAT}})
-    assert page_capabilities(watching, with_new).conversation_break
+    # The page sending doesn't stop it: the adapter starts the conversation, the page opens it.
+    assert page_capabilities(replace(plain, watch=True), page).conversation_break
 
 
 # Refusals

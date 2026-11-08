@@ -163,7 +163,7 @@ What it changes:
 `runs/page/target.py`.
 
 1. `PageTarget(inner, map)`, composed by the runner when the target has a `page:` block and its footing is managed; refused with a plain reason otherwise.
-2. `capabilities`: the inner adapter's, as an instance attribute (as `http.py:215` already does). Not `conversation_break` unless `new_chat` is mapped; never `files` or `stop` in v1.
+2. `capabilities`: the inner adapter's, as an instance attribute (as `http.py:215` already does). `conversation_break` is the inner adapter's: it starts the new conversation and the page opens it, so New chat needn't be mapped. Never `files` or `stop` in v1.
 3. One browser per copy (as `adapter_on` builds one adapter per copy, at most `MOST_COPIES`); a new browser context per try, so cookies, storage, IndexedDB and service workers never carry over.
 4. `open`: the inner `open`, then a context, sign in with the slot's seeded account, open the session's page, wait for `ready`.
 5. `send`: as phase 0 chose ("page sends" or "page watches"). Read the send request's response through `page.on("response")` and reuse `failure_of_status` and `status_may_have_passed_on`, so `heard`, `lost`, `REFUSED`, `TRANSIENT` mean what they do today. An element not found is `PAGE_MAP`.
