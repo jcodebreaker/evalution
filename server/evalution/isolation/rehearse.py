@@ -17,78 +17,16 @@ in a folder of evalution's own.
 
 from __future__ import annotations
 
-import hashlib
 import secrets
-import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from evalution.code import SKIP_DIRS
 from evalution.isolation import observe
+from evalution.isolation.drivers.files import SIDECARS, FileStore
 
-#: Files beside a SQLite database that are part of it.
-SIDECARS = ("-wal", "-shm", "-journal")
-
-
-class FileStore:
-    """A store kept in files: one file (with its SQLite sidecars) or one folder."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path.resolve()
-
-    @property
-    def name(self) -> str:
-        return str(self.path)
-
-    def _parts(self) -> list[Path]:
-        return [self.path, *(self.path.with_name(self.path.name + s) for s in SIDECARS)]
-
-    def covers(self, path: str) -> bool:
-        p = Path(path)
-        return any(p == part or p.is_relative_to(part) for part in self._parts())
-
-    def digest(self) -> str:
-        h = hashlib.sha256()
-        for part in self._parts():
-            if part.is_dir():
-                for sub in sorted(part.rglob("*")):
-                    if sub.is_file():
-                        h.update(str(sub.relative_to(part)).encode())
-                        h.update(sub.read_bytes())
-            elif part.is_file():
-                h.update(part.name.encode())
-                h.update(part.read_bytes())
-        return h.hexdigest()
-
-    def keep(self, into: Path) -> None:
-        """Copy it into *into*; what doesn't exist is remembered as absent."""
-        into.mkdir(parents=True)
-        for part in self._parts():
-            if part.is_dir():
-                shutil.copytree(part, into / part.name, symlinks=True)
-            elif part.is_file():
-                shutil.copy2(part, into / part.name)
-
-    def put_back(self, kept: Path) -> None:
-        """Make it exactly what :meth:`keep` copied: replaced, or removed where it was absent."""
-        for part in self._parts():
-            if part.is_dir():
-                shutil.rmtree(part)
-            elif part.exists():
-                part.unlink()
-            copy = kept / part.name
-            if copy.is_dir():
-                shutil.copytree(copy, part, symlinks=True)
-            elif copy.is_file():
-                shutil.copy2(copy, part)
-
-    def holding(self, canary: str) -> list[str]:
-        out = []
-        for part in self._parts():
-            files = [p for p in part.rglob("*") if p.is_file()] if part.is_dir() else [part]
-            out += [str(f) for f in files if f.is_file() and observe.holds(str(f), canary)]
-        return out
+__all__ = ["SIDECARS", "FileStore", "Rehearsal", "Step", "rehearse"]
 
 
 @dataclass
