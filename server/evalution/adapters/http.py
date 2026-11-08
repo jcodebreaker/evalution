@@ -32,8 +32,10 @@ Each try gets a new session id, ``evalution-<run>-t<try>-<random>``, and every r
 no context sections. Files and Stop are not supported (the turn errors).
 
 Each poll checks ``failed_when``, then ``blocked_when``, then ``until``, all in the same grammar;
-``why`` is where the app says why. ``close`` does nothing, so what a try leaves in the app stays;
-``cancel`` is called only with the session id of a try this run opened.
+``why`` is where the app says why. With ``done.poll`` it also waits on a turn the app's own page
+sent (``watch``), by the same polls; with ``done: response`` it can't. ``close`` does nothing, so
+what a try leaves in the app stays; ``cancel`` is called only with the session id of a try this run
+opened.
 """
 
 from __future__ import annotations
@@ -231,8 +233,10 @@ class HttpTarget(Target):
                 _check_poll(poll)
             except ValueError as exc:
                 raise ConfigError(f"targets.{target.name}.http.done.poll: {exc}") from exc
-            if poll.get("blocked_when"):
-                self.capabilities = replace(self.capabilities, blocks=True)
+            # It polls the session until done, so it can wait on a turn the page sent too.
+            self.capabilities = replace(
+                self.capabilities, blocks=bool(poll.get("blocked_when")), watch=True
+            )
         elif self.capabilities.background:
             raise ConfigError(f"targets.{target.name}.http.background: {_NEEDS_POLL}")
         self.trace_attribute = str(conf.get("trace_attribute") or "session.id")
@@ -314,11 +318,35 @@ class HttpTarget(Target):
             RUN_HEADER: str(session.extra.get("run", "")),
             TRY_HEADER: str(session.extra.get("try", "")),
         }
-        heard = False
+        return await self._turn(fields, started, deadline, tags)
+
+    async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
+        """The turn the page sent at *since*: ``done.poll`` until it is done, as :meth:`send` waits.
+
+        :raises NotImplementedError: The target sets no ``done.poll``.
+        """
+        if self.done == "response":
+            return await super().watch(session, since, deadline=deadline)
+        fields = self._fields(session, "", str(session.extra.get("fresh") or ""))
+        return await self._turn(fields, since, deadline, None)
+
+    async def _turn(
+        self,
+        fields: dict[str, str],
+        started: float,
+        deadline: float,
+        tags: dict[str, str] | None,
+    ) -> Turn:
+        """Send the message, unless *tags* is ``None`` (something else sent it), then read the turn
+        as ``done`` says."""
+        heard = tags is None
+        data: Any = None
+        trace_ids: list[str] = []
         try:
-            data = await self._request(self.send_conf, fields, deadline, tags)
-            heard = True
-            trace_ids = self._trace_ids(data)
+            if tags is not None:
+                data = await self._request(self.send_conf, fields, deadline, tags)
+                heard = True
+                trace_ids = self._trace_ids(data)
             ended_as, why = TurnEnd.ANSWERED, None
             if self.done != "response":
                 poll = self.done["poll"]

@@ -25,6 +25,7 @@ from evalution.config import TargetConfig
 from evalution.core import net
 from evalution.core.case import Case, CaseTurn
 from evalution.core.evidence import Failure, TraceStatus
+from evalution.runs.page.map import PageMapBroken
 from evalution.runs.play import ADAPTER_SECONDS, play_with_retry
 from evalution.traces.base import TraceSource
 
@@ -53,6 +54,8 @@ class AdapterCheck:
     refused: bool = False
     #: The failure was the adapter's. One may be a misreading of this turn alone.
     adapter_failed: bool = False
+    #: The page didn't have what its page map names (ADR 0010).
+    page_map: bool = False
     #: The app works, but tests that need its traces can't be judged.
     warnings: list[str] = field(default_factory=list)
 
@@ -81,6 +84,8 @@ async def check_adapter(
     it plays as, which an adapter may tidy up after by name."""
     try:
         session = await asyncio.wait_for(target.open(key), ADAPTER_SECONDS)
+    except PageMapBroken as exc:
+        return AdapterCheck([f"Couldn't open the page: {exc}"], page_map=True)
     except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
         refused = failure_of(exc) is Failure.REFUSED
         said = "The app refused the credentials" if refused else "Couldn't open a session"
@@ -135,6 +140,7 @@ async def check_adapter(
         ),
         refused=played.failure is Failure.REFUSED,
         adapter_failed=played.failure is Failure.ADAPTER,
+        page_map=played.failure is Failure.PAGE_MAP,
         warnings=warnings,
     )
 

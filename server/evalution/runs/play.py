@@ -69,6 +69,7 @@ from evalution.judging.rubric import FillerWriter
 from evalution.judging.steps import EXTRA_OK, Step
 from evalution.runs.collect import Wanted, collect, read_spans
 from evalution.runs.leftover import leftover
+from evalution.runs.page.map import PageMapBroken
 from evalution.traces.base import Span, TraceSource
 from evalution.traces.view import TraceView, answered_at, build
 
@@ -262,6 +263,9 @@ async def play_try(
         played.heard = played.heard or may_have_heard(exc)
         played.lost = lost_connection(exc)
         _ended(played, failure, _worded(failure, net.said(exc)))
+    except PageMapBroken as exc:
+        # The page target's: the page lacks what its map names, which is neither side's fault.
+        _ended(played, Failure.PAGE_MAP, str(exc))
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         # Nothing the app answered: an adapter tells that as a turn's error, not by raising.
         _ended(played, Failure.ADAPTER, net.said(exc))

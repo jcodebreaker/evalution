@@ -25,6 +25,9 @@ dependencies = [
 [project.optional-dependencies]
 # Postgres instead of SQLite, for a hosted evalution (docs/deploy.md).
 postgres = ["psycopg[binary]==3.3.6"]
+# Playing a target through its own page (ADR 0010): Playwright, with no browser of its own.
+# It uses Playwright's Chromium when installed, else the system Chrome; it downloads nothing.
+page = ["playwright>=1.64"]
 
 [project.scripts]
 evalution = "evalution.cli:main"

@@ -95,6 +95,8 @@ from evalution.review.findings import analyze_run, write_report
 from evalution.runs import isolated, trust
 from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
+from evalution.runs.page.map import PageMapBroken, page_map_of
+from evalution.runs.page.target import page_capabilities
 from evalution.runs.play import (
     ADAPTER_FAILURES,
     Played,
@@ -220,10 +222,6 @@ class StillWorking(RuntimeError):
     """A try ran out of time with the app's work still going, and it can't be stopped."""
 
 
-class PageMapBroken(RuntimeError):
-    """The page didn't have what its page map names: every try would meet the same (ADR 0010)."""
-
-
 class Runs:
     """The runs of this server: estimates, the one running task, Stop."""
 
@@ -346,7 +344,11 @@ class Runs:
         if (why := isolated.refusal(self.targets.config, target, found)) is not None:
             raise isolated.NotIsolated(why)
         capabilities = isolated.capabilities_on(self._declared(target), found)
-        refused = self._refused(target, chosen, capabilities)
+        # Through the app's page, when it has a page map: refusal above read it already.
+        page = page_map_of(self.targets.conf(target))
+        if page is not None:
+            capabilities = page_capabilities(capabilities, page)
+        refused = self._refused(target, chosen, capabilities, page=page is not None)
         chosen = [c for c in chosen if c.case not in refused]
         least = {c.case: tries or int(c.limits["tries"]) for c in chosen}
         most = {c.case: tries or MOST_TRIES for c in chosen}
@@ -377,13 +379,18 @@ class Runs:
         return self.targets.adapter(target).capabilities
 
     def _refused(
-        self, target: str, cases: Sequence[Case], capabilities: Capabilities | None = None
+        self,
+        target: str,
+        cases: Sequence[Case],
+        capabilities: Capabilities | None = None,
+        *,
+        page: bool = False,
     ) -> dict[str, str]:
         """``test -> why it can't run on *target*``, as it plays with *capabilities* (by default
-        what its adapter declares)."""
+        what its adapter declares), through the app's page when *page*."""
         capabilities = capabilities or self._declared(target)
         traced = self.targets.source(target) is not None
-        found = {c.case: why_not(c, capabilities, traced) for c in cases}
+        found = {c.case: why_not(c, capabilities, traced, page=page) for c in cases}
         return {case: why for case, why in found.items() if why}
 
     def busy(self) -> bool:
@@ -1012,6 +1019,8 @@ class Runs:
         if found.adapter_failed:
             # As in a run: it takes two in a row.
             found = await check_adapter(target, source, traces.settle_seconds, traces.stuck_seconds)
+        if found.page_map:
+            raise PageMapBroken("; ".join(found.problems))
         if found.refused:
             raise AppRefused("; ".join(found.problems))
         if found.app_down:

@@ -86,6 +86,10 @@ _HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 _SECRET_NAME = re.compile(r"secret|token|key|password|authorization", re.IGNORECASE)
 
 
+class PageMapBroken(RuntimeError):
+    """The page didn't have what its page map names: every try would meet the same (ADR 0010)."""
+
+
 class _Strict(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 

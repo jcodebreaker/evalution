@@ -75,6 +75,7 @@ _EXERCISED = frozenset(
 _NOT_EXERCISED = {
     "parallel": "two turns at once aren't tried here",
     "background": "work after an answer can't be told from outside",
+    "watch": "nothing here sends a turn for it to wait on",
 }
 _VERSION = re.compile(r"\d+(?:\.\d+)*")
 _BOUND = re.compile(r"^\s*(>=|<=|==|!=|>|<)\s*(\d+(?:\.\d+)*)\s*$")
@@ -183,6 +184,10 @@ class _Sequence:
             "probe": (declared.probe, target.probe is not Target.probe),
         }
         wrong = [name for name, (says, has) in replaced.items() if says != has]
+        # Declared by what a target sets (http's done.poll): an adapter that has the method may
+        # leave it undeclared, and then it raises NotImplementedError.
+        if declared.watch and target.watch is Target.watch:
+            wrong.append("watch")
         if wrong:
             self.said(
                 "declares what it implements",

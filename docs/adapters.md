@@ -32,6 +32,7 @@ An adapter of your own that stops importing after an update (it used something e
 - **`reset(session)`** clears what the next try would otherwise find.
 - **`probe(session, check)`**, with `probe` declared, reads a state check as the session stands, once and without waiting. It's called before a try's first message: a `*_contains` check that already holds leaves the try unjudged, as leftover state from an earlier one.
 - **`break_conversation(session)`** starts a new conversation for the same person, keeping what the app keeps across conversations. It may change `session.trace_value`; a try reads the spans of every value it had.
+- **`watch(session, since, deadline=...)`**, with `watch` declared, waits for the turn something else sent in the session at `since` (the app's own page, ADR 0010) and returns it exactly as `send` would: when it's done, or at `deadline` with `Turn.error`, and `Turn.heard` on an error, since the message was sent. The http adapter declares it when it has `done.poll`.
 - **`close(session)`** ends it. It's also called for sessions an earlier server process left open, rebuilt from `Session`'s fields, so it can't rely on anything in memory, and `Session.extra` must survive JSON.
 - **Never delete by default.** Leaving a session behind costs little and losing someone's data can't be undone. Delete only what the adapter can prove it made, like a namespace holding the eval user's own name. Never act on a real person's data, and never reuse a real session id.
 
@@ -114,11 +115,11 @@ INFO = AdapterInfo(..., check=_check, supports=">=1.2,<2")
 Generated from each adapter's `Capabilities` and `INFO`; a test fails when this table drifts. To update it: `UPDATE_DOCS=1 uv run --all-groups pytest tests/test_adapter_conformance.py`.
 
 <!-- matrix:start -->
-| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `probe` | `background` | `cancel` | `blocks` | `deletes` | State checks | Test person | App versions |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | no | none | none | any |
-| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | none | any |
-| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | `memory_contains`, `memory_lacks` | none | any |
+| Adapter | Isolation | Clean of conversation | Clean of memory | Clean of files | `reset` | `conversation_break` | `sections` | `files` | `stop` | `parallel` | `probe` | `background` | `cancel` | `blocks` | `deletes` | `watch` | State checks | Test person | App versions |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `http` | session | yes | no | no | no | no | no | no | no | yes | no | no | no | no | no | no | none | none | any |
+| `langgraph` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | no | `checkpoint`, `memory_contains`, `memory_lacks`, `messages_trimmed`, `state_contains` | none | any |
+| `letta` | identity | yes | yes | yes | yes | yes | no | no | yes | yes | yes | no | yes | yes | no | no | `memory_contains`, `memory_lacks` | none | any |
 <!-- matrix:end -->
 
 What each one does to deliver those: [architecture](architecture.md), and each module's opening comment.

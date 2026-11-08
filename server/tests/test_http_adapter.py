@@ -137,6 +137,57 @@ async def test_a_poll_that_never_ends_runs_out_of_time() -> None:
     assert turn.failure is Failure.TIMED_OUT
 
 
+async def test_watch_waits_by_polling_on_a_turn_the_page_sent() -> None:
+    """With done.poll, a turn something else sent is read the way send reads one; it sends
+    nothing itself, and a turn that errors after was heard."""
+    said: list[str] = []
+    polls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        said.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        polls["n"] += 1
+        status = "idle" if polls["n"] >= 2 else "busy"
+        return httpx.Response(200, json={"status": status, "reply": "Biscuit"})
+
+    target = _target(
+        {**BOT, "done": {"poll": {**POLL["poll"], "interval": 0.01}}, "reply": "$.reply"}, handler
+    )
+    assert target.capabilities.watch
+    session = await target.open("run")
+    since = time.time() - 1
+    turn = await target.watch(session, since, deadline=time.time() + 5)
+    assert (turn.reply, turn.error, turn.started, turn.ended_as) == (
+        "Biscuit",
+        None,
+        since,
+        TurnEnd.ANSWERED,
+    )
+    assert "POST" not in said and polls["n"] == 2
+
+    failing = _polling("failed", why="$.error")
+    turn = await failing.watch(await failing.open("r"), time.time(), deadline=time.time() + 5)
+    assert (turn.ended_as, turn.error) == (TurnEnd.FAILED, "no disk")
+    late = _polling("busy")
+    turn = await late.watch(await late.open("r"), time.time(), deadline=time.time() + 0.02)
+    assert turn.failure is Failure.TIMED_OUT
+
+    def down(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    gone = _target({**BOT, "done": POLL}, down)
+    turn = await gone.watch(await gone.open("r"), time.time(), deadline=time.time() + 5)
+    assert turn.failure is Failure.TRANSIENT and turn.heard, "the page sent it"
+
+
+async def test_watch_isnt_declared_without_a_poll() -> None:
+    target = _target(BOT, lambda _request: httpx.Response(200, json={"reply": "Hi"}))
+    assert not target.capabilities.watch
+    with pytest.raises(NotImplementedError):
+        await target.watch(await target.open("r"), time.time(), deadline=time.time() + 5)
+
+
 def test_what_a_poll_checks_must_read() -> None:
     with pytest.raises(ConfigError, match="failed_when"):
         _polling("idle", failed_when="status is failed")

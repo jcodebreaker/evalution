@@ -33,6 +33,13 @@ holds the two together.
   ``Turn.reply`` is what judging reads. ``Turn.shown`` is what the app's own page showed for the
   turn, set only by the page target, which plays above the adapters (ADR 0010); an adapter
   leaves it ``None``.
+* ``watch(session, since, deadline=...)`` waits for the turn something else sent in this session at
+  ``since`` (a ``time.time()``): the app's own page, which typed and clicked Send (ADR 0010). It
+  returns exactly what ``send`` would have for that turn: when it is done (background work
+  included) or at ``deadline``, with ``Turn.reply``, ``Turn.error``, ``Turn.failure``,
+  ``Turn.ended_as`` and ``Turn.lost`` meaning what they do there. The message was sent, so a turn
+  that errors is ``Turn.heard``. An adapter that can wait on a session it didn't send to (one that
+  polls until done, say) declares ``watch``.
 * ``state(session, {key: value})`` is called once per key of an ``expect_state`` step after
   the turn before it (``context_contains`` / ``context_lacks`` are checked by evalution from
   the traces, never sent here). The adapter waits for background work itself. The keys it answers
@@ -137,6 +144,7 @@ class Capabilities:
     :param deletes: ``close`` removes what the session left in the app. Off, everything stays.
     :param person: Which of :data:`PERSON_FIELDS` it honors when it opens a session as the test
         person :meth:`Target.persona` set. None means it can't take a test person.
+    :param watch: It can wait for a turn something else sent in a session (:meth:`Target.watch`).
     """
 
     isolation: Isolation
@@ -154,6 +162,7 @@ class Capabilities:
     blocks: bool = False
     deletes: bool = False
     person: frozenset[str] = frozenset()
+    watch: bool = False
     #: What a try starts clean of, where it isn't what ``isolation`` implies.
     clean: frozenset[str] | None = None
 
@@ -329,6 +338,10 @@ class Target(ABC):
     async def fold_at(self, session: Session, tokens: int) -> None:  # noqa: B027
         """Have the app fold older turns from *tokens*. Optional: most can't, and then a test that
         asks is measured as never folding."""
+
+    async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
+        """The turn something else sent in *session* at *since*, as :meth:`send` returns it."""
+        raise NotImplementedError(f"{self.name} can't wait on a turn it didn't send")
 
     async def reset(self, session: Session) -> None:
         raise NotImplementedError(f"{self.name} can't reset a session")

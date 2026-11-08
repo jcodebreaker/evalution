@@ -41,7 +41,7 @@ from fastapi import FastAPI, Request, Response
 
 from evalution.adapters import infos
 from evalution.adapters.base import Capabilities, Isolation, Target, TargetGone
-from evalution.config import Config
+from evalution.config import Config, ConfigError
 from evalution.core.case import CLEAN_KINDS
 from evalution.isolation.drivers import Driver, PostgresStore
 from evalution.isolation.drivers.base import DockerError, Refused
@@ -64,6 +64,8 @@ from evalution.isolation.launch import LaunchError, free_port
 from evalution.isolation.plan import Plan, PlanStore, hashes, stale
 from evalution.isolation.setup import Setup, SetupError, person_name, seed_path, setup_for
 from evalution.results.record import isolation, run_isolation
+from evalution.runs.page.map import page_map_of
+from evalution.runs.page.target import on_page, page_missing
 from evalution.suite.cases import CaseError
 from evalution.traces import otlp, setup
 from evalution.traces.builtin import TARGET_PREFIX, SpanStore
@@ -157,7 +159,25 @@ def footing(config: Config, target: str, capabilities: Capabilities) -> Footing:
 
 def refusal(config: Config, target: str, found: Footing) -> str | None:
     """Why a run of *target* is refused on *found*, with what fixes it; ``None`` when it isn't.
-    A plan to rehearse again isn't refused here: the rehearsal decides, as the run starts."""
+    A plan to rehearse again isn't refused here: the rehearsal decides, as the run starts.
+
+    A target with a page map plays through its page only on evalution's own copy (ADR 0010), so
+    without a proven plan it is refused whatever ``isolation.require_proven`` says."""
+    conf = config.targets.get(target)
+    try:
+        page = page_map_of(conf) if conf is not None else None
+    except ConfigError as exc:
+        return f"{target} can't run: {exc}"
+    if page is not None:
+        if (missing := page_missing()) is not None:
+            return f"{target} can't play through its page: {missing}"
+        if not found.managed and not found.to_rehearse:
+            why = found.problem or "it has no isolation plan"
+            return (
+                f"{target} can't play through its page: that only happens on evalution's own "
+                f"copy of the app, and {why}. Run `{FIX.format(target=target)}` to find and "
+                "prove one."
+            )
     if not config.isolation.require_proven or found.managed or found.to_rehearse:
         return None
     why = found.problem or "it has no isolation plan"
@@ -366,7 +386,12 @@ class Copies:
                 await asyncio.to_thread(driver.keep, work / "kept" / str(i))
                 slot.kept.append((driver, work / "kept" / str(i)))
             await self._resume(slot)
-            slot.adapter = adapter_on(self.config, self.target, slot.copy.url)
+            # Through the app's page too, when the target has a page map (ADR 0010).
+            slot.adapter = on_page(
+                self.config.targets[self.target],
+                adapter_on(self.config, self.target, slot.copy.url),
+                slot.copy.url,
+            )
             took = await play_as(slot.adapter, self.setup.person) and took
         self.person = person_name(self.setup) if self.slots and took else None
 
@@ -426,6 +451,10 @@ class Copies:
         step tried whatever the one before did. What was left behind, in words."""
         left: list[str] = []
         for slot in self.slots:
+            if slot.adapter is not None:
+                # What it holds goes with the copy: a client, or the page's browser.
+                with contextlib.suppress(Exception):
+                    await slot.adapter.dispose()
             try:
                 if slot.kept:
                     await self._pause(slot)

@@ -227,6 +227,8 @@ class Target(ABC):
         # a new conversation for the same person, keeping their memory and files
     async def cancel(self, session: Session) -> None: ...
         # stop the work in flight, child work the adapter owns included
+    async def watch(self, session: Session, since: float, *, deadline: float) -> Turn: ...
+        # the turn the app's own page sent at `since`, read as `send` reads one (ADR 0010)
 
 @dataclass(frozen=True)
 class Capabilities:
@@ -235,7 +237,7 @@ class Capabilities:
     reset: bool; conversation_break: bool; sections: bool
     files: bool; stop: bool; parallel: bool
     cancel: bool; blocks: bool; deletes: bool
-    state_checks: frozenset[str]; probe: bool
+    state_checks: frozenset[str]; probe: bool; watch: bool
 
 @dataclass
 class Session:  id: str; trace_attribute: str; trace_value: str; extra: dict
