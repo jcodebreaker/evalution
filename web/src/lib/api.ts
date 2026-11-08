@@ -2,11 +2,13 @@ import type * as z from "zod";
 import { currentWorkspace } from "./router";
 import type {
   AgentSession,
+  Keep,
   Knowledge,
   MissingPiece,
   ModelBody,
   PassMarks,
   Period,
+  Proof,
   Steer,
   TargetBody,
   TestSetupChange,
@@ -40,6 +42,7 @@ import {
   ModelSettingsSchema,
   ModelTestSchema,
   NewTokenSchema,
+  PageOfferSchema,
   PageReachSchema,
   ProbeSchema,
   RedraftSchema,
@@ -52,6 +55,7 @@ import {
   TargetDetailSchema,
   TargetSchema,
   TestPlanSchema,
+  TestProofChangeSchema,
   TestSetupSchema,
   TracesSchema,
   UiTestingSchema,
@@ -291,6 +295,14 @@ export const api = {
     post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/approve`),
   /** Go back to the map before; with none, tests reach the app through its API again. */
   undoPage: (name: string) => post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/undo`),
+  /** What every try played through its page keeps; a part left out stays as it is. */
+  setPageProof: (name: string, proof: Partial<Proof>) =>
+    call("PUT", `/v1/targets/${enc(name)}/page/proof`, proof).then(one(PageReachSchema)),
+  /** Whether to offer UI testing: the code has a chat page, and nothing of it is set up. */
+  pageOffer: (name: string) => get(one(PageOfferSchema), `/v1/targets/${enc(name)}/page/offer`),
+  /** Not now: the offer isn't made again for this app. */
+  dismissPageOffer: (name: string) =>
+    post(one(PageOfferSchema), `/v1/targets/${enc(name)}/page/offer/dismiss`),
   /** The test setup: the test person, what the copy starts with, how often it's put back. */
   testSetup: (name: string) =>
     get(one(TestSetupSchema), `/v1/targets/${enc(name)}/isolation/setup`),
@@ -326,6 +338,17 @@ export const api = {
     ),
   sources: (target: string) =>
     get(many(SourceSchema), `/v1/evals/sources${query({ target, limit: 20 })}`),
+  /** What this test's tries keep when played through the page; `null` follows the app's again. */
+  setTestProof: (
+    { target, set }: Scope,
+    id: string,
+    proof: Partial<Record<keyof Proof, Keep | null>>,
+  ) =>
+    call(
+      "PUT",
+      `/v1/evals/sets/${enc(set)}/cases/${enc(id)}/proof${query({ target })}`,
+      proof,
+    ).then(one(TestProofChangeSchema)),
   /** The test's file as written, to edit by hand. */
   file: ({ target, set }: Scope, id: string) =>
     raw("GET", `/v1/evals/sets/${enc(set)}/cases/${enc(id)}/file${query({ target })}`),

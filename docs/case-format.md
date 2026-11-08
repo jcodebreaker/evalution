@@ -108,6 +108,7 @@ Only read on a target that plays through the app's own page (ADR 0010). There, e
 
 - `contains`, `lacks`: words what the page showed of the last reply must and must not have, read without Markdown's marks, spacing and case aside. Code decides them. A reply that never showed fails both. The reply's own words stay `reply.contains` and `reply.lacks`, which read the reply the API returned.
 - `decides`: `true` makes the page's checks decide the try. Left out, they are a guide: shown with the try, never failing it, as steps that don't bind are.
+- `proof`: what a try keeps of the page, part by part, over what the target's page map keeps: `{"screenshots": "off", "video": "always"}`. Each is `always`, `failed` (deleted once a try passes) or `off` (not taken). A part left out follows the target's (by default every screenshot, and the video when a try fails). It changes nothing the test checks; the test's page sets it under "What it checks".
 
 On a target played through its API alone the block is not read.
 

@@ -522,13 +522,53 @@ export const KeptPageMapSchema = z.object({
 });
 export type KeptPageMap = z.infer<typeof KeptPageMapSchema>;
 
+/** How a test plays: through the app's API, its page (its API under it), or its page alone. */
+export const PlaysSchema = z.enum(["api", "page", "page_only"]).catch("api").default("api");
+
+/** When a try's screenshots or video are kept: every try, only one that fails, or never taken. */
+export const KeepSchema = z.enum(["always", "failed", "off"]);
+export type Keep = z.infer<typeof KeepSchema>;
+
+/** What a try played through the page keeps. */
+export const ProofSchema = z.object({ screenshots: KeepSchema, video: KeepSchema });
+export type Proof = z.infer<typeof ProofSchema>;
+
+/** A test's proof: the target's with the test's own (`own`) over it. */
+export const TestProofSchema = ProofSchema.extend({
+  own: z.object({ screenshots: KeepSchema.optional(), video: KeepSchema.optional() }).default({}),
+  target: ProofSchema,
+});
+export type TestProof = z.infer<typeof TestProofSchema>;
+
+/** A test's proof as saved. */
+export const TestProofChangeSchema = z.object({
+  plays: PlaysSchema,
+  proof: TestProofSchema.nullable().default(null),
+});
+
+/** Whether to offer UI testing for a target: its code has a chat page, and nothing about its
+ * page is set up, waiting or turned down. */
+export const PageOfferSchema = z.object({
+  target: z.string(),
+  offer: z.boolean().default(false),
+  /** The file the chat page was found in. */
+  found_in: z.string().nullable().default(null),
+  dismissed: z.boolean().default(false),
+  /** The agent can learn the page now; else `why_not` says what comes first. */
+  can_learn: z.boolean().default(false),
+  why_not: z.string().nullable().default(null),
+});
+export type PageOffer = z.infer<typeof PageOfferSchema>;
+
 /** How tests reach a target: through its API, or through its page by a map the test writer
  * learned and a person approved once. */
 export const PageReachSchema = z.object({
   target: z.string().default(""),
-  plays: z.enum(["api", "page", "page_only"]).catch("api").default("api"),
+  plays: PlaysSchema,
   /** Connected from the page, so its page: block can be written here. */
   managed: z.boolean().default(false),
+  /** What a try played through the page keeps; none through the API. */
+  proof: ProofSchema.nullable().catch(null).default(null),
   current: KeptPageMapSchema.nullable().default(null),
   proposed: KeptPageMapSchema.nullable().default(null),
   history: z
@@ -732,6 +772,8 @@ export const CaseRowSchema = z.object({
   last_at: z.number().nullable().default(null),
   /** Why the test may be out of date with its target, from the target's drift. */
   stale: z.string().nullable().default(null),
+  /** How it plays: through the app's page, or its API. */
+  plays: z.enum(["api", "page"]).catch("api").default("api"),
 });
 export type CaseRow = z.infer<typeof CaseRowSchema>;
 
@@ -836,6 +878,10 @@ export const CaseFileViewSchema = z.object({
       }),
     )
     .default([]),
+  /** How it plays: through the app's API, its page (its API under it), or its page alone. */
+  plays: PlaysSchema,
+  /** What a try played through the page keeps; none through the API (nothing to capture). */
+  proof: TestProofSchema.nullable().default(null),
 });
 export type CaseFileView = z.infer<typeof CaseFileViewSchema>;
 
@@ -1074,6 +1120,8 @@ export const TryPageSchema = z.object({
     .nullable()
     .catch(null)
     .default(null),
+  /** Why the try shows no screenshots, when its proof said so (off, or kept only on failure). */
+  shots_missing: z.string().nullable().default(null),
   /** The try was cut short before the page was closed. */
   interrupted: z.boolean().default(false),
 });
@@ -1156,6 +1204,18 @@ export const EstimateSchema = z.object({
   chats: z.number(),
   /** Tests this app can't serve, left out of the run. */
   refused: z.array(z.object({ case: z.string(), why: z.string() })).default([]),
+  /** How its tests play, what a try keeps and roughly how long one takes: a line each way. */
+  plays: z
+    .array(
+      z.object({
+        how: z.enum(["api", "page", "page_only"]).catch("api"),
+        cases: z.array(z.string()).default([]),
+        seconds: z.number().default(0),
+        kept: z.string().nullable().default(null),
+        text: z.string(),
+      }),
+    )
+    .default([]),
   /** What a new session leaves behind here, in one sentence. */
   isolation_note: z.string().nullable().default(null),
   /** How its tries will be kept apart, the plan's status and rough timings; older servers don't say. */

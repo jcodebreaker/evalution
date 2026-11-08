@@ -271,6 +271,29 @@ def _frontend(targets: Targets, target: str) -> dict[str, str]:
     return found
 
 
+#: Seconds what :func:`chat_page` found in a code folder is taken as still true.
+CHAT_PAGE_SECONDS = 300.0
+_chat_pages: dict[tuple[str, str], tuple[float, str | None]] = {}
+
+
+def chat_page(targets: Targets, target: str) -> str | None:
+    """Where *target*'s code has a chat page, as ``read_page_code`` reads it: the file with a
+    message box, when the code also has a Send. ``None`` without a code folder, or when its code
+    has no such page. Read again at most every :data:`CHAT_PAGE_SECONDS`."""
+    code = targets.code(target)
+    if code is None:
+        return None
+    key = (target, str(code.root))
+    now = time.monotonic()
+    if (kept := _chat_pages.get(key)) is not None and now - kept[0] < CHAT_PAGE_SECONDS:
+        return kept[1]
+    candidates = scan(_frontend(targets, target))["candidates"]
+    boxes, sends = candidates.get("actions.type"), candidates.get("actions.send")
+    found = str(boxes[0]["file"]) if boxes and sends else None
+    _chat_pages[key] = (now, found)
+    return found
+
+
 async def read_code(targets: Targets, session: dict[str, Any]) -> Any:
     """The ``read_page_code`` result: candidates for every entry of a map, from the code."""
     target = str(session["target"])

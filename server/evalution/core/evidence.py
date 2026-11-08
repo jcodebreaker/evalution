@@ -23,6 +23,17 @@ PAGE_LINES = 200
 VIDEO = "try.webm"
 #: Why a passed try has no video, when its page map keeps one only when a try fails.
 VIDEO_ON_FAILURE = "kept only when a try fails"
+#: Why a passed try has no screenshots, when they are kept only when a try fails; and why a try
+#: has none at all.
+SHOTS_ON_FAILURE = "kept only when a try fails"
+SHOTS_OFF = "turned off for this test"
+
+
+def is_shot(name: str) -> bool:
+    """Whether *name*, one of a page try's files, is a screenshot of it (``turn-<n>.png``)."""
+    return name.startswith("turn-") and name.endswith(".png")
+
+
 _TAIL_BYTES = 16_000
 #: What a span holds in place of content kept from it: not captured, whatever else it says.
 _REDACTED = re.compile(r"__REDACTED__|\[REDACTED\]|<REDACTED>", re.IGNORECASE)
@@ -260,6 +271,10 @@ class PageRecord(Frozen):
     :param video_policy: When the try's video is kept, as the page map said while it played:
         ``failed`` (a passed try's is deleted once it is judged, :data:`VIDEO_ON_FAILURE`) or
         ``always``; ``None`` when none was recorded.
+    :param screenshot_policy: When the try's screenshots are kept, as the try's proof said while
+        it played: ``always``, ``failed`` (a passed try's are deleted once it is judged,
+        :data:`SHOTS_ON_FAILURE`) or ``off`` (none taken, :data:`SHOTS_OFF`); ``None`` on a try
+        played before proof could be set, which kept every one.
     :param interrupted: The try was cut short (a restart, a stop) before the page was closed.
     :param left_out: Console lines and failed requests past :data:`PAGE_LINES` each, not kept.
     :param page_only: The target was reached through its page alone, with no API adapter: each
@@ -272,6 +287,7 @@ class PageRecord(Frozen):
     files: tuple[str, ...] = ()
     video_missing: str | None = None
     video_policy: str | None = None
+    screenshot_policy: str | None = None
     interrupted: bool = False
     left_out: int = 0
     page_only: bool = False

@@ -2,7 +2,7 @@ import { when } from "../../lib/format";
 import type { CaseRow } from "../../lib/schema";
 import { originallyWord, PASSED_MODEL_ONLY, unjudgedWords } from "../../lib/verdict";
 import { RunAction } from "../runs/RunAction";
-import { NotRunGlyph, StaleChip, VerdictGlyph } from "../shared/marks";
+import { NotRunGlyph, PlaysChip, StaleChip, VerdictGlyph } from "../shared/marks";
 
 export function TestRow({
   row,
@@ -38,6 +38,7 @@ export function TestRow({
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate">{row.name}</span>
+            <PlaysChip plays={row.plays} />
             {row.stale ? <StaleChip reason={row.stale} /> : null}
             {row.different ? (
               <span className="shrink-0 text-[12px] text-ink-3">Different route</span>

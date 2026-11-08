@@ -6,6 +6,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/field";
 import { Progress } from "../environment/Progress";
 import { TestEnvironment } from "../environment/TestEnvironment";
+import { UiOffer } from "../environment/UiOffer";
 import type { Standing } from "../environment/words";
 import { Fold, Group, TextLink } from "../shared/group";
 import { Page, Toolbar, ToolbarTitle } from "../shared/layout";
@@ -344,7 +345,18 @@ export function ConnectView({
         </SetupStep>
 
         <SetupStep n={5} title="First test" state={made && modelChosen ? "now" : "waiting"}>
-          {name ? <Composer target={name} onAsk={onAsk} /> : null}
+          {name ? (
+            <div className="flex flex-col gap-5">
+              <UiOffer
+                // Read again once the copy is proven: the agent can learn the page from then.
+                key={proven ? "proven" : "not yet"}
+                target={name}
+                onAsk={onAsk}
+                className="rounded-[14px] border border-border bg-group p-5 max-md:p-4"
+              />
+              <Composer target={name} onAsk={onAsk} />
+            </div>
+          ) : null}
         </SetupStep>
       </Page>
     </>

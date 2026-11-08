@@ -117,12 +117,15 @@ def moved(found: dict[str, str], root: Path) -> list[str]:
 
 
 def same(a: Any, b: Any) -> bool:
-    """Whether two ``page:`` blocks are the same map, whatever status each says."""
+    """Whether two ``page:`` blocks are the same map, whatever status each says and whatever a
+    try keeps (``proof``, or the older ``video``): that is a setting beside the map, changed on
+    the Test environment page without making the map anyone else's."""
     if not isinstance(a, dict) or not isinstance(b, dict):
         return False
 
     def plain(block: dict[str, Any]) -> str:
-        return json.dumps({k: v for k, v in block.items() if k != "status"}, sort_keys=True)
+        kept = {k: v for k, v in block.items() if k not in ("status", "proof", "video")}
+        return json.dumps(kept, sort_keys=True)
 
     return plain(a) == plain(b)
 

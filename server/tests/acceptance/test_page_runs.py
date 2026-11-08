@@ -23,7 +23,7 @@ pytest.importorskip("playwright", reason="page runs need the page extra: uv sync
 from test_acceptance import HERE, World, _target
 
 from evalution.config import load
-from evalution.core.evidence import VIDEO, VIDEO_ON_FAILURE
+from evalution.core.evidence import SHOTS_OFF, VIDEO, VIDEO_ON_FAILURE, is_shot
 from evalution.core.judgement import Outcome
 from evalution.core.rules import PAGE_MAP_BROKEN, current, layers
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
@@ -223,6 +223,25 @@ def test_a_test_plays_through_the_page_and_each_broken_page_reads_as_what_broke(
         assert VIDEO in page.files and not (kept / VIDEO).exists()
         shown = _view(world, doc["run"])["page"]
         assert shown["video"] is None and shown["video_missing"] == VIDEO_ON_FAILURE
+
+    # The test keeps no screenshots of its own (page.proof): none are taken, and the try says so.
+    proof = "/v1/evals/sets/main/cases/answer-shown/proof"
+    said = world.client.put(proof, params={"target": "paged"}, json={"screenshots": "off"})
+    assert said.status_code == 200 and said.json()["proof"]["screenshots"] == "off", said.text
+    asked = {"target": "paged", "set": "main", "cases": ["answer-shown"], "tries": 1}
+    plays = world.client.post("/v1/evals/runs/estimate", json=asked).json()["plays"]
+    assert [line["kept"] for line in plays] == ["no screenshots, video when a try fails"]
+    doc = world.play("paged")
+    assert current(_try(doc)).outcome is Outcome.PASSED
+    (evidence,) = world.evidence(doc["run"])
+    page = evidence.page
+    assert page is not None and page.screenshot_policy == "off"
+    assert page.turns[0].shot is None and not any(is_shot(name) for name in page.files)
+    assert not (
+        world.root / "data" / "files" / doc["run"] / "answer-shown.1" / "turn-1.png"
+    ).exists()
+    assert _view(world, doc["run"])["page"]["shots_missing"] == SHOTS_OFF
+    world.client.put(proof, params={"target": "paged"}, json={"screenshots": None})
 
     # The reply never shows, though the app stored and answered it; the API alone passes.
     world.switches("drop_reply")

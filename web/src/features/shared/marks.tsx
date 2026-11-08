@@ -151,6 +151,27 @@ export function StaleChip({ reason }: { reason: string }) {
   );
 }
 
+/** How a test plays: through the app's page, as a person would, or through its API. */
+export function PlaysChip({ plays }: { plays: "api" | "page" }) {
+  const page = plays === "page";
+  return (
+    <span
+      title={
+        page
+          ? "Played through the app's page: types each message, checks it shows"
+          : "Played through the app's API"
+      }
+      data-testid="plays-chip"
+      className={cn(
+        "shrink-0 rounded-[6px] px-1.5 py-px text-[11.5px]",
+        page ? "bg-tint/10 text-tint" : "bg-bubble text-ink-2",
+      )}
+    >
+      {page ? "Page" : "API"}
+    </span>
+  );
+}
+
 export const VERDICT_CELL: Record<Verdict, string> = {
   pass: "bg-success",
   flaky: "bg-warning",

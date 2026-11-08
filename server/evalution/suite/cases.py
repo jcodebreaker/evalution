@@ -23,6 +23,8 @@ from evalution.core.case import (
     MATCHERS,
     MOST_TRIES,
     ORDERS,
+    PROOF_KEEPS,
+    PROOF_PARTS,
     SLUG,
     Case,
     CaseTurn,
@@ -384,12 +386,13 @@ def _limits(value: Any, where: str) -> dict[str, Any]:
 
 
 def _page(value: Any, where: str) -> dict[str, Any]:
-    """The ``page`` block: words the page must and must not show, and whether its checks decide."""
+    """The ``page`` block: words the page must and must not show, whether its checks decide, and
+    what a try keeps (``proof``)."""
     if value is None:
         value = {}
     if not isinstance(value, dict):
         raise CaseError(f"{where}: must be an object")
-    unknown = set(value) - {"contains", "lacks", "decides"}
+    unknown = set(value) - {"contains", "lacks", "decides", "proof"}
     if unknown:
         raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
     found: dict[str, Any] = {}
@@ -402,7 +405,23 @@ def _page(value: Any, where: str) -> dict[str, Any]:
     if not isinstance(decides, bool):
         raise CaseError(f"{where}.decides: must be true or false")
     found["decides"] = decides
+    found["proof"] = _proof(value.get("proof"), f"{where}.proof")
     return found
+
+
+def _proof(value: Any, where: str) -> dict[str, str]:
+    """A test's own ``page.proof``: when its screenshots and its video are kept, part by part."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise CaseError(f"{where}: must be an object")
+    unknown = set(value) - set(PROOF_PARTS)
+    if unknown:
+        raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
+    for part, keep in value.items():
+        if keep not in PROOF_KEEPS:
+            raise CaseError(f"{where}.{part}: must be one of {', '.join(PROOF_KEEPS)}")
+    return {part: str(value[part]) for part in PROOF_PARTS if part in value}
 
 
 def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case:
@@ -489,6 +508,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         shown_contains=page["contains"],
         shown_lacks=page["lacks"],
         page_decides=page["decides"],
+        page_proof=page["proof"],
     )
 
 

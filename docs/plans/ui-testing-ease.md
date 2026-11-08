@@ -52,3 +52,10 @@ Done when: on a fresh install, `evalution demo ui` ends with the browser open on
 
 - The parallel stall on relay-lite (a 503 from the app when hosts start side by side) is the app's; page runs play one at a time until it's fixed there.
 - Per-test page mode and a new person per try through sign-up stay as `page-testing.md` leaves them.
+
+## Decided while building 1 and 3 (2026-11-08)
+
+- **The offer** reads the code as the agent's `read_page_code` does (`writer/paging.chat_page`): a message box and a Send in the code folder. It is made only where tries keep files (locally, CI), and not for a target with a page map or one waiting for approval. "Not now" is stored with the target (`ui_offer_dismissed` in its connection doc), not in the browser. "Set up UI testing" hands the agent the page to learn when the copy is proven, else opens the Test environment page.
+- **Proof is the page map's `proof: {screenshots, video}`**, each `always | failed | off` (default `always`, `failed`). The older `video: failed | always | never` still reads, as `proof.video` (`never` is `off`); when both are given, `proof` wins, and saving proof from the page drops `video`. Proof is a setting beside the map: changing it doesn't make an approved map "by hand", and approving a new map keeps it. A test's `page.proof` wins part by part; the runner sets it on the slot's page target before opening the try's session (a context records video, or not, when it opens). A passed try's screenshots kept "on failure" are deleted once judged, as its video is; `PageRecord.screenshot_policy` says what the try kept, and the try view says why there are none.
+- **The Run dialog's lines** come from the server (`runs/estimate.plays`): grouped by how tests play and what a try keeps, with "about N s a try" from each test's own recent tries, else its messages at the median a message took, else 30 s each.
+- Setting a test's proof rewrites its file, so a comparison across that edit says "the test was edited", though nothing it checks changed.

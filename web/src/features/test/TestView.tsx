@@ -15,6 +15,7 @@ import { EditFile } from "./EditFile";
 import { FindingNote } from "./FindingNote";
 import type { Doubt } from "./HowDecided";
 import { HowDecided } from "./HowDecided";
+import { HowItPlays } from "./HowItPlays";
 import { Inspector } from "./Inspector";
 import { Output } from "./Output";
 import { PageNotes } from "./Page";
@@ -168,6 +169,9 @@ export function TestView({
             ) : null}
           </div>
 
+          {view === "plan" ? (
+            <HowItPlays scope={scope} id={id} plays={test.plays} proof={test.proof} />
+          ) : null}
           {view === "result" && shown ? (
             <VerdictBanner
               shown={shown}

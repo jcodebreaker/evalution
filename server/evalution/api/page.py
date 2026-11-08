@@ -9,16 +9,49 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Response
 
-from evalution.api.deps import Current, busy, local_only, not_found, target_name
+from evalution.api.deps import Current, busy, invalid, local_only, not_found, target_name
 from evalution.api.workspaces import Workspace
 from evalution.connect import page
-from evalution.project import pagemaps
+from evalution.project import pagemaps, profile
+from evalution.runs.page.learn import refusal
 from evalution.runs.page.target import page_lacks
 from evalution.storage.files import FileNameError
+from evalution.writer import paging
 
 
 def _view(ws: Workspace, name: str) -> dict[str, Any]:
     return page.view(ws.targets, name)
+
+
+def _offer(ws: Workspace, name: str) -> dict[str, Any]:
+    """The UI testing offer for *name*: made where its tests could play through its page (a
+    workspace that keeps files: locally or in CI), its code has a chat page, and nothing about
+    its page is set up, waiting or turned down. ``can_learn``/``why_not``: whether the agent can
+    learn the page now, or what comes first."""
+    targets = ws.targets
+    dismissed = bool(profile.connection(targets, name).get("ui_offer_dismissed"))
+    try:
+        waiting = pagemaps.store(targets).proposed(name) is not None
+    except ValueError:
+        waiting = True
+    open_to = not dismissed and not waiting and targets.files is not None
+    found = None
+    if open_to and pagemaps.block_of(targets, name) is None:
+        found = paging.chat_page(targets, name)
+    why_not = None
+    if found is not None:
+        try:
+            why_not = refusal(targets.config, name, targets.adapter(name).capabilities)
+        except Exception as exc:  # an adapter that can't be made can't be played through its page
+            why_not = f"{name}'s adapter can't be made: {exc}"
+    return {
+        "target": name,
+        "offer": found is not None,
+        "found_in": found,
+        "dismissed": dismissed,
+        "can_learn": found is not None and why_not is None,
+        "why_not": why_not,
+    }
 
 
 def _not_playing(ws: Workspace, name: str) -> None:
@@ -80,6 +113,38 @@ def page_router() -> APIRouter:
                 raise busy(str(exc)) from exc
             await targets.reload(name)
         return await asyncio.to_thread(_view, ws, name)
+
+    @router.put("/targets/{target}/page/proof", dependencies=hosted_off)
+    async def put_proof(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
+        """What every try played through the page keeps: ``screenshots`` and ``video``, each
+        ``always``, ``failed`` or ``off``; a part left out stays as it is. A test's own
+        ``page.proof`` still wins over it."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        async with ws.lock:
+            _not_playing(ws, name)
+            try:
+                await asyncio.to_thread(page.set_proof, targets, name, body)
+            except page.PageMapError as exc:
+                raise invalid(str(exc)) from exc
+            await targets.reload(name)
+        return await asyncio.to_thread(_view, ws, name)
+
+    @router.get("/targets/{target}/page/offer")
+    async def get_offer(ws: Current, target: str) -> dict[str, Any]:
+        """Whether to offer UI testing: the target's code has a chat page, and it has no page
+        map, none waiting for approval, and the offer wasn't turned down."""
+        name = target_name(ws.targets, target)
+        return await asyncio.to_thread(_offer, ws, name)
+
+    @router.post("/targets/{target}/page/offer/dismiss")
+    async def dismiss_offer(ws: Current, target: str) -> dict[str, Any]:
+        """Not now: the offer isn't made again for this target; the Test environment page still
+        sets UI testing up."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        await asyncio.to_thread(profile.update_connection, targets, name, ui_offer_dismissed=True)
+        return await asyncio.to_thread(_offer, ws, name)
 
     @router.get("/targets/{target}/page/shots/{shot}", dependencies=hosted_off)
     async def get_shot(ws: Current, target: str, shot: str) -> Response:

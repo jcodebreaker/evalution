@@ -2,12 +2,13 @@ import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import type { KeptPageMap, PageReach as Reach } from "../../lib/schema";
+import type { Keep, KeptPageMap, Proof, PageReach as Reach } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { PictureDialog } from "../../ui/dialog";
 import { Spinner } from "../../ui/loading";
 import { Group } from "../shared/group";
 import { MissingPieceNote, PageShot, relearnWords } from "../shared/next-step";
+import { ProofControl, proofWords } from "../shared/ProofControl";
 
 type Way = "api" | "page";
 
@@ -120,7 +121,7 @@ export function PageReach({
   const [reach, setReach] = useState<Reach | null>(null);
   const [failed, setFailed] = useState(false);
   const [way, setWay] = useState<Way | null>(null);
-  const [working, setWorking] = useState<"approve" | "undo" | "ask" | null>(null);
+  const [working, setWorking] = useState<"approve" | "undo" | "ask" | "proof" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const read = useCallback(async () => {
     try {
@@ -156,6 +157,16 @@ export function PageReach({
       setError(
         errorText(failure, what === "approve" ? "Couldn't approve it." : "Couldn't undo it."),
       );
+    }
+    setWorking(null);
+  };
+  const prove = async (part: keyof Proof, keep: Keep) => {
+    setWorking("proof");
+    setError(null);
+    try {
+      setReach(await api.setPageProof(target, { [part]: keep }));
+    } catch (failure) {
+      setError(errorText(failure, "Couldn't change what each try keeps."));
     }
     setWorking(null);
   };
@@ -275,6 +286,22 @@ export function PageReach({
               evalution's copy: where the message box, Send and the replies are. Trying the map
               sends one message, after you say yes in the chat.
             </p>
+          ) : null}
+
+          {reach.proof && reach.plays !== "api" ? (
+            <div className="flex flex-col gap-2" data-testid="page-proof">
+              <p className="m-0 font-medium">What each try keeps</p>
+              <ProofControl
+                proof={reach.proof}
+                disabled={!reach.managed || working !== null}
+                onChange={(part, keep) => void prove(part, keep)}
+              />
+              <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">
+                {reach.managed
+                  ? `${proofWords(reach.proof)} A test can say otherwise for itself, under What it checks.`
+                  : `${target} is set in evalution.yaml: change proof in its page: block there.`}
+              </p>
+            </div>
           ) : null}
 
           {!reach.can_learn && reach.missing ? (

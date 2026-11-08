@@ -6,7 +6,7 @@ Reading and checking their text is :mod:`evalution.suite.cases`; keeping them,
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 #: The model keys a set may pin for its Grader and filler writer (``model.models`` in the config).
@@ -26,6 +26,10 @@ CONTEXT_CHECKS = ("context_contains", "context_lacks")
 #: What a test can need a try to start clean of: each its own promise, as a new conversation isn't
 #: new memory.
 CLEAN_KINDS = ("conversation", "memory", "files")
+#: What a try played through the app's page keeps (``page.proof``), and when each is kept: for
+#: every try, only for one that fails, or not taken at all (ADR 0010).
+PROOF_PARTS = ("screenshots", "video")
+PROOF_KEEPS = ("always", "failed", "off")
 
 
 @dataclass(frozen=True)
@@ -126,3 +130,6 @@ class Case:
     shown_lacks: tuple[str, ...] = ()
     #: The page's checks decide the try (``page.decides``); otherwise they are shown as a guide.
     page_decides: bool = False
+    #: What a try played through the page keeps, part by part (``page.proof``), over what the
+    #: target's page map says: ``{"screenshots" | "video": "always" | "failed" | "off"}``.
+    page_proof: dict[str, str] = field(default_factory=dict)

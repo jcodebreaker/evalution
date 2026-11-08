@@ -36,13 +36,18 @@ trusts a proxy in front of it to say who is signed in. A header's value is a tem
 headers are only ever sent to the copy's origin, never to another host the page reaches; the page
 target holds to that.
 
-``video`` says when a try's video is kept: ``failed`` (the default: recorded, and deleted once the
-try is judged a pass), ``always``, or ``never`` (not recorded at all).
+``proof`` says what a try keeps of what the page showed: its ``screenshots`` (one after each
+message) and its ``video``, each ``always``, ``failed`` (kept, and deleted once the try is judged a
+pass) or ``off`` (not taken at all). By default every screenshot is kept, and the video only when a
+try fails. A test may say otherwise for itself (its ``page.proof``), part by part, and wins. The
+older ``video`` (``failed``, ``always`` or ``never``) still reads, as ``proof.video`` (``never`` is
+``off``); when both are given, ``proof`` wins.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 from urllib.parse import unquote, urlsplit
 
@@ -57,6 +62,7 @@ from pydantic import (
 
 from evalution.adapters.page import NAME as PAGE_ONLY
 from evalution.config import ConfigError, TargetConfig
+from evalution.core.case import PROOF_PARTS
 
 #: Where the copy's page address goes in a URL.
 COPY_PAGE = "{copy_page}"
@@ -88,8 +94,11 @@ ENTRIES = frozenset(
 )
 
 Status = Literal["draft", "tried", "approved", "stale", "broken"]
-#: When a try's video is kept: only when it doesn't pass, always, or never (not recorded).
-Video = Literal["failed", "always", "never"]
+#: When a try's screenshots or video are kept: always, only when it doesn't pass, or never (not
+#: taken). The words of :data:`evalution.core.case.PROOF_KEEPS`.
+Keep = Literal["always", "failed", "off"]
+#: The older ``video`` setting's words, as :data:`Keep` says them.
+_OLD_VIDEO = {"failed": "failed", "always": "always", "never": "off"}
 
 _HOW = "name the element by its role and name ({role, name}) or its test id ({test_id})"
 _CSS = {"css", "selector", "class"}
@@ -401,6 +410,19 @@ class Replies(_Strict):
     mine: Mark | None = None
 
 
+class Proof(_Strict):
+    """What a try played through the page keeps of it: its screenshots, one after each message,
+    and its video. Each is ``always``, ``failed`` (deleted once the try passes) or ``off``."""
+
+    screenshots: Keep = "always"
+    video: Keep = "failed"
+
+    def over(self, given: Mapping[str, str]) -> Proof:
+        """This proof with *given*'s parts (a test's own ``page.proof``) in place of its own."""
+        found = {part: given[part] for part in PROOF_PARTS if part in given}
+        return Proof.model_validate({**self.model_dump(), **found}) if found else self
+
+
 class PageMap(_Strict):
     """A target's page, as a fixed script follows it (see the module's docstring).
 
@@ -421,7 +443,8 @@ class PageMap(_Strict):
         not taken. An app whose message request returns only with the whole reply needs it
         longer than its slowest reply.
     :param evidence: Per entry (one of :data:`ENTRIES`), why it is what it is.
-    :param video: When a try's video is kept (:data:`Video`).
+    :param proof: What a try keeps: its screenshots and its video (:class:`Proof`). The older
+        ``video`` reads as ``proof.video``; when both are given, ``proof`` wins.
     """
 
     url: PageUrl
@@ -438,7 +461,24 @@ class PageMap(_Strict):
     send_seconds: float = Field(default=30.0, gt=0, le=SEND_MOST)
     status: Status = "draft"
     evidence: dict[str, Evidence] = Field(default_factory=dict)
-    video: Video = "failed"
+    proof: Proof = Field(default_factory=Proof)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_video(cls, data: Any) -> Any:
+        """The older ``video`` as ``proof.video``; a ``proof`` that says its video wins."""
+        if not isinstance(data, dict) or "video" not in data:
+            return data
+        data = dict(data)
+        video = data.pop("video")
+        if not isinstance(video, str) or video not in _OLD_VIDEO:
+            raise ValueError(f"video: {video!r} isn't one of failed, always or never")
+        proof = data.get("proof")
+        if proof is None:
+            data["proof"] = {"video": _OLD_VIDEO[video]}
+        elif isinstance(proof, dict) and "video" not in proof:
+            data["proof"] = {**proof, "video": _OLD_VIDEO[video]}
+        return data
 
     @model_validator(mode="after")
     def _known_entries(self) -> PageMap:
@@ -596,11 +636,35 @@ def _id_where(page: PageMap) -> str:
     return f"the page's address, by {page.session_id.pattern}"
 
 
+_SHOTS = {
+    "always": "one after each message, kept for every try",
+    "failed": "one after each message, kept when a try doesn't pass",
+    "off": "not taken",
+}
 _VIDEO = {
     "failed": "kept when a try doesn't pass",
     "always": "kept for every try",
-    "never": "not recorded",
+    "off": "not recorded",
 }
+#: What a run keeps, as the Run dialog says it, part by part.
+_KEPT_SHOTS = {
+    "always": "screenshots of every message",
+    "failed": "screenshots when a try fails",
+    "off": "no screenshots",
+}
+_KEPT_VIDEO = {
+    "always": "video of every try",
+    "failed": "video when a try fails",
+    "off": "no video",
+}
+
+
+def proof_words(proof: Proof) -> str:
+    """What a try keeps, in a few words: "screenshots of every message, video when a try
+    fails"."""
+    if proof.screenshots == "off" and proof.video == "off":
+        return "no screenshots or video"
+    return f"{_KEPT_SHOTS[proof.screenshots]}, {_KEPT_VIDEO[proof.video]}"
 
 
 def described(page: PageMap, *, only: bool = False) -> list[dict[str, str]]:
@@ -624,5 +688,6 @@ def described(page: PageMap, *, only: bool = False) -> list[dict[str, str]]:
         rows.append(("Done when", f"nothing is busy and {quiet}" if page.busy else quiet))
     rows.append(("Waits for the app to take a message", f"up to {page.send_seconds:g} s"))
     rows.append(("Waits for the reply", f"up to {page.catch_up_seconds:g} s"))
-    rows.append(("Video", _VIDEO[page.video]))
+    rows.append(("Screenshots", _SHOTS[page.proof.screenshots]))
+    rows.append(("Video", _VIDEO[page.proof.video]))
     return [{"what": what, "where": where} for what, where in rows]

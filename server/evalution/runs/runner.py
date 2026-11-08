@@ -52,7 +52,7 @@ from evalution.adapters.base import (
 from evalution.config import TargetConfig
 from evalution.core import net
 from evalution.core.case import MOST_TRIES, Case, EvalSet
-from evalution.core.evidence import VIDEO, Failure, TraceStatus, TryEvidence
+from evalution.core.evidence import VIDEO, Failure, TraceStatus, TryEvidence, is_shot
 from evalution.core.judgement import CheckKind, Decider, JudgeStamp, Outcome, Verdict, WhyUnjudged
 from evalution.core.rules import (
     ADAPTER_BROKEN,
@@ -94,7 +94,7 @@ from evalution.results.views import summary, totals
 from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
 from evalution.runs import isolated, trust
-from evalution.runs.estimate import messages
+from evalution.runs.estimate import messages, plays
 from evalution.runs.fit import why_not
 from evalution.runs.page import learn
 from evalution.runs.page.map import PageMapBroken, page_map_of, page_only
@@ -389,6 +389,14 @@ class Runs:
             "isolation_note": capabilities.isolation_note,
             # How its tries will be kept apart: ``proven`` plays on evalution's own copy.
             "isolation": found.run_label(),
+            # How its tests play, what a try keeps and roughly how long one takes, in words.
+            "plays": plays(
+                target,
+                chosen,
+                self.all(target, set_name),
+                page,
+                only=page_only(self.targets.conf(target)),
+            ),
         }
 
     def _declared(self, target: str) -> Capabilities:
@@ -881,6 +889,9 @@ class Runs:
                         elif copies is not None:
                             # Put back before the test's first try only, as the setup says.
                             label = copies.unrestored()
+                        if isinstance(adapter, PageTarget):
+                            # What the try keeps of the page: the test's own proof over the map's.
+                            adapter.prove(case.page_proof)
                         if index not in sessions:
                             sessions[index] = await _in_time("open a session", adapter.open(key))
                             opened()
@@ -1119,24 +1130,25 @@ class Runs:
                 _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
         await asyncio.shield(self._save(doc))
 
-    async def _drop_passed_video(self, run: str, evidence: TryEvidence, outcome: Outcome) -> None:
-        """Delete a passed try's video when its page map keeps one only when a try fails. Its
-        evidence still names the file; the try view says why there is none."""
+    async def _drop_passed_proof(self, run: str, evidence: TryEvidence, outcome: Outcome) -> None:
+        """Delete a passed try's video, and its screenshots, when its proof keeps them only when
+        a try fails. Its evidence still names the files; the try view says why there are none."""
         page, files = evidence.page, self.store.files
-        if (
-            page is None
-            or files is None
-            or page.video_policy != "failed"
-            or VIDEO not in page.files
-            or outcome is not Outcome.PASSED
-        ):
+        if page is None or files is None or outcome is not Outcome.PASSED:
             return
-        try:
-            await asyncio.to_thread(files.delete, run, evidence.case, evidence.n, VIDEO)
-        except (OSError, ValueError):
-            _logger.warning(
-                "evals: the video of a passed try of %s not deleted", run, exc_info=True
-            )
+        names = [
+            name
+            for name in page.files
+            if (name == VIDEO and page.video_policy == "failed")
+            or (is_shot(name) and page.screenshot_policy == "failed")
+        ]
+        for name in names:
+            try:
+                await asyncio.to_thread(files.delete, run, evidence.case, evidence.n, name)
+            except (OSError, ValueError):
+                _logger.warning(
+                    "evals: %s of a passed try of %s not deleted", name, run, exc_info=True
+                )
 
     async def _try(
         self,
@@ -1229,7 +1241,7 @@ class Runs:
             else None
         )
         found = judgement(checks, graded_by, code.route)
-        await self._drop_passed_video(doc["run"], evidence, found.outcome)
+        await self._drop_passed_proof(doc["run"], evidence, found.outcome)
         attempt = {
             "n": n,
             "seconds": played.seconds,

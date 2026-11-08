@@ -10,6 +10,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from evalution.api.deps import Current, invalid, known_set, not_found, target_name
+from evalution.connect import page
+from evalution.core.case import PROOF_KEEPS, PROOF_PARTS
 from evalution.project import drift
 from evalution.results.views import case_history, finding, latest_rows
 from evalution.suite.cases import CaseError
@@ -54,7 +56,9 @@ def tests_router() -> APIRouter:
             )
         except CaseError as exc:
             raise invalid(str(exc)) from exc
-        return {"data": rows}
+        # How each test plays: through the app's page when it has a page map, else its API.
+        way = "api" if page.plays(targets, name) == "api" else "page"
+        return {"data": [{**row, "plays": way} for row in rows]}
 
     @router.get("/evals/sets/{set_name}/cases/{case}")
     async def get_case(
@@ -76,6 +80,53 @@ def tests_router() -> APIRouter:
             "stale": drift.stale(found, drift.read(targets, name)),
             "history": case_history(case, every),
             "finding": finding(played["cases"][case]["tries"]) if played else None,
+            # How it plays (``api``, ``page`` or ``page_only``) and, through the page, what a try
+            # keeps: the target's proof with the test's own over it.
+            "plays": page.plays(targets, name),
+            "proof": page.proof_for_test(targets, name, found.page_proof),
+        }
+
+    @router.put("/evals/sets/{set_name}/cases/{case}/proof")
+    async def put_case_proof(
+        ws: Current, set_name: str, case: str, body: dict[str, Any], target: str | None = None
+    ) -> dict[str, Any]:
+        """What this test's tries keep when played through the app's page, part by part
+        (``screenshots``, ``video``: ``always``, ``failed`` or ``off``, or ``null`` to follow the
+        target's again), saved as its ``page.proof``. It changes nothing the test checks."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        known_set(targets, name, set_name)
+        if not body or set(body) - set(PROOF_PARTS):
+            raise invalid(f"Say what a try keeps: {' and '.join(PROOF_PARTS)}.")
+        if bad := [k for k, v in body.items() if v is not None and v not in PROOF_KEEPS]:
+            raise invalid(f"{bad[0]}: one of {', '.join(PROOF_KEEPS)}, or null.")
+        try:
+            found = load_case(targets.docs, name, set_name, case)
+        except CaseError as exc:
+            raise not_found("Test") from exc
+        data = dict(found.raw)
+        block = dict(data.get("page") or {})
+        own = dict(found.page_proof)
+        for part, keep in body.items():
+            if keep is None:
+                own.pop(part, None)
+            else:
+                own[part] = keep
+        if own:
+            block["proof"] = own
+        else:
+            block.pop("proof", None)
+        if block:
+            data["page"] = block
+        else:
+            data.pop("page", None)
+        try:
+            await asyncio.to_thread(write_case, targets.docs, name, set_name, data, case)
+        except CaseError as exc:
+            raise invalid(str(exc)) from exc
+        return {
+            "plays": page.plays(targets, name),
+            "proof": page.proof_for_test(targets, name, own),
         }
 
     @router.get("/evals/sets/{set_name}/cases/{case}/file")

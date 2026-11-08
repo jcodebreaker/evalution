@@ -7,6 +7,7 @@ import type { Period } from "../../lib/schema";
 import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Skeleton } from "../../ui/field";
 import { LoadingState } from "../../ui/loading";
+import { UiOffer } from "../environment/UiOffer";
 import { RunAll } from "../runs/RunAll";
 import { Centered } from "../shared/layout";
 import { ChangeCard } from "./ChangeCard";
@@ -121,6 +122,7 @@ export function HomeView({
             {health ? (
               <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
             ) : null}
+            <UiOffer target={scope.target} onAsk={(text) => onAsk(text)} className={CARD} />
           </>
         ) : load.status === "loading" ? (
           <>
@@ -151,6 +153,7 @@ export function HomeView({
             />
             <HowTestsRun target={scope.target} isolation={health.isolation} />
             <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
+            <UiOffer target={scope.target} onAsk={(text) => onAsk(text)} className={CARD} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

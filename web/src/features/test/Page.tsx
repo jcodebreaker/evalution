@@ -90,6 +90,7 @@ export function PageNotes({ page }: { page: TryPage }) {
   const notes = [
     page.interrupted ? "The try was cut short before the page was closed." : null,
     page.video_missing && !page.video_fix ? `No video: ${page.video_missing}` : null,
+    page.shots_missing ? `No screenshots: ${page.shots_missing}` : null,
     page.video && !page.video.url && !page.video_missing
       ? "Its video stayed on the computer that played it."
       : null,

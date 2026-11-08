@@ -56,6 +56,24 @@ export function IsolationLines({ estimate, app }: { estimate: Estimate; app: str
   );
 }
 
+/** How the run's tests play, what each try keeps and roughly how long one takes: a line for each
+ * way they play ("3 tests through relay-lite's page, one at a time, …"). */
+export function PlaysLines({ estimate }: { estimate: Estimate }) {
+  if (!estimate.plays.length) return null;
+  return (
+    <div
+      className="flex flex-col items-center gap-1 text-center text-[12.5px]"
+      data-testid="run-plays"
+    >
+      {estimate.plays.map((line) => (
+        <p key={line.text} className="m-0 text-foreground">
+          {line.text}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /** What a run plays: the whole set, one of its tests, or some of them. */
 export type RunTarget = {
   scope: Scope;
@@ -153,6 +171,7 @@ export function RunConfirm({
         </>
       }
     >
+      {estimate ? <PlaysLines estimate={estimate} /> : null}
       {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
       {estimate?.refused.map((item) => (
         <p key={item.case} className="m-0 text-center text-[12.5px] text-warning">

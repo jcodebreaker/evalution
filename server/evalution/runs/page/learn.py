@@ -232,6 +232,9 @@ async def rehearse(
     spends one turn of the app. Passed when the turn ended and its reply showed on the page."""
     async with on_copy(config, target, capabilities) as copy:
         page = copy.page(page_map)
+        # A person approves the map by its screenshots: the rehearsal keeps them, whatever the
+        # map's proof says of a run's.
+        page.prove({"screenshots": "always"})
         started = time.time()
         keep = (
             PageFiles(files, shots_run(target), SHOTS_CASE, int(started))

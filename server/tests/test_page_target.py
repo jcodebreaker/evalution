@@ -672,6 +672,29 @@ async def test_never_records_nothing(chat, tmp_path) -> None:
     assert found.files == ("turn-1.png",) and found.video_missing is None
     assert found.video_policy is None and target._ffmpeg is None, "never tried to record"
     assert files.list("run-1", "a-case", 1) == ["turn-1.png"]
+    assert found.screenshot_policy == "always", "the map's default proof keeps every screenshot"
+
+
+async def test_a_tests_own_proof_wins_over_the_maps(chat, tmp_path) -> None:
+    files = LocalFiles(tmp_path)
+    # The map records video of every try; this test takes no screenshots and no video.
+    target = _video_target(chat, "always")
+    try:
+        target.prove({"screenshots": "off", "video": "off"})
+        session = await target.open("r")
+        assert _page(target, session).video is None, "a context for a try with no video"
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        turn = await target.send(session, "hello", deadline=time.time() + 20)
+        found = await target.record(session, time.time())
+    finally:
+        await target.dispose()
+    assert turn.shown == "Echo: hello", "it still plays through the page"
+    assert found.turns[0].shot is None and found.files == ()
+    assert found.screenshot_policy == "off" and found.video_policy is None
+    assert files.list("run-1", "a-case", 1) == []
+    # The next test without its own proof keeps what the map says again.
+    target.prove({})
+    assert target.proof.video == "always" and target.proof.screenshots == "always"
 
 
 async def test_a_video_too_big_is_dropped_and_says_why(chat, tmp_path, monkeypatch) -> None:

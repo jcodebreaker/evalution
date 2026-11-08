@@ -46,14 +46,18 @@ the run's file store; the console's errors and warnings and uncaught errors, scr
 target's secrets; requests to the copy's origin that failed (400 and up, or no answer), by path
 without the query.
 
-And a video of the try, unless the map's ``video`` is ``never``: each context records its pages
+What a try keeps is its proof (:meth:`PageTarget.prove`: the map's ``proof``, with a test's own
+over it): no screenshots when its ``screenshots`` is ``off``, and no video when its ``video`` is.
+A passed try's screenshots, or video, kept only for failures are deleted once judged (the
+runner's).
+
+And a video of the try, unless its proof's ``video`` is ``off``: each context records its pages
 (Playwright's ffmpeg, at the viewport's size), and a form sign-in happens on a page of its own,
 closed before the try's page opens, so no video shows the form being filled. ``record`` closes the
 try's page, which finishes its video, and moves it into the file store as
 :data:`~evalution.core.evidence.VIDEO`; the next turn in the same session opens a new page on the
 conversation. A video over :data:`VIDEO_BYTES` is dropped. Without ffmpeg the try plays on with no
-video and says why; a try whose page was never recorded (a restart) says its video is missing. A
-passed try's video is deleted once judged when the map keeps it only for failures (the runner's).
+video and says why; a try whose page was never recorded (a restart) says its video is missing.
 
 A form or cookie sign-in uses the slot's test account: the target's ``page_accounts``, a list of
 ``{email, password_env}`` (one per slot, the password read as any ``*_env`` is), as the copy's
@@ -79,7 +83,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -119,6 +123,7 @@ from evalution.runs.page.map import (
     Locator,
     PageMap,
     PageMapBroken,
+    Proof,
     fill_urls,
     page_map_of,
     page_only,
@@ -504,11 +509,19 @@ class PageTarget(Target):
         self._ffmpeg: bool | None = None
         #: The writes refused from a page that may only look (:meth:`_new_context`), by key.
         self._blocked: dict[str, list[str]] = {}
+        #: What the next tries keep: the map's proof, or a test's own over it (:meth:`prove`).
+        self.proof: Proof = self.page.proof
 
     @property
     def page_only(self) -> bool:
         """Reached through its page alone: no inner adapter, and the page the only witness."""
         return self.inner is None
+
+    def prove(self, given: Mapping[str, str]) -> None:
+        """The tries from the next session on keep what *given* (a test's own ``page.proof``)
+        says, part by part, over the map's proof. A context records video, or not, when it opens:
+        call this before opening the try's session."""
+        self.proof = self.page.proof.over(given)
 
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
@@ -643,10 +656,10 @@ class PageTarget(Target):
         return page
 
     async def _context(self, browser: Any, key: str) -> tuple[Any, Any]:
-        """A new context and its first page, recording video when the map keeps any and
+        """A new context and its first page, recording video when the try's proof keeps any and
         Playwright's ffmpeg is here (else without, and :attr:`_ffmpeg` says so)."""
         options = {**self._context_options(), "viewport": VIEWPORT}
-        if self.page.video != "never" and self._ffmpeg is not False:
+        if self.proof.video != "off" and self._ffmpeg is not False:
             folder = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="evalution-video-"))
             context = None
             try:
@@ -722,10 +735,10 @@ class PageTarget(Target):
     async def record(self, session: Session, t0: float, *, cut_short: bool = False) -> PageRecord:
         """What the page did of the try that started at *t0*, times from it, and forget it. A try
         *cut_short* (out of time, stopped), or with a turn still going, is ``interrupted``. When
-        the map keeps video and the try has somewhere to keep files, its page is closed to finish
-        its video, which is kept as :data:`VIDEO` (see the module's docstring)."""
+        the try's proof keeps video and the try has somewhere to keep files, its page is closed to
+        finish its video, which is kept as :data:`VIDEO` (see the module's docstring)."""
         found = self._record_of(session)
-        policy = None if self.page.video == "never" else self.page.video
+        policy = None if self.proof.video == "off" else self.proof.video
         if found is None:
             return PageRecord(
                 interrupted=True,
@@ -769,6 +782,7 @@ class PageTarget(Target):
             files=tuple(files),
             video_missing=missing,
             video_policy=policy if VIDEO in files else None,
+            screenshot_policy=self.proof.screenshots,
             interrupted=cut_short or any(not step["done"] for step in found.turns),
             page_only=self.page_only,
         )
@@ -814,7 +828,10 @@ class PageTarget(Target):
 
     async def _shoot(self, page: Any, record: _Record, index: int) -> str | None:
         """A screenshot of the page after turn *index*, with sign-in boxes masked, kept as the
-        try's file; its name, or ``None`` when there is nowhere to keep it or it failed."""
+        try's file; its name, or ``None`` when there is nowhere to keep it, the try's proof takes
+        none, or it failed."""
+        if self.proof.screenshots == "off":
+            return None
         name = await self._keep_shot(page, record.keep, f"turn-{index}.png")
         if name is not None:
             record.files.append(name)

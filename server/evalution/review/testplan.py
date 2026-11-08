@@ -26,7 +26,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
-from evalution.core.evidence import VIDEO_ON_FAILURE, Failure, PageRecord, PageTurn, TryEvidence
+from evalution.core.evidence import (
+    SHOTS_OFF,
+    SHOTS_ON_FAILURE,
+    VIDEO_ON_FAILURE,
+    Failure,
+    PageRecord,
+    PageTurn,
+    TryEvidence,
+)
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
 from evalution.core.rules import (
     called_of,
@@ -833,6 +841,13 @@ def _on_page(
     if video and url is None and page.video_policy == "failed" and judged.outcome is Outcome.PASSED:
         # Deleted once the try passed, here and wherever it was played.
         video, missing = None, VIDEO_ON_FAILURE
+    # Why the try shows no screenshots, when its proof said so: none taken, or deleted once it
+    # passed.
+    shots_missing = None
+    if page.screenshot_policy == "off":
+        shots_missing = SHOTS_OFF
+    elif page.screenshot_policy == "failed" and judged.outcome is Outcome.PASSED:
+        shots_missing = SHOTS_ON_FAILURE
     return {
         "console": [
             {"level": line.level, "text": line.text.text, "at": line.at} for line in page.console
@@ -857,6 +872,7 @@ def _on_page(
         "broken_map": _broken_map(kept, page, file_url),
         "video": {"name": video, "url": url} if video else None,
         "video_missing": missing,
+        "shots_missing": shots_missing,
         "interrupted": page.interrupted,
     }
 
