@@ -67,6 +67,7 @@ You need Python 3.12+, [uv](https://docs.astral.sh/uv/) and Node.
 
 ```sh
 ./install.sh                                  # installs, builds the page, and checks what a first run needs
+                                              # (with the browser UI testing uses; EVALUTION_NO_BROWSER=1 to skip it)
 uv run --project server evalution serve       # or: evalution service install, to keep it running from login on
 ```
 
@@ -407,7 +408,7 @@ git pull
 uv run --project server evalution upgrade     # with Docker, see "With Docker": stop the service, then docker compose run
 ```
 
-`install.sh` is safe to run again: it pulls nothing and never overwrites `evalution.yaml`. Old runs read fine without the last step, which only rewrites them for good.
+`install.sh` is safe to run again: it pulls no code and never overwrites `evalution.yaml`. It also installs what UI testing needs (Playwright, its Chromium and ffmpeg, about 150 MB once); `EVALUTION_NO_BROWSER=1 ./install.sh` leaves it out, and `evalution doctor` says what's missing. In Docker, `docker build --target page` is the image with it. Old runs read fine without the last step, which only rewrites them for good.
 
 `evalution upgrade` first copies `data/`, `sets/`, `targets/` and your settings to `backups/<time>/`. Then it rewrites stored runs as today's shape, says which it changed, checks every run still reads and says what it said, and prints the exact command that undoes it all. It refuses while a run is going, and exits non-zero if anything didn't check out.
 

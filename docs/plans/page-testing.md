@@ -47,6 +47,7 @@ A review against the code (2026-11-07) changed the first draft. In short:
 - **Page checks guide by default.** A test's `page: {decides: true}` makes `shown` and `page_health` must-checks; `page: {contains, lacks}` add its own. `RULES_VERSION` is 3.
 - **Files** are kept per try under `<data_dir>/files/<run>/<case>.<n>/`, deleted with the run (`RunStore.delete_run`, no route yet). Uploaded runs keep the names, not the files.
 - **Video** (`page.video: failed | always | never`, default `failed`) needs Playwright's ffmpeg (`playwright install ffmpeg`); without it a try plays on and says why it has none. Each context records at the viewport's size; a form sign-in happens on a page of its own, closed before the try's page opens, so no video shows the form. `PageTarget.record` closes the try's page to finish its video and keeps it as `try.webm` (over 50 MB it is dropped, and said); the next turn in the session opens a new page. With `failed`, the runner deletes a passed try's video once judged; the evidence keeps the name and `video_policy`, and the try view says "kept only when a try fails". A try cut off by a restart or a stop before `record` has no video.
+- **Installed with evalution.** `./install.sh` installs the page extra, Playwright's Chromium and ffmpeg (skipped with `EVALUTION_NO_BROWSER=1`); `evalution doctor` says what UI testing lacks, without launching anything, and fails only when a target plays through its page; `docker build --target page` is an image with all of it, the default image stays without a browser.
 
 ## Where it stands
 

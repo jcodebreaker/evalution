@@ -58,6 +58,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -168,6 +169,44 @@ def page_missing() -> str | None:
     if importlib.util.find_spec("playwright") is None:
         return NO_PLAYWRIGHT
     return None
+
+
+#: What sets up everything page mode needs on this computer; ``./install.sh`` runs it.
+PAGE_SETUP = (
+    "uv sync --project server --extra page && "
+    "uv run --project server playwright install chromium ffmpeg"
+)
+
+
+def playwright_cache() -> Path:
+    """Where Playwright keeps the browsers and ffmpeg it installs: ``PLAYWRIGHT_BROWSERS_PATH``,
+    else its own place for this kind of computer."""
+    if found := os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        return Path(found)
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Caches" / "ms-playwright"
+    if sys.platform == "win32":
+        return home / "AppData" / "Local" / "ms-playwright"
+    return home / ".cache" / "ms-playwright"
+
+
+def page_parts() -> dict[str, bool]:
+    """What page mode has here, without launching anything: Playwright, a browser (Playwright's
+    Chromium or the system Chrome) and Playwright's ffmpeg, which a try's video needs."""
+    cache = playwright_cache()
+
+    def installed(*prefixes: str) -> bool:
+        return cache.is_dir() and any(
+            item.is_dir() and item.name.startswith(prefixes) for item in cache.iterdir()
+        )
+
+    return {
+        "playwright": page_missing() is None,
+        "browser": installed("chromium-", "chromium_headless_shell-")
+        or system_chrome() is not None,
+        "ffmpeg": installed("ffmpeg-"),
+    }
 
 
 def system_chrome() -> str | None:

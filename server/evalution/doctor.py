@@ -12,6 +12,7 @@ from evalution.adapters import adapter_info, broken, infos
 from evalution.config import Config
 from evalution.connect.connect import check
 from evalution.core import net
+from evalution.runs.page.target import PAGE_SETUP, page_parts
 from evalution.settings import SettingsError, list_models
 from evalution.targets import Targets
 
@@ -36,6 +37,21 @@ def _web(config: Config) -> Finding:
     return Finding(
         False, "The page isn't built", "Run: npm ci --prefix web && npm run build --prefix web"
     )
+
+
+def _page(config: Config) -> Finding:
+    """Whether UI testing (ADR 0010) has what it needs here. Only a target that plays through its
+    page needs it, so without one, what's missing is said and nothing fails."""
+    parts = page_parts()
+    if all(parts.values()):
+        return Finding(True, "UI testing is ready: Playwright, a browser and ffmpeg for video")
+    missing = [name for name, there in parts.items() if not there]
+    words = {"playwright": "Playwright", "browser": "a browser", "ffmpeg": "ffmpeg for video"}
+    said = ", ".join(words[name] for name in missing)
+    needed = any(isinstance(t.options.get("page"), dict) for t in config.targets.values())
+    if not needed and not parts["playwright"]:
+        return Finding(True, f"UI testing isn't installed (optional). To add it: {PAGE_SETUP}")
+    return Finding(not needed, f"UI testing lacks {said}", f"Run: {PAGE_SETUP}")
 
 
 def _proxy() -> Finding:
@@ -87,7 +103,7 @@ async def _target(targets: Targets, name: str) -> list[Finding]:
 
 
 async def examine(config: Config, targets: Targets) -> list[Finding]:
-    found = [_web(config), _proxy(), await _model(config)]
+    found = [_web(config), _page(config), _proxy(), await _model(config)]
     if not targets.names():
         found.append(Finding(False, "No app connected", "Connect one on the page"))
     for name in targets.names():
