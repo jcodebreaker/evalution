@@ -63,6 +63,7 @@ from evalution.core.rules import (
     current,
     judgement,
 )
+from evalution.isolation.setup import setup_for
 from evalution.judging import labels
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
@@ -755,7 +756,8 @@ class Runs:
         something against *base*.
 
         On a target with a proven isolation plan, each slot plays on evalution's own copy of the
-        app, put back and checked before every try (:mod:`evalution.runs.isolated`)."""
+        app, put back and checked before every try, or before each test's first as its test setup
+        says, which also says how many copies play at once (:mod:`evalution.runs.isolated`)."""
         name = doc["target"]
         target = self.targets.adapter(name)
         source = self.targets.source(name)
@@ -787,11 +789,16 @@ class Runs:
                     "try": 1,
                 }
                 await self.store.save(doc)
-                copies = isolated.Copies(self.targets.config, name, footing, self.targets.store)
+                config = self.targets.config
+                setup = await asyncio.to_thread(setup_for, config, name)
+                # On copies, the test setup says how many play side by side.
+                slots = min(setup.copies, len(cases)) if parallel else 1
+                copies = isolated.Copies(config, name, footing, self.targets.store, setup)
                 began = time.monotonic()
                 await copies.start(slots)
                 # How long starting the copies took: the Run dialog's rough figure next time.
                 doc["copy_start_seconds"] = round(time.monotonic() - began, 1)
+                doc["isolation"] = footing.run_label(copies.person)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
@@ -835,10 +842,13 @@ class Runs:
                         n += 1
                         doc["current"] = {"case": case.case, "name": case.name, "try": n}
                         label = footing.try_label()
-                        if copies is not None:
+                        if copies is not None and (n == 1 or copies.reset == "try"):
                             doc["current"]["stage"] = "restoring"
                             await self.store.save(doc)
                             label = await copies.restore(index)
+                        elif copies is not None:
+                            # Put back before the test's first try only, as the setup says.
+                            label = copies.unrestored()
                         if index not in sessions:
                             sessions[index] = await _in_time("open a session", adapter.open(key))
                             opened()

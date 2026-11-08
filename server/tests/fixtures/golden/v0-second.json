@@ -128,6 +128,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Passed",
@@ -343,6 +344,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Passed",
@@ -558,6 +560,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Passed",
@@ -891,6 +894,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Grader unavailable",
@@ -1236,6 +1240,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Grader unavailable",
@@ -1577,6 +1582,7 @@
       "how": "none",
       "plan_version": null,
       "problem": null,
+      "reset": "try",
       "restore_seconds": null
      },
      "label": "Grader unavailable",
@@ -1816,6 +1822,7 @@
    "interrupted": false,
    "isolation": {
     "how": "none",
+    "person": null,
     "plan_version": null
    },
    "judge": {
@@ -1992,6 +1999,7 @@
   "interrupted": false,
   "isolation": {
    "how": "none",
+   "person": null,
    "plan_version": null
   },
   "judge": {
@@ -2160,6 +2168,7 @@
   "interrupted": false,
   "isolation": {
    "how": "none",
+   "person": null,
    "plan_version": null
   },
   "judge": {

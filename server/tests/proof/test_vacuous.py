@@ -650,7 +650,7 @@ async def test_11_control_without_the_leak_try_2_fails(make_rig) -> None:
     assert _verdict(doc) == "flaky"
     assert [current(t).outcome.value for t in _tries(doc)] == ["passed", "failed"]
     assert {t["isolation"]["how"] for t in _tries(doc)} == {"identity"}
-    assert doc["isolation"] == {"how": "identity", "plan_version": None}
+    assert doc["isolation"] == {"how": "identity", "plan_version": None, "person": None}
 
 
 #: Where the file-backed agent keeps its memory, in its rig's folder.
@@ -676,7 +676,7 @@ async def test_11_on_a_managed_copy_a_pass_resting_on_a_leak_is_not_a_pass(make_
     # The plan's id for each store checked, which the page names in plain words.
     assert all(lab["checked"] == ["memory"] and lab["problem"] is None for lab in labels)
     assert all(isinstance(lab["restore_seconds"], float) for lab in labels)
-    assert doc["isolation"] == {"how": "proven", "plan_version": 1}
+    assert doc["isolation"] == {"how": "proven", "plan_version": 1, "person": None}
     assert summary(doc)["isolation"] == doc["isolation"]
 
 

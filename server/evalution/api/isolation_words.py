@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from evalution.adapters.base import Isolation
-from evalution.isolation.plan import Plan, PlannedStore, PlanStore
+from evalution.isolation.plan import Plan, PlannedStore, PlanStore, own_name
 from evalution.project import isolating
 from evalution.targets import Targets
 
@@ -28,8 +28,6 @@ _HOLDS = (
 _COPY = re.compile(r"eval-[a-z0-9_-]*?-\d+[a-z0-9_-]*")
 #: How long the last rehearsal took, as its report says it.
 _REHEARSED = re.compile(r"Rehearsed on \S+ in (\d+(?:\.\d+)?)s")
-#: Prefixes of a locator that is a name, not a place.
-_NAMED = ("volume:", "env:", "service:", "package:", "socket:")
 
 
 def _holds(store: PlannedStore, target: str) -> str | None:
@@ -45,13 +43,7 @@ def _holds(store: PlannedStore, target: str) -> str | None:
 
 def _own_name(store: PlannedStore) -> str:
     """The store's own name: the database, the volume, the file, or the setting."""
-    locator = store.locator
-    for prefix in _NAMED:
-        if locator.startswith(prefix):
-            return locator.removeprefix(prefix)
-    if locator.startswith("/"):
-        return locator.rstrip("/").rsplit("/", 1)[-1] or locator
-    return locator.split(":", 1)[-1]
+    return own_name(store)
 
 
 def store_words(plan: Plan) -> list[dict[str, Any]]:

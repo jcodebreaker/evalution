@@ -23,23 +23,38 @@ from pathlib import Path
 from typing import Any
 
 from evalution.config import Config
-from evalution.isolation.plan import Plan, PlanStore, stale
+from evalution.isolation.plan import Plan, PlannedStore, PlanStore, given, own_name, stale
+from evalution.isolation.setup import (
+    PERSON_FIELDS,
+    Setup,
+    SetupStore,
+    changed,
+    person_name,
+    setup_for,
+)
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
 
 #: What a stale plan's report says, after the rehearsal's account (a later rehearsal drops it).
 STALE_NOTE = "\n\nOut of date: a commit changed {files}."
-#: The stages of finding and proving isolation, in order, as the page says them.
-STAGES = (
-    ("start", "Starting evalution's own copy of your app"),
-    ("find", "Finding where it keeps what it remembers"),
-    ("plan", "Writing a plan to reset each one"),
-    ("rehearse", "Rehearsing the plan on the copy"),
-    ("done", "Proven"),
-)
-#: How often the job looks for the probe's evidence, which says the plan is drafted.
-WATCH_SECONDS = 0.5
+#: The steps of setting up testing, as the page says them. Once the plan is drafted, a step for
+#: each store the copy gets goes after ``find``: ``store:<id>``.
+COPY, FIND, PERSON, PROVE = "copy", "find", "person", "prove"
+LABELS = {
+    COPY: "Copy {target}",
+    FIND: "Find where it keeps things",
+    PERSON: "Make a test person",
+    PROVE: "Check it resets cleanly",
+}
+#: What the ``person`` step says when the setup names no test person.
+APPS_OWN = "the app's own"
+#: Stage names :func:`evalution.isolation.isolate.isolate` said before these steps, and the step
+#: each is now. ``plan`` (drafting) is part of ``find``.
+ALIASES = {"start": COPY, "rehearse": PROVE, "plan": FIND}
+#: Each kind of store a copy gets, as its step names it; any other is memory or files.
+_KINDS = {"postgres": "Postgres", "mysql": "MySQL", "redis": "Redis", "mongo": "MongoDB"}
+_MEMORY = ("memory", "vector")
 
 
 def _plans(targets: Targets) -> PlanStore:
@@ -117,85 +132,118 @@ async def mark_stale_quietly(targets: Targets, name: str) -> None:
 # Finding and proving it from the page
 
 
-Stage = Callable[[str], None]
+#: Told each stage as it begins, and the plan with ``plan`` once it is drafted.
+Stage = Callable[..., None]
 #: Finds, plans, rehearses and saves; calls *stage* as each begins. Swapped in tests.
 Isolate = Callable[[Config, str, Stage], Awaitable[Plan]]
 
 
-def _mtime(path: Path) -> float | None:
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return None
-
-
-async def _evidence_saved(path: Path, before: float | None, stage: Stage) -> None:
-    """Say ``rehearse`` once the probe's evidence is saved, which is when the plan is drafted."""
-    while True:
-        await asyncio.sleep(WATCH_SECONDS)
-        now = _mtime(path)
-        if now is not None and now != before:
-            stage("plan")
-            stage("rehearse")
-            return
-
-
 async def isolate(config: Config, target: str, stage: Stage) -> Plan:
     """:func:`evalution.isolation.isolate.isolate` on evalution's own copy of the app, telling
-    *stage* as it goes. Sends two messages to the copy, never to the person's app."""
+    *stage* each step as it begins, and the plan once drafted. Sends two messages to the copy,
+    never to the person's app."""
     from evalution.isolation.isolate import isolate as run
 
-    path = PlanStore(config.data_dir).root / target / "evidence.json"
-    before = _mtime(path)
-
     async def started(_summary: str) -> bool:
-        stage("find")
         return True
 
-    watch = asyncio.create_task(_evidence_saved(path, before, stage))
-    try:
-        return await run(config, target, ask=started)
-    finally:
-        watch.cancel()
+    return await run(
+        config,
+        target,
+        ask=started,
+        on_stage=stage,
+        on_plan=lambda plan: stage("plan", plan),
+    )
+
+
+def store_label(store: PlannedStore) -> str:
+    """What the step giving the copy *store* says, by its kind."""
+    if store.kind in _KINDS:
+        return f"Give it its own {_KINDS[store.kind]}"
+    said = " ".join([store.locator, *store.seen, *store.found_as]).lower()
+    if store.kind in _MEMORY or "memor" in said:
+        return "Give it its own memory"
+    return "Give it its own files"
+
+
+def _step(key: str, label: str, detail: str | None = None) -> dict[str, Any]:
+    return {"key": key, "label": label, "state": "waiting", "seconds": None, "detail": detail}
 
 
 @dataclass
 class Job:
-    """One target's finding and proving, as the page follows it."""
+    """One target's setting up of testing, as the page follows it: a step for each thing done
+    to evalution's copy of the app, each ``waiting``, ``running``, ``done`` or ``failed``, with
+    the seconds it took once it ended."""
 
     target: str
+    #: The test person's name, for the ``person`` step; ``None``: the app's own.
+    person: str | None = None
     started: float = field(default_factory=time.time)
     #: ``running``, ``done`` (the plan is saved, proven or not) or ``failed`` (it didn't finish).
     state: str = "running"
-    steps: list[dict[str, str]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
     ended: float | None = None
+    _began: dict[str, float] = field(default_factory=dict, repr=False)
 
-    def stage(self, key: str) -> None:
-        """*key*'s step begins: those before it are done."""
-        keys = [k for k, _ in STAGES]
+    def __post_init__(self) -> None:
+        if not self.steps:
+            self.steps = [
+                _step(COPY, LABELS[COPY].format(target=self.target)),
+                _step(FIND, LABELS[FIND]),
+                _step(PERSON, LABELS[PERSON], self.person or APPS_OWN),
+                _step(PROVE, LABELS[PROVE]),
+            ]
+
+    def _end(self, step: dict[str, Any], state: str, now: float) -> None:
+        began = self._began.pop(step["key"], None)
+        if began is not None:
+            step["seconds"] = round(now - began, 1)
+        step["state"] = state
+
+    def drafted(self, plan: Plan) -> None:
+        """The plan is drafted: a step for each store the copy gets, after ``find``."""
+        kept = [s for s in self.steps if not s["key"].startswith("store:")]
+        at = next((i + 1 for i, s in enumerate(kept) if s["key"] == FIND), 1)
+        stores = [_step(f"store:{s.id}", store_label(s), own_name(s)) for s in given(plan)]
+        self.steps = kept[:at] + stores + kept[at:]
+
+    def stage(self, key: str, plan: Plan | None = None) -> None:
+        """*key*'s step begins, and those before it are done. With *plan* (drafted), its store
+        steps are added first. A key no step has is passed over."""
+        if plan is not None:
+            self.drafted(plan)
+        key = ALIASES.get(key, key)
+        keys = [s["key"] for s in self.steps]
         if key not in keys:
             return
         at = keys.index(key)
-        self.steps = [
-            {"key": k, "text": text, "state": "done" if i < at else "doing"}
-            for i, (k, text) in enumerate(STAGES[: at + 1])
-        ]
+        now = time.monotonic()
+        for step in self.steps[:at]:
+            if step["state"] in ("waiting", "running"):
+                self._end(step, "done", now)
+        step = self.steps[at]
+        if step["state"] == "waiting":
+            step["state"] = "running"
+            self._began[key] = now
 
     def finish(self, plan: Plan) -> None:
+        """The plan is saved: every step done, the last ``failed`` when it isn't proven."""
         self.state, self.ended = "done", time.time()
+        now = time.monotonic()
         for step in self.steps:
-            step["state"] = "done"
-        last = {"key": "done", "text": STAGES[-1][1], "state": "done"}
+            if step["state"] in ("waiting", "running"):
+                self._end(step, "done", now)
         if plan.status != "proven":
-            last = {"key": "done", "text": "Not proven", "state": "problem"}
-        self.steps = [s for s in self.steps if s["key"] != "done"] + [last]
+            self.steps[-1]["state"] = "failed"
 
     def fail(self, error: str) -> None:
         self.state, self.ended, self.error = "failed", time.time(), error
+        now = time.monotonic()
         for step in self.steps:
-            if step["state"] == "doing":
-                step["state"] = "problem"
+            if step["state"] == "running":
+                self._end(step, "failed", now)
 
     def view(self) -> dict[str, Any]:
         return {
@@ -226,8 +274,8 @@ class Isolations:
         """
         if self.running(target):
             raise RuntimeError(f"already finding {target}'s isolation")
-        job = Job(target)
-        job.stage("start")
+        job = Job(target, person=person_name(setup_for(config, target)))
+        job.stage(COPY)
         self.jobs[target] = job
         task = asyncio.create_task(self._go(config, job))
         self._tasks[target] = task
@@ -364,3 +412,76 @@ def noted(plan: Plan) -> list[str]:
         if line.startswith(head):
             return [f.strip() for f in line[len(head) :].rstrip(".").split(",") if f.strip()]
     return []
+
+
+# The test setup
+
+
+def person_fields(targets: Targets, name: str) -> list[str]:
+    """The test person's fields *name*'s adapter takes (``capabilities.person``), in the order
+    the page shows them; none when it takes no test person, or can't be made."""
+    try:
+        declared = getattr(targets.adapter(name).capabilities, "person", None)
+    except Exception:  # an adapter that can't be made takes no person here
+        _logger.debug("isolation: %s's adapter not made for its setup", name, exc_info=True)
+        return []
+    if declared is True:
+        return list(PERSON_FIELDS)
+    if not declared or isinstance(declared, str):
+        return []
+    try:
+        said = {str(f) for f in declared}
+    except TypeError:
+        return []
+    return [f for f in PERSON_FIELDS if f in said]
+
+
+def _plan_or_none(targets: Targets, name: str) -> Plan | None:
+    try:
+        return _plans(targets).load(name)
+    except ValueError:
+        return None
+
+
+def seeds(plan: Plan | None) -> bool:
+    """Whether a copy for *plan* can start with sample data: it gets a Postgres store."""
+    return plan is not None and any(s.kind == "postgres" for s in given(plan))
+
+
+def needs_check(targets: Targets, name: str, plan: Plan | None) -> bool:
+    """Whether *plan* is rehearsed again before the next run: marked stale (by a commit, or a
+    change to what the copy starts with), or its evidence changed since it was proven."""
+    if plan is None or plan.status not in ("proven", "stale"):
+        return False
+    if plan.status == "stale":
+        return True
+    code = targets.code(name)
+    return code is not None and bool(stale(plan, code.root.resolve()))
+
+
+def setup_view(targets: Targets, name: str, person: list[str] | None = None) -> dict[str, Any]:
+    """*name*'s test setup as the page shows it: the setup, what the target supports (the test
+    person's fields its adapter takes, and sample data when the copy gets a Postgres store), and
+    whether the plan is checked again before the next run."""
+    plan = _plan_or_none(targets, name)
+    return {
+        **setup_for(targets.config, name).view(),
+        "supports": {
+            "person": person_fields(targets, name) if person is None else person,
+            "seed": seeds(plan),
+        },
+        "needs_check": needs_check(targets, name, plan),
+    }
+
+
+def change_setup(targets: Targets, name: str, body: Any) -> Setup:
+    """Save *body*'s changes to *name*'s setup; a change to what the copy starts with marks a
+    proven plan stale.
+
+    :raises SetupError: A change it doesn't take, in words for the page.
+    """
+    before = setup_for(targets.config, name)
+    code = targets.code(name)
+    folder = code.root if code is not None else None
+    after = changed(before, body, folder=folder, seed=seeds(_plan_or_none(targets, name)))
+    return SetupStore(targets.config.data_dir).save(name, after, before=before)

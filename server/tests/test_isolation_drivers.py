@@ -21,6 +21,7 @@ from evalution.isolation.drivers import (
     VolumeStore,
 )
 from evalution.isolation.drivers import files as files_driver
+from evalution.isolation.drivers.base import DockerError
 
 # Files ---------------------------------------------------------------------------------------
 
@@ -289,6 +290,43 @@ def test_postgres_round_trip_keeps_traces(pg, tmp_path):
     assert (
         _sql(c, "postgres", f"SELECT count(*) FROM pg_database WHERE datname = '{golden}'") == "0"
     )
+
+
+@docker_only
+def test_postgres_loads_sample_data_and_stops_at_the_first_error(pg, tmp_path):
+    store, db = pg
+    c = store.container
+    seed = tmp_path / "seed.sql"
+    seed.write_text(
+        "CREATE TABLE people (id int PRIMARY KEY, name text);\n"
+        "INSERT INTO people VALUES (1, 'Alex Rivera'), (2, 'Sam');\n"
+        "INSERT INTO items (body) VALUES ('from the sample data');\n"
+    )
+    before = store.digest()
+    store.load_sql(seed)
+    assert _sql(c, db, "SELECT string_agg(name, ',' ORDER BY id) FROM people") == "Alex Rivera,Sam"
+    assert _sql(c, db, "SELECT count(*) FROM items") == "3"
+    assert store.digest() != before
+
+    # Kept after loading, it is the starting state put back.
+    kept = tmp_path / "kept"
+    seeded = store.digest()
+    store.keep(kept)
+    _sql(c, db, "DELETE FROM people")
+    store.put_back(kept)
+    assert store.digest() == seeded
+    store.drop_golden(kept)
+
+    broken = tmp_path / "broken.sql"
+    broken.write_text(
+        "INSERT INTO people VALUES (3, 'Before');\nINSERT INTO nowhere VALUES (1);\n"
+        "INSERT INTO people VALUES (4, 'After');\n"
+    )
+    with pytest.raises(DockerError, match="nowhere"):
+        store.load_sql(broken)
+    assert _sql(c, db, "SELECT count(*) FROM people WHERE id = 4") == "0"
+    with pytest.raises(Refused, match=r"isn't a \.sql file"):
+        store.load_sql(tmp_path / "seed.txt")
 
 
 @docker_only

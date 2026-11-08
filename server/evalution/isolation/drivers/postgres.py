@@ -17,6 +17,7 @@ container's own superuser over its local socket.
 
 * **digest** is each table's row count and the ``md5`` of its rows in a fixed order, tables in
   name order, left-out tables not counted.
+* **load_sql** runs a ``.sql`` file (the person's sample data) in it, stopping at the first error.
 * **holding** reads a data-only dump as it streams and names each ``db.schema.table`` holding the
   canary, left-out tables not read.
 
@@ -228,6 +229,22 @@ class PostgresStore:
                     stdin=source,
                 )  # fmt: skip
             dump.unlink()
+
+    def load_sql(self, path: Path) -> None:
+        """Run the SQL in *path* (sample data the person chose) in the database, stopping at the
+        first error. Only ever in a container of evalution's own, as every command here is.
+
+        :raises Refused: *path* isn't a ``.sql`` file.
+        :raises DockerError: The SQL failed, or Docker did.
+        """
+        if path.suffix.lower() != ".sql" or not path.is_file():
+            raise Refused(f"{path} isn't a .sql file")
+        with path.open("rb") as source:
+            docker(
+                "exec", "-i", self.container,
+                "psql", "-U", self.user, "-d", self.db, "-X", "-q", "-v", "ON_ERROR_STOP=1",
+                stdin=source,
+            )  # fmt: skip
 
     def drop_golden(self, kept: Path) -> None:
         """Remove the golden copy :meth:`keep` made into *kept*."""

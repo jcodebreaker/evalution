@@ -213,7 +213,7 @@ def test_run_shows_its_stages_holds_runs_and_saves_a_proven_plan(client, fake) -
     started = client.post("/v1/targets/bot/isolation/run", json={"confirm": True})
     assert started.status_code == 202, started.text
     job = started.json()["job"]
-    assert job["state"] == "running" and job["steps"][0]["key"] == "start"
+    assert job["state"] == "running" and job["steps"][0]["key"] == "copy"
 
     ws = client.app.state.workspaces.get(LOCAL)
     assert "bot" in ws.probes.busy  # no run, and no test message, starts under it
@@ -223,7 +223,7 @@ def test_run_shows_its_stages_holds_runs_and_saves_a_proven_plan(client, fake) -
     fake.go = True
     found = _until_ended(client)
     assert found["status"] == "proven" and found["version"] == 1
-    assert [s["state"] for s in found["job"]["steps"]] == ["done"] * 5
+    assert [s["state"] for s in found["job"]["steps"]] == ["done"] * 4
     assert found["plan"]["stores"][0]["moved_by"] == ["DATABASE_URL"]
     assert found["plan"]["exclude"] == ["app.phoenix.spans"]
     assert "bot" not in ws.probes.busy and fake.calls == 1
@@ -235,7 +235,8 @@ def test_a_failed_rehearsal_shows_its_leaks(client, fake) -> None:
     found = _until_ended(client)
     assert found["status"] == "failed"
     assert found["plan"]["leaks"] == ["eval-bot-app-1:/data/memory.idx"]
-    assert found["job"]["steps"][-1] == {"key": "done", "text": "Not proven", "state": "problem"}
+    assert found["job"]["steps"][-1]["key"] == "prove"
+    assert found["job"]["steps"][-1]["state"] == "failed"
 
 
 def test_a_run_that_cannot_start_says_why(client, fake) -> None:
@@ -243,7 +244,7 @@ def test_a_run_that_cannot_start_says_why(client, fake) -> None:
     client.post("/v1/targets/bot/isolation/run", json={"confirm": True})
     found = _until_ended(client)
     assert found["job"]["state"] == "failed" and "no compose file" in found["job"]["error"]
-    assert found["job"]["steps"][-1]["state"] == "problem"
+    assert {s["key"]: s["state"] for s in found["job"]["steps"]}["find"] == "failed"
     assert found["status"] == "none"
 
 

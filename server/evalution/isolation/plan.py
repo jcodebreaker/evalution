@@ -132,6 +132,29 @@ class Plan:
         return cls(**data, stores=stores)
 
 
+#: Strategies under which evalution's copy gets a store of its own, put back between tries.
+GIVEN = ("relocate", "snapshot")
+#: Prefixes of a locator that is a name, not a place.
+_NAMED = ("volume:", "env:", "service:", "package:", "socket:")
+
+
+def given(plan: Plan) -> list[PlannedStore]:
+    """The stores evalution's copy of the app gets its own of: each one the plan puts back
+    (relocated or snapshotted), never a hosted one."""
+    return [s for s in plan.stores if s.strategy in GIVEN and s.kind != "hosted"]
+
+
+def own_name(store: PlannedStore) -> str:
+    """The store's own name: the database, the volume, the file, or the setting."""
+    locator = store.locator
+    for prefix in _NAMED:
+        if locator.startswith(prefix):
+            return locator.removeprefix(prefix)
+    if locator.startswith("/"):
+        return locator.rstrip("/").rsplit("/", 1)[-1] or locator
+    return locator.split(":", 1)[-1]
+
+
 def strategy_for(
     kind: str, locator: str, moved_by: list[str], keyed_by: str | None, compose: bool
 ) -> Strategy:

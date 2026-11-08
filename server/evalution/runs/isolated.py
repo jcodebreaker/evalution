@@ -8,6 +8,11 @@ started again, and every store's hash is compared with the starting state's. One
 can't be put back, leaves the try unjudged: "reset didn't hold: <store>". After the run, however it
 ends, every store is put back, the databases' kept copies are dropped and every copy is taken down.
 
+The target's test setup (:mod:`evalution.isolation.setup`) says how many copies play side by
+side, whether a copy is put back before every try or only before each test's first, what each
+starts with (sample data loaded into its Postgres stores before the starting state is kept), and
+the test person each copy's adapter plays as (``persona``, when the adapter has it).
+
 No canary is sent with the tests: the hash check is each try's proof for the stores the plan
 names, and the rehearsal that proved the plan showed nothing reaches anywhere else.
 
@@ -46,16 +51,18 @@ from evalution.isolation.isolate import (
     adapter_on,
     code_folder,
     copy_of,
-    drivers_for,
     plan_spec,
+    play_as,
     rehearse_plan,
     roots_of,
     store_id,
+    stores_on,
     take_down,
     work_folder,
 )
 from evalution.isolation.launch import LaunchError, free_port
 from evalution.isolation.plan import Plan, PlanStore, hashes, stale
+from evalution.isolation.setup import Setup, SetupError, person_name, seed_path, setup_for
 from evalution.results.record import isolation, run_isolation
 from evalution.suite.cases import CaseError
 from evalution.traces import otlp, setup
@@ -111,8 +118,9 @@ class Footing:
             and (bool(self.changed) or self.plan.status == "stale")
         )
 
-    def run_label(self) -> dict[str, Any]:
-        return run_isolation(self.how, self.version if self.managed else None)
+    def run_label(self, person: str | None = None) -> dict[str, Any]:
+        """The run's label; *person*, the test person its copies played as."""
+        return run_isolation(self.how, self.version if self.managed else None, person)
 
     def try_label(self) -> dict[str, Any]:
         """A try's label when it isn't played on a copy."""
@@ -193,7 +201,7 @@ async def rehearse_again(config: Config, target: str, found: Footing) -> Footing
     assert plan is not None
     try:
         plan = await rehearse_plan(config, target, plan, slot=0)
-    except (LookupError, LaunchError) as exc:
+    except (LookupError, LaunchError, SetupError) as exc:
         plan.status = "failed"
         plan.report = f"{plan.report}\n\nRehearsing again before a run failed: {exc}"
     if plan.status == "proven":
@@ -296,10 +304,19 @@ class Copies:
     """The copies a run plays on, one per slot (see the module's docstring)."""
 
     def __init__(
-        self, config: Config, target: str, found: Footing, spans: SpanStore | None = None
+        self,
+        config: Config,
+        target: str,
+        found: Footing,
+        spans: SpanStore | None = None,
+        setup: Setup | None = None,
     ) -> None:
         assert found.plan is not None
         self.config = config
+        #: The test setup the copies play on: the person, the sample data, when they're put back.
+        self.setup = setup or setup_for(config, target)
+        #: The test person each copy's adapter took, by name; ``None`` when none took one.
+        self.person: str | None = None
         #: Where the copies' traces are kept: the run reads a try's spans from it.
         self.spans = spans
         self.intake: Intake | None = None
@@ -311,15 +328,27 @@ class Copies:
         self.spec = plan_spec(config, target, found.plan)
         self.slots: list[Slot] = []
 
-    async def start(self, slots: int) -> None:
-        """Start *slots* copies one after another, keep each one's starting state, and point an
-        adapter at each. Whatever was started stays in :attr:`slots`, for :meth:`close`.
+    @property
+    def reset(self) -> str:
+        """When a copy is put back: before every ``try``, or before each ``test``'s first."""
+        return self.setup.reset
 
-        :raises LaunchError: A copy didn't start.
+    async def start(self, slots: int) -> None:
+        """Start *slots* copies one after another, load the setup's sample data into each one's
+        Postgres stores, keep each one's starting state, point an adapter at each and have it
+        play as the setup's test person. Whatever was started stays in :attr:`slots`, for
+        :meth:`close`.
+
+        :raises LaunchError: A copy didn't start, or the setup's sample data isn't there.
         """
+        try:
+            seed = seed_path(self.config, self.target, self.setup)
+        except SetupError as exc:
+            raise LaunchError(f"the test setup's sample data can't be loaded: {exc}") from exc
         if self.spans is not None and self.intake is None:
             self.intake = await Intake.start(self.spans)
             self.env = trace_env(self.config, self.target, self.intake.url)
+        took = True
         for index in range(slots):
             work = await asyncio.to_thread(work_folder, self.config, self.target)
             copy = copy_of(self.spec, self.target, index, work, env=self.env)
@@ -327,7 +356,9 @@ class Copies:
             self.slots.append(slot)
             await slot.copy.start()
             roots = roots_of(slot.copy, self.spec)
-            slot.drivers = await drivers_for(self.plan, slot.copy, roots=roots, notes=slot.notes)
+            slot.drivers = await stores_on(
+                self.plan, slot.copy, roots=roots, notes=slot.notes, seed=seed
+            )
             slot.keep_up = [d.container for d in slot.drivers if isinstance(d, PostgresStore)]
             await self._pause(slot)
             slot.before = await _digests(slot.drivers)
@@ -336,6 +367,13 @@ class Copies:
                 slot.kept.append((driver, work / "kept" / str(i)))
             await self._resume(slot)
             slot.adapter = adapter_on(self.config, self.target, slot.copy.url)
+            took = await play_as(slot.adapter, self.setup.person) and took
+        self.person = person_name(self.setup) if self.slots and took else None
+
+    def unrestored(self) -> dict[str, Any]:
+        """A try's ``isolation`` when its copy isn't put back before it: a test's later try, when
+        the setup puts the copy back before each test only."""
+        return isolation("proven", self.version, reset=self.reset)
 
     async def _pause(self, slot: Slot) -> None:
         if isinstance(slot.copy, ComposeCopy):
@@ -381,7 +419,7 @@ class Copies:
         differ = [store_id(d) for d in slot.drivers if d not in same]
         if differ and problem is None:
             problem = f"{DIDNT_HOLD}: {', '.join(differ)}"
-        return isolation("proven", self.version, seconds, checked, problem)
+        return isolation("proven", self.version, seconds, checked, problem, reset=self.reset)
 
     async def close(self) -> list[str]:
         """Put every store back, drop the databases' kept copies and take every copy down, each

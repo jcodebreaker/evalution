@@ -1,5 +1,6 @@
 """A target's isolation (ADR 0009): its plan and how far it is proven, finding and proving it
-on evalution's own copy of the app, and undoing the last version."""
+on evalution's own copy of the app, undoing the last version, and the test setup the copies
+play on."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Depends
 from evalution.api.deps import Current, busy, invalid, local_only, target_name
 from evalution.api.workspaces import Workspace
 from evalution.isolation.plan import PlanStore
+from evalution.isolation.setup import SetupError
 from evalution.project import isolating
 
 #: What the page must send to start it: it spends two messages of the app's own copy.
@@ -72,6 +74,30 @@ def isolation_router() -> APIRouter:
             let_go()
             raise
         return await asyncio.to_thread(_view, ws, name)
+
+    @router.get("/targets/{target}/isolation/setup", dependencies=hosted_off)
+    async def get_setup(ws: Current, target: str) -> dict[str, Any]:
+        """The test setup: the test person, what the copy starts with, when it is put back, the
+        copies side by side; what the target supports; whether the plan is checked again before
+        the next run."""
+        name = target_name(ws.targets, target)
+        return await asyncio.to_thread(isolating.setup_view, ws.targets, name)
+
+    @router.put("/targets/{target}/isolation/setup", dependencies=hosted_off)
+    async def put_setup(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Change any part of the test setup. A change to what the copy starts with marks a
+        proven plan to be checked again before the next run. Not while a run plays, nor while
+        isolation is being found."""
+        name = target_name(ws.targets, target)
+        if ws.runs.busy():
+            raise busy("A run is going. Change the test setup when it ends.")
+        if ws.isolations.running(name):
+            raise busy("Testing is being set up for this app. Try again when it ends.")
+        try:
+            await asyncio.to_thread(isolating.change_setup, ws.targets, name, body)
+        except SetupError as exc:
+            raise invalid(str(exc)) from exc
+        return await asyncio.to_thread(isolating.setup_view, ws.targets, name)
 
     @router.post("/targets/{target}/isolation/undo", dependencies=hosted_off)
     async def undo_isolation(ws: Current, target: str) -> dict[str, Any]:

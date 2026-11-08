@@ -1,17 +1,24 @@
 """A run on evalution's own copy of the app (ADR 0009, phase 5): what a plan covers, what a run
-stands on, a stale plan rehearsed again, and old runs read as not isolated."""
+stands on, a stale plan rehearsed again, old runs read as not isolated, and the test setup
+honored: the copies side by side, when they're put back, and the test person."""
 
+import dataclasses
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
+import scripted_agent
 from scripted_agent import SET, TARGET
 
+from evalution.adapters import base
 from evalution.adapters.base import Capabilities, Isolation
 from evalution.config import IsolationConfig
 from evalution.core.case import CLEAN_KINDS
+from evalution.core.rules import current
+from evalution.isolation.launch import LaunchError
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
+from evalution.isolation.setup import Setup, SetupStore
 from evalution.results.migrate import upcast
 from evalution.results.record import isolation_of
 from evalution.runs import isolated
@@ -62,7 +69,7 @@ def test_what_a_run_stands_on(tmp_path) -> None:
     store.save(_plan(db, evidence_hashes=hashes(code, db.evidence)))
     found = isolated.footing(config, TARGET, plain)
     assert (found.how, found.version, found.managed) == ("proven", 1, True)
-    assert found.run_label() == {"how": "proven", "plan_version": 1}
+    assert found.run_label() == {"how": "proven", "plan_version": 1, "person": None}
 
     (code / "db.py").write_text("DATABASE_URL = 'y'\n")
     found = isolated.footing(config, TARGET, plain)
@@ -111,7 +118,7 @@ async def test_a_stale_plan_is_rehearsed_again_and_the_run_plays_on_the_copy(
     rig.fill("memory-recalls-fact")
     doc = await rig.run(tries=1)
     assert rehearsed == [f"{TARGET}-0"]
-    assert doc["isolation"] == {"how": "proven", "plan_version": 3}
+    assert doc["isolation"] == {"how": "proven", "plan_version": 3, "person": None}
     # How long the copies took to start, for the Run dialog's rough figure next time.
     assert isinstance(doc["copy_start_seconds"], float) and doc["copy_start_seconds"] >= 0
     assert store.load(TARGET).status == "proven"  # type: ignore[union-attr]
@@ -152,13 +159,14 @@ def test_an_older_run_reads_as_not_isolated() -> None:
     }
     read = upcast(old)
     assert read["schema"] == 3 and "isolation" not in old
-    assert read["isolation"] == {"how": "none", "plan_version": None}
+    assert read["isolation"] == {"how": "none", "plan_version": None, "person": None}
     assert read["cases"]["a"]["tries"][0]["isolation"] == {
         "how": "none",
         "plan_version": None,
         "restore_seconds": None,
         "checked": [],
         "problem": None,
+        "reset": "try",
     }
     assert isolation_of({}) == read["cases"]["a"]["tries"][0]["isolation"]
     assert isolation_of({}, run=True) == read["isolation"]
@@ -168,9 +176,109 @@ def test_an_older_run_reads_as_not_isolated() -> None:
 def test_isolation_labels_keep_one_shape(how: str) -> None:
     from evalution.results.record import isolation
 
-    assert set(isolation(how)) == {"how", "plan_version", "restore_seconds", "checked", "problem"}
+    assert set(isolation(how)) == {
+        "how",
+        "plan_version",
+        "restore_seconds",
+        "checked",
+        "problem",
+        "reset",
+    }
     with pytest.raises(ValueError, match="how is one of"):
         isolation("maybe")
+    with pytest.raises(ValueError, match="reset is one of"):
+        isolation(how, reset="never")
+
+
+# The test setup, honored
+
+
+def _tries(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    return [t for c in doc["cases"].values() for t in c["tries"]]
+
+
+async def test_put_back_before_each_test_only_restores_its_first_try(make_rig) -> None:
+    """The faster reset: a test's later tries find what its earlier ones left."""
+    rig = make_rig(
+        ["leak_across_tries", "forgets_to_store"],
+        options={"store_fails_from_try": 2, "memory_file": MEMORY_FILE},
+    )
+    rig.manage()
+    SetupStore(rig.config.data_dir).save(TARGET, Setup(reset="test"))
+    rig.fill("memory-recalls-fact")
+    doc = await rig.run(tries=2)
+    first, second = (t["isolation"] for t in _tries(doc))
+    assert first["reset"] == second["reset"] == "test"
+    assert isinstance(first["restore_seconds"], float) and first["checked"] == ["memory"]
+    assert second["restore_seconds"] is None and second["checked"] == []
+    assert second["how"] == "proven" and second["problem"] is None
+    # Not put back, try 2 recalls what try 1 stored: what a reset per test can't rule out.
+    assert [current(t).outcome.value for t in _tries(doc)] == ["passed", "passed"]
+
+
+async def test_a_run_plays_on_as_many_copies_as_the_setup_says(make_rig, monkeypatch) -> None:
+    parallel = replace(scripted_agent.ScriptedAgent.capabilities, parallel=True)
+    monkeypatch.setattr(scripted_agent.ScriptedAgent, "capabilities", parallel)
+    started: list[int] = []
+
+    async def start(self, slots: int) -> None:
+        started.append(slots)
+        raise LaunchError("only counting")
+
+    monkeypatch.setattr(isolated.Copies, "start", start)
+    rig = make_rig(options={"memory_file": MEMORY_FILE})
+    rig.manage()
+    rig.fill("memory-recalls-fact")
+    rig.fill("forget-on-request")
+    assert rig.config.targets[TARGET].max_parallel == 1
+    SetupStore(rig.config.data_dir).save(TARGET, Setup(copies=2))
+    await rig.run(tries=1)
+    SetupStore(rig.config.data_dir).save(TARGET, Setup(copies=1))
+    await rig.run(tries=1)
+    assert started == [2, 1]
+
+
+@dataclasses.dataclass
+class _Person:
+    name: str = ""
+    language: str = ""
+    timezone: str = ""
+    new_every_try: bool = True
+
+
+async def test_each_copy_plays_as_the_setups_test_person(make_rig, monkeypatch) -> None:
+    events: list[str] = []
+    opened = scripted_agent.ScriptedAgent.open
+
+    def persona(self, person: _Person) -> None:
+        events.append(f"persona {person.name} {person.timezone}")
+
+    async def open_(self, run: str):
+        events.append("open")
+        return await opened(self, run)
+
+    monkeypatch.setattr(base, "Person", _Person, raising=False)
+    monkeypatch.setattr(scripted_agent.ScriptedAgent, "persona", persona, raising=False)
+    monkeypatch.setattr(scripted_agent.ScriptedAgent, "open", open_)
+    rig = make_rig(options={"memory_file": MEMORY_FILE})
+    rig.manage()
+    person = {"name": "Alex Rivera", "language": "", "timezone": "Europe/Lisbon",
+              "new_every_try": True}  # fmt: skip
+    SetupStore(rig.config.data_dir).save(TARGET, Setup(person=person))
+    rig.fill("memory-recalls-fact")
+    doc = await rig.run(tries=1)
+    assert events[0] == "persona Alex Rivera Europe/Lisbon" and "open" in events
+    assert doc["isolation"] == {"how": "proven", "plan_version": 1, "person": "Alex Rivera"}
+
+
+async def test_without_a_person_type_the_copies_play_as_the_apps_own(make_rig, monkeypatch) -> None:
+    monkeypatch.delattr(base, "Person", raising=False)
+    rig = make_rig(options={"memory_file": MEMORY_FILE})
+    rig.manage()
+    SetupStore(rig.config.data_dir).save(TARGET, Setup(person={"name": "Alex"}))
+    rig.fill("memory-recalls-fact")
+    doc = await rig.run(tries=1)
+    assert doc["status"] == "done" and doc["isolation"]["person"] is None
 
 
 _ = SET

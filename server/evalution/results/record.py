@@ -53,6 +53,8 @@ def environment_of(run: Mapping[str, Any]) -> tuple[str, str | None]:
 #: of the app, its stores put back by a proven plan and checked before the try; ``identity``, as a
 #: new person, as the adapter promises; ``none``, nothing evalution made or checked.
 ISOLATION_HOWS = ("proven", "identity", "none")
+#: When the copy is put back: before every ``try``, or before each ``test``'s first try only.
+ISOLATION_RESETS = ("try", "test")
 
 
 def isolation(
@@ -61,32 +63,44 @@ def isolation(
     restore_seconds: float | None = None,
     checked: list[str] | None = None,
     problem: str | None = None,
+    reset: str = "try",
 ) -> dict[str, Any]:
     """A try's ``isolation``: how it was kept from earlier tries, the plan that did it, how long
-    putting the copy back took, the stores whose hash matched the starting state's after that, and
-    why it didn't hold, when it didn't."""
+    putting the copy back took (``None`` when it wasn't put back before this try), the stores whose
+    hash matched the starting state's after that, why it didn't hold, when it didn't, and when the
+    copy is put back (``reset``: before every ``try``, or before each ``test``'s first)."""
     if how not in ISOLATION_HOWS:
         raise ValueError(f"isolation: how is one of {', '.join(ISOLATION_HOWS)}")
+    if reset not in ISOLATION_RESETS:
+        raise ValueError(f"isolation: reset is one of {', '.join(ISOLATION_RESETS)}")
     return {
         "how": how,
         "plan_version": plan_version,
         "restore_seconds": restore_seconds,
         "checked": list(checked or []),
         "problem": problem,
+        "reset": reset,
     }
 
 
-def run_isolation(how: str = "none", plan_version: int | None = None) -> dict[str, Any]:
-    """A run's ``isolation``: how its tries were kept apart, and by which version of the plan."""
-    return {k: v for k, v in isolation(how, plan_version).items() if k in ("how", "plan_version")}
+def run_isolation(
+    how: str = "none", plan_version: int | None = None, person: str | None = None
+) -> dict[str, Any]:
+    """A run's ``isolation``: how its tries were kept apart, by which version of the plan, and
+    the test person evalution's copies played as (``None``: the app's own, or no copies)."""
+    isolation(how)  # the same check of *how*
+    return {"how": how, "plan_version": plan_version, "person": person}
 
 
 def isolation_of(record: Mapping[str, Any], *, run: bool = False) -> dict[str, Any]:
-    """The ``isolation`` a run or a try keeps; one stored before it was kept reads as none."""
+    """The ``isolation`` a run or a try keeps; one stored before it was kept reads as none, and
+    one stored before a field of it was kept reads with that field's default (a try put back
+    before every try, a run with no test person)."""
     found = record.get("isolation")
+    default = run_isolation() if run else isolation()
     if isinstance(found, Mapping) and found.get("how") in ISOLATION_HOWS:
-        return dict(found)
-    return run_isolation() if run else isolation()
+        return {**default, **found}
+    return default
 
 
 def judgements(entry: Mapping[str, Any]) -> list[Judgement]:
