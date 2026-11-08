@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import difflib
 import importlib.util
 import json
 import logging
@@ -133,6 +134,14 @@ NO_PAGE = "nothing of the try was on the page to record"
 _SCRUB_SHORTEST = 6
 #: Methods a page sends a message with.
 _SENDS = frozenset({"POST", "PUT", "PATCH"})
+#: Methods that only read: all a page may do while its map is looked at or tried.
+_READS = frozenset({"GET", "HEAD", "OPTIONS"})
+#: What a message box is filled with when its entry is tried: never sent, cleared after.
+HARMLESS = "evalution is checking where this box is"
+#: Seconds an element may take to show while a map is tried or checked before a run.
+LOCATE_SECONDS = 5.0
+#: How much of an accessibility snapshot, or of a diff of two, is kept.
+SNAPSHOT_KEPT = 12_000
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 _TAG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 #: Plain language names a test person may give, as a browser's locale.
@@ -174,13 +183,16 @@ def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
     return replace(inner, files=False, stop=False, watch=False)
 
 
-def on_page(target: TargetConfig, adapter: Target, copy_url: str, slot: int = 0) -> Target:
+def on_page(
+    target: TargetConfig, adapter: Target, copy_url: str, slot: int = 0, page: PageMap | None = None
+) -> Target:
     """*adapter*, played through the target's page on the copy at *copy_url* when it has a page
-    map, signing in as slot *slot*'s test account; else *adapter* as it is.
+    map (or *page*, a map being learned, in its place), signing in as slot *slot*'s test account;
+    else *adapter* as it is.
 
     :raises ConfigError: The target's page map, or its ``page_accounts``, doesn't read.
     """
-    page = page_map_of(target)
+    page = page or page_map_of(target)
     if page is None:
         return adapter
     accounts = target.options.get("page_accounts") or []
@@ -335,6 +347,8 @@ class PageTarget(Target):
         self._videos: dict[str, Path] = {}
         #: Whether Playwright's ffmpeg is here; ``None`` until a context tried to record.
         self._ffmpeg: bool | None = None
+        #: The writes refused from a page that may only look (:meth:`_new_context`), by key.
+        self._blocked: dict[str, list[str]] = {}
 
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
@@ -424,8 +438,10 @@ class PageTarget(Target):
         added[TRY_HEADER] = str(session.extra.get("try", ""))
         return added
 
-    async def _new_context(self, session: Session) -> Any:
-        """A fresh context for *session*, signed in, with a page open on nothing yet."""
+    async def _new_context(self, session: Session, *, looking: bool = False) -> Any:
+        """A fresh context for *session*, signed in, with a page open on nothing yet. *looking*:
+        once signed in, the page may only read, and any other request it makes is refused and
+        kept (:meth:`blocked`): a map looked at or tried never sends anything."""
         await self._drop(session)
         added = self._headers(session)
         browser = await self._launched()
@@ -450,6 +466,19 @@ class PageTarget(Target):
             self._open[key] = (context, page)
             self._listen(page, record)
             await signed_in.close()
+        if looking:
+            blocked = self._blocked.setdefault(key, [])
+
+            async def only_reads(route: Any) -> None:
+                request = route.request
+                if request.method in _READS:
+                    await route.fallback()
+                    return
+                blocked.append(f"{request.method} {urlsplit(request.url).path}")
+                await route.abort()
+
+            # Routes added later run first: this one sees every request before the headers do.
+            await context.route("**/*", only_reads)
         return page
 
     async def _context(self, browser: Any, key: str) -> tuple[Any, Any]:
@@ -740,6 +769,7 @@ class PageTarget(Target):
             return
         found = self._open.pop(key, None)
         self._records.pop(key, None)
+        self._blocked.pop(key, None)
         folder = self._videos.pop(key, None)
         try:
             if found is not None:
@@ -747,6 +777,160 @@ class PageTarget(Target):
         finally:
             if folder is not None:
                 await asyncio.to_thread(shutil.rmtree, folder, True)
+
+    # Learning the map: looking and trying, never sending
+
+    def blocked(self, session: Session) -> list[str]:
+        """The requests *session*'s page tried to send while it could only look, refused."""
+        key = (session.extra.get("page") or {}).get("context")
+        return list(self._blocked.get(key, [])) if isinstance(key, str) else []
+
+    async def _snapshot(self, page: Any) -> str:
+        """The page's accessibility tree as Playwright writes it (roles and names), cut."""
+        try:
+            found = await page.locator("body").aria_snapshot(timeout=LOCATE_SECONDS * 1000)
+        except _api().Error as exc:
+            return f"(no snapshot: {str(exc).splitlines()[0][:200]})"
+        return str(found)[:SNAPSHOT_KEPT]
+
+    async def look(self, session: Session, url: str | None = None) -> dict[str, Any]:
+        """Open *url* (the map's own, by default) signed in as the map says, and say what the
+        page shows: where it landed and its accessibility snapshot. Nothing is clicked or typed,
+        and any request but a read is refused (:meth:`blocked`).
+
+        :raises PageMapBroken: Signing in didn't get through.
+        :raises ConnectionError: The page didn't load.
+        """
+        page = await self._new_context(session, looking=True)
+        try:
+            await self._goto(page, url or self.page.url)
+            with contextlib.suppress(_api().Error):
+                await page.wait_for_load_state("networkidle", timeout=LOCATE_SECONDS * 1000)
+            return {
+                "at": urlsplit(page.url).path or "/",
+                "snapshot": await self._snapshot(page),
+                "blocked": self.blocked(session),
+            }
+        finally:
+            await self._drop(session)
+
+    async def try_entry(self, session: Session, entry: str) -> dict[str, Any]:
+        """Try one entry of the map on the page: whether what it names is there, and what changed
+        on the page when it was used. Only ``actions.type`` acts: it fills the box with
+        :data:`HARMLESS` and clears it again. Send, New chat and Stop are found, never clicked,
+        and any request but a read is refused (:meth:`blocked`): trying a map never sends a
+        message.
+
+        :raises ValueError: *entry* isn't one the map has.
+        """
+        if entry not in TRIED:
+            raise ValueError(f"entry: one of {', '.join(sorted(TRIED))}")
+        page = await self._new_context(session, looking=True)
+        said: dict[str, Any] = {"entry": entry, "found": False}
+        before = after = ""
+        try:
+            if entry == "sign_in":
+                await self._goto(page, self.page.url)
+                said["found"] = True
+                said["at"] = urlsplit(page.url).path or "/"
+                after = await self._snapshot(page)
+            elif entry in ("url", "ready"):
+                await self._goto(page, self.page.url)
+                await self._find(page, self.page.ready)
+                said["found"] = True
+            elif entry == "open_session":
+                await self._show(page, session)
+                said["found"] = True
+                said["at"] = urlsplit(page.url).path or "/"
+            else:
+                await self._show(page, session)
+                before = await self._snapshot(page)
+                said.update(await self._tried(page, entry))
+                after = await self._snapshot(page)
+        except (PageMapBroken, ConnectionError) as exc:
+            said["problem"] = str(exc)
+        finally:
+            said["blocked"] = self.blocked(session)
+            await self._drop(session)
+        if before or after:
+            changed = difflib.unified_diff(
+                before.splitlines(), after.splitlines(), "before", "after", lineterm="", n=1
+            )
+            said["changed"] = "\n".join(changed)[:SNAPSHOT_KEPT] or "(nothing changed)"
+        return said
+
+    async def _tried(self, page: Any, entry: str) -> dict[str, Any]:
+        """One entry tried on the conversation's page: found or not, and what of it showed."""
+        actions, replies = self.page.actions, self.page.replies
+        clicks = {
+            "actions.send": actions.send,
+            "actions.new_chat": actions.new_chat,
+            "actions.stop": actions.stop,
+            "actions.attach": actions.attach,
+        }
+        if entry == "actions.type":
+            box = await self._find(page, actions.type.fill)
+            await self._act(box.fill(HARMLESS), actions.type.fill)
+            filled = await box.input_value(timeout=LOCATE_SECONDS * 1000)
+            await self._act(box.fill(""), actions.type.fill)
+            return {"found": True, "took_text": filled == HARMLESS}
+        if entry in clicks:
+            click = clicks[entry]
+            if click is None:
+                return {"found": False, "problem": f"the map has no {entry}"}
+            element = await self._find(page, click.click)
+            return {"found": True, "enabled": await element.is_enabled(), "clicked": False}
+        if entry == "replies.in":
+            region = await self._find(page, replies.in_)
+            text = str(await region.inner_text(timeout=LOCATE_SECONDS * 1000))
+            return {"found": True, "shows": text[-500:]}
+        if entry in ("replies.item", "replies.mine"):
+            region = await self._find(page, replies.in_)
+            mark = replies.item if entry == "replies.item" else replies.mine
+            if mark is None:
+                return {"found": False, "problem": f"the map has no {entry}"}
+            count = await self._locator(region, mark).count()
+            return {"found": count > 0, "count": count}
+        # Busy: each sign shows only while a reply is on its way, so none is expected now.
+        showing = [
+            _said(mark)
+            for mark in self.page.busy
+            if await self._locator(page, mark).first.is_visible()
+        ]
+        return {"found": True, "showing_now": showing}
+
+    async def check(self, run: str) -> list[str]:
+        """Find, on the copy's page, each element the map names that a turn needs (its ready
+        sign, the message box, Send, the replies, and New chat when it has one) without acting on
+        any, and with any request but a read refused: no message is sent. What wasn't there, in
+        words; nothing when all of it was.
+
+        :raises ConnectionError: The page didn't load.
+        :raises PageUnavailable: No Playwright or no browser here.
+        """
+        session = await self.inner.open(run)
+        missing: list[str] = []
+        try:
+            page = await self._new_context(session, looking=True)
+            try:
+                await self._show(page, session)
+            except PageMapBroken as exc:
+                return [str(exc).removeprefix("the page has no ")]
+            actions = self.page.actions
+            wanted = [actions.type.fill, actions.send.click, self.page.replies.in_]
+            if actions.new_chat is not None:
+                wanted.append(actions.new_chat.click)
+            for found in wanted:
+                try:
+                    await self._find(page, found)
+                except PageMapBroken:
+                    missing.append(_said(found))
+        finally:
+            with contextlib.suppress(Exception):
+                await self._drop(session)
+            with contextlib.suppress(Exception):
+                await self.inner.close(session)
+        return missing
 
     # The contract
 
@@ -958,6 +1142,11 @@ class PageTarget(Target):
         await self.inner.close(session)
 
     async def dispose(self) -> None:
+        await self.dispose_browser()
+        await self.inner.dispose()
+
+    async def dispose_browser(self) -> None:
+        """Close the browser and every context in it; the inner adapter stays as it is."""
         for context, _ in list(self._open.values()):
             with contextlib.suppress(Exception):
                 await context.close()
@@ -974,7 +1163,6 @@ class PageTarget(Target):
             with contextlib.suppress(Exception):
                 await self._playwright.stop()
             self._playwright = None
-        await self.inner.dispose()
 
     # The rest is the inner adapter's
 
@@ -995,6 +1183,26 @@ class PageTarget(Target):
 
     def answers(self) -> list[dict[str, Any]]:
         return self.inner.answers()
+
+
+#: The entries :meth:`PageTarget.try_entry` tries.
+TRIED = frozenset(
+    {
+        "url",
+        "ready",
+        "sign_in",
+        "open_session",
+        "actions.type",
+        "actions.send",
+        "actions.new_chat",
+        "actions.stop",
+        "actions.attach",
+        "replies.in",
+        "replies.item",
+        "replies.mine",
+        "busy",
+    }
+)
 
 
 def _quoted(value: str) -> str:

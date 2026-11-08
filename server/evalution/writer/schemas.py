@@ -7,6 +7,7 @@ from typing import Any
 from evalution.project import understanding
 from evalution.review.findings import SUSPECTS
 from evalution.writer.isolating import MAX_FAILED, OPS, STRATEGIES
+from evalution.writer.paging import MAX_REVISIONS
 
 STEP_KINDS = ("message", "generated", "check")
 _NEW_STORE = {
@@ -420,16 +421,94 @@ TOOLS = [
         [],
     ),
     _tool(
+        "read_page_code",
+        "The target's page code, read for a page map: candidates for each entry (the message "
+        "box actions.type, Send actions.send, the replies replies.in, New chat "
+        "actions.new_chat, busy signs and Stop busy, sign_in), each with file and line and a "
+        "suggested locator where the code names one, and the page's routes (session: true when "
+        "a route carries a conversation's id). From the code, not the page.",
+        {},
+        [],
+    ),
+    _tool(
+        "look_at_page",
+        "Open the target's page on evalution's own copy of the app (refused without one), "
+        "signed in as sign_in says, and return its accessibility snapshot: roles and names. "
+        "Nothing is clicked or typed, and nothing but a read leaves the page.",
+        {
+            "url": {"type": "string", "description": "A path on the copy's page, like /chat"},
+            "sign_in": {
+                "type": "object",
+                "description": "As a page map's sign_in: {headers: {...}} with templates like "
+                "{person.email} and {secret:NAME}, {form: {...}}, {cookie: {...}}, or none",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "try_page_entry",
+        "Try one entry of a page map on evalution's copy (map: the whole map; default your "
+        "latest proposal): found or not, and what changed in the snapshot. Locating only: "
+        "actions.type fills a fixed harmless text and clears it; Send, New chat and Stop are "
+        "found, never clicked; no message is ever sent.",
+        {
+            "entry": {
+                "type": "string",
+                "enum": [
+                    "url",
+                    "ready",
+                    "sign_in",
+                    "open_session",
+                    "actions.type",
+                    "actions.send",
+                    "actions.new_chat",
+                    "actions.stop",
+                    "actions.attach",
+                    "replies.in",
+                    "replies.item",
+                    "replies.mine",
+                    "busy",
+                ],
+            },
+            "map": {"type": "object", "description": "A whole page map, as a page: block"},
+        },
+        ["entry"],
+    ),
+    _tool(
+        "propose_page_map",
+        "Propose a page map (as a page: block: url, ready, sign_in, open_session, actions, "
+        "replies, busy, catch_up_seconds, evidence). Checked as a run reads it; elements by "
+        "{role, name} or {test_id}, every url from {copy_page}. Each of ready, actions.type, "
+        "actions.send and replies.in needs evidence: {file, line} from read_page_code, or a "
+        "try_page_entry this session that found it. Kept as a draft, nothing saved.",
+        {
+            "map": {"type": "object", "description": "The page: block"},
+            "why": {"type": "string", "description": "One line for the admin"},
+        },
+        ["map"],
+    ),
+    _tool(
+        "rehearse_page_map",
+        'Play one real message ("Hello, this is a test.") through the page map the admin '
+        "approved (default: the latest) on evalution's copy: it spends one turn of the app. "
+        "Returns what the page showed; a map whose reply showed is kept as tried, for the "
+        f"admin to approve. After {MAX_REVISIONS} failed revisions, none are run: ask the admin.",
+        {"plan_id": _STR},
+        [],
+    ),
+    _tool(
         "reply",
         "Say something to the admin. The only way to speak. plan: when you propose a "
         "case. run: a run this message is about. review: after reading a run. isolation: the id "
-        "of an isolation proposal to show for approval (its changes are added in words).",
+        "of an isolation proposal to show for approval (its changes are added in words). "
+        "page_map: the id of a page map proposal to show for approval (added in words).",
         {
             "text": _STR,
             "plan": _PLAN_SCHEMA,
             "run": _RUN,
             "review": _REVIEW_SCHEMA,
             "isolation": _STR,
+            "page_map": _STR,
         },
         ["text"],
     ),

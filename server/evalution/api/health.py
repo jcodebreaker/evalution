@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from evalution.api import isolation_words
 from evalution.api.deps import Current, busy, invalid, local_only, target_name
-from evalution.project import drift, impact
+from evalution.project import drift, impact, pagemaps
 from evalution.review import health
 
 
@@ -30,7 +30,8 @@ def health_router() -> APIRouter:
         last_run = doc["recent"][0]["run"] if doc["recent"] else None
         checking = watcher.kick(name, last_run) if watcher else False
         found = await asyncio.to_thread(isolation_words.card, targets, name)
-        return {**doc, "checking": checking, "isolation": found}
+        page = await asyncio.to_thread(pagemaps.brief, targets, name)
+        return {**doc, "checking": checking, "isolation": found, "page": page}
 
     @router.get("/targets/{target}/drift")
     async def get_drift(ws: Current, target: str) -> dict[str, Any]:

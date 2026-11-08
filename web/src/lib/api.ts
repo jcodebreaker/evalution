@@ -38,6 +38,7 @@ import {
   ModelSettingsSchema,
   ModelTestSchema,
   NewTokenSchema,
+  PageReachSchema,
   ProbeSchema,
   RedraftSchema,
   RunCaseSchema,
@@ -271,6 +272,13 @@ export const api = {
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
   undoIsolation: (name: string) =>
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
+  /** How tests reach it: its API, or its page by a learned map, and the map waiting for approval. */
+  pageReach: (name: string) => get(one(PageReachSchema), `/v1/targets/${enc(name)}/page`),
+  /** Approve the map tried on evalution's copy: tests reach the app through its page from now. */
+  approvePage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/approve`),
+  /** Go back to the map before; with none, tests reach the app through its API again. */
+  undoPage: (name: string) => post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/undo`),
   /** The test setup: the test person, what the copy starts with, how often it's put back. */
   testSetup: (name: string) =>
     get(one(TestSetupSchema), `/v1/targets/${enc(name)}/isolation/setup`),

@@ -14,6 +14,7 @@ import { CARD } from "./card";
 import { Dashboard } from "./Dashboard";
 import { HowTestsRun } from "./HowTestsRun";
 import { KnowledgeLine } from "./KnowledgeLine";
+import { PageMapCard } from "./PageMapCard";
 import { PERIODS } from "./period";
 import { ReportCard } from "./ReportCard";
 
@@ -117,6 +118,9 @@ export function HomeView({
               {runAll}
             </div>
             {health ? <HowTestsRun target={scope.target} isolation={health.isolation} /> : null}
+            {health ? (
+              <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
+            ) : null}
           </>
         ) : load.status === "loading" ? (
           <>
@@ -146,6 +150,7 @@ export function HomeView({
               onUpdated={() => void reload()}
             />
             <HowTestsRun target={scope.target} isolation={health.isolation} />
+            <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

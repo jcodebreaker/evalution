@@ -78,7 +78,7 @@ from evalution.judging.rubric import (
 )
 from evalution.judging.steps import Step, check_line, chosen_calls, grade_tools
 from evalution.llm import LLM, Caller, cut, fenced
-from evalution.project import drift, impact
+from evalution.project import drift, impact, pagemaps
 from evalution.results.compare import default_base
 from evalution.results.record import (
     SCHEMA,
@@ -95,8 +95,9 @@ from evalution.review.findings import analyze_run, write_report
 from evalution.runs import isolated, trust
 from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
+from evalution.runs.page import learn
 from evalution.runs.page.map import PageMapBroken, page_map_of
-from evalution.runs.page.target import PageFiles, page_capabilities
+from evalution.runs.page.target import PageFiles, PageTarget, page_capabilities
 from evalution.runs.play import (
     ADAPTER_FAILURES,
     Played,
@@ -814,6 +815,7 @@ class Runs:
                 doc["copy_start_seconds"] = round(time.monotonic() - began, 1)
                 doc["isolation"] = footing.run_label(copies.person)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
+                await self._check_page_map(doc, name, on.get(0))
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
                 await self.store.save(doc)
@@ -993,6 +995,30 @@ class Runs:
         if (why := isolated.refusal(config, name, found)) is not None:
             raise isolated.NotIsolated(why)
         return found
+
+    async def _check_page_map(self, doc: dict[str, Any], name: str, target: Target | None) -> None:
+        """Before a run plays through the page, a map that a commit left out of date, that the last
+        check found broken, or whose evidence changed, is checked on the copy: every element a
+        turn needs is found, none is acted on, no message is sent. It is saved approved again, or
+        broken.
+
+        :raises PageMapBroken: The page lacks what the map names; the run ends ``page_map_broken``.
+        """
+        if not isinstance(target, PageTarget):
+            return
+        kept = await asyncio.to_thread(pagemaps.to_check, self.targets, name)
+        if kept is None:
+            return
+        doc["current"] = {"case": "", "name": "Checking the page map again", "try": 1}
+        await self.store.save(doc)
+        missing = await learn.check(target)
+        await asyncio.to_thread(pagemaps.checked, self.targets, name, kept, missing)
+        if missing:
+            raise PageMapBroken(
+                f"The page map no longer matches {name}'s page: checked on evalution's copy "
+                f"before playing, the page has no {', '.join(missing)}. Re-learn the page to "
+                "propose a new map."
+            )
 
     def _bases(self, doc: Mapping[str, Any], base: Mapping[str, Any] | None) -> dict[str, Verdict]:
         """Each case's result in the run *doc* will be compared with: *base*, else the one a

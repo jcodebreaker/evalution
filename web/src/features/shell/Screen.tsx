@@ -113,7 +113,7 @@ export function Screen({
     return null;
   }
   if (place.view === "environment") {
-    return <TestEnvironmentView target={target} />;
+    return <TestEnvironmentView target={target} onAsk={(text) => ask(text)} />;
   }
   if (place.view === "app") {
     return (

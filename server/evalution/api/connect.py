@@ -53,7 +53,8 @@ def _managed(targets: Targets, name: str) -> str:
 
 def _page(conf: TargetConfig) -> dict[str, Any] | None:
     """How a target plays through its page (ADR 0010), in plain words; ``None`` when it plays
-    through its API. Read only: the map is written by hand in the target's ``page:`` block."""
+    through its API. Read only here: the map is learned and approved on the Test environment page
+    (:mod:`evalution.connect.page`), or written by hand in the target's ``page:`` block."""
     try:
         found = page_map_of(conf)
     except ConfigError as exc:
@@ -237,6 +238,9 @@ def connect_router() -> APIRouter:
                 stored = connect.stored_keys(targets.config.keys, name)
                 moved = connect.moved_secrets(targets.conf(name), body, stored)
                 block, changes = _parse(targets, name, body, stored - moved)
+                # The page map and its test accounts aren't edited in the form: they stay.
+                kept = targets.conf(name).options
+                block.update({k: kept[k] for k in ("page", "page_accounts") if k in kept})
                 dropped = connect.left_behind(name, moved, changes)
                 changes = {**connect.forgotten(name, moved), **changes}
                 was = targets.conf(name).adapter

@@ -477,6 +477,51 @@ export type TestSetupChange = {
   copies?: number;
 };
 
+/** One entry of a page map in plain words: what it is, and where on the page. */
+export const MapWordsSchema = z.object({ what: z.string(), where: z.string() });
+
+/** A page map kept for a target (ADR 0010): in use, or tried on evalution's copy and waiting for
+ * approval, with its rehearsal's screenshots. */
+export const KeptPageMapSchema = z.object({
+  status: z
+    .enum(["tried", "approved", "stale", "broken", "by_hand"])
+    .catch("approved")
+    .default("approved"),
+  map: z.array(MapWordsSchema).default([]),
+  /** Why the map doesn't read, when it doesn't. */
+  error: z.string().nullable().default(null),
+  report: z.string().default(""),
+  /** The rehearsal's screenshots, as URLs on this server. */
+  shots: z.array(z.string()).default([]),
+  /** What the check before a run didn't find on the page. */
+  missing: z.array(z.string()).default([]),
+  /** The files a commit changed under its evidence, when it's out of date. */
+  stale_files: z.array(z.string()).default([]),
+  updated: z.number().nullable().default(null),
+  by_hand: z.boolean().default(false),
+});
+export type KeptPageMap = z.infer<typeof KeptPageMapSchema>;
+
+/** How tests reach a target: through its API, or through its page by a map the test writer
+ * learned and a person approved once. */
+export const PageReachSchema = z.object({
+  target: z.string().default(""),
+  plays: z.enum(["api", "page"]).catch("api").default("api"),
+  /** Connected from the page, so its page: block can be written here. */
+  managed: z.boolean().default(false),
+  current: KeptPageMapSchema.nullable().default(null),
+  proposed: KeptPageMapSchema.nullable().default(null),
+  history: z
+    .array(z.object({ version: z.number(), status: z.string(), updated: z.number() }))
+    .default([]),
+  can_undo: z.boolean().default(false),
+  /** The page can be opened on evalution's copy; else `why_not` says why, in words. */
+  can_learn: z.boolean().default(false),
+  why_not: z.string().nullable().default(null),
+  problem: z.string().nullable().default(null),
+});
+export type PageReach = z.infer<typeof PageReachSchema>;
+
 /** A target's isolation plan (ADR 0009): where the app keeps what it remembers, how each place
  * is reset between tries, and how far that is proven. */
 export const IsolationSchema = z.object({
@@ -1169,6 +1214,26 @@ export const AgentMessageSchema = z.object({
       changes: z.array(z.string()).default([]),
     })
     .optional(),
+  /** A page map the writer proposes: approving it lets it be tried with one real message. */
+  page_map: z
+    .object({
+      id: z.string(),
+      version: z.number(),
+      status: z.string(),
+      target: z.string().default(""),
+      described: z.array(MapWordsSchema).default([]),
+      evidence: z
+        .array(
+          z.object({
+            entry: z.string(),
+            file: z.string().nullable().default(null),
+            line: z.number().nullable().default(null),
+            tried: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+    })
+    .optional(),
   run: z.string().optional(),
   review: z
     .object({
@@ -1630,6 +1695,17 @@ export const HealthSchema = z.object({
       problem: z.string().nullable().default(null),
     })
     .nullable()
+    .default(null),
+  /** The page map, only when a commit left it out of date or the check before a run found it
+   * broken. */
+  page: z
+    .object({
+      status: z.enum(["stale", "broken"]).catch("stale"),
+      stale_files: z.array(z.string()).default([]),
+      missing: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .catch(null)
     .default(null),
 });
 export type Health = z.infer<typeof HealthSchema>;

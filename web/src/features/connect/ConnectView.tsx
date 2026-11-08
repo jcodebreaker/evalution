@@ -338,6 +338,7 @@ export function ConnectView({
               mode="setup"
               onStanding={setCopy}
               onFirstTest={onFirstTest}
+              onAsk={onAsk}
             />
           ) : null}
         </SetupStep>

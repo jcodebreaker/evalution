@@ -59,7 +59,7 @@ export function WriterReply({
   onTest: (id: string, run?: string) => void;
   onLearned: () => void;
 }) {
-  const { plan, review, run, saved, isolation } = message;
+  const { plan, review, run, saved, isolation, page_map: pageMap } = message;
   const changed = !!plan?.changes?.length;
   return (
     <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
@@ -161,6 +161,9 @@ export function WriterReply({
           </div>
         </Group>
       ) : null}
+      {pageMap ? (
+        <PageMapProposal proposal={pageMap} latest={latest} onApprove={onApprove} />
+      ) : null}
       {isolation ? (
         <IsolationProposal proposal={isolation} latest={latest} onApprove={onApprove} />
       ) : null}
@@ -247,6 +250,76 @@ const PROPOSAL_STATUS: Record<string, string> = {
   proven: "Proven on evalution's copy of the app",
   failed: "Not proven: the rehearsal found what it misses",
 };
+
+/** Where a page map's entry comes from, in a few words. */
+function source(row: NonNullable<AgentMessage["page_map"]>["evidence"][number]): string {
+  const where = row.file ? `${row.file}${row.line ? `:${row.line}` : ""}` : "";
+  if (where && row.tried) return `${where}, found on the page`;
+  return where || (row.tried ? "found on the page" : "");
+}
+
+/** The entry of a page map each of its plain-words rows is about. */
+const ROW_ENTRY: Record<string, string> = {
+  Opens: "url",
+  "Signs in with": "sign_in",
+  "Ready when it shows": "ready",
+  "Message box": "actions.type",
+  Send: "actions.send",
+  "New chat": "actions.new_chat",
+  Replies: "replies.in",
+  "Busy while": "busy",
+};
+
+/** A page map the writer proposes, approved like a test plan. Approving it tries the map with one
+ * real message on evalution's own copy; the map is used only once it's approved again on the Test
+ * environment page. */
+function PageMapProposal({
+  proposal,
+  latest,
+  onApprove,
+}: {
+  proposal: NonNullable<AgentMessage["page_map"]>;
+  latest: boolean;
+  onApprove: (planId: string) => void;
+}) {
+  const evidence = new Map(proposal.evidence.map((row) => [row.entry, source(row)]));
+  return (
+    <Group data-testid="page-map-proposal">
+      <p className="m-0 px-3.5 pt-2.5 text-[12px] text-ink-2">
+        How tests would reach {proposal.target || "the app"}'s page
+      </p>
+      <ul className="m-0 flex list-none flex-col p-0">
+        {proposal.described.map((row) => {
+          const from = evidence.get(ROW_ENTRY[row.what] ?? "");
+          return (
+            <li
+              key={row.what}
+              className="flex flex-col border-separator px-3.5 py-2 text-[13px] not-first:border-t"
+            >
+              <span>
+                <span className="text-ink-2">{row.what}:</span> {row.where}
+              </span>
+              {from ? <span className="font-mono text-[11.5px] text-ink-3">{from}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
+        <span className="text-[13px] text-ink-2">
+          {proposal.status === "draft"
+            ? "Trying it sends one message to evalution's copy"
+            : (PROPOSAL_STATUS[proposal.status] ?? proposal.status)}
+        </span>
+        {latest && proposal.status === "draft" ? (
+          <Button size="sm" className="ms-auto" onClick={() => onApprove(proposal.id)}>
+            <Check />
+            Approve and try it
+          </Button>
+        ) : null}
+      </div>
+    </Group>
+  );
+}
 
 /** A change the writer proposes to the isolation plan, approved like a test plan. Approving it
  * rehearses it on evalution's own copy of the app; the saved plan changes only once it's proven. */

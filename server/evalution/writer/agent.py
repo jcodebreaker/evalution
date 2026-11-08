@@ -28,7 +28,8 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   it (:meth:`Agent.approve`); in words, the agent calls ``approve(plan_id)`` only when the admin
   clearly said so, and only after the admin spoke since the plan. A question never approves.
   An isolation proposal is approved the same way, and only then can ``rehearse_isolation`` run
-  it (:mod:`evalution.writer.isolating`).
+  it (:mod:`evalution.writer.isolating`); so is a page map, and only then can
+  ``rehearse_page_map`` spend a message on it (:mod:`evalution.writer.paging`).
 """
 
 from __future__ import annotations
@@ -299,6 +300,15 @@ class Agent:
                 "Rehearse this isolation plan",
                 f"The admin approved isolation plan {plan_id}. Rehearse it with "
                 f"rehearse_isolation(plan_id={plan_id!r}).",
+                approves=plan_id,
+            )
+            return public(session)
+        if plan.get("page_map"):
+            await self._ask(
+                session,
+                "Try this page map with one message",
+                f"The admin approved page map {plan_id}. Try it on evalution's copy with "
+                f"rehearse_page_map(plan_id={plan_id!r}): it sends one real message.",
                 approves=plan_id,
             )
             return public(session)

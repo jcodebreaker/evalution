@@ -22,13 +22,18 @@ pytest.importorskip("playwright", reason="page runs need the page extra: uv sync
 
 from test_acceptance import HERE, World, _target
 
+from evalution.config import load
 from evalution.core.evidence import VIDEO, VIDEO_ON_FAILURE
 from evalution.core.judgement import Outcome
 from evalution.core.rules import PAGE_MAP_BROKEN, current, layers
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
+from evalution.project.pagemaps import KeptMap, PageMapStore
 from evalution.results.store import RunStore
+from evalution.runs.page import learn
+from evalution.runs.page.map import PageMap
 from evalution.runs.page.target import NO_VIDEO, system_chrome
 from evalution.storage import Database
+from evalution.targets import Targets
 
 
 def _a_browser() -> bool:
@@ -246,3 +251,58 @@ def test_a_test_plays_through_the_page_and_each_broken_page_reads_as_what_broke(
     found = current(attempt)
     assert found.outcome is Outcome.UNJUDGED
     assert any(c.unjudged is not None and c.unjudged.value == "page_map" for c in found.checks)
+
+
+async def test_the_writers_page_tools_reach_the_copy_and_only_the_rehearsal_sends(world) -> None:
+    """What the test writer's page tools do, for real: each starts evalution's copy from the
+    proven plan and takes it down after; trying Send finds it and clicks nothing, and the
+    rehearsal's one message shows its reply, with a screenshot kept."""
+    config = load(world.config)
+    targets = Targets(config)
+    capabilities = targets.adapter("paged").capabilities
+    page = PageMap.model_validate(PAGE)
+    assert learn.refusal(config, "paged", capabilities) is None
+
+    looked = await learn.look(config, "paged", capabilities, "{copy_page}/chat", PAGE["sign_in"])
+    assert looked["at"] == "/chat" and 'button "Send"' in looked["snapshot"]
+    send = await learn.try_entry(config, "paged", capabilities, page, "actions.send")
+    assert send["found"] is True and send["clicked"] is False and send["blocked"] == []
+    typed = await learn.try_entry(config, "paged", capabilities, page, "actions.type")
+    assert typed["found"] is True and typed["took_text"] is True
+
+    done = await learn.rehearse(config, "paged", capabilities, page, targets.files)
+    assert done.passed, done.said()
+    assert done.reply and done.shots == ["turn-1.png"] and done.at is not None
+    shot = config.data_dir / "files" / done.at["run"] / f"rehearsal.{done.at['n']}" / "turn-1.png"
+    assert shot.read_bytes()[:4] == b"\x89PNG"
+    # The copy went with each: the plan is as it was, proven.
+    assert PlanStore(config.data_dir).load("paged").status == "proven"
+
+
+def test_a_stale_page_map_is_checked_on_the_copy_before_the_run_plays(world) -> None:
+    kept = PageMapStore(world.root / "data")
+    stale = KeptMap("paged", PAGE, status="stale", stale_files=["web/chat.html"])
+    kept.save(stale)
+    # The page as it is: the check finds everything it names, and the run plays.
+    doc = world.play("paged")
+    assert doc["status"] == "done", doc.get("error")
+    assert kept.load("paged").status == "approved"
+    assert _try(doc)["n"] == 1
+
+    # A commit renamed Send: the check before playing catches it, and no try plays.
+    kept.save(stale)
+    world.switches("rename_send")
+    doc = world.play("paged")
+    assert doc["status"] == "failed" and doc["failure"] == PAGE_MAP_BROKEN
+    assert "checked on evalution's copy before playing" in doc["error"]
+    assert "button 'Send'" in doc["error"] and "Re-learn the page" in doc["error"]
+    assert doc["cases"]["answer-shown"]["tries"] == []
+    broken = kept.load("paged")
+    assert broken.status == "broken" and broken.missing == ["button 'Send'"]
+    # Home says so, as it says an isolation plan is out of date.
+    health = world.client.get("/v1/targets/paged/health").json()
+    assert health["page"] == {
+        "status": "broken",
+        "stale_files": ["web/chat.html"],
+        "missing": ["button 'Send'"],
+    }

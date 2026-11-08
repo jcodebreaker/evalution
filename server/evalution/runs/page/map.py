@@ -3,7 +3,8 @@
 A target's ``page:`` block says which page to open, how a test person signs in, how the page
 shows the conversation the inner adapter opened, where the message box, Send and New chat are,
 where the replies are, and when the page is still busy. A fixed script follows it on every try;
-no model picks a click while a test runs. Written by hand in v1.
+no model picks a click while a test runs. Written by hand, or learned by the test writer on
+evalution's copy and approved once (:mod:`evalution.writer.paging`).
 
 Elements are named the way a person finds them, so a change to the page's look doesn't move them:
 
@@ -471,6 +472,20 @@ def _plain(error: Any, where: str) -> str:
     return f"{where}: {message}"
 
 
+def read_map(block: Any, where: str = "page") -> PageMap:
+    """*block* as a page map.
+
+    :raises ConfigError: It isn't one; the message says where and why, in the config's words.
+    """
+    if not isinstance(block, dict):
+        raise ConfigError(f"{where}: must be a mapping")
+    try:
+        return PageMap.model_validate(block)
+    except ValidationError as e:
+        reasons = "; ".join(_plain(err, where) for err in e.errors())
+        raise ConfigError(reasons) from None
+
+
 def page_map_of(target: TargetConfig) -> PageMap | None:
     """The target's page map, from its ``page:`` block; ``None`` when it has none.
 
@@ -479,14 +494,21 @@ def page_map_of(target: TargetConfig) -> PageMap | None:
     block = target.options.get("page")
     if block is None:
         return None
-    where = f"targets.{target.name}.page"
-    if not isinstance(block, dict):
-        raise ConfigError(f"{where}: must be a mapping")
-    try:
-        return PageMap.model_validate(block)
-    except ValidationError as e:
-        reasons = "; ".join(_plain(err, where) for err in e.errors())
-        raise ConfigError(reasons) from None
+    return read_map(block, f"targets.{target.name}.page")
+
+
+def as_block(page: PageMap) -> dict[str, Any]:
+    """*page* as a ``page:`` block reads it back: the config's names, nothing left unset."""
+    return page.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+def entry_of(page: PageMap, entry: str) -> Any:
+    """What the map says for *entry* (one of :data:`ENTRIES`), as data; ``None`` when it says
+    nothing."""
+    found: Any = as_block(page)
+    for part in entry.split("."):
+        found = found.get(part) if isinstance(found, dict) else None
+    return found
 
 
 def _where(found: Locator) -> str:

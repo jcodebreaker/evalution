@@ -12,6 +12,7 @@ import { ISOLATE_COST } from "../shared/IsolateButton";
 import { Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import { Checklist } from "./Checklist";
 import { CopyPicture, type ShownBlock, type Tone } from "./CopyPicture";
+import { PageReach } from "./PageReach";
 import { PlanDetails } from "./PlanDetails";
 import { SetupPanel } from "./SetupPanel";
 import { useIsolation } from "./use-isolation";
@@ -114,20 +115,24 @@ function Badge({ standing: at }: { standing: Standing }) {
 /**
  * The test environment: your app, never touched, beside the copy tests run on, built live while
  * the agent sets it up (the app on its own ports, its traces, one new block per store, the test
- * person), the steps with their times, and the setup a person can change. `setup` is the step of
- * connecting an app, ending in its first test; `page` is the screen it settles into.
+ * person), the steps with their times, and the setup a person can change, then how tests reach
+ * the app: its API, or its page. `setup` is the step of connecting an app, ending in its first
+ * test; `page` is the screen it settles into.
  */
 export function TestEnvironment({
   target,
   mode,
   onFirstTest,
   onStanding,
+  onAsk,
 }: {
   target: string;
   mode: "setup" | "page";
   onFirstTest?: () => void;
   /** Where it stands, each time that changes. */
   onStanding?: (standing: Standing) => void;
+  /** Hands the test writer a message: to learn the app's page. */
+  onAsk?: (text: string) => void | Promise<void>;
 }) {
   const { data, failed, set } = useIsolation(target);
   const [health, reloadHealth] = useLoad(`environment:${target}`, () => api.health(target, "7d"));
@@ -296,6 +301,7 @@ export function TestEnvironment({
           />
         ) : null}
       </div>
+      {settled ? <PageReach target={target} onAsk={onAsk} /> : null}
       {mode === "page" && data.plan && settled ? (
         <Fold title="Details">
           <PlanDetails isolation={data} onChange={set} />
@@ -305,15 +311,21 @@ export function TestEnvironment({
   );
 }
 
-/** The Test environment screen: the copy as it stands, and its setup. */
-export function TestEnvironmentView({ target }: { target: string }) {
+/** The Test environment screen: the copy as it stands, its setup, and how tests reach it. */
+export function TestEnvironmentView({
+  target,
+  onAsk,
+}: {
+  target: string;
+  onAsk?: (text: string) => void | Promise<void>;
+}) {
   return (
     <>
       <Toolbar>
         <ToolbarTitle title="Test environment" />
       </Toolbar>
       <Page wide>
-        <TestEnvironment target={target} mode="page" />
+        <TestEnvironment target={target} mode="page" onAsk={onAsk} />
       </Page>
     </>
   );

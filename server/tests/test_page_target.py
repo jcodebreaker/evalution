@@ -590,7 +590,7 @@ async def test_each_try_keeps_a_video_of_its_own(chat, tmp_path) -> None:
         # The next try in the same session plays on a new page, whose video is its own.
         target.begin(session, PageFiles(files, "run-1", "a-case", 2))
         turn = await target.send(session, "again", deadline=time.time() + 20)
-        assert turn.error is None and turn.shown == "echo: again", "a new page on the chat"
+        assert turn.error is None and turn.shown == "Echo: again", "a new page on the chat"
         second = await target.record(session, time.time())
         recording = target._videos[session.extra["page"]["context"]]
     finally:
@@ -653,6 +653,6 @@ async def test_without_ffmpeg_a_try_plays_on_and_says_why_it_has_no_video(
         found = await target.record(session, time.time())
     finally:
         await target.dispose()
-    assert turn.error is None and turn.shown == "echo: hello"
+    assert turn.error is None and turn.shown == "Echo: hello"
     assert target._ffmpeg is False
     assert found.files == ("turn-1.png",) and found.video_missing == NO_VIDEO

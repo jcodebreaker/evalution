@@ -94,7 +94,12 @@ def _uncommitted(root: Path, files: list[str]) -> set[str] | None:
 def changed_files(plan: Plan, root: Path) -> list[str]:
     """The files *plan*'s evidence cites that a commit changed since it was drafted. In a folder
     that is not a git checkout there are no commits, and every changed file counts."""
-    changed = stale(plan, root)
+    return committed(stale(plan, root), root)
+
+
+def committed(changed: list[str], root: Path) -> list[str]:
+    """Those of *changed* (relative to *root*) that a commit changed: a file edited and not
+    committed yet isn't one. Outside a git checkout, every one is."""
     pending = _uncommitted(root, changed)
     return changed if pending is None else [f for f in changed if f not in pending]
 

@@ -1,0 +1,237 @@
+"""Learning a target's page map on evalution's own copy of the app (ADR 0010, after v1): what the
+test writer's page tools do to the page, and the check a run makes of an approved map before it
+plays.
+
+Every function here works on a copy of the app the target's proven isolation plan starts
+(:class:`~evalution.runs.isolated.Copies`, one slot), and takes it down again, its stores put
+back, however it ends. Without a proven plan nothing here runs (:func:`refusal`): a page is never
+opened on a person's own app.
+
+* :func:`look` opens a page signed in as a proposed ``sign_in`` says, and returns its
+  accessibility snapshot. Nothing is clicked or typed.
+* :func:`try_entry` tries one entry of a proposed map: found or not, and what changed on the page.
+  Only the message box is typed into (a fixed harmless text, cleared again); Send is never
+  clicked, and any request but a read is refused while it looks.
+* :func:`rehearse` plays one real message through the whole map, as a run would: it spends one
+  turn of the app. Its screenshots are kept in the file store.
+* :func:`check` is the run's re-try of an approved map before it plays: every element a turn needs
+  is found, none is acted on, no message is sent.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import re
+import time
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any
+
+from evalution.adapters.base import Capabilities, Target
+from evalution.config import Config
+from evalution.runs import isolated
+from evalution.runs.page.map import PageMap, read_map
+from evalution.runs.page.target import PageFiles, PageTarget, on_page, page_missing
+from evalution.storage.files import Files
+
+#: What a rehearsal says: one plain message, as a person might send it.
+MESSAGE = "Hello, this is a test."
+#: Seconds the rehearsal's one turn may take, the page's catching up included.
+REHEARSAL_SECONDS = 180.0
+#: Where a target's rehearsal screenshots are kept in the file store: run, then case.
+SHOTS_CASE = "rehearsal"
+_RUN_ID = re.compile(r"[^A-Za-z0-9_-]")
+#: The run key each of these opens its session under, on the copy.
+LOOKING = "page-map-look"
+
+
+def shots_run(target: str) -> str:
+    """The file store's "run" a target's rehearsal screenshots are kept under."""
+    return f"page-map-{_RUN_ID.sub('-', target)}"[:64]
+
+
+def refusal(config: Config, target: str, capabilities: Capabilities) -> str | None:
+    """Why the page of *target* can't be opened now, in plain words; ``None`` when it can. A page
+    is only ever opened on evalution's own copy, which a proven isolation plan starts (ADR 0009),
+    and only with Playwright here."""
+    found = isolated.footing(config, target, capabilities)
+    if not found.managed:
+        why = found.problem or "it has no isolation plan yet"
+        return (
+            f"{target}'s page is only ever opened on evalution's own copy of the app, and {why}. "
+            "Setting up testing on the Test environment page makes the copy (or `evalution "
+            f"isolate --target {target}`)."
+        )
+    if (off := isolated.off_copy(config, target)) is not None:
+        return f"{target}'s page can't be opened on evalution's own copy: {off}"
+    return page_missing()
+
+
+@dataclass
+class OnCopy:
+    """A copy of the app started for learning its page: the adapter pointed at it, without any
+    page map of its own, and the copy's page address."""
+
+    config: Config
+    target: str
+    inner: Target
+    url: str
+    copies: isolated.Copies = field(repr=False)
+
+    def page(self, page: PageMap) -> PageTarget:
+        """The target played through *page* on this copy, signing in as slot 0's test account."""
+        made = on_page(self.config.targets[self.target], self.inner, self.url, 0, page=page)
+        assert isinstance(made, PageTarget)
+        return made
+
+
+@contextlib.asynccontextmanager
+async def on_copy(config: Config, target: str, capabilities: Capabilities) -> AsyncIterator[OnCopy]:
+    """A copy of *target* started from its proven plan, put back and taken down when done.
+
+    :raises RuntimeError: It can't be (:func:`refusal`, in words).
+    """
+    if (why := refusal(config, target, capabilities)) is not None:
+        raise RuntimeError(why)
+    found = isolated.footing(config, target, capabilities)
+    copies = isolated.Copies(config, target, found)
+    try:
+        await copies.start(1)
+        slot = copies.slots[0]
+        assert slot.adapter is not None
+        inner = slot.adapter.inner if isinstance(slot.adapter, PageTarget) else slot.adapter
+        yield OnCopy(config, target, inner, slot.copy.url, copies)
+    finally:
+        await copies.close()
+
+
+def scaffold(url: str, sign_in: Any) -> PageMap:
+    """A map with only a page and a way to sign in, for looking: what it names besides is never
+    used.
+
+    :raises ConfigError: *url* or *sign_in* doesn't read.
+    """
+    return read_map(
+        {
+            "url": url,
+            "sign_in": sign_in,
+            "ready": {"role": "main", "name": "-"},
+            "open_session": {"url": url},
+            "actions": {
+                "type": {"fill": {"role": "textbox", "name": "-"}},
+                "send": {"click": {"role": "button", "name": "-"}},
+            },
+            "replies": {"in": {"role": "main"}},
+        }
+    )
+
+
+async def _played(page: PageTarget, work: Any) -> Any:
+    """*work* on a session of the inner adapter, closed after, and the page target let go."""
+    session = await page.inner.open(LOOKING)
+    try:
+        return await work(session)
+    finally:
+        with contextlib.suppress(Exception):
+            await page.close(session)
+        with contextlib.suppress(Exception):
+            await page.dispose_browser()
+
+
+async def look(
+    config: Config, target: str, capabilities: Capabilities, url: str, sign_in: Any
+) -> dict[str, Any]:
+    """The copy's page at *url* (``{copy_page}``…), signed in as *sign_in* says: where it landed,
+    its accessibility snapshot, and any request it tried that isn't a read (refused). Nothing is
+    clicked or typed."""
+    shown = scaffold(url, sign_in)
+    async with on_copy(config, target, capabilities) as copy:
+        page = copy.page(shown)
+        return await _played(page, lambda session: page.look(session))
+
+
+async def try_entry(
+    config: Config, target: str, capabilities: Capabilities, page_map: PageMap, entry: str
+) -> dict[str, Any]:
+    """One entry of *page_map* tried on the copy's page (:meth:`PageTarget.try_entry`): never a
+    click on Send, never a request that isn't a read."""
+    async with on_copy(config, target, capabilities) as copy:
+        page = copy.page(page_map)
+        return await _played(page, lambda session: page.try_entry(session, entry))
+
+
+@dataclass
+class Rehearsed:
+    """What a rehearsal of a map showed: whether the reply showed on the page, and the proof."""
+
+    passed: bool
+    reply: str = ""
+    shown: str | None = None
+    #: What the replies' region showed instead, when the reply didn't show.
+    instead: str = ""
+    error: str | None = None
+    #: The screenshots kept, and where in the file store.
+    shots: list[str] = field(default_factory=list)
+    at: dict[str, Any] | None = None
+    seconds: float = 0.0
+    console: list[str] = field(default_factory=list)
+
+    def said(self) -> str:
+        """What it showed, in plain words."""
+        if self.passed:
+            shown = (self.shown or "")[:300]
+            return f"Sent “{MESSAGE}” through the page; the reply showed: “{shown}”."
+        if self.error:
+            return f"Sent “{MESSAGE}” through the page, and it went wrong: {self.error}"
+        instead = f" The replies showed instead: “{self.instead[-300:]}”." if self.instead else ""
+        return (
+            f"Sent “{MESSAGE}” through the page; the app answered “{self.reply[:200]}”, but the "
+            f"page never showed it.{instead}"
+        )
+
+
+async def rehearse(
+    config: Config,
+    target: str,
+    capabilities: Capabilities,
+    page_map: PageMap,
+    files: Files | None,
+) -> Rehearsed:
+    """Play one real message (:data:`MESSAGE`) through *page_map* on the copy, as a run would: it
+    spends one turn of the app. Passed when the turn ended and its reply showed on the page."""
+    async with on_copy(config, target, capabilities) as copy:
+        page = copy.page(page_map)
+        started = time.time()
+        keep = (
+            PageFiles(files, shots_run(target), SHOTS_CASE, int(started))
+            if files is not None
+            else None
+        )
+        session = await page.open("page-map-rehearsal")
+        try:
+            page.begin(session, keep)
+            turn = await page.send(session, MESSAGE, deadline=started + REHEARSAL_SECONDS)
+            record = await page.record(session, started)
+        finally:
+            with contextlib.suppress(Exception):
+                await page.close(session)
+            with contextlib.suppress(Exception):
+                await page.dispose_browser()
+    instead = record.turns[0].instead.text if record.turns else ""
+    return Rehearsed(
+        passed=turn.error is None and turn.shown is not None,
+        reply=turn.reply,
+        shown=turn.shown,
+        instead=instead,
+        error=turn.error,
+        shots=list(record.files),
+        at={"run": keep.run, "case": keep.case, "n": keep.n} if keep and record.files else None,
+        seconds=round(time.time() - started, 1),
+        console=[line.text.text for line in record.console if line.level == "error"][:5],
+    )
+
+
+async def check(page: PageTarget) -> list[str]:
+    """The run's re-try of an approved map on its copy's page, before it plays: what a turn needs
+    that the page doesn't have, in words. No message is sent."""
+    return await page.check("page-map-check")

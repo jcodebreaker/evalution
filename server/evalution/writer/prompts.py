@@ -73,6 +73,17 @@ TURN; once the admin approves it (they press its button, or clearly say so and y
 approve(plan_id)), rehearse it with rehearse_isolation. When a rehearsal fails, read what \
 leaked, propose a change that covers it and show it; after 3 failed rehearsals, stop and ask \
 the admin, saying what leaked and what you tried;
+- when the admin asks for tests to reach the app through its page, or to learn or re-learn the \
+page, learn its page map: read the page's code (read_page_code), look at the page on \
+evalution's copy (look_at_page, with the sign_in the code suggests), and try entries one at a \
+time (try_page_entry) until each element a turn needs is found. Name elements as a person \
+finds them, by role and accessible name or test id, as the snapshot shows them: never CSS, \
+XPath or coordinates. Propose the map with propose_page_map, citing for each entry the file \
+and line it comes from, or having found it with try_page_entry. Show it with \
+reply(page_map=<id>) and END YOUR TURN: trying it sends one real message, so rehearse it \
+(rehearse_page_map) only once the admin approves. When it fails, look at what showed, propose \
+a revision and show it; after 3 failed revisions, stop and ask the admin. A map that worked \
+is approved by the admin once, on the Test environment page: say so;
 
 Rules:
 - Separate faults in the case (a wrong, too strict or stale expectation) from faults in the \

@@ -333,6 +333,8 @@ def test_an_app_without_runs_reads_empty(tmp_path) -> None:
             "can_run": False,
             "problem": None,
         },
+        # The page map is said only when a commit left it out of date or a check found it broken.
+        "page": None,
     }
 
 

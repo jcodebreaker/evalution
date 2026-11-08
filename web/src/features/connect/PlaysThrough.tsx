@@ -1,7 +1,7 @@
 import type { TargetDetail } from "../../lib/schema";
 
-/** How tests reach the app: its API, or its own page by the map in its `page:` block. Read only:
- * the map is written by hand in v1. */
+/** How tests reach the app: its API, or its own page by the map in its `page:` block. Read only
+ * here: the map is learned and approved on the Test environment page, or written by hand. */
 export function PlaysThrough({ page }: { page: TargetDetail["page"] }) {
   return (
     <div className="flex flex-col gap-1 text-[13px]" data-testid="plays-through">
