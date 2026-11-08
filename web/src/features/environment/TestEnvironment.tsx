@@ -169,7 +169,7 @@ export function TestEnvironment({
   const blocks = pictureBlocks(data, live, stores, setup);
   const steps = job?.steps.length ? job.steps : waitingSteps(target, stores);
   const checklist = live || now === "none";
-  const yours = [...new Set(stores.map((store) => yourKind(store.kind)))];
+  const yours = [...new Set(stores.map((store) => yourKind(store.kind, store.holds)))];
 
   const start = async () => {
     setStarting(true);

@@ -17,11 +17,19 @@ const DATABASES = new Set(["postgres", "mysql", "sqlite", "redis", "mongo"]);
 
 export const shortKind = (kind: string) => SHORT[kind] ?? kind;
 
+/** Whether a store is the app's memory: by its kind, or by what the probe saw it hold. */
+const isMemory = (kind: string, holds?: string | null) =>
+  kind === "memory" || kind === "vector" || /memory/i.test(holds ?? "");
+
+/** What a store is after "New", from what it holds when that says more than its kind. */
+const whatKind = (kind: string, holds?: string | null) =>
+  !DATABASES.has(kind) && isMemory(kind, holds) ? "memory" : shortKind(kind);
+
 /** How the app's own side names a store: "Your database", "Your memory". */
-export const yourKind = (kind: string) =>
+export const yourKind = (kind: string, holds?: string | null) =>
   DATABASES.has(kind)
     ? "Your database"
-    : kind === "memory"
+    : isMemory(kind, holds)
       ? "Your memory"
       : `Your ${shortKind(kind)}`;
 
@@ -57,7 +65,9 @@ export function waitingSteps(target: string, stores: readonly StoreWords[]): Iso
     step("copy", `Copy ${target}`),
     ...stores
       .filter((store) => store.reset)
-      .map((store) => step(`store:${store.id}`, `Give it its own ${shortKind(store.kind)}`)),
+      .map((store) =>
+        step(`store:${store.id}`, `Give it its own ${whatKind(store.kind, store.holds)}`),
+      ),
     step("person", "Make a test person"),
     step("prove", "Check it resets cleanly"),
   ];
@@ -91,7 +101,7 @@ export function storeBlock(
     key: `store:${id}`,
     kind: "store",
     of: kind,
-    title: kind ? `New ${shortKind(kind)}` : label || "New store",
+    title: kind ? `New ${whatKind(kind, store?.holds)}` : label || "New store",
     sub: what ? `${what} · ${how}` : how,
   };
 }

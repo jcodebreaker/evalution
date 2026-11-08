@@ -146,7 +146,7 @@ it("done and proven: every block checked, the copy green, and on to the first te
   );
   await screen.findByText("Ready to test relay-lite");
   await waitFor(() => expect(block("person")?.textContent).toContain("Alex Rivera"));
-  expect(block("store:volume-artifact-data")?.textContent).toContain("New volume");
+  expect(block("store:volume-artifact-data")?.textContent).toContain("New memory");
   expect(copy().dataset.tone).toBe("ready");
   expect(within(copy()).getAllByLabelText("Checked")).toHaveLength(5);
   expect(screen.getByText("Starts fresh, proven")).toBeTruthy();
