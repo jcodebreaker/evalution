@@ -43,6 +43,9 @@ class Failure(StrEnum):
     #: Before its first message the app already held what the try was to show it come to hold:
     #: what an earlier try left, so the try wasn't played (:mod:`evalution.runs.leftover`).
     LEFTOVER_STATE = "leftover_state"
+    #: The page target didn't find an element its page map names (ADR 0010): the map is off, not
+    #: the app or the adapter.
+    PAGE_MAP = "page_map"
 
 
 class TurnEnd(StrEnum):
@@ -97,6 +100,7 @@ class TurnRecord(Frozen):
     """One message of the transcript and what came back. ``kind``: ``message`` or ``filler``.
 
     :param expected_blocked: The test wants this turn to stop and wait (``"blocked": true``).
+    :param shown: What the app's own page showed, when the try played through it (ADR 0010).
     """
 
     kind: str
@@ -107,6 +111,7 @@ class TurnRecord(Frozen):
     error: str | None = None
     ended_as: TurnEnd = TurnEnd.ANSWERED
     expected_blocked: bool = False
+    shown: Clipped | None = None
 
 
 class ToolRecord(Frozen):
@@ -220,7 +225,13 @@ class TryEvidence(Frozen):
         return self.model_copy(
             update={
                 "turns": tuple(
-                    t.model_copy(update={"message": t.message.capped(), "reply": t.reply.capped()})
+                    t.model_copy(
+                        update={
+                            "message": t.message.capped(),
+                            "reply": t.reply.capped(),
+                            "shown": t.shown.capped() if t.shown is not None else None,
+                        }
+                    )
                     for t in self.turns
                 ),
                 "tools": tuple(

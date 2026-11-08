@@ -57,6 +57,7 @@ from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
     OTHER_FAILURE,
+    PAGE_MAP_BROKEN,
     RULES_VERSION,
     SERVER_RESTARTED,
     TARGET_GONE,
@@ -217,6 +218,10 @@ class KeepsHanging(Exception):
 
 class StillWorking(RuntimeError):
     """A try ran out of time with the app's work still going, and it can't be stopped."""
+
+
+class PageMapBroken(RuntimeError):
+    """The page didn't have what its page map names: every try would meet the same (ADR 0010)."""
 
 
 class Runs:
@@ -881,6 +886,8 @@ class Runs:
                             raise AppRefused(attempt["error"] or "")
                         if played.gone:
                             raise TargetGone(attempt["error"] or "")
+                        if played.failure is Failure.PAGE_MAP:
+                            raise PageMapBroken(attempt["error"] or "")
                         lost_adapter = played.failure is Failure.ADAPTER
                         adapter_failures = adapter_failures + 1 if lost_adapter else 0
                         if adapter_failures >= ADAPTER_FAILURES:
@@ -919,6 +926,11 @@ class Runs:
             _logger.warning("evals: run %s: the adapter isn't reading the app", doc["run"])
             doc.update(
                 status="failed", failure=ADAPTER_BROKEN, stop_reason=str(exc), error=str(exc)
+            )
+        except PageMapBroken as exc:
+            _logger.warning("evals: run %s: the page map names what the page lacks", doc["run"])
+            doc.update(
+                status="failed", failure=PAGE_MAP_BROKEN, stop_reason=str(exc), error=str(exc)
             )
         except KeepsHanging as exc:
             doc.update(status="failed", failure=APP_NOT_READY, stop_reason=str(exc), error=str(exc))

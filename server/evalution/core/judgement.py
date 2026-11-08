@@ -48,6 +48,8 @@ class WhyUnjudged(StrEnum):
     #: The grader passed a rubric line it agrees with a person on too seldom
     #: (:mod:`evalution.judging.agreement`): its pass isn't taken as earned.
     GRADER_UNRELIABLE = "grader_unreliable"
+    #: The page target didn't find an element its page map names (ADR 0010).
+    PAGE_MAP = "page_map"
 
 
 class CheckKind(StrEnum):

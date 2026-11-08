@@ -74,6 +74,7 @@ Steps are a guide when the test has a state or context check or a rubric, so ano
 | `blocked` | The app stopped to wait on something, an approval, say, and the test didn't expect it. A test that does sets `"blocked": true` on the turn: then not stopping fails the try. |
 | `never_started` | Out of time, with no sign of the agent working: the target has traces, and none arrived. It may have hung before any span ended. |
 | `grader_unreliable` | The grader passed a rubric line a person found it too often wrong on (below). |
+| `page_map` | Playing through the app's page, an element its page map names wasn't there (ADR 0010). The map is off, not the app or the adapter, and every try would meet the same: the run ends there. |
 
 An app error is not on this list: the app did that, and the try failed. Failed work is the same, with the app's own reason when it gives one. An exception out of `send` isn't an app error: it is the adapter's, and reads as such, unless it is the session going away, the app not being there, or running out of time.
 

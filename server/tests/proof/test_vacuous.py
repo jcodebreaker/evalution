@@ -54,6 +54,7 @@ from evalution.core.judgement import (
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
+    PAGE_MAP_BROKEN,
     SERVER_RESTARTED,
     current,
     first_reason,
@@ -366,6 +367,39 @@ async def test_7_a_try_leaves_its_whole_evidence_with_the_run(make_rig) -> None:
     assert kept.turns[0].message.sha256
     assert kept.model_calls and kept.model_calls[0].sent.text
     assert len(rig.runs.store.all()) == 1, "the evidence is no run"
+
+
+async def test_7_what_the_page_showed_is_kept_with_its_turn(make_rig) -> None:
+    rig = make_rig()
+    rig.add(_case(ASKS))
+    real = rig.agent.send
+    big = "y" * (ITEM_BYTES + 10_000)
+
+    async def shows(*args: Any, **kwargs: Any) -> Turn:
+        return replace(await real(*args, **kwargs), shown=big)
+
+    rig.agent.send = shows
+    doc = await rig.run(tries=1)
+    (kept,) = rig.runs.store.evidence(doc["run"])
+    shown = kept.turns[-1].shown
+    assert shown is not None and shown.elided == 10_000 and shown.sha256, "capped like the reply"
+    assert kept.turns[-1].reply.text != shown.text, "the reply stays what the adapter read"
+
+
+async def test_7_control_an_adapter_shows_nothing_and_old_evidence_still_reads(make_rig) -> None:
+    rig = make_rig()
+    rig.add(_case(ASKS))
+    doc = await rig.run(tries=1)
+    (kept,) = rig.runs.store.evidence(doc["run"])
+    assert all(turn.shown is None for turn in kept.turns)
+    # Evidence kept before ``shown`` existed has no such field at all.
+    old = kept.model_dump(mode="json")
+    for turn in old["turns"]:
+        del turn["shown"]
+    rig.runs.store.docs.clear_entries(EVIDENCE, doc["run"])
+    rig.runs.store.docs.append(EVIDENCE, doc["run"], old)
+    (read,) = rig.runs.store.evidence(doc["run"])
+    assert read == kept
 
 
 async def test_7_grading_again_needs_evidence_and_only_adds(make_rig, monkeypatch) -> None:
@@ -908,6 +942,33 @@ async def test_12_without_traces_the_deadline_still_holds(make_rig, clock) -> No
     doc = await rig.run()
     assert doc["failure"] == ADAPTER_BROKEN and "past the 60 s limit" in doc["error"]
     assert clock.now - began < 2 * 120
+
+
+async def test_12_a_broken_page_map_ends_the_run_after_one_try_and_fails_nothing(make_rig) -> None:
+    rig = make_rig()
+    rig.add(ONE_TURN)
+    rig.add({**ONE_TURN, "name": "Answers again"})
+    sent = []
+
+    async def misses_send(*_args: Any, **_kwargs: Any) -> Turn:
+        sent.append(1)
+        error = 'the page has no button "Send"'
+        return Turn("", time.time(), time.time(), error=error, failure=Failure.PAGE_MAP)
+
+    rig.agent.send = misses_send
+    doc = await rig.run()
+    assert doc["status"] == "failed" and doc["failure"] == PAGE_MAP_BROKEN
+    assert 'no button "Send"' in doc["error"]
+    # Every try would meet the same page: one was enough, of two asked for each of two tests.
+    assert len(sent) == 1 and len(_tries(doc)) == 1
+    found = current(_tries(doc)[0])
+    assert found.outcome is Outcome.UNJUDGED and label_of([found]) == "Setup blocked"
+    assert found.checks[0].unjudged is WhyUnjudged.PAGE_MAP
+    tests = {t["name"]: t for t in summary(doc)["tests"]}
+    played, left = sorted(tests.values(), key=lambda t: t["verdict"] is None)
+    assert played["verdict"] == "unjudged" and played["unjudged"] == ["page_map"]
+    assert left["verdict"] is None
+    assert left["reason"] == "the page lacks what its page map names"
 
 
 async def test_12_a_restart_late_in_the_wait_is_not_called_the_apps_fault(make_rig) -> None:

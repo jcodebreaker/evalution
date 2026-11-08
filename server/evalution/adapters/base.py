@@ -30,6 +30,9 @@ holds the two together.
   session itself went away. Anything else it
   raises is taken as the adapter's own fault. Not being reachable, refused credentials and
   :class:`TargetGone` end the run: nothing can be judged on an app that is not there.
+  ``Turn.reply`` is what judging reads. ``Turn.shown`` is what the app's own page showed for the
+  turn, set only by the page target, which plays above the adapters (ADR 0010); an adapter
+  leaves it ``None``.
 * ``state(session, {key: value})`` is called once per key of an ``expect_state`` step after
   the turn before it (``context_contains`` / ``context_lacks`` are checked by evalution from
   the traces, never sent here). The adapter waits for background work itself. The keys it answers
@@ -225,6 +228,9 @@ class Turn:
     #: With ``error``: the connection broke while waiting, so nothing the app answered says it
     #: failed. Set by :func:`lost_connection`.
     lost: bool = False
+    #: What the app's own page showed for this turn: set only by the page target (ADR 0010).
+    #: Adapters leave it ``None``; judging reads ``reply``.
+    shown: str | None = None
 
 
 @dataclass

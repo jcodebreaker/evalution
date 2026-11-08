@@ -460,6 +460,7 @@ async def _send(
             error=error,
             ended_as=turn.ended_as,
             expected_blocked=expect_blocked,
+            shown=None if turn.shown is None else Clipped(text=turn.shown),
         )
     )
     if error:

@@ -46,6 +46,8 @@ SERVER_RESTARTED = "The server restarted during the run"
 LEFTOVER_STATE = "Started with leftover state"
 #: A failed run's ``failure``: the app was not there to play on, or something else stopped it.
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
+#: A failed run's ``failure`` when the page didn't have what its page map names (ADR 0010).
+PAGE_MAP_BROKEN = "page_map_broken"
 
 
 #: Why a try couldn't be judged, as the one word a person reads.
@@ -58,6 +60,7 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.CREDENTIALS_REFUSED: Label.SETUP_BLOCKED,
     WhyUnjudged.APP_BUSY: Label.SETUP_BLOCKED,
     WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
+    WhyUnjudged.PAGE_MAP: Label.SETUP_BLOCKED,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.GRADER_UNRELIABLE: Label.GRADER_UNRELIABLE,

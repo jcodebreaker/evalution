@@ -14,6 +14,7 @@ from evalution.core.judgement import Basis, Outcome, Route
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
+    PAGE_MAP_BROKEN,
     SERVER_RESTARTED,
     TARGET_GONE,
     called_of,
@@ -168,6 +169,8 @@ def _why_not_played(run: Mapping[str, Any]) -> str | None:
         return "the server restarted"
     if run.get("failure") == ADAPTER_BROKEN:
         return "the adapter isn't reading the app"
+    if run.get("failure") == PAGE_MAP_BROKEN:
+        return "the page lacks what its page map names"
     return "the app wasn't ready" if _app_not_ready(run) else "it stopped early"
 
 
