@@ -37,7 +37,8 @@ from evalution.config import TargetConfig
 from evalution.core.evidence import Failure
 from evalution.isolation.launch import free_port
 from evalution.runs.page.map import PageMap
-from evalution.runs.page.target import PageTarget, system_chrome
+from evalution.runs.page.target import PageFiles, PageTarget, system_chrome
+from evalution.storage.files import LocalFiles
 
 
 def _a_browser() -> bool:
@@ -90,6 +91,12 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Chat</title></
 const session = decodeURIComponent(location.pathname.split("/").pop());
 const label = "LABEL";
 fetch("OTHER/ping", {mode: "no-cors"}).catch(() => {});
+if (NOISY) {
+  console.error("token s3cret leaked");
+  console.warn("slow");
+  fetch("/api/missing?token=abc").catch(() => {});
+  setTimeout(() => { throw new TypeError("bad shape"); });
+}
 function html(text) {
   const safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return safe.replace(/\\*\\*(.+?)\\*\\*/g, "<b>$1</b>");
@@ -151,6 +158,8 @@ class ChatApp:
         #: The page drops the app's replies from this one on (0 is the first).
         self.drop_from: int | None = None
         self.rename = False
+        #: The page writes an error, a warning and an uncaught error, and asks for what isn't there.
+        self.noisy = False
         #: Seconds after a message the API still says what it said before it: idle, old reply.
         self.lag = 0.0
         #: What the API answers a message with instead of taking it; seconds it takes first.
@@ -172,6 +181,7 @@ class ChatApp:
         @self.app.get("/chat/{session:path}")
         async def page(session: str) -> HTMLResponse:
             text = PAGE.replace("LABEL", "Post" if self.rename else "Send")
+            text = text.replace("NOISY", json.dumps(self.noisy))
             return HTMLResponse(text.replace("OTHER", other))
 
         @self.app.get("/api/messages/{session:path}")
@@ -496,3 +506,52 @@ async def test_close_and_cancel_need_only_the_sessions_fields(chat) -> None:
     assert inner.cancelled == inner.closed == [session.id]
     assert later._browser is None, "nothing was launched to close a session"
     await later.dispose()
+
+
+async def test_a_try_records_what_the_page_did(chat, tmp_path) -> None:
+    chat.noisy = True
+    files = LocalFiles(tmp_path)
+    target = _page_target(chat, Watching(chat.url))
+    try:
+        session = await target.open("r")
+        target.begin(session, PageFiles(files, "run-1", "a-case", 1))
+        t0 = time.time()
+        await target.send(session, "hello", deadline=time.time() + 20)
+        chat.drop_from = 1
+        await target.send(session, "again", deadline=time.time() + 20)
+        found = target.record(session, t0)
+    finally:
+        await target.dispose()
+    first, second = found.turns
+    assert first.shown_at is not None and first.shown_at > 0 and first.instead.text == ""
+    assert second.shown_at is None and "Couldn't load this reply" in second.instead.text
+    assert (first.shot, second.shot) == ("turn-1.png", "turn-2.png")
+    assert found.files == ("turn-1.png", "turn-2.png")
+    assert files.list("run-1", "a-case", 1) == ["turn-1.png", "turn-2.png"]
+    with files.open("run-1", "a-case", 1, "turn-1.png") as shot:
+        assert shot.read(8) == b"\x89PNG\r\n\x1a\n"
+    said = [(c.level, c.text.text) for c in found.console]
+    assert ("error", "token *** leaked") in said, "the sign-in secret is scrubbed"
+    assert ("warning", "slow") in said
+    assert ("error", "TypeError: bad shape") in said
+    assert all(c.at < 0 for c in found.console), "written as the page opened, before the try"
+    missing = [(r.method, r.path, r.status) for r in found.failed_requests]
+    assert missing == [("GET", "/api/missing", 404)], "the copy's only, and never the query"
+    assert not found.interrupted and found.video_missing
+    again = target.record(session, t0)
+    assert again.turns == () and again.console == (), "each try's record is its own"
+
+
+async def test_a_turn_cut_off_leaves_an_interrupted_record(chat) -> None:
+    chat.send_seconds = 3.0
+    target = _page_target(chat, Watching(chat.url))
+    try:
+        session = await target.open("r")
+        target.begin(session, None)
+        t0 = time.time()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(target.send(session, "hello", deadline=t0 + 20), 0.5)
+        found = target.record(session, t0)
+    finally:
+        await target.dispose()
+    assert found.interrupted and len(found.turns) == 1 and found.turns[0].shot is None

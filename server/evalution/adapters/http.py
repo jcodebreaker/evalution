@@ -26,6 +26,8 @@
 turn, else empty) are replaced in the URL, headers and every string of the body, and so are
 ``{person_name}``, ``{person_language}`` and ``{person_timezone}``: the test person's, as the
 session was opened (empty when not chosen). The target honors the ones its templates use.
+``{url}`` is the target's ``url``, the address evalution points it at: on evalution's own copy of
+the app (ADR 0009), the copy's, so a target written with ``{url}/chat`` plays on the copy.
 Each try gets a new session id, ``evalution-<run>-t<try>-<random>``, and every request carries
 ``X-Evalution-Run`` and ``X-Evalution-Try`` (an app may copy them onto its spans as
 ``evalution.run`` / ``evalution.try``), so tries may play side by side: no reset, no state checks,
@@ -243,6 +245,8 @@ class HttpTarget(Target):
         self.trace_id_path = conf.get("trace_id")
         self.headers_env = dict(conf.get("headers_env") or {})
         self.keys = target.keys
+        #: ``{url}``: where evalution points the target, its copy's address on a copy.
+        self.url = str(target.options.get("url") or "").rstrip("/")
         self._client = net.client(timeout=60.0, transport=transport)
         self._tries: dict[str, int] = {}
         self._answers: deque[dict[str, Any]] = deque(maxlen=ANSWERS_KEPT)
@@ -259,11 +263,10 @@ class HttpTarget(Target):
             headers[str(self.session_header)] = fields["session"]
         return headers
 
-    @staticmethod
-    def _fields(session: Session, message: str = "", fresh: str = "") -> dict[str, str]:
+    def _fields(self, session: Session, message: str = "", fresh: str = "") -> dict[str, str]:
         """What the templates are filled with: the test person's as the session was opened."""
         person = session.extra.get("person") or {}
-        fields = {"message": message, "session": session.id, "fresh": fresh}
+        fields = {"message": message, "session": session.id, "fresh": fresh, "url": self.url}
         return fields | {f"person_{key}": str(person.get(key) or "") for key in PERSON_FIELDS}
 
     async def open(self, run: str) -> Session:
@@ -479,15 +482,16 @@ async def _check(
     client: httpx.AsyncClient, options: dict[str, Any], lookup: Callable[[Any], str | None]
 ) -> dict[str, Any]:
     http = options.get("http") or {}
+    base = str(options.get("url") or "").rstrip("/")
     headers = {
         str(h): v for h, ref in (http.get("headers_env") or {}).items() if (v := lookup(ref))
     }
     if http.get("health"):
-        response = await client.get(str(http["health"]), headers=headers)
+        response = await client.get(str(http["health"]).replace("{url}", base), headers=headers)
         ok = response.is_success
         return part(ok, f"Health answered {response.status_code}")
     url = str((http.get("send") or {}).get("url") or "")
-    url = url.replace("{session}", "check").replace("{message}", "")
+    url = url.replace("{url}", base).replace("{session}", "check").replace("{message}", "")
     for key in PERSON_FIELDS:
         url = url.replace("{person_" + key + "}", "")
     # A harmless call: OPTIONS asks what the endpoint allows and sends no message.

@@ -392,6 +392,7 @@ class Copies:
                 self.config.targets[self.target],
                 adapter_on(self.config, self.target, slot.copy.url),
                 slot.copy.url,
+                index,
             )
             took = await play_as(slot.adapter, self.setup.person) and took
         self.person = person_name(self.setup) if self.slots and took else None

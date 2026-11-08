@@ -37,6 +37,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from evalution.adapters.base import NOT_APP_PORTS
+from evalution.core import net
 
 #: Every project evalution starts is named like this, and it removes no other.
 PREFIX = "eval-"
@@ -661,7 +662,8 @@ def _ready(status: str) -> bool:
 async def _healthy(url: str, seconds: float, *, any_answer: bool = False) -> bool:
     """Whether *url* answers (below 400, or anything with *any_answer*) within *seconds*."""
     deadline = time.monotonic() + seconds
-    async with httpx.AsyncClient() as client:
+    # On this machine: never through a proxy from the environment, which can't reach it.
+    async with net.client() as client:
         while time.monotonic() < deadline:
             try:
                 r = await client.get(url, timeout=2)

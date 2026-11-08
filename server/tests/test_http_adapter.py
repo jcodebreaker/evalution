@@ -369,3 +369,19 @@ async def test_an_error_keeps_the_status_and_path_never_the_urls_login_or_query(
     assert net.no_login(said) == "Bad 'http://bot.example.test:81/chat' and postgres://h/d"
     assert net.said(ValueError(said)) == f"ValueError: {net.no_login(said)}"
     assert net.no_login("nothing to see: 12:30 a/b") == "nothing to see: 12:30 a/b"
+
+
+async def test_url_is_where_evalution_points_the_target() -> None:
+    """``{url}`` is the target's ``url``: on evalution's copy, the copy's address."""
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(str(request.url))
+        return httpx.Response(200, json={"reply": "Hi"})
+
+    http = {"send": {"url": "{url}/chat/{session}"}, "reply": "$.reply"}
+    conf = TargetConfig("bot", "http", None, None, {"url": "http://copy:9/", "http": http})
+    target = HttpTarget(conf, transport=httpx.MockTransport(handler))
+    session = await target.open("r")
+    turn = await target.send(session, "Hi", deadline=time.time() + 5)
+    assert turn.reply == "Hi" and called == [f"http://copy:9/chat/{session.id}"]

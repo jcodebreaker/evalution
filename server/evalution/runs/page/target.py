@@ -19,6 +19,17 @@ local storage and IndexedDB never carry from one try to the next. Headers are ad
 requests for the copy's origin: the map's sign-in headers and the try's ``X-Evalution-Run`` and
 ``X-Evalution-Try``. Any other origin the page reaches gets nothing added.
 
+What the page did is recorded per try (:meth:`PageTarget.record`, a
+:class:`~evalution.core.evidence.PageRecord`): per turn, one for every ``send`` in order, when its
+reply showed or what showed instead, and a screenshot taken after it (sign-in boxes masked) into
+the run's file store; the console's errors and warnings and uncaught errors, scrubbed of the
+target's secrets; requests to the copy's origin that failed (400 and up, or no answer), by path
+without the query. No video yet.
+
+A form or cookie sign-in uses the slot's test account: the target's ``page_accounts``, a list of
+``{email, password_env}`` (one per slot, the password read as any ``*_env`` is), as the copy's
+setup has no accounts of its own.
+
 ``Session.extra["page"]`` holds JSON only: the key of the session's context. ``close`` and
 ``cancel`` work from it alone, after a restart too, when there is no browser: a key this process
 doesn't hold is a no-op. Playwright is imported only here, and only when a browser is needed.
@@ -36,7 +47,7 @@ import re
 import secrets
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, quote_plus, urlsplit
@@ -57,10 +68,19 @@ from evalution.adapters.base import (
     status_may_have_passed_on,
 )
 from evalution.adapters.http import RUN_HEADER, TRY_HEADER
-from evalution.config import KeyRing, TargetConfig
-from evalution.core.evidence import Failure
+from evalution.config import ConfigError, KeyRing, TargetConfig
+from evalution.core.evidence import (
+    Clipped,
+    ConsoleLine,
+    FailedRequest,
+    Failure,
+    PageRecord,
+    PageTurn,
+)
 from evalution.core.trace import Section
+from evalution.isolation.launch import scrub
 from evalution.runs.page.map import Locator, PageMap, PageMapBroken, fill_urls, page_map_of
+from evalution.storage.files import Files
 
 _logger = logging.getLogger(__name__)
 
@@ -82,6 +102,11 @@ NO_BROWSER = (
     "page mode needs a browser, and none was found: install Google Chrome, set EVALUTION_CHROME "
     "to a Chrome or Chromium, or run `playwright install chromium`"
 )
+#: Why a page try has no video, in this version.
+NO_VIDEO = "video needs Playwright's ffmpeg"
+NOT_YET_VIDEO = "video isn't recorded in this version"
+#: The shortest value scrubbed from what the page wrote: shorter ones are words, not secrets.
+_SCRUB_SHORTEST = 6
 #: Methods a page sends a message with.
 _SENDS = frozenset({"POST", "PUT", "PATCH"})
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
@@ -138,16 +163,95 @@ def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
     )
 
 
-def on_page(target: TargetConfig, adapter: Target, copy_url: str) -> Target:
+def on_page(target: TargetConfig, adapter: Target, copy_url: str, slot: int = 0) -> Target:
     """*adapter*, played through the target's page on the copy at *copy_url* when it has a page
-    map; else *adapter* as it is.
+    map, signing in as slot *slot*'s test account; else *adapter* as it is.
 
-    :raises ConfigError: The target's page map doesn't read.
+    :raises ConfigError: The target's page map, or its ``page_accounts``, doesn't read.
     """
     page = page_map_of(target)
     if page is None:
         return adapter
-    return PageTarget(adapter, page, copy_url, keys=target.keys)
+    accounts = target.options.get("page_accounts") or []
+    where = f"targets.{target.name}.page_accounts"
+    if not isinstance(accounts, list) or not all(
+        isinstance(a, dict)
+        and isinstance(a.get("email"), str)
+        and isinstance(a.get("password_env"), str)
+        for a in accounts
+    ):
+        raise ConfigError(f"{where}: a list of {{email, password_env}}, one per slot")
+    account = None
+    if slot < len(accounts):
+        found = accounts[slot]
+        account = {"email": found["email"], "password": target.keys.get(found["password_env"])}
+    told = [target.keys.get(name) for name in _env_names(target.options)]
+    return PageTarget(
+        adapter,
+        page,
+        copy_url,
+        keys=target.keys,
+        account=account,
+        secrets=[value for value in told if value],
+    )
+
+
+def _env_names(block: Any) -> list[str]:
+    """The names a target's ``*_env`` options read, however deep: its secrets, to scrub."""
+    found: list[str] = []
+    if isinstance(block, dict):
+        for key, value in block.items():
+            if str(key).endswith("_env"):
+                if isinstance(value, str):
+                    found.append(value)
+                elif isinstance(value, dict):
+                    found += [v for v in value.values() if isinstance(v, str)]
+            elif key == "page_accounts" and isinstance(value, list):
+                found += [str(a.get("password_env")) for a in value if isinstance(a, dict)]
+            else:
+                found += _env_names(value)
+    elif isinstance(block, list):
+        for value in block:
+            found += _env_names(value)
+    return found
+
+
+def video_missing() -> str:
+    """Why a page try has no video: no Playwright ffmpeg here, or not in this version."""
+    home = Path.home()
+    roots = [
+        os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
+        str(home / "Library" / "Caches" / "ms-playwright"),
+        str(home / ".cache" / "ms-playwright"),
+    ]
+    for root in roots:
+        if root and any(Path(root).glob("ffmpeg*")):
+            return NOT_YET_VIDEO
+    return NO_VIDEO
+
+
+@dataclass(frozen=True)
+class PageFiles:
+    """Where a try's screenshots go: the run's file store, under its run, case and try."""
+
+    files: Files
+    run: str
+    case: str
+    n: int
+
+
+@dataclass
+class _Record:
+    """What a session's page did since it was last recorded, as it happened (absolute times)."""
+
+    #: ``(level, text, at)``, scrubbed.
+    console: list[tuple[str, str, float]] = field(default_factory=list)
+    #: ``(method, path, status, at)``.
+    failed: list[tuple[str, str, int | None, float]] = field(default_factory=list)
+    #: One per ``send``: ``{done, shown_at, instead, shot}``.
+    turns: list[dict[str, Any]] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+    keep: PageFiles | None = None
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
@@ -186,6 +290,8 @@ class PageTarget(Target):
 
     :param page: The target's page map; its ``{copy_page}`` is filled with *copy_page*.
     :param keys: Where ``{secret:NAME}`` in a sign-in header is read, as ``*_env`` options are.
+    :param account: The slot's test account, ``{email, password}``, for ``{account.*}``.
+    :param secrets: Values to scrub from what the page writes to its console.
     :param element_seconds: How long an element the map names may take to show.
     """
 
@@ -196,6 +302,8 @@ class PageTarget(Target):
         copy_page: str,
         *,
         keys: KeyRing | None = None,
+        account: dict[str, str | None] | None = None,
+        secrets: list[str] | None = None,
         element_seconds: float = ELEMENT_SECONDS,
     ) -> None:
         self.inner = inner
@@ -204,13 +312,17 @@ class PageTarget(Target):
         self.page = fill_urls(page, copy_page)
         self.capabilities = page_capabilities(inner.capabilities, page)
         self.keys = keys or KeyRing()
+        self.account = account or {}
         self.element_seconds = element_seconds
+        self._secrets = {s for s in secrets or () if len(s) >= _SCRUB_SHORTEST}
         self._copy = _origin(copy_page)
         self._lock = asyncio.Lock()
         self._playwright: Any = None
         self._browser: Any = None
         #: Each session's context and its page, by the key ``Session.extra["page"]`` holds.
         self._open: dict[str, tuple[Any, Any]] = {}
+        #: What each of those pages did, by the same key.
+        self._records: dict[str, _Record] = {}
 
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
@@ -269,7 +381,7 @@ class PageTarget(Target):
 
         :raises ValueError: One it needs has no value here.
         """
-        account = session.extra.get("account") or {}
+        account = {**self.account, **(session.extra.get("account") or {})}
 
         def one(found: re.Match[str]) -> str:
             name = found.group(1)
@@ -286,6 +398,8 @@ class PageTarget(Target):
                 return found.group(0)
             if not value:
                 raise ValueError(f"the page map uses {{{name}}}, and {where}")
+            if name == "account.password" or name.startswith("secret:"):
+                self._secret(str(value))
             return str(value)
 
         return _PLACEHOLDER.sub(one, text)
@@ -307,6 +421,7 @@ class PageTarget(Target):
         key = f"{session.id}:{secrets.token_hex(4)}"
         page = await context.new_page()
         self._open[key] = (context, page)
+        self._records[key] = self._recording(page)
         session.extra["page"] = {"context": key}
 
         async def add(route: Any) -> None:
@@ -315,6 +430,113 @@ class PageTarget(Target):
         await context.route(self._on_copy, add)
         await self._sign_in(context, page, session)
         return page
+
+    def _secret(self, value: str) -> None:
+        if len(value) >= _SCRUB_SHORTEST:
+            self._secrets.add(value)
+
+    def _scrubbed(self, text: str) -> str:
+        return scrub(text, sorted(self._secrets, key=len, reverse=True))
+
+    def _recording(self, page: Any) -> _Record:
+        """A record of what *page* does from now: its console, its uncaught errors, and the
+        requests to the copy that fail."""
+        record = _Record()
+
+        def console(message: Any) -> None:
+            level = {"error": "error", "warning": "warning"}.get(message.type)
+            if level:
+                record.console.append((level, self._scrubbed(message.text), time.time()))
+
+        def uncaught(error: Any) -> None:
+            said = f"{getattr(error, 'name', '') or 'Error'}: {getattr(error, 'message', error)}"
+            record.console.append(("error", self._scrubbed(said), time.time()))
+
+        def answered(response: Any) -> None:
+            if response.status >= 400 and self._on_copy(response.url):
+                path = urlsplit(response.url).path
+                record.failed.append((response.request.method, path, response.status, time.time()))
+
+        def unanswered(request: Any) -> None:
+            # A request the page itself let go of (a navigation, Stop) isn't the copy failing.
+            if self._on_copy(request.url) and "ERR_ABORTED" not in str(request.failure or ""):
+                path = urlsplit(request.url).path
+                record.failed.append((request.method, path, None, time.time()))
+
+        page.on("console", console)
+        page.on("pageerror", uncaught)
+        page.on("response", answered)
+        page.on("requestfailed", unanswered)
+        return record
+
+    def _record_of(self, session: Session) -> _Record | None:
+        key = (session.extra.get("page") or {}).get("context")
+        return self._records.get(key) if isinstance(key, str) else None
+
+    def begin(self, session: Session, keep: PageFiles | None) -> None:
+        """A try starts in *session*: its screenshots go to *keep* (none when ``None``), and its
+        turns are counted from the first. What the page did while it opened stays in the record."""
+        record = self._record_of(session)
+        if record is not None:
+            record.keep = keep
+            record.turns.clear()
+            record.files.clear()
+
+    def record(self, session: Session, t0: float, *, cut_short: bool = False) -> PageRecord:
+        """What the page did of the try that started at *t0*, times from it, and forget it. A try
+        *cut_short* (out of time, stopped), or with a turn still going, is ``interrupted``."""
+        found = self._record_of(session)
+        if found is None:
+            return PageRecord(interrupted=True, video_missing=video_missing())
+        turns = tuple(
+            PageTurn(
+                shown_at=None if step["shown_at"] is None else round(step["shown_at"] - t0, 3),
+                instead=Clipped(text=step["instead"]),
+                shot=step["shot"],
+            )
+            for step in found.turns
+        )
+        made = PageRecord(
+            turns=turns,
+            console=tuple(
+                ConsoleLine(level=level, text=Clipped(text=text), at=round(at - t0, 3))
+                for level, text, at in found.console
+            ),
+            failed_requests=tuple(
+                FailedRequest(method=method, path=path, status=status, at=round(at - t0, 3))
+                for method, path, status, at in found.failed
+            ),
+            files=tuple(found.files),
+            video_missing=video_missing(),
+            interrupted=cut_short or any(not step["done"] for step in found.turns),
+        )
+        found.console.clear()
+        found.failed.clear()
+        found.turns.clear()
+        found.files.clear()
+        return made
+
+    async def _shoot(self, page: Any, record: _Record, index: int) -> str | None:
+        """A screenshot of the page after turn *index*, with sign-in boxes masked, kept as the
+        try's file; its name, or ``None`` when there is nowhere to keep it or it failed."""
+        keep = record.keep
+        if keep is None:
+            return None
+        form = self.page.sign_in.form
+        mask = [self._locator(page, box) for box in form.fill] if form is not None else []
+        try:
+            png = await page.screenshot(mask=mask, timeout=10_000)
+        except _api().Error:
+            _logger.warning("evals: no screenshot of turn %s", index, exc_info=True)
+            return None
+        name = f"turn-{index}.png"
+        try:
+            await asyncio.to_thread(keep.files.put, keep.run, keep.case, keep.n, name, png)
+        except (OSError, ValueError):
+            _logger.warning("evals: screenshot %s not kept", name, exc_info=True)
+            return None
+        record.files.append(name)
+        return name
 
     async def _sign_in(self, context: Any, page: Any, session: Session) -> None:
         sign_in = self.page.sign_in
@@ -414,6 +636,8 @@ class PageTarget(Target):
         """Close *session*'s context, if this process holds it."""
         key = (session.extra.get("page") or {}).get("context")
         found = self._open.pop(key, None) if isinstance(key, str) else None
+        if isinstance(key, str):
+            self._records.pop(key, None)
         if found is not None:
             await found[0].close()
 
@@ -448,13 +672,35 @@ class PageTarget(Target):
         deadline: float,
     ) -> Turn:
         started = time.time()
+        # One step of the record per send, so its turns line up with the try's.
+        record = self._record_of(session)
+        step = {"done": False, "shown_at": None, "instead": "", "shot": None}
+        if record is not None:
+            record.turns.append(step)
         if files:
-            return Turn("", started, started, error=NO_FILES)
-        if stop_after:
-            return Turn("", started, started, error=NO_STOP)
-        if session.extra.get("fresh"):
-            return Turn("", started, started, error=NO_FRESH, failure=Failure.NOT_SUPPORTED)
-        page = self._page_of(session)
+            turn = Turn("", started, started, error=NO_FILES)
+        elif stop_after:
+            turn = Turn("", started, started, error=NO_STOP)
+        elif session.extra.get("fresh"):
+            turn = Turn("", started, started, error=NO_FRESH, failure=Failure.NOT_SUPPORTED)
+        else:
+            page = self._page_of(session)
+            turn = await self._played(page, session, message, started, deadline, step)
+            if record is not None:
+                step["shot"] = await self._shoot(page, record, len(record.turns))
+        step["done"] = True
+        return turn
+
+    async def _played(
+        self,
+        page: Any,
+        session: Session,
+        message: str,
+        started: float,
+        deadline: float,
+        step: dict[str, Any],
+    ) -> Turn:
+        """The turn, with the page sending or watching, then caught up with."""
         # What the replies' region held before: an earlier reply with the same words isn't this.
         before = await self._region_text(page)
         if self.inner.capabilities.watch:
@@ -467,7 +713,11 @@ class PageTarget(Target):
             # The inner adapter sends; the page has the conversation open and watches.
             turn = await self.inner.send(session, message, deadline=deadline)
         if turn.error is None:
-            await self._catch_up(page, session, turn, normalised(before), deadline)
+            step["shown_at"] = await self._catch_up(
+                page, session, turn, normalised(before), deadline
+            )
+            if turn.shown is None:
+                step["instead"] = session.extra["page"].get("last_shown", "")
         return turn
 
     async def _region_text(self, page: Any) -> str:
@@ -535,10 +785,11 @@ class PageTarget(Target):
 
     async def _catch_up(
         self, page: Any, session: Session, turn: Turn, before: str, deadline: float
-    ) -> None:
+    ) -> float | None:
         """Wait for the page to stop being busy and show *turn*'s reply once more than it did
-        *before* the turn (normalised), and say on *turn* what it showed: the newest. ``Turn.reply``
-        is never changed; a region the page lacks is the map's error."""
+        *before* the turn (normalised), and say on *turn* what it showed: the newest. When it
+        showed; ``None`` when it didn't. ``Turn.reply`` is never changed; a region the page lacks
+        is the map's error."""
         api = _api()
         want = normalised(turn.reply)
         region = self._locator(page, self.page.replies.in_).first
@@ -558,7 +809,7 @@ class PageTarget(Target):
                     if idle and more:
                         turn.shown = shown[at : at + len(want)]
                         session.extra["page"].pop("last_shown", None)
-                        return
+                        return time.time()
                 if time.time() >= until:
                     break
                 await asyncio.sleep(0.1)
@@ -568,8 +819,9 @@ class PageTarget(Target):
         if not seen:
             region_said = _said(self.page.replies.in_)
             turn.error, turn.failure = f"the page has no {region_said}", Failure.PAGE_MAP
-            return
+            return None
         session.extra["page"]["last_shown"] = text[-SHOWN_KEPT:]
+        return None
 
     async def reset(self, session: Session) -> None:
         """The inner adapter's reset, then a fresh context with the session's page open."""
@@ -602,6 +854,7 @@ class PageTarget(Target):
             with contextlib.suppress(Exception):
                 await context.close()
         self._open.clear()
+        self._records.clear()
         if self._browser is not None:
             with contextlib.suppress(Exception):
                 await self._browser.close()

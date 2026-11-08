@@ -96,7 +96,7 @@ from evalution.runs import isolated, trust
 from evalution.runs.estimate import messages
 from evalution.runs.fit import why_not
 from evalution.runs.page.map import PageMapBroken, page_map_of
-from evalution.runs.page.target import page_capabilities
+from evalution.runs.page.target import PageFiles, page_capabilities
 from evalution.runs.play import (
     ADAPTER_FAILURES,
     Played,
@@ -227,7 +227,9 @@ class Runs:
 
     def __init__(self, targets: Targets, llm: LLM | None) -> None:
         self.targets = targets
-        self.store = RunStore(targets.docs, partial(trust.settle, targets.docs))
+        self.store = RunStore(
+            targets.docs, partial(trust.settle, targets.docs), files=targets.files
+        )
         #: One run or analysis at a time on this data folder, whichever process plays it.
         self.lock = RunLock(targets.config.data_dir)
         self.llm = llm
@@ -1096,6 +1098,11 @@ class Runs:
             on_turn=on_turn,
             on_stage=on_stage,
             unclean=unclean,
+            page_files=(
+                PageFiles(self.store.files, doc["run"], case.case, n)
+                if self.store.files is not None
+                else None
+            ),
         )
         if played.evidence is not None and played.evidence.trace is TraceStatus.EMPTY:
             self._no_traces.add(doc["run"])

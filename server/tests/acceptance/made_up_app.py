@@ -22,6 +22,8 @@ rename_send (Send says "Ask"), never_clear_busy (Stop and aria-busy stay after t
 throw_on_reply (a TypeError drawing a reply, "Couldn't load this reply" in its place),
 error_after_text (the text streams, then an error replaces it) and drop_reply (the reply never
 shows, though the API has it). The page's code is told them in its #page-data, and does the rest.
+PAGE_SWITCHES (names, comma-separated) turns some on from the start, for a copy of the app that
+evalution starts itself.
 
 The gateway answers like an OpenAI-compatible server, and goes down when told.
 
@@ -78,6 +80,11 @@ signed_in: dict[str, str] = {}
 #: Ways to break the page, as a change someone made to it.
 page_switches = dict.fromkeys(
     ("rename_send", "never_clear_busy", "throw_on_reply", "error_after_text", "drop_reply"), False
+)
+page_switches.update(
+    dict.fromkeys(
+        (n for n in os.environ.get("PAGE_SWITCHES", "").split(",") if n in page_switches), True
+    )
 )
 _background: set[asyncio.Task] = set()
 

@@ -57,6 +57,7 @@ from evalution.core.evidence import (
     Failure,
     MemoryRecord,
     ModelCallRecord,
+    PageRecord,
     StateRecord,
     ToolRecord,
     TraceStatus,
@@ -70,6 +71,7 @@ from evalution.judging.steps import EXTRA_OK, Step
 from evalution.runs.collect import Wanted, collect, read_spans
 from evalution.runs.leftover import leftover
 from evalution.runs.page.map import PageMapBroken
+from evalution.runs.page.target import PageFiles, PageTarget
 from evalution.traces.base import Span, TraceSource
 from evalution.traces.view import TraceView, answered_at, build
 
@@ -154,6 +156,8 @@ class Played:
     heard: bool = False
     #: The connection broke while the adapter waited: no answer from the app says it failed.
     lost: bool = False
+    #: What the app's page showed, when the try played through it (ADR 0010).
+    page: PageRecord | None = None
 
     @property
     def gone(self) -> bool:
@@ -197,14 +201,19 @@ async def play_try(
     on_stage: OnStage | None = None,
     second_go: bool = False,
     unclean: str | None = None,
+    page_files: PageFiles | None = None,
 ) -> Played:
     """Play *case* once in *session* and read its spans back. Never raises for a failed turn (that
     is ``Played.failure``). *reused* holds the trace values earlier tries of the run played on, and
     gets this one's. *stuck* is how long after the agent's answer the adapter may go on waiting.
     *second_go*: what started before this go is the go before's, whatever marks it carries.
     *unclean*: why the app can't be taken to start clean (a reset of evalution's copy that didn't
-    hold); the try isn't played, as when it starts holding what an earlier one left."""
+    hold); the try isn't played, as when it starts holding what an earlier one left.
+    *page_files*: where a try played through the app's page keeps its screenshots."""
     left_over = unclean or await leftover(target, session, case)
+    on_page = target if isinstance(target, PageTarget) else None
+    if on_page is not None:
+        on_page.begin(session, page_files)
     played = Played(t0=time.time())
     limit = float(case.limits.get("seconds") or DEFAULT_SECONDS)
     deadline = played.t0 + limit
@@ -290,6 +299,9 @@ async def play_try(
             second_go,
             trace_wait,
         )
+    if on_page is not None:
+        cut_short = played.failure is Failure.TIMED_OUT or played.cancelled
+        played.page = on_page.record(session, played.t0, cut_short=cut_short)
     played.evidence = _evidence(case, n, played, status, note)
     return played
 
@@ -707,6 +719,7 @@ def _evidence(
         trace_note=note,
         failure=played.failure,
         error=played.error,
+        page=played.page,
     )
 
 
