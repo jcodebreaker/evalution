@@ -983,6 +983,9 @@ class Runs:
         """
         config = self.targets.config
         found = await asyncio.to_thread(isolated.footing, config, name, target.capabilities)
+        # Refused before rehearsing too: a rehearsal can't make a refused run possible.
+        if (why := isolated.refusal(config, name, found)) is not None:
+            raise isolated.NotIsolated(why)
         if found.to_rehearse:
             doc["current"] = {"case": "", "name": "Rehearsing the isolation plan again", "try": 1}
             await self.store.save(doc)

@@ -51,6 +51,7 @@ from evalution.isolation.isolate import (
     adapter_on,
     code_folder,
     copy_of,
+    off_copy,
     plan_spec,
     play_as,
     rehearse_plan,
@@ -162,7 +163,9 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
     A plan to rehearse again isn't refused here: the rehearsal decides, as the run starts.
 
     A target with a page map plays through its page only on evalution's own copy (ADR 0010), so
-    without a proven plan it is refused whatever ``isolation.require_proven`` says."""
+    without a proven plan it is refused whatever ``isolation.require_proven`` says. One whose
+    adapter would still reach the app as it is from the copy (:func:`off_copy`) is refused on a
+    plan: its tries would be labelled as played on the copy."""
     conf = config.targets.get(target)
     try:
         page = page_map_of(conf) if conf is not None else None
@@ -179,6 +182,8 @@ def refusal(config: Config, target: str, found: Footing) -> str | None:
             )
         if (missing := page_missing()) is not None:
             return f"{target} can't play through its page: {missing}"
+    if (found.managed or found.to_rehearse) and (off := off_copy(config, target)) is not None:
+        return f"{target} can't play on evalution's own copy of the app: {off}"
     if not config.isolation.require_proven or found.managed or found.to_rehearse:
         return None
     why = found.problem or "it has no isolation plan"

@@ -50,7 +50,7 @@ def config(tmp_path):
                 "targets": {
                     "relay-lite": {
                         "adapter": "http",
-                        "http": {"send": {"url": "x"}},
+                        "http": {"send": {"url": "{url}/x"}},
                         "code": {"path": "app"},
                     }
                 }

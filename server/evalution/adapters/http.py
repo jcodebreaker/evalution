@@ -27,7 +27,10 @@ turn, else empty) are replaced in the URL, headers and every string of the body,
 ``{person_name}``, ``{person_language}`` and ``{person_timezone}``: the test person's, as the
 session was opened (empty when not chosen). The target honors the ones its templates use.
 ``{url}`` is the target's ``url``, the address evalution points it at: on evalution's own copy of
-the app (ADR 0009), the copy's, so a target written with ``{url}/chat`` plays on the copy.
+the app (ADR 0009), the copy's, so a target written with ``{url}/chat`` plays on the copy. On a
+copy, a route written in full on the target's own ``url`` (same scheme, host and port) is moved to
+the copy's address too; a route on any other address can't be, and the run is refused, naming it
+(:func:`_on_copy`).
 Each try gets a new session id, ``evalution-<run>-t<try>-<random>``, and every request carries
 ``X-Evalution-Run`` and ``X-Evalution-Try`` (an app may copy them onto its spans as
 ``evalution.run`` / ``evalution.try``), so tries may play side by side: no reset, no state checks,
@@ -52,6 +55,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -520,6 +524,86 @@ def _validate(options: dict[str, Any]) -> None:
         raise ValueError("options.cancel: needs url")
 
 
+#: Where the block names an address: ``(route, key)``, ``route`` a path of keys into the block.
+_ADDRESSES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("send",), "url"),
+    (("open",), "url"),
+    (("done", "poll"), "url"),
+    (("cancel",), "url"),
+    ((), "health"),
+)
+
+
+def _origin(url: str) -> tuple[str, str, int] | None:
+    """*url*'s scheme, host and port (the scheme's own when it names none); ``None`` when it
+    names no http(s) host."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    try:
+        port = parts.port
+    except ValueError:  # a port that isn't a number, a placeholder say
+        return None
+    return parts.scheme, parts.hostname, port or (443 if parts.scheme == "https" else 80)
+
+
+def _on_copy(options: dict[str, Any], url: str) -> dict[str, Any]:
+    """*options* pointed at evalution's copy of the app at *url*: ``url`` set to it, and every
+    route written on the target's own ``url`` (same scheme, host and port, never another host)
+    moved onto the copy's, its path kept. A route that starts with ``{url}`` needs nothing.
+
+    :raises ValueError: A route is written on another address, or the target has no ``url`` to
+        tell its own from another: on the copy it would still reach that address.
+    """
+    http = options.get("http")
+    moved: dict[str, Any] = {**options, "url": url}
+    if not isinstance(http, dict):
+        return moved
+    own = _origin(str(options.get("url") or ""))
+    copy = urlsplit(url)
+    block = dict(http)
+    off: list[str] = []
+    for route, key in _ADDRESSES:
+        holder = block
+        for step in route:
+            inner = holder.get(step)
+            if not isinstance(inner, dict):
+                break
+            copied = dict(inner)
+            holder[step] = copied
+            holder = copied
+        else:
+            text = holder.get(key)
+            if not isinstance(text, str) or text.startswith("{url}"):
+                continue
+            name = ".".join(("http", *route, key))
+            if own is None or _origin(text) != own:
+                off.append(f"{name} ({text})")
+                continue
+            if _origin(url) is None:
+                raise ValueError(f"evalution's copy of the app has no address to move {name} onto")
+            parts = urlsplit(text)
+            rest = text[len(parts.scheme) + 3 + len(parts.netloc) :]
+            holder[key] = f"{copy.scheme}://{copy.netloc}{rest}"
+    if off:
+        one = len(off) == 1
+        why = (
+            f"not on the target's own address ({options['url']})"
+            if own
+            else "and the target has no `url` to tell its own address by"
+        )
+        tail = "" if own else ", and give the target its app's `url`"
+        raise ValueError(
+            f"{', '.join(off)} {'is' if one else 'are'} written in full, {why}, so on "
+            f"evalution's copy of the app {'it' if one else 'they'} would still reach "
+            f"{'that address' if one else 'those addresses'}. Start "
+            f"{'it' if one else 'each'} with `{{url}}` instead, like `{{url}}/chat`"
+            f"{tail}."
+        )
+    moved["http"] = block
+    return moved
+
+
 def _block(options: dict[str, Any], secrets: dict[str, str]) -> dict[str, Any]:
     http = dict(options)
     if "authorization" in secrets:
@@ -595,4 +679,5 @@ INFO = AdapterInfo(
     block=_block,
     page_options=_page_options,
     propose=_propose,
+    on_copy=_on_copy,
 )

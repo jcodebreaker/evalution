@@ -87,14 +87,45 @@ def test_what_a_run_stands_on(tmp_path) -> None:
     assert isolated.refusal(config, TARGET, found) is None
 
 
-def _config(tmp_path: Path, code: Path) -> Any:
+def _config(tmp_path: Path, code: Path, url: str | None = "http://127.0.0.1:9") -> Any:
     from evalution.config import load
 
     (tmp_path / "evalution.yaml").write_text(
         f"targets:\n  {TARGET}:\n    adapter: http\n    code: {{path: {code}}}\n"
-        "    http: {send: {url: 'http://127.0.0.1:9/x'}, reply: '$.reply'}\n"
+        + (f"    url: '{url}'\n" if url else "")
+        + "    http: {send: {url: 'http://127.0.0.1:9/x'}, reply: '$.reply'}\n"
     )
     return load(tmp_path / "evalution.yaml")
+
+
+def test_a_target_that_would_still_reach_the_app_isnt_run_on_its_copy(tmp_path) -> None:
+    """An http route written in full on another address than the target's own would reach that
+    address from the copy too, while the run says it played on the copy: refused, naming it,
+    whatever ``isolation.require_proven`` says. On the target's own address it is moved."""
+    code = tmp_path / "app"
+    code.mkdir()
+    plain = Capabilities(Isolation.SESSION, "")
+    config = _config(tmp_path, code, url=None)
+    PlanStore(config.data_dir).save(_plan(PlannedStore("db", "sqlite", "app.db")))
+    found = isolated.footing(config, TARGET, plain)
+    assert found.managed
+    said = isolated.refusal(config, TARGET, found)
+    assert said is not None and "can't play on evalution's own copy of the app" in said
+    assert "http.send.url (http://127.0.0.1:9/x)" in said and "{url}" in said
+    # Not on a copy, there is nothing to say.
+    assert isolated.refusal(config, TARGET, isolated.Footing("none")) is None
+    # Before a copy is started: isolating or rehearsing it again starts nothing.
+    from evalution.config import ConfigError
+    from evalution.isolation import isolate
+
+    with pytest.raises(ConfigError, match=r"http\.send\.url"):
+        isolate.adapter_on(config, TARGET, "http://127.0.0.1:5123")
+    assert isolate.off_copy(config, TARGET) is not None
+
+    config = _config(tmp_path, code)
+    assert isolated.refusal(config, TARGET, isolated.footing(config, TARGET, plain)) is None
+    adapter = isolate.adapter_on(config, TARGET, "http://127.0.0.1:5123")
+    assert adapter.send_conf["url"] == "http://127.0.0.1:5123/x"  # type: ignore[attr-defined]
 
 
 async def test_a_stale_plan_is_rehearsed_again_and_the_run_plays_on_the_copy(

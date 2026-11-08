@@ -487,6 +487,11 @@ def url_options(base: str, found: dict[str, Any], answers: dict[str, str]) -> di
     return {"url": base, **found}
 
 
+def url_on_copy(options: dict[str, Any], url: str) -> dict[str, Any]:
+    """*options* with ``url`` set to *url*: an adapter that reaches the app only by its ``url``."""
+    return {**options, "url": url}
+
+
 def _no_detection(folder: Folder) -> Detection | None:
     return None
 
@@ -519,6 +524,9 @@ class AdapterInfo:
     :param block: ``(options, secret -> its name)``: the target's block, without ``adapter``.
     :param page_options: Its options from a target's whole block.
     :param propose: ``(base, Job options, answers)``: its options for a target discovery proposes.
+    :param on_copy: ``(target's options, copy's url)``: the options that play on evalution's own
+        copy of the app at that address (ADR 0009). Raises ``ValueError``, in plain words naming
+        what would still reach the app as it is, when they can't be pointed there exactly.
     :param supports: The app's versions it was written for, like ``>=1.2,<2``. Its :attr:`check`
         compares the running app's: :func:`evalution.adapters.contract.version_part`.
     """
@@ -543,4 +551,5 @@ class AdapterInfo:
     block: Callable[[dict[str, Any], dict[str, str]], dict[str, Any]] = flat_block
     page_options: Callable[[dict[str, Any]], dict[str, Any]] = flat_options
     propose: Callable[[str, dict[str, Any], dict[str, str]], dict[str, Any]] = url_options
+    on_copy: Callable[[dict[str, Any], str], dict[str, Any]] = url_on_copy
     supports: str | None = None

@@ -32,8 +32,8 @@ from pathlib import Path
 from typing import Any
 
 from evalution import adapters
-from evalution.adapters.base import Target
-from evalution.config import Config
+from evalution.adapters.base import Target, url_on_copy
+from evalution.config import Config, ConfigError, TargetConfig
 from evalution.isolation import containers, discover, observe
 from evalution.isolation.drivers import Driver, FileStore, PostgresStore, VolumeStore
 from evalution.isolation.drivers.base import DockerError, Refused, docker
@@ -150,16 +150,44 @@ def roots_of(copy: Copy, spec: dict[str, Any]) -> list[Path]:
     return [Path(r) for r in spec.get("roots") or []]
 
 
+def _options_on(config: Config, conf: TargetConfig, url: str) -> dict[str, Any]:
+    """*conf*'s options pointed at the copy at *url*, as its adapter says (its ``on_copy``).
+
+    :raises ConfigError: They can't be pointed there exactly; the message says why, plainly.
+    """
+    adapters.add_folder(config.adapters_dir or config.data_dir / "adapters")
+    info = adapters.adapter_info(conf.adapter)
+    point = info.on_copy if info is not None else url_on_copy
+    try:
+        return point(conf.options, url)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
 def adapter_on(config: Config, target: str, url: str) -> Target:
     """A new adapter of *target* pointed at *url*; the saved target is left as it is.
 
     :raises LookupError: No such target.
+    :raises ConfigError: Its adapter would still reach the app as it is (:func:`off_copy`).
     """
     conf = config.targets.get(target)
     if conf is None:
         raise LookupError(f"no target {target}")
-    adapters.add_folder(config.adapters_dir or config.data_dir / "adapters")
-    return adapters.make(replace(conf, options={**conf.options, "url": url}))
+    return adapters.make(replace(conf, options=_options_on(config, conf, url)))
+
+
+def off_copy(config: Config, target: str) -> str | None:
+    """Why *target*'s adapter can't be pointed at evalution's copy of the app, in plain words:
+    some of what it sends would still reach the app as it is. ``None`` when it can, or when there
+    is no such target. Reads the config only; no copy needed, since only its address differs."""
+    conf = config.targets.get(target)
+    if conf is None:
+        return None
+    try:
+        _options_on(config, conf, str(conf.options.get("url") or ""))
+    except ConfigError as exc:
+        return str(exc)
+    return None
 
 
 def prober(adapter: Target, run: str) -> Callable[[str], Awaitable[None]]:
@@ -568,12 +596,16 @@ async def isolate(
     :param on_plan: Told the draft plan, before its stores are given to the copy.
     :raises Declined: The person said no; the copy is already taken down.
     :raises SetupError: The setup's sample data isn't a ``.sql`` file in the app's folder.
+    :raises ConfigError: The target's adapter would still reach the app as it is
+        (:func:`off_copy`); nothing was started.
     """
 
     def stage(key: str) -> None:
         if on_stage is not None:
             on_stage(key)
 
+    if (why := off_copy(config, target)) is not None:
+        raise ConfigError(why)
     folder = (folder or code_folder(config, target)).resolve()
     spec = launch or launch_spec(folder, config.targets[target].options)
     setup = setup_for(config, target)
@@ -657,12 +689,16 @@ async def rehearse_plan(
     :raises LookupError: No such target, or nothing says how to start a copy.
     :raises LaunchError: The copy didn't start.
     :raises SetupError: The setup's sample data isn't a ``.sql`` file in the app's folder.
+    :raises ConfigError: The target's adapter would still reach the app as it is
+        (:func:`off_copy`); nothing was started.
     """
 
     def stage(key: str) -> None:
         if on_stage is not None:
             on_stage(key)
 
+    if (why := off_copy(config, target)) is not None:
+        raise ConfigError(why)
     folder = code_folder(config, target).resolve()
     spec = plan_spec(config, target, plan)
     setup = setup_for(config, target)

@@ -385,3 +385,79 @@ async def test_url_is_where_evalution_points_the_target() -> None:
     session = await target.open("r")
     turn = await target.send(session, "Hi", deadline=time.time() + 5)
     assert turn.reply == "Hi" and called == [f"http://copy:9/chat/{session.id}"]
+
+
+def test_on_a_copy_routes_written_on_the_apps_own_address_move_to_the_copys() -> None:
+    """A route written in full on the target's own ``url`` (same scheme, host and port) is moved
+    onto the copy's address, its path kept; one written with ``{url}`` needs nothing."""
+    own = "http://LOCALHOST:80/api"
+    http = {
+        "send": {"url": "http://localhost/api/chat/{session}", "body": {"m": "{message}"}},
+        "open": {"url": "http://localhost:80/api/sessions", "id": "$.id"},
+        "done": {"poll": {"url": "{url}/sessions/{session}", "until": "$.done"}},
+        "cancel": {"url": "http://localhost/api/sessions/{session}/stop"},
+        "health": "http://localhost/health",
+        "reply": "$.reply",
+    }
+    options = {"url": own, "http": http}
+    moved = http_module.INFO.on_copy(options, "http://127.0.0.1:5123/api")
+    assert moved["url"] == "http://127.0.0.1:5123/api"
+    got = moved["http"]
+    assert got["send"] == {
+        "url": "http://127.0.0.1:5123/api/chat/{session}",
+        "body": {"m": "{message}"},
+    }
+    assert got["open"] == {"url": "http://127.0.0.1:5123/api/sessions", "id": "$.id"}
+    assert got["done"]["poll"]["url"] == "{url}/sessions/{session}"
+    assert got["cancel"]["url"] == "http://127.0.0.1:5123/api/sessions/{session}/stop"
+    assert got["health"] == "http://127.0.0.1:5123/health"
+    # The saved target is left as it is.
+    assert options == {"url": own, "http": http} and http["send"]["url"].startswith("http://local")
+
+
+@pytest.mark.parametrize(
+    ("own", "route"),
+    [
+        ("http://localhost:3000", "http://localhost:3001/chat"),  # another port
+        ("http://localhost:3000", "https://localhost:3000/chat"),  # another scheme
+        ("http://localhost:3000", "http://127.0.0.1:3000/chat"),  # another host, even this one
+        ("http://localhost:3000", "https://api.example.test/chat"),
+        ("http://localhost:3000", "http://localhost:{port}/chat"),
+        (None, "http://localhost:3000/chat"),  # nothing to tell its own address by
+    ],
+)
+def test_on_a_copy_a_route_on_another_address_is_refused_by_name(own, route) -> None:
+    options = {"http": {"send": {"url": "{url}/chat"}, "cancel": {"url": route}}}
+    if own:
+        options["url"] = own
+    with pytest.raises(ValueError) as said:
+        http_module.INFO.on_copy(options, "http://127.0.0.1:5123")
+    assert f"http.cancel.url ({route})" in str(said.value)
+    assert "{url}" in str(said.value) and "send" not in str(said.value)
+
+
+async def test_on_a_copy_a_target_written_in_full_sends_to_the_copy_only() -> None:
+    """Pointed at a copy, every request goes to the copy's address; none to the app's own."""
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(str(request.url))
+        if request.url.path.endswith("/sessions"):
+            return httpx.Response(200, json={"id": "s1"})
+        return httpx.Response(200, json={"reply": "Hi"})
+
+    http = {
+        "open": {"url": "http://localhost:3000/sessions", "id": "$.id"},
+        "send": {"url": "http://localhost:3000/chat/{session}"},
+        "reply": "$.reply",
+    }
+    options = http_module.INFO.on_copy(
+        {"url": "http://localhost:3000", "http": http}, "http://127.0.0.1:5123"
+    )
+    target = HttpTarget(
+        TargetConfig("bot", "http", None, None, options), httpx.MockTransport(handler)
+    )
+    session = await target.open("r")
+    turn = await target.send(session, "Hi", deadline=time.time() + 5)
+    assert turn.reply == "Hi"
+    assert called == ["http://127.0.0.1:5123/sessions", "http://127.0.0.1:5123/chat/s1"]

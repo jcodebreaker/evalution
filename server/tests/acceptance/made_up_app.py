@@ -71,8 +71,18 @@ sessions: dict[str, dict] = {
     }
 }
 everyone: list[str] = []
-seen = {"deleted": [], "cancelled": [], "on_running": 0, "gateway_calls": 0}
+seen = {"deleted": [], "cancelled": [], "on_running": 0, "gateway_calls": 0, "api_calls": 0}
 gateway_down = {"down": False}
+
+
+@app.middleware("http")
+async def count_api_calls(request: Request, call_next):
+    """Every call on the app's API, counted: what reached this app rather than a copy of it."""
+    if request.url.path.startswith("/api/"):
+        seen["api_calls"] += 1
+    return await call_next(request)
+
+
 #: The app's setup, as a change someone made to it.
 setup = {"model": "made-up-model", "answer": "It's 42."}
 #: Who's signed in on the page, by their cookie.
