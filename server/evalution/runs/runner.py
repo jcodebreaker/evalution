@@ -787,7 +787,7 @@ class Runs:
                     "try": 1,
                 }
                 await self.store.save(doc)
-                copies = isolated.Copies(self.targets.config, name, footing)
+                copies = isolated.Copies(self.targets.config, name, footing, self.targets.store)
                 await copies.start(slots)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
             if self.targets.config.check_adapters:

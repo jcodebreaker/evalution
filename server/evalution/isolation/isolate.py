@@ -101,7 +101,15 @@ def launch_spec(folder: Path, options: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def copy_of(spec: dict[str, Any], target: str, slot: int, folder: Path) -> Copy:
+def copy_of(
+    spec: dict[str, Any],
+    target: str,
+    slot: int,
+    folder: Path,
+    *,
+    env: dict[str, str] | None = None,
+) -> Copy:
+    """A copy started as *spec* says, with *env* (such as where to send its traces) set on it."""
     if spec.get("kind") == "compose":
         return ComposeCopy(
             [Path(f) for f in spec.get("files") or []],
@@ -111,12 +119,13 @@ def copy_of(spec: dict[str, Any], target: str, slot: int, folder: Path) -> Copy:
             folder,
             app_url=spec.get("app_url"),
             health=spec.get("health"),
+            env=env,
         )
     if spec.get("kind") == "process":
         return ProcessCopy(
             [str(a) for a in spec.get("command") or []],
             Path(spec.get("cwd") or "."),
-            env={str(k): str(v) for k, v in (spec.get("env") or {}).items()},
+            env={**{str(k): str(v) for k, v in (spec.get("env") or {}).items()}, **(env or {})},
             health=spec.get("health"),
             folder=folder,
         )

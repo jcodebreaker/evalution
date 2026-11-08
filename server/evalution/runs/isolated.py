@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import shutil
 import time
 from collections.abc import Sequence
@@ -30,6 +31,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import uvicorn
+from fastapi import FastAPI, Request, Response
+
+from evalution.adapters import infos
 from evalution.adapters.base import Capabilities, Isolation, Target, TargetGone
 from evalution.config import Config
 from evalution.core.case import CLEAN_KINDS
@@ -48,10 +53,12 @@ from evalution.isolation.isolate import (
     take_down,
     work_folder,
 )
-from evalution.isolation.launch import LaunchError
+from evalution.isolation.launch import LaunchError, free_port
 from evalution.isolation.plan import Plan, PlanStore, hashes, stale
 from evalution.results.record import isolation, run_isolation
 from evalution.suite.cases import CaseError
+from evalution.traces import otlp, setup
+from evalution.traces.builtin import TARGET_PREFIX, SpanStore
 
 _logger = logging.getLogger(__name__)
 
@@ -224,12 +231,79 @@ class CopyLost(TargetGone):
     """A copy of the app didn't come back after being put back: the run can't go on."""
 
 
+class Intake:
+    """Where a run's copies send their traces: a trace intake of the run's own, on this computer
+    only, on a free port, into the same store as evalution's. The copies' containers reach it as
+    ``host.docker.internal``, a name evalution's server rightly doesn't answer under; this one
+    takes traces and nothing else, for as long as the copies run (like ``evalution run``'s own
+    intake when no server is up)."""
+
+    def __init__(self, server: uvicorn.Server, task: asyncio.Task[None], port: int) -> None:
+        self.server, self.task, self.port = server, task, port
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    @classmethod
+    async def start(cls, spans: SpanStore) -> Intake:
+        app = FastAPI()
+
+        @app.post("/v1/traces")
+        async def post_traces(request: Request) -> Response:
+            return await otlp.receive(request, spans)
+
+        port = free_port()
+        settings = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+        server = uvicorn.Server(settings)
+        server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
+        task = asyncio.create_task(server.serve())
+        while not server.started and not task.done():  # noqa: ASYNC110 - uvicorn only has the flag
+            await asyncio.sleep(0.02)
+        if task.done():
+            raise LaunchError(f"the copies' trace intake didn't start on port {port}")
+        return cls(server, task, port)
+
+    async def close(self) -> None:
+        self.server.should_exit = True
+        with contextlib.suppress(Exception):
+            await self.task
+
+
+def trace_env(config: Config, target: str, url: str) -> dict[str, str]:
+    """The settings that send *target*'s traces to evalution's intake at *url*: the adapter's
+    own lines when it has them (:attr:`AdapterInfo.trace_setup`), else the standard OpenTelemetry
+    ones naming the target. Read from ``KEY=VALUE`` lines; anything else in them is skipped."""
+    info = infos().get(config.targets[target].adapter)
+    told = None
+    if info is not None:
+        try:
+            told = info.trace_setup(url)
+        except TypeError:  # an adapter written for ``(url, builtin)``: evalution's own intake
+            told = info.trace_setup(url, True)  # type: ignore[call-arg]
+    if not told or not told.get("lines"):
+        told = setup.advice({"otel": True}, url, f"{TARGET_PREFIX}{target}")
+    out: dict[str, str] = {}
+    for line in str(told.get("lines") or "").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
+            out[key] = value
+    return out
+
+
 class Copies:
     """The copies a run plays on, one per slot (see the module's docstring)."""
 
-    def __init__(self, config: Config, target: str, found: Footing) -> None:
+    def __init__(
+        self, config: Config, target: str, found: Footing, spans: SpanStore | None = None
+    ) -> None:
         assert found.plan is not None
         self.config = config
+        #: Where the copies' traces are kept: the run reads a try's spans from it.
+        self.spans = spans
+        self.intake: Intake | None = None
+        #: The settings that send each copy's traces to :attr:`intake`.
+        self.env: dict[str, str] = {}
         self.target = target
         self.plan = found.plan
         self.version = found.version
@@ -242,9 +316,13 @@ class Copies:
 
         :raises LaunchError: A copy didn't start.
         """
+        if self.spans is not None and self.intake is None:
+            self.intake = await Intake.start(self.spans)
+            self.env = trace_env(self.config, self.target, self.intake.url)
         for index in range(slots):
             work = await asyncio.to_thread(work_folder, self.config, self.target)
-            slot = Slot(index, copy_of(self.spec, self.target, index, work), work)
+            copy = copy_of(self.spec, self.target, index, work, env=self.env)
+            slot = Slot(index, copy, work)
             self.slots.append(slot)
             await slot.copy.start()
             roots = roots_of(slot.copy, self.spec)
@@ -325,6 +403,9 @@ class Copies:
             except (LaunchError, DockerError, OSError) as exc:
                 left.append(f"{getattr(slot.copy, 'project', slot.copy)}: {exc}")
             await asyncio.to_thread(shutil.rmtree, slot.work / "kept", True)
+        if self.intake is not None:
+            await self.intake.close()
+            self.intake = None
         return left
 
 

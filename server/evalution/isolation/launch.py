@@ -116,6 +116,14 @@ class Override:
     notes: list[str] = field(default_factory=list)
 
 
+_THIS_COMPUTER = re.compile(r"(?<=//)(127\.0\.0\.1|localhost)(?=[:/]|$)")
+
+
+def for_containers(value: str) -> str:
+    """*value* with this computer's loopback address as a container reaches it."""
+    return _THIS_COMPUTER.sub("host.docker.internal", value)
+
+
 def project_name(target: str, slot: int) -> str:
     """``eval-<target>-<slot>``, in the letters compose allows in a project name."""
     slug = re.sub(r"[^a-z0-9_-]+", "-", target.lower()).strip("-_") or "app"
@@ -172,6 +180,7 @@ def override_for(
     app_url: str | None = None,
     pick: Callable[[], int] = free_port,
     tag: bool = True,
+    env: dict[str, str] | None = None,
 ) -> Override:
     """The override for *config* (``docker compose config --format json``) run as *project*.
 
@@ -187,6 +196,8 @@ def override_for(
     :param app_url: The app's address as the target knows it; the copy's is the same address on
         the port that took its place. Without it, the first published port that isn't a database
         or a trace viewer's, else the first.
+    :param env: Settings the copy must have, such as where to send its traces: each is set on
+        every service whose environment already names it.
     """
     services: dict[str, dict] = config.get("services") or {}
     moved: dict[int, int] = {}  # the person's published port -> the copy's
@@ -227,6 +238,13 @@ def override_for(
                 out.rewired.append(f"{name}.{key}")
             elif _LOCAL_URL.search(value) or any(f":{p}" in value for p in moved):
                 out.fixed.append(f"{name}.{key}")
+        for key in service.get("environment") or {}:
+            if env and key in env:
+                changes.setdefault(name, {})[key] = env[key]
+                if f"{name}.{key}" not in out.rewired:
+                    out.rewired.append(f"{name}.{key}")
+                if f"{name}.{key}" in out.fixed:
+                    out.fixed.remove(f"{name}.{key}")
     out.url = _copy_url(app_url, ports, moved, out.notes)
 
     if not tag:
@@ -312,13 +330,18 @@ def _docker() -> str:
 
 
 async def _run(
-    *args: str, limit: float = 60, cwd: Path | None = None, secrets: list[str] | None = None
+    *args: str,
+    limit: float = 60,
+    cwd: Path | None = None,
+    secrets: list[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """``(code, out, err)`` of *args*; err scrubbed of *secrets*. Out is never scrubbed: the
-    caller decides what of it to keep."""
+    caller decides what of it to keep. *env* is laid over this process's environment."""
     proc = await asyncio.create_subprocess_exec(
         *args,
         cwd=cwd,
+        env={**os.environ, **env} if env else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL,
@@ -445,8 +468,12 @@ class ComposeCopy:
         app_url: str | None = None,
         health: str | None = None,
         start_seconds: float = 300,
+        env: dict[str, str] | None = None,
     ) -> None:
         self.files = [Path(f).resolve() for f in files]
+        #: Settings the copy must have (where to send its traces), as its containers reach this
+        #: computer. Given to compose too, so a value the compose file derives from one follows.
+        self.env = {k: for_containers(v) for k, v in (env or {}).items()}
         self.env_file = Path(env_file).resolve() if env_file else None
         self.project = project_name(target, slot)
         self.folder = Path(folder)
@@ -472,7 +499,7 @@ class ComposeCopy:
 
     async def _config(self) -> dict:
         code, out, err = await _run(*self._compose(), "config", "--format", "json",
-                                    secrets=self._secrets)  # fmt: skip
+                                    secrets=self._secrets, env=self.env)  # fmt: skip
         if code != 0:
             raise LaunchError(f"compose couldn't read the app's files: {_tail(err)}")
         return json.loads(out)
@@ -501,7 +528,7 @@ class ComposeCopy:
             )
         _, version, _ = await _run(_docker(), "compose", "version", "--short")
         tag = supports_tag(version)
-        plan = override_for(config, self.project, app_url=self.app_url, tag=tag)
+        plan = override_for(config, self.project, app_url=self.app_url, tag=tag, env=self.env)
         self.folder.mkdir(parents=True, exist_ok=True)
         override = self.folder / f"{self.project}.override.{'yaml' if tag else 'json'}"
         _write_private(override, plan.text)
@@ -512,7 +539,7 @@ class ComposeCopy:
         code, _, err = await _run(
             *compose, "up", "-d", "--wait", "--wait-timeout", str(int(self.start_seconds)),
             "--no-build", "--pull", "never", "--remove-orphans",
-            limit=self.start_seconds + 60, secrets=self._secrets,
+            limit=self.start_seconds + 60, secrets=self._secrets, env=self.env,
         )  # fmt: skip
         check = code == 0 and self.health and plan.url
         if check and not await _healthy(plan.url + self.health, self.start_seconds):
