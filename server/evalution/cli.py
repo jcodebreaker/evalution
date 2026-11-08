@@ -32,6 +32,10 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
   under today's rules: free and offline. ``--judge`` grades its replies again from its evidence:
   new model calls, so it says how many tries and asks first, and a run without evidence is refused.
 * ``profile --target T``: the digest of the target's recent traces (no model call).
+* ``stores FOLDER [--target T [--port P] [--yes]]``: where the app in FOLDER keeps state (a
+  prototype, :mod:`evalution.isolation`). Alone, a read of the folder: free. With ``--target``,
+  one probe message carrying a canary goes through T's adapter while the process listening on P
+  (default the target's port) is watched, and what it wrote is lined up with what the code names.
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
@@ -46,10 +50,13 @@ import asyncio
 import json
 import os
 import pkgutil
+import secrets
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI
@@ -66,6 +73,9 @@ from evalution.benchmarks import planning
 from evalution.code import CodeError
 from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
+from evalution.isolation import containers as store_boxes
+from evalution.isolation import discover as store_scan
+from evalution.isolation import observe as store_watch
 from evalution.llm import LLM
 from evalution.project import hooks as git_hooks
 from evalution.results import baseline
@@ -391,6 +401,76 @@ async def check_target(config: Config, name: str, isolation: bool = False) -> in
         print(f"Problem: {leak}" if leak else "A new session didn't show what an earlier one said.")
         return 1 if leak else 0
     return 0 if found.ok else 1
+
+
+def find_stores(config: Config, args: argparse.Namespace) -> int:
+    """Print the stores FOLDER names, and with ``--target`` what one probe showed."""
+    folder = Path(args.folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise LookupError(f"not a folder: {folder}")
+    stores = store_scan.scan(folder)
+    if args.target:
+        url = str(config.targets[args.target].options.get("url") or "")
+        port = args.port or urlsplit(url).port
+        pid = store_watch.listening(port) if port else None
+        if pid is None:
+            print(
+                f"evalution: nothing on this computer listens on port {port}; only the folder "
+                "is watched (pass --port)",
+                file=sys.stderr,
+            )
+        if not args.yes and input("Send one probe message to the app? [y/N] ").lower() != "y":
+            return 1
+        seen, boxes, inside = asyncio.run(
+            _probe_stores(config, args.target, folder, stores, pid, port)
+        )
+        stores = store_watch.reconcile(folder, stores, seen)
+        stores = store_boxes.reconcile(stores, boxes, inside)
+        print(f"Watched: {', '.join(seen.roots)}")
+        print(f"Written during the probe: {len(seen.written)} files, {len(seen.canary)} hold it")
+        if boxes:
+            print(f"Containers searched: {', '.join(b.name for b in boxes)}")
+            print(f"Found inside them: {len(inside)} places hold it")
+    if args.json:
+        print(json.dumps([vars(s) for s in stores], indent=2))
+        return 0
+    for s in stores:
+        mark = "seen" if s.seen else ("named" if not args.target else "NOT SEEN")
+        print(f"[{mark:>8}] {s.kind:<8} {s.locator}")
+        for line in s.evidence[:3]:
+            print(f"             named at {line}")
+        for line in s.seen[:3]:
+            print(f"             {line}")
+    return 0
+
+
+async def _probe_stores(
+    config: Config,
+    name: str,
+    folder: Path,
+    stores: list[store_scan.Store],
+    pid: int | None,
+    port: int | None,
+) -> tuple[store_watch.Observation, list[store_boxes.Container], list[store_boxes.Found]]:
+    """One message carrying a canary through *name*'s adapter, with the app watched, on this
+    computer and in the containers behind its port."""
+    target = Targets(config).adapter(name)
+    canary = f"eval-canary-{secrets.token_hex(6)}"
+    boxes = await store_boxes.project_of(port) if port else []
+
+    async def act() -> None:
+        session = await target.open("isolation-probe")
+        try:
+            await target.send(
+                session,
+                f"Please remember this for later: my code word is {canary}.",
+                deadline=time.time() + 120,
+            )
+        finally:
+            await target.close(session)
+
+    seen = await store_watch.watch(folder, stores, act, canary, pid=pid)
+    return seen, boxes, await store_boxes.search(boxes, canary)
 
 
 def migrate(config: Config) -> int:
@@ -727,6 +807,12 @@ def main(argv: list[str] | None = None) -> int:
     prof = sub.add_parser("profile", help="a digest of the target's recent traces")
     prof.add_argument("--target", required=True)
     prof.add_argument("--sessions", type=int, default=50)
+    found = sub.add_parser("stores", help="where an app keeps state: a read, or one probe")
+    found.add_argument("folder")
+    found.add_argument("--target", help="send one probe through this target and watch it")
+    found.add_argument("--port", type=int, help="the port the app's process listens on")
+    found.add_argument("--yes", action="store_true")
+    found.add_argument("--json", action="store_true")
     hook = sub.add_parser("hooks", help="git hooks in the target's repo, opt-in")
     hook.add_argument("action", choices=("install", "uninstall", "status"))
     hook.add_argument("--target", required=True)
@@ -778,6 +864,8 @@ def main(argv: list[str] | None = None) -> int:
             return benchmark(config, args)
         if args.command == "hooks":
             return hooks(config, args)
+        if args.command == "stores":
+            return find_stores(config, args)
         if args.command == "check":
             return asyncio.run(check_target(config, args.target, args.isolation))
         if args.command == "compare":

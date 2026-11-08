@@ -80,7 +80,7 @@ layers = [
     "review",
     "project",
     "targets",
-    "judging | results",
+    "judging | results | isolation",
     "suite | traces | code | settings",
     "adapters",
     "llm",
