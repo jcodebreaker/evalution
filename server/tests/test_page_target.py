@@ -22,7 +22,7 @@ pytest.importorskip(
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from evalution.adapters.base import (
     Capabilities,
@@ -32,6 +32,8 @@ from evalution.adapters.base import (
     Target,
     Turn,
 )
+from evalution.adapters.http import HttpTarget
+from evalution.config import TargetConfig
 from evalution.core.evidence import Failure
 from evalution.isolation.launch import free_port
 from evalution.runs.page.map import PageMap
@@ -86,7 +88,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Chat</title></
 <button type="submit" id="send">LABEL</button></form>
 </main><script>
 const session = decodeURIComponent(location.pathname.split("/").pop());
-const drop = DROP, label = "LABEL";
+const label = "LABEL";
 fetch("OTHER/ping", {mode: "no-cors"}).catch(() => {});
 function html(text) {
   const safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -95,9 +97,12 @@ function html(text) {
 async function render() {
   const data = await (await fetch("/api/messages/" + encodeURIComponent(session))).json();
   const log = document.getElementById("log");
-  log.innerHTML = data.messages.map(m =>
-    "<p>" + html(m.role === "assistant" && drop ? "Couldn't load this reply" : m.text) + "</p>"
-  ).join("");
+  let answers = 0;
+  log.innerHTML = data.messages.map(m => {
+    const mine = m.role === "assistant";
+    const dropped = mine && data.drop_from !== null && answers++ >= data.drop_from;
+    return "<p>" + html(dropped ? "Couldn't load this reply" : m.text) + "</p>";
+  }).join("");
   document.getElementById("send").textContent = data.busy ? "Stop" : label;
 }
 setInterval(render, 100); render();
@@ -143,8 +148,15 @@ class ChatApp:
     the page."""
 
     def __init__(self, other: str) -> None:
-        self.drop = False
+        #: The page drops the app's replies from this one on (0 is the first).
+        self.drop_from: int | None = None
         self.rename = False
+        #: Seconds after a message the API still says what it said before it: idle, old reply.
+        self.lag = 0.0
+        #: What the API answers a message with instead of taking it; seconds it takes first.
+        self.send_status: int | None = None
+        self.send_seconds = 0.0
+        self.frozen: dict[str, tuple[float, dict[str, Any]]] = {}
         self.messages: dict[str, list[dict[str, Any]]] = {}
         self.busy: set[str] = set()
         #: ``(path, headers)`` of every request a browser made.
@@ -160,22 +172,34 @@ class ChatApp:
         @self.app.get("/chat/{session:path}")
         async def page(session: str) -> HTMLResponse:
             text = PAGE.replace("LABEL", "Post" if self.rename else "Send")
-            return HTMLResponse(text.replace("DROP", json.dumps(self.drop)).replace("OTHER", other))
+            return HTMLResponse(text.replace("OTHER", other))
 
         @self.app.get("/api/messages/{session:path}")
         async def messages(session: str) -> dict[str, Any]:
-            return {"messages": self.messages.get(session, []), "busy": session in self.busy}
+            said = self.messages.get(session, [])
+            return {"messages": said, "busy": session in self.busy, "drop_from": self.drop_from}
+
+        @self.app.get("/api/state/{session:path}")
+        async def state(session: str) -> dict[str, Any]:
+            until, before = self.frozen.get(session, (0.0, {}))
+            if time.time() < until:
+                return before
+            return self._state(session)
 
         @self.app.post("/api/send")
         async def send(request: Request) -> dict[str, bool]:
+            await asyncio.sleep(self.send_seconds)
+            if self.send_status is not None:
+                return JSONResponse({"ok": False}, status_code=self.send_status)
             body = await request.json()
             session, message = body["session"], body["message"]
+            self.frozen[session] = (time.time() + self.lag, self._state(session))
             said = self.messages.setdefault(session, [])
             said.append({"role": "user", "text": message, "at": time.time()})
             self.busy.add(session)
 
             async def answer() -> None:
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.3 + self.lag)
                 said.append(
                     {"role": "assistant", "text": f"Echo: **{message}**", "at": time.time()}
                 )
@@ -183,6 +207,11 @@ class ChatApp:
 
             asyncio.get_running_loop().create_task(answer())
             return {"ok": True}
+
+    def _state(self, session: str) -> dict[str, Any]:
+        replies = [m["text"] for m in self.messages.get(session, []) if m["role"] == "assistant"]
+        status = "busy" if session in self.busy else "idle"
+        return {"status": status, "reply": replies[-1] if replies else ""}
 
 
 class Inner(Target):
@@ -315,7 +344,7 @@ async def test_without_watch_the_inner_adapter_sends_and_the_page_watches(chat) 
 
 
 async def test_a_reply_the_page_drops_is_shown_none_and_what_showed_is_kept(chat) -> None:
-    chat.drop = True
+    chat.drop_from = 0
     target = _page_target(chat, Watching(chat.url))
     try:
         session = await target.open("r")
@@ -323,6 +352,81 @@ async def test_a_reply_the_page_drops_is_shown_none_and_what_showed_is_kept(chat
         assert turn.error is None and turn.reply == "Echo: **hello**", "the page never changes it"
         assert turn.shown is None
         assert "Couldn't load this reply" in session.extra["page"]["last_shown"]
+    finally:
+        await target.dispose()
+
+
+async def test_the_same_reply_again_isnt_taken_for_the_one_the_page_dropped(chat) -> None:
+    target = _page_target(chat, Watching(chat.url))
+    try:
+        session = await target.open("r")
+        first = await target.send(session, "hello", deadline=time.time() + 20)
+        assert first.shown == "echo: hello"
+        chat.drop_from = 1  # the page shows the first reply still, and drops the second
+        again = await target.send(session, "hello", deadline=time.time() + 20)
+        assert again.error is None and again.reply == "Echo: **hello**"
+        assert again.shown is None, "the first turn's words aren't the second's"
+        assert "Couldn't load this reply" in session.extra["page"]["last_shown"]
+    finally:
+        await target.dispose()
+
+
+async def test_an_http_adapter_never_reads_the_reply_from_before_the_page_sent(chat) -> None:
+    """The API says idle, with the reply before, for a moment after the page's message: the
+    page target waits for the message to be taken, and the http adapter for the session to
+    move, so each turn reads its own reply."""
+    chat.lag = 0.3
+    poll = {"url": f"{chat.url}/api/state/{{session}}", "until": "$.status == 'idle'"}
+    http = {
+        "send": {"url": f"{chat.url}/api/send"},
+        "done": {"poll": {**poll, "reply": "$.reply", "interval": 0.05}},
+    }
+    inner = HttpTarget(TargetConfig("chat", "http", None, None, {"http": http}))
+    assert inner.capabilities.watch
+    plain = {key: value for key, value in MAP.items() if key != "sign_in"}
+    target = PageTarget(inner, PageMap.model_validate(plain), chat.url, element_seconds=1.5)
+    try:
+        session = await target.open("r")
+        for message in ("hello", "again"):
+            turn = await target.send(session, message, deadline=time.time() + 20)
+            assert (turn.error, turn.reply) == (None, f"Echo: **{message}**")
+            assert turn.shown == f"echo: {message}"
+    finally:
+        await target.dispose()
+
+
+@pytest.mark.parametrize(
+    ("status", "failure", "heard"),
+    [
+        (503, Failure.TRANSIENT, False),
+        (502, Failure.TRANSIENT, True),
+        (401, Failure.REFUSED, False),
+    ],
+)
+async def test_an_error_answer_to_the_pages_message_ends_the_turn(
+    chat, status, failure, heard
+) -> None:
+    chat.send_status = status
+    inner = Watching(chat.url)
+    target = _page_target(chat, inner)
+    try:
+        session = await target.open("r")
+        turn = await target.send(session, "hello", deadline=time.time() + 20)
+        assert (turn.failure, turn.heard) == (failure, heard) and str(status) in (turn.error or "")
+        assert inner.watched == [], "nothing to wait on"
+    finally:
+        await target.dispose()
+
+
+async def test_no_answer_to_the_pages_message_is_out_of_time_and_heard(chat) -> None:
+    chat.send_seconds = 3.0
+    inner = Watching(chat.url)
+    target = _page_target(chat, inner)
+    try:
+        session = await target.open("r")
+        turn = await target.send(session, "hello", deadline=time.time() + 1.5)
+        assert (turn.failure, turn.heard) == (Failure.TIMED_OUT, True)
+        assert inner.watched == []
     finally:
         await target.dispose()
 

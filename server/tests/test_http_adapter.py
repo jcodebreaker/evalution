@@ -166,7 +166,20 @@ async def test_watch_waits_by_polling_on_a_turn_the_page_sent() -> None:
     )
     assert "POST" not in said and polls["n"] == 2
 
-    failing = _polling("failed", why="$.error")
+    looks: list[int] = []
+
+    def fails(request: httpx.Request) -> httpx.Response:
+        looks.append(1)
+        status = "busy" if len(looks) == 1 else "failed"
+        return httpx.Response(200, json={"status": status, "error": "no disk"})
+
+    poll = {
+        **POLL["poll"],
+        "interval": 0.01,
+        "failed_when": "$.status == 'failed'",
+        "why": "$.error",
+    }
+    failing = _target({**BOT, "done": {"poll": poll}}, fails)
     turn = await failing.watch(await failing.open("r"), time.time(), deadline=time.time() + 5)
     assert (turn.ended_as, turn.error) == (TurnEnd.FAILED, "no disk")
     late = _polling("busy")
@@ -179,6 +192,43 @@ async def test_watch_waits_by_polling_on_a_turn_the_page_sent() -> None:
     gone = _target({**BOT, "done": POLL}, down)
     turn = await gone.watch(await gone.open("r"), time.time(), deadline=time.time() + 5)
     assert turn.failure is Failure.TRANSIENT and turn.heard, "the page sent it"
+
+
+async def test_watch_never_takes_the_reply_from_before_the_page_sent() -> None:
+    """The app still says idle, with the old reply, for a moment after the page's message."""
+    sent_at = time.time()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        after = time.time() - sent_at
+        if after < 0.3:
+            return httpx.Response(200, json={"status": "idle", "reply": "Old"})
+        if after < 0.5:
+            return httpx.Response(200, json={"status": "busy", "reply": "Old"})
+        return httpx.Response(200, json={"status": "idle", "reply": "New"})
+
+    poll = {"poll": {**POLL["poll"], "interval": 0.05}}
+    target = _target({**BOT, "done": poll}, handler)
+    turn = await target.watch(await target.open("r"), sent_at, deadline=time.time() + 5)
+    assert (turn.error, turn.reply) == (None, "New")
+
+    def straight_to_new(request: httpx.Request) -> httpx.Response:
+        new = time.time() - sent_at >= 0.3
+        return httpx.Response(200, json={"status": "idle", "reply": "New" if new else "Old"})
+
+    sent_at = time.time()
+    target = _target({**BOT, "done": poll}, straight_to_new)
+    turn = await target.watch(await target.open("r"), sent_at, deadline=time.time() + 5)
+    assert turn.reply == "New", "a reply that changed is a move, though it never looked busy"
+
+    def never_moves(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "idle", "reply": "Old"})
+
+    target = _target({**BOT, "done": poll}, never_moves)
+    turn = await target.watch(await target.open("r"), time.time(), deadline=time.time() + 0.3)
+    assert turn.failure is Failure.TIMED_OUT and turn.heard and turn.reply == ""
+    # send, which sent the message itself, takes a done session at its word, as before.
+    turn = await target.send(await target.open("r"), "hi", deadline=time.time() + 5)
+    assert (turn.error, turn.reply) == (None, "Old")
 
 
 async def test_watch_isnt_declared_without_a_poll() -> None:

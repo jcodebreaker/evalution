@@ -5,6 +5,7 @@ model is told about them is in :mod:`evalution.writer.schemas`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import hashlib
 import json
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from evalution.config import ConfigError
 from evalution.core.case import Case
 from evalution.llm import cut, fenced
 from evalution.project import (
@@ -33,6 +35,8 @@ from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.fit import why_not
+from evalution.runs.page.map import page_map_of
+from evalution.runs.page.target import page_capabilities
 from evalution.runs.runner import Runs
 from evalution.suite import cases, library, store
 from evalution.targets import Targets
@@ -702,7 +706,12 @@ class Tools:
         flags = []
         capabilities = self.targets.adapter(target).capabilities
         traced = self.targets.source(target) is not None
-        if why := why_not(case, capabilities, traced):
+        page = None
+        with contextlib.suppress(ConfigError):  # a map that doesn't read is the run's to refuse
+            page = page_map_of(self.targets.conf(target))
+        if page is not None:
+            capabilities = page_capabilities(capabilities, page)
+        if why := why_not(case, capabilities, traced, page=page is not None):
             flags.append(f"This app can't run this test: {why}.")
         missing = [
             kind

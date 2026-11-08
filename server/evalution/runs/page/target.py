@@ -3,11 +3,14 @@ page open on evalution's copy beside it, as its page map says.
 
 The inner adapter still plays: its ``Turn.reply`` is what judging reads. The page is a second
 look at the same turn. When the inner adapter can wait on a turn it didn't send (``watch``), the
-page sends: it types the message and clicks Send, and the inner adapter waits for that turn. Else
-the inner adapter sends, and the page only watches. Either way, once the turn is done the page gets
-``catch_up_seconds`` for its busy signs to clear and the reply to show in ``replies.in``, both
-normalised (:func:`normalised`). ``Turn.shown`` is what it showed then; ``None`` when the reply
-never showed, with the last of what did in ``Session.extra["page"]["last_shown"]``.
+page sends: it types the message and clicks Send, waits for the copy to answer the request that
+carried it (an error status, or no answer by the deadline, is the turn's end), and the inner
+adapter then waits for that turn. Else the inner adapter sends, and the page only watches. Either
+way, once the turn is done the page gets ``catch_up_seconds`` for its busy signs to clear and the
+reply to show in ``replies.in`` once more than before the turn, both normalised
+(:func:`normalised`), so an earlier reply with the same words isn't taken for it. ``Turn.shown`` is
+the newest; ``None`` when the reply never showed, with the last of what did in
+``Session.extra["page"]["last_shown"]``.
 
 One browser per page target, so one per copy, launched on first use: Playwright's own Chromium when
 it is installed, else the system Chrome (``EVALUTION_CHROME``, or the usual place on a Mac).
@@ -26,15 +29,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib.util
+import json
 import logging
 import os
 import re
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, quote_plus, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from evalution.adapters.base import (
@@ -48,6 +53,8 @@ from evalution.adapters.base import (
     Target,
     TargetGone,
     Turn,
+    failure_of_status,
+    status_may_have_passed_on,
 )
 from evalution.adapters.http import RUN_HEADER, TRY_HEADER
 from evalution.config import KeyRing, TargetConfig
@@ -75,6 +82,8 @@ NO_BROWSER = (
     "page mode needs a browser, and none was found: install Google Chrome, set EVALUTION_CHROME "
     "to a Chrome or Chromium, or run `playwright install chromium`"
 )
+#: Methods a page sends a message with.
+_SENDS = frozenset({"POST", "PUT", "PATCH"})
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 _MARKS = re.compile(r"[*_`#>]")
 _TAG = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
@@ -446,28 +455,90 @@ class PageTarget(Target):
         if session.extra.get("fresh"):
             return Turn("", started, started, error=NO_FRESH, failure=Failure.NOT_SUPPORTED)
         page = self._page_of(session)
+        # What the replies' region held before: an earlier reply with the same words isn't this.
+        before = await self._region_text(page)
         if self.inner.capabilities.watch:
             # The page sends, as a person would; the inner adapter waits for that turn.
-            actions = self.page.actions
-            try:
-                box = await self._find(page, actions.type.fill, deadline)
-                await self._act(box.fill(message, timeout=self._ms(deadline)), actions.type.fill)
-                button = await self._find(page, actions.send.click, deadline)
-                since = time.time()
-                await self._act(button.click(timeout=self._ms(deadline)), actions.send.click)
-            except PageMapBroken as exc:
-                return Turn("", started, time.time(), error=str(exc), failure=Failure.PAGE_MAP)
-            turn = await self.inner.watch(session, since, deadline=deadline)
+            sent = await self._page_sends(page, message, started, deadline)
+            if isinstance(sent, Turn):
+                return sent
+            turn = await self.inner.watch(session, sent, deadline=deadline)
         else:
             # The inner adapter sends; the page has the conversation open and watches.
             turn = await self.inner.send(session, message, deadline=deadline)
         if turn.error is None:
-            await self._catch_up(page, session, turn, deadline)
+            await self._catch_up(page, session, turn, normalised(before), deadline)
         return turn
 
-    async def _catch_up(self, page: Any, session: Session, turn: Turn, deadline: float) -> None:
-        """Wait for the page to stop being busy and show *turn*'s reply, and say on *turn* what it
-        showed. ``Turn.reply`` is never changed; a region the page lacks is the map's error."""
+    async def _region_text(self, page: Any) -> str:
+        """What the replies' region shows now; empty when it isn't there (yet)."""
+        region = self._locator(page, self.page.replies.in_).first
+        with contextlib.suppress(_api().Error):
+            if await region.count():
+                return str(await region.inner_text(timeout=1000))
+        return ""
+
+    def _carries(self, message: str) -> Callable[[Any], bool]:
+        """Whether a response answers the page's request that sent *message*: a POST, PUT or PATCH
+        to the copy's origin whose body holds it, or has no body to read (a stream)."""
+        spelled = {
+            message,
+            json.dumps(message)[1:-1],
+            json.dumps(message, ensure_ascii=False)[1:-1],
+            quote_plus(message),
+        }
+
+        def carries(response: Any) -> bool:
+            request = response.request
+            if request.method not in _SENDS or not self._on_copy(request.url):
+                return False
+            try:
+                body = request.post_data
+            except (UnicodeDecodeError, ValueError):
+                body = None
+            return body is None or any(form in body for form in spelled)
+
+        return carries
+
+    async def _page_sends(
+        self, page: Any, message: str, started: float, deadline: float
+    ) -> float | Turn:
+        """Type *message* and click Send, then wait for the copy to answer the request that
+        carried it. When it was sent (just before the click), or the turn, when it went no
+        further: a map that's off, an error status, or no answer by *deadline*."""
+        api = _api()
+        actions = self.page.actions
+        try:
+            box = await self._find(page, actions.type.fill, deadline)
+            await self._act(box.fill(message, timeout=self._ms(deadline)), actions.type.fill)
+            button = await self._find(page, actions.send.click, deadline)
+            wait = max(deadline - time.time(), 0.1) * 1000
+            since = time.time()
+            async with page.expect_response(self._carries(message), timeout=wait) as answered:
+                await self._act(button.click(timeout=self._ms(deadline)), actions.send.click)
+            response = await answered.value
+        except PageMapBroken as exc:
+            return Turn("", started, time.time(), error=str(exc), failure=Failure.PAGE_MAP)
+        except api.TimeoutError:
+            said = "the app didn't answer the page's message in time"
+            return Turn("", started, time.time(), error=said, failure=Failure.TIMED_OUT, heard=True)
+        if response.status >= 400:
+            return Turn(
+                "",
+                started,
+                time.time(),
+                error=f"the app answered the page's message with {response.status}",
+                failure=failure_of_status(response.status),
+                heard=status_may_have_passed_on(response.status),
+            )
+        return since
+
+    async def _catch_up(
+        self, page: Any, session: Session, turn: Turn, before: str, deadline: float
+    ) -> None:
+        """Wait for the page to stop being busy and show *turn*'s reply once more than it did
+        *before* the turn (normalised), and say on *turn* what it showed: the newest. ``Turn.reply``
+        is never changed; a region the page lacks is the map's error."""
         api = _api()
         want = normalised(turn.reply)
         region = self._locator(page, self.page.replies.in_).first
@@ -482,8 +553,9 @@ class PageTarget(Target):
                     text = await region.inner_text(timeout=1000)
                     idle = not [b for b in busy if await b.is_visible()]
                     shown = normalised(text)
-                    at = shown.find(want) if want else -1
-                    if idle and at >= 0:
+                    more = bool(want) and shown.count(want) > before.count(want)
+                    at = shown.rfind(want)
+                    if idle and more:
                         turn.shown = shown[at : at + len(want)]
                         session.extra["page"].pop("last_shown", None)
                         return

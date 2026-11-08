@@ -322,6 +322,9 @@ class HttpTarget(Target):
 
     async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
         """The turn the page sent at *since*: ``done.poll`` until it is done, as :meth:`send` waits.
+        A session already done at the first poll may still show the turn before, so that end is
+        taken only once the session has moved since: out of done, or to another reply. A turn
+        with the same reply as the one before, done before the first poll, waits to *deadline*.
 
         :raises NotImplementedError: The target sets no ``done.poll``.
         """
@@ -350,7 +353,8 @@ class HttpTarget(Target):
             ended_as, why = TurnEnd.ANSWERED, None
             if self.done != "response":
                 poll = self.done["poll"]
-                data, ended_as = await self._poll(poll, fields, deadline)
+                # Watched, a turn already done may be the one before: wait for it to move.
+                data, ended_as = await self._poll(poll, fields, deadline, moved=tags is not None)
                 trace_ids += [t for t in self._trace_ids(data) if t not in trace_ids]
                 path = str(poll.get("reply") or self.reply_path)
                 if ended_as is not TurnEnd.ANSWERED and poll.get("why"):
@@ -361,7 +365,9 @@ class HttpTarget(Target):
             return Turn(reply, started, time.time(), trace_ids, error=why, ended_as=ended_as)
         except TimeoutError:
             error = "the turn did not finish in time"
-            return Turn("", started, time.time(), error=error, failure=Failure.TIMED_OUT)
+            return Turn(
+                "", started, time.time(), error=error, failure=Failure.TIMED_OUT, heard=heard
+            )
         except (httpx.HTTPError, ValueError) as exc:
             error = net.said(exc)
             return Turn(
@@ -409,22 +415,38 @@ class HttpTarget(Target):
         return data
 
     async def _poll(
-        self, conf: dict[str, Any], fields: dict[str, str], deadline: float
+        self, conf: dict[str, Any], fields: dict[str, str], deadline: float, *, moved: bool = True
     ) -> tuple[Any, TurnEnd]:
+        """Poll until the work ends, and say how. Not *moved*: an end the first poll already finds
+        is taken only once the session has moved since, out of that end or to another reply, as
+        it may be the turn before's."""
         conf = {"method": "GET", **conf}
-        expression = str(conf.get("until") or "")
         interval = float(conf.get("interval") or 1.0)
+        path = str(conf.get("reply") or self.reply_path)
+        first: Any = None
+        polls = 0
         while True:
             data = await self._request(conf, fields, deadline)
-            if conf.get("failed_when") and until(data, str(conf["failed_when"])):
-                return data, TurnEnd.FAILED
-            if conf.get("blocked_when") and until(data, str(conf["blocked_when"])):
-                return data, TurnEnd.BLOCKED
-            if until(data, expression):
-                return data, TurnEnd.ANSWERED
+            ended = self._ended(conf, data)
+            polls += 1
+            if not moved:
+                if polls == 1:
+                    first = json_path(data, path)
+                moved = ended is None or json_path(data, path) != first
+            if moved and ended is not None:
+                return data, ended
             if time.time() + interval >= deadline:
                 raise TimeoutError
             await asyncio.sleep(interval)
+
+    @staticmethod
+    def _ended(conf: dict[str, Any], data: Any) -> TurnEnd | None:
+        """How the work ended, as *data* says; ``None`` while it goes on."""
+        if conf.get("failed_when") and until(data, str(conf["failed_when"])):
+            return TurnEnd.FAILED
+        if conf.get("blocked_when") and until(data, str(conf["blocked_when"])):
+            return TurnEnd.BLOCKED
+        return TurnEnd.ANSWERED if until(data, str(conf.get("until") or "")) else None
 
     async def cancel(self, session: Session) -> None:
         """Stop the work in flight in this session.
