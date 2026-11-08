@@ -39,6 +39,14 @@ A review against the code (2026-11-07) changed the first draft. In short:
 | Files under `<data_dir>/runs/...`, object store when hosted | A `Files` store in `storage/`, deleted with the run; no hosted page mode | Results live in the database; nothing deletes run folders; hosted has no object store or copies |
 | No ADR | ADR 0010 before code | Changes the Target protocol, the evidence model and the judgement rules |
 
+## Decided while building (2026-11-08)
+
+- **`watch`** joined the Target contract: an optional `Target.watch(session, since, *, deadline)`, declared by `Capabilities.watch`. It waits on a turn something else sent, with `send`'s semantics. The http adapter declares it with `done: {poll}`; the `relay` adapter (in the data folder) declares it on an evalution that knows it. Without it, the page watches and the inner adapter sends.
+- **Sign-in by headers** (`sign_in: {headers: …}`), sent only to the copy's origin, with values from templates (`{person.email}`, `{secret:NAME}`), never literal secrets. A form sign-in reads seeded accounts.
+- **`page_map_broken`** ends a run after one try; `page_map` and `no_reply` are new reasons a try can't be judged.
+- **Page checks guide by default.** A test's `page: {decides: true}` makes `shown` and `page_health` must-checks; `page: {contains, lacks}` add its own. `RULES_VERSION` is 3.
+- **Files** are kept per try under `<data_dir>/files/<run>/<case>.<n>/`, deleted with the run (`RunStore.delete_run`, no route yet). Uploaded runs keep the names, not the files.
+
 ## Where it stands
 
 | Part | Where | State |
@@ -240,6 +248,8 @@ Roughly: 0 is days, 1 small, 2 small, 3 the bulk, 4 medium, 5 medium, 6 small, 7
 | Interrupted tries lose their video | Screenshots and the step log written as they go; the try says the video is missing |
 | Secrets in recordings | `scrub`, masked sign-in, no `trace.zip`, fictional accounts |
 | The page writes state the isolation plan doesn't cover | A new browser context per try; server-side stores stay the plan's job |
+| `watch` takes the previous turn's reply as this one's | The page waits for the copy to answer the request carrying the message before `watch` starts; http's `watch` doesn't accept a done state it never saw move. Known limit: on an http target, a page-sent reply word for word the same as the one before, that finishes before the first poll, times out instead of passing |
+| A repeated reply ("Ok." twice) matches the old one on screen | Catch-up needs the reply to appear more times than before the turn, and takes the newest |
 
 ## Open questions
 
