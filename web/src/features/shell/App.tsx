@@ -3,6 +3,7 @@ import type { Place } from "../../lib/router";
 import { usePlace } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
 import { isBenchmark } from "../benchmarks/BenchmarksView";
+import { OpenEnvironment } from "../environment/use-isolation";
 import type { RunTarget } from "../runs/RunConfirm";
 import { RunConfirm } from "../runs/RunConfirm";
 import { WriterPanel } from "../writer/WriterPanel";
@@ -88,75 +89,83 @@ export function App() {
     );
   };
 
+  /** The Test environment screen, from Home, the Run dialog or the connection page. */
+  const openEnvironment = () => {
+    setConfirm(null);
+    nav({ view: "environment" });
+  };
+
   const panel = writerOpen && scope !== null;
   const working = agent.session?.status === "working";
   return (
-    <div
-      className={
-        panel
-          ? "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)_380px]"
-          : "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)]"
-      }
-    >
-      <Sidebar
-        place={place}
-        targets={targetList}
-        target={target}
-        sets={setList}
-        set={set}
-        going={going ?? goingBenchmark}
-        goingLabel={going ? runLabel(going.run) : "Benchmark"}
-        asking={working}
-        onAskAi={scope ? () => setWriterOpen(!writerOpen) : null}
-        cards={cards}
-        onTarget={(name) => nav({ target: name, set: null, view: "home" })}
-        onSet={(id) => nav({ set: id })}
-        onView={(view) => nav({ view })}
-        onGoing={() => {
-          if (going) showGoing();
-          else if (goingBenchmark) showBenchmark(goingBenchmark.run);
-        }}
-      />
-      <main className="flex min-h-0 min-w-0 flex-col max-md:min-h-[70vh]">
-        <Screen
+    <OpenEnvironment.Provider value={target ? openEnvironment : null}>
+      <div
+        className={
+          panel
+            ? "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)_380px]"
+            : "canvas grid h-full text-foreground max-md:h-auto max-md:grid-cols-[minmax(0,1fr)] max-md:min-h-full md:grid-cols-[240px_minmax(0,1fr)]"
+        }
+      >
+        <Sidebar
           place={place}
-          go={go}
-          nav={nav}
-          workspace={workspace}
-          writer={writer}
-          shown={shown}
-          runTest={runTest}
-          runMore={runMore}
-          runAll={runAll}
-          runSome={runSome}
-          runSet={runSet}
-          showRun={showRun}
-          showGoing={showGoing}
-          openTest={openTest}
-          learnAgain={learnAgain}
+          targets={targetList}
+          target={target}
+          sets={setList}
+          set={set}
+          going={going ?? goingBenchmark}
+          goingLabel={going ? runLabel(going.run) : "Benchmark"}
+          asking={working}
+          onAskAi={scope ? () => setWriterOpen(!writerOpen) : null}
+          cards={cards}
+          onTarget={(name) => nav({ target: name, set: null, view: "home" })}
+          onSet={(id) => nav({ set: id })}
+          onView={(view) => nav({ view })}
+          onGoing={() => {
+            if (going) showGoing();
+            else if (goingBenchmark) showBenchmark(goingBenchmark.run);
+          }}
         />
-      </main>
-      {panel ? (
-        <WriterPanel
-          target={scope?.target ?? null}
-          agent={agent}
-          runs={runs}
-          runLabel={runLabel}
-          testName={testName}
-          going={going !== null}
-          onClose={() => setWriterOpen(false)}
-          onRun={showRun}
-          onRunTest={(id) => runTest(id, testName(id))}
-          onTest={openTest}
-          onLearned={() => nav({ view: "app" })}
-          draft={writerDraft}
-          onDrafted={clearDraft}
-        />
-      ) : null}
+        <main className="flex min-h-0 min-w-0 flex-col max-md:min-h-[70vh]">
+          <Screen
+            place={place}
+            go={go}
+            nav={nav}
+            workspace={workspace}
+            writer={writer}
+            shown={shown}
+            runTest={runTest}
+            runMore={runMore}
+            runAll={runAll}
+            runSome={runSome}
+            runSet={runSet}
+            showRun={showRun}
+            showGoing={showGoing}
+            openTest={openTest}
+            learnAgain={learnAgain}
+          />
+        </main>
+        {panel ? (
+          <WriterPanel
+            target={scope?.target ?? null}
+            agent={agent}
+            runs={runs}
+            runLabel={runLabel}
+            testName={testName}
+            going={going !== null}
+            onClose={() => setWriterOpen(false)}
+            onRun={showRun}
+            onRunTest={(id) => runTest(id, testName(id))}
+            onTest={openTest}
+            onLearned={() => nav({ view: "app" })}
+            draft={writerDraft}
+            onDrafted={clearDraft}
+          />
+        ) : null}
 
-      {confirm ? (
-        <RunConfirm target={confirm} onClose={() => setConfirm(null)} onStarted={started} />
-      ) : null}
-    </div>
+        {confirm ? (
+          <RunConfirm target={confirm} onClose={() => setConfirm(null)} onStarted={started} />
+        ) : null}
+      </div>
+    </OpenEnvironment.Provider>
   );
 }

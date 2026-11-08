@@ -10,8 +10,8 @@ import {
   IsolationSchema,
   RunSummarySchema,
 } from "../../lib/schema";
+import { PlanDetails } from "../environment/PlanDetails";
 import { WriterReply } from "../writer/WriterReply";
-import { IsolationPlan } from "./Isolation";
 
 afterEach(() => {
   cleanup();
@@ -44,90 +44,43 @@ const PLAN = {
 const view = (extra: Record<string, unknown>): Isolation =>
   IsolationSchema.parse({ target: "bot", can_run: true, ...extra });
 
-function shows(found: Isolation) {
-  vi.spyOn(api, "isolation").mockResolvedValue(found);
-  render(<IsolationPlan target="bot" />);
+function shows(found: Isolation, onChange = vi.fn()) {
+  render(<PlanDetails isolation={found} onChange={onChange} />);
+  return onChange;
 }
 
-it("says nothing is found yet, and what the button sends before it sends it", async () => {
-  shows(view({ status: "none" }));
-  await screen.findByText("Not found yet.");
-  expect(screen.getByText(/never to your app/)).toBeTruthy();
-  const run = vi.spyOn(api, "runIsolation").mockResolvedValue(view({ status: "none" }));
-  fireEvent.click(screen.getByRole("button", { name: "Find and prove isolation" }));
-  expect(run).not.toHaveBeenCalled();
-  fireEvent.click(await screen.findByRole("button", { name: "Send two messages" }));
-  await waitFor(() => expect(run).toHaveBeenCalledWith("bot"));
-});
-
-it("shows the stages as they run, and holds the buttons", async () => {
-  shows(
-    view({
-      status: "none",
-      job: {
-        state: "running",
-        started: 1,
-        steps: [
-          { key: "start", text: "Starting evalution's own copy of your app", state: "done" },
-          { key: "find", text: "Finding where it keeps what it remembers", state: "doing" },
-        ],
-      },
-    }),
-  );
-  await screen.findByText("Finding where it keeps what it remembers");
-  expect(screen.getByText("Starting evalution's own copy of your app")).toBeTruthy();
-  expect(
-    (screen.getByRole("button", { name: "Find and prove isolation" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
-  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
-});
-
-it("shows a proven plan in plain words: what moves each store, what's left alone", async () => {
-  shows(view({ status: "proven", version: 3, plan: PLAN, can_undo: true }));
-  await screen.findByText(/^Proven \(plan v3\)/);
+it("shows a proven plan in plain words: what moves each store, what's left alone, and undo", async () => {
+  const onChange = shows(view({ status: "proven", version: 3, plan: PLAN, can_undo: true }));
+  expect(screen.getByText(/^Proven \(plan v3\)/)).toBeTruthy();
   expect(screen.getByText("Postgres database")).toBeTruthy();
   expect(
     screen.getByText("Starts from a fresh copy each try, pointed there by DATABASE_URL"),
   ).toBeTruthy();
   expect(screen.getByText("Docker volume")).toBeTruthy();
   expect(screen.getByText(/Left alone.*app\.phoenix\.spans/)).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Find and prove it again" })).toBeTruthy();
-  const undo = vi.spyOn(api, "undoIsolation").mockResolvedValue(view({ status: "none" }));
-  fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  const undone = view({ status: "none" });
+  const undo = vi.spyOn(api, "undoIsolation").mockResolvedValue(undone);
+  fireEvent.click(screen.getByRole("button", { name: "Undo the last plan" }));
   await waitFor(() => expect(undo).toHaveBeenCalledWith("bot"));
-  await screen.findByText("Not found yet.");
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith(undone));
 });
 
-it("names where a failed rehearsal leaked", async () => {
+it("names where the last check found what a failed plan misses", () => {
   shows(
     view({
       status: "failed",
       version: 1,
       plan: { ...PLAN, leaks: ["eval-bot-app-1:/data/memory.idx"] },
-      job: {
-        state: "done",
-        started: 1,
-        steps: [{ key: "done", text: "Not proven", state: "problem" }],
-      },
     }),
   );
-  await screen.findByText(/^Not proven: the rehearsal/);
-  expect(screen.getByText("Where the rehearsal found what the plan misses")).toBeTruthy();
+  expect(screen.getByText(/^Not proven/)).toBeTruthy();
+  expect(screen.getByText("Where the last check found what the plan misses")).toBeTruthy();
   expect(screen.getByText("eval-bot-app-1:/data/memory.idx")).toBeTruthy();
-  expect(screen.getByLabelText("Needs attention")).toBeTruthy();
 });
 
-it("says which commit files left a plan out of date", async () => {
+it("says which commit files left a plan out of date", () => {
   shows(view({ status: "stale", version: 2, plan: PLAN, stale_files: ["db/utils.py"] }));
-  await screen.findByText("Out of date: a commit changed db/utils.py.");
-});
-
-it("links the explainer from the Isolation section", async () => {
-  shows(view({ status: "none" }));
-  await screen.findByText("Not found yet.");
-  fireEvent.click(screen.getByRole("button", { name: "How this works" }));
-  await screen.findByText("How isolation works");
+  expect(screen.getByText("Out of date: a commit changed db/utils.py.")).toBeTruthy();
 });
 
 it("labels runs and tries by how they were isolated", () => {

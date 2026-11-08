@@ -7,7 +7,15 @@ import { about } from "../../lib/isolation";
 import type { Estimate, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { ConfirmDialog } from "../../ui/dialog";
+import { useOpenEnvironment } from "../environment/use-isolation";
+import { TextLink } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
+
+/** "How this works": the Test environment screen, or the explainer where the page can't move. */
+function HowItWorks() {
+  const open = useOpenEnvironment();
+  return open ? <TextLink onClick={open}>How this works</TextLink> : <HowIsolationLink />;
+}
 
 /** What a run sends, and how its tries are kept apart, in two or three short lines. */
 export function IsolationLines({ estimate, app }: { estimate: Estimate; app: string }) {
@@ -42,7 +50,7 @@ export function IsolationLines({ estimate, app }: { estimate: Estimate; app: str
           {line.text}
         </p>
       ))}
-      {isolation ? <HowIsolationLink /> : null}
+      {isolation ? <HowItWorks /> : null}
     </div>
   );
 }

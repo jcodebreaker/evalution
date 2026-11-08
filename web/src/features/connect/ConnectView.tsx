@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../lib/api";
-import type { Discovery, TargetDetail } from "../../lib/schema";
+import type { AgentSession, Discovery, TargetDetail } from "../../lib/schema";
 import { ready as loaded, useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/field";
+import { Progress } from "../environment/Progress";
+import { TestEnvironment } from "../environment/TestEnvironment";
+import type { Standing } from "../environment/words";
 import { Fold, Group, TextLink } from "../shared/group";
 import { Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import { Composer } from "../tests/Composer";
-import { Isolation } from "./Isolation";
 import { ModelStep } from "./ModelStep";
 import { Probe } from "./Probe";
 import { lastPart, recentFolders, rememberFolder } from "./recent-folders";
@@ -22,7 +24,7 @@ const UNREACHABLE = "Couldn't reach evalution. Check that it's still running, th
 
 /**
  * Connect an app, from nothing to its first test: its address or project folder, the model, one
- * real message, what a test must start clean of, then the test. evalution looks at the app and says
+ * real message, once it is learned the copy tests run on, then the test. evalution looks at the app and says
  * what it found, asks what it couldn't tell, and each step that fails says what to do next. Details
  * holds the technical form.
  */
@@ -31,6 +33,8 @@ export function ConnectView({
   onReady,
   onLearn,
   onLearned,
+  writer,
+  onFirstTest,
   onAsk,
 }: {
   first: boolean;
@@ -39,6 +43,10 @@ export function ConnectView({
   /** There's a model to learn it with. */
   onLearn: (name: string) => void;
   onLearned: () => void;
+  /** The test writer's thread: it learns the app, and says when it's done. */
+  writer?: AgentSession | null;
+  /** The test copy is proven: on to the tests. */
+  onFirstTest?: () => void;
   onAsk: (text: string) => Promise<void>;
 }) {
   const [title] = useState(first ? "Connect your first app" : "Connect an app");
@@ -139,12 +147,32 @@ export function ConnectView({
       : "now";
   const later = made ? "now" : "waiting";
 
+  // Learning ends when the writer, seen working on this app, stops: then the test copy is set up.
+  const learningNow = !!name && writer?.target === name && writer.status === "working";
+  const [sawLearning, setSawLearning] = useState(false);
+  useEffect(() => {
+    if (learningNow) setSawLearning(true);
+  }, [learningNow]);
+  const learned = !!made && modelChosen && sawLearning && !learningNow;
+  const [copy, setCopy] = useState<Standing | null>(null);
+  const proven = copy === "proven";
+
   return (
     <>
       <Toolbar>
         <ToolbarTitle title={title} />
       </Toolbar>
       <Page narrow>
+        {made ? (
+          <Progress
+            steps={[
+              { label: "Connect", state: "done" },
+              { label: "Learn", state: learned ? "done" : modelChosen ? "now" : "waiting" },
+              { label: "Set up testing", state: proven ? "done" : learned ? "now" : "waiting" },
+              { label: "First test", state: proven ? "now" : "waiting" },
+            ]}
+          />
+        ) : null}
         <SetupStep n={1} title="App" state={appState}>
           <form
             className="flex flex-col gap-2"
@@ -200,7 +228,11 @@ export function ConnectView({
                     ? [
                         { text: "Ready", state: "done" as const },
                         ...(modelChosen
-                          ? [{ text: "Learning your app…", state: "doing" as const }]
+                          ? [
+                              learned
+                                ? { text: "Learned your app", state: "done" as const }
+                                : { text: "Learning your app…", state: "doing" as const },
+                            ]
                           : []),
                       ]
                     : []),
@@ -295,8 +327,19 @@ export function ConnectView({
           {name ? <Probe target={name} checked={!!row?.checked} onChange={reloadTargets} /> : null}
         </SetupStep>
 
-        <SetupStep n={4} title="Isolation" state={later}>
-          {row ? <Isolation target={row} onChange={reloadTargets} /> : null}
+        <SetupStep
+          n={4}
+          title="Set up testing"
+          state={learned ? (proven ? "done" : "now") : "waiting"}
+        >
+          {name ? (
+            <TestEnvironment
+              target={name}
+              mode="setup"
+              onStanding={setCopy}
+              onFirstTest={onFirstTest}
+            />
+          ) : null}
         </SetupStep>
 
         <SetupStep n={5} title="First test" state={made && modelChosen ? "now" : "waiting"}>

@@ -1,14 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { api } from "../../lib/api";
-import {
-  CompareSchema,
-  EstimateSchema,
-  HealthSchema,
-  IsolationSchema,
-  PlanStepSchema,
-} from "../../lib/schema";
+import { CompareSchema, EstimateSchema, HealthSchema, PlanStepSchema } from "../../lib/schema";
+import { OpenEnvironment } from "../environment/use-isolation";
 import { IsolationLines } from "../runs/RunConfirm";
 import { Steps } from "../test/Steps";
 import { HowTestsRun } from "./HowTestsRun";
@@ -61,19 +55,43 @@ it("Home says a proven plan's stores in plain words, with when it was proven", (
   expect(screen.queryByRole("button", { name: /Find and prove/ })).toBeNull();
 });
 
-it("Home opens the Isolation section from Details, and the explainer from How this works", async () => {
-  vi.spyOn(api, "isolation").mockResolvedValue(
-    IsolationSchema.parse({ target: "relay-lite", status: "proven", version: 1 }),
+it("Home opens the Test environment from Details, and the explainer from How this works", async () => {
+  const open = vi.fn();
+  render(
+    <OpenEnvironment.Provider value={open}>
+      <HowTestsRun
+        target="relay-lite"
+        isolation={card({ status: "proven", version: 1, stores: STORES })}
+      />
+    </OpenEnvironment.Provider>,
   );
-  home({ status: "proven", version: 1, stores: STORES });
   fireEvent.click(screen.getByRole("button", { name: "Details" }));
-  await screen.findByText(/^Proven \(plan v1\)/);
-  cleanup();
-  home({ status: "proven", version: 1, stores: STORES });
+  expect(open).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "How this works" }));
   await screen.findByText("How isolation works");
   expect(screen.getByText("Find where the app keeps things")).toBeTruthy();
   expect(screen.getByText("What it can't reset")).toBeTruthy();
+});
+
+it("the Run dialog's How this works opens the Test environment where the page can move", () => {
+  const open = vi.fn();
+  render(
+    <OpenEnvironment.Provider value={open}>
+      <IsolationLines
+        app="relay-lite"
+        estimate={EstimateSchema.parse({
+          token: "t",
+          cases: 1,
+          tries: 1,
+          chats: 1,
+          isolation: { how: "proven", plan_version: 1, status: "proven" },
+        })}
+      />
+    </OpenEnvironment.Provider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "How this works" }));
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("How isolation works")).toBeNull();
 });
 
 it("Home says what changed under a stale plan, that the next run proves it again, and the button", () => {

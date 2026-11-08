@@ -2,7 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 
 // Where the page is, kept in the URL's query so a screen can be linked and Back works.
 
-export type View = "home" | "app" | "tests" | "benchmarks" | "runs" | "connect" | "model";
+export type View =
+  | "home"
+  | "app"
+  | "environment"
+  | "tests"
+  | "benchmarks"
+  | "runs"
+  | "connect"
+  | "model";
 
 export type Place = {
   target: string | null;
@@ -13,7 +21,16 @@ export type Place = {
   base: string | null;
 };
 
-const VIEWS: View[] = ["home", "app", "tests", "benchmarks", "runs", "connect", "model"];
+const VIEWS: View[] = [
+  "home",
+  "app",
+  "environment",
+  "tests",
+  "benchmarks",
+  "runs",
+  "connect",
+  "model",
+];
 const KEYS = ["target", "set", "view", "run", "case", "base"] as const;
 /** Places links from before the App screen still name. */
 const OLD: Record<string, View> = {
