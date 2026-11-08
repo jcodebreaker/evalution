@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import inspect
 import json
+import logging
 import re
 import secrets
 import time
@@ -43,8 +46,11 @@ from evalution.isolation.launch import (
     extras,
     guard,
 )
-from evalution.isolation.plan import Plan, PlanStore, draft_from
+from evalution.isolation.plan import Plan, PlanStore, draft_from, given
 from evalution.isolation.rehearse import Rehearsal, rehearse, scan_files
+from evalution.isolation.setup import Setup, seed_path, setup_for
+
+_logger = logging.getLogger(__name__)
 
 #: Where a project's compose file usually is, first found first.
 COMPOSE_FILES = (
@@ -62,6 +68,10 @@ PROBE = "Please remember this for later: my code word is {canary}."
 
 Ask = Callable[[str], Awaitable[bool]]
 Copy = ComposeCopy | ProcessCopy
+#: Told each stage as it begins (see :func:`isolate`).
+OnStage = Callable[[str], object]
+#: Told the plan once it is drafted, before its stores are given to the copy.
+OnPlan = Callable[[Plan], object]
 
 
 class Declined(RuntimeError):
@@ -337,6 +347,67 @@ def store_id(driver: Driver) -> str:
     return str(getattr(driver, "store_id", None) or driver.name)
 
 
+async def stores_on(
+    plan: Plan,
+    copy: Copy,
+    *,
+    roots: list[Path] = (),  # type: ignore[assignment]
+    notes: list[str] | None = None,
+    seed: Path | None = None,
+    stage: OnStage | None = None,
+) -> list[Driver]:
+    """The copy's own stores, one at a time: :func:`drivers_for` each of *plan*'s stores, *stage*
+    told ``store:<id>`` as each one the copy gets begins (:func:`.plan.given`), and with *seed*,
+    that ``.sql`` file loaded into each of the copy's Postgres databases, before anything keeps
+    the copy's starting state.
+
+    :raises DockerError: The sample data didn't load.
+    """
+    notes = notes if notes is not None else []
+    gets = {s.id for s in given(plan)}
+    out: list[Driver] = []
+    for store in plan.stores:
+        if stage is not None and store.id in gets:
+            stage(f"store:{store.id}")
+        made = await drivers_for(replace(plan, stores=[store]), copy, roots=roots, notes=notes)
+        for driver in made:
+            load = getattr(driver, "load_sql", None)
+            if seed is not None and load is not None:
+                await asyncio.to_thread(load, seed)
+        out += made
+    return out
+
+
+def _person_type() -> type | None:
+    """The adapters' ``Person``, when this evalution has one."""
+    from evalution.adapters import base
+
+    found = getattr(base, "Person", None)
+    return found if isinstance(found, type) else None
+
+
+async def play_as(adapter: Target, person: dict[str, Any]) -> bool:
+    """Have *adapter* play as the test *person* (:class:`Setup`'s ``person``), when it can
+    (``persona``); whether it took it. Before any session is opened on the copy."""
+    persona = getattr(adapter, "persona", None)
+    kind = _person_type()
+    if persona is None or kind is None:
+        return False
+    fields = dict(person)
+    if dataclasses.is_dataclass(kind):
+        names = {f.name for f in dataclasses.fields(kind)}
+        fields = {k: v for k, v in fields.items() if k in names}
+    try:
+        made = kind(**fields)
+    except TypeError as exc:
+        _logger.warning("isolation: the test person doesn't fit this evalution's Person: %s", exc)
+        return False
+    result = persona(made)
+    if inspect.isawaitable(result):
+        await result
+    return True
+
+
 # Running the copy for a rehearsal ----------------------------------------------------------------
 
 
@@ -436,11 +507,20 @@ def summary(copy: Copy) -> str:
 
 
 async def _rehearse_on(
-    plan: Plan, copy: Copy, spec: dict[str, Any], probe: Callable[[str], Awaitable[None]],
-    folder: Path, work: Path,
+    plan: Plan, copy: Copy, spec: dict[str, Any], adapter: Target, run: str,
+    folder: Path, work: Path, *, setup: Setup, seed: Path | None, stage: OnStage,
 ) -> tuple[Rehearsal, list[str]]:  # fmt: skip
+    """Give the copy its own stores (with the sample data), play as the test person, and
+    rehearse *plan* on it with one probe."""
     notes: list[str] = []
-    drivers = await drivers_for(plan, copy, roots=roots_of(copy, spec), notes=notes)
+    drivers = await stores_on(
+        plan, copy, roots=roots_of(copy, spec), notes=notes, seed=seed, stage=stage
+    )
+    stage("person")
+    await play_as(adapter, setup.person)
+    stage("rehearse")
+    stage("prove")
+    probe = prober(adapter, run)
     if isinstance(copy, ComposeCopy):
         keep = [d.container for d in drivers if isinstance(d, PostgresStore)]
         runner: ComposeRunner | ProcessRunner = ComposeRunner(copy, probe, keep)
@@ -474,7 +554,8 @@ async def isolate(
     yes: bool = False,
     ask: Ask | None = None,
     keep: bool = False,
-    on_stage: Callable[[str], object] | None = None,
+    on_stage: OnStage | None = None,
+    on_plan: OnPlan | None = None,
 ) -> Plan:
     """Find *target*'s stores on a copy of the app, draft a plan, rehearse it there, save it.
 
@@ -482,8 +563,11 @@ async def isolate(
     :param launch: How to start the copy (:func:`launch_spec`); by default found from *folder*.
     :param yes: Send the probes without asking; else *ask* is shown the copy first.
     :param keep: Leave the copy running afterwards (it is otherwise always taken down).
-    :param on_stage: Told each stage as it begins: ``start``, ``find``, ``plan``, ``rehearse``.
+    :param on_stage: Told each stage as it begins: ``copy`` (and ``start``), ``find``, ``plan``,
+        ``store:<id>`` for each store the copy gets, ``person``, ``prove`` (and ``rehearse``).
+    :param on_plan: Told the draft plan, before its stores are given to the copy.
     :raises Declined: The person said no; the copy is already taken down.
+    :raises SetupError: The setup's sample data isn't a ``.sql`` file in the app's folder.
     """
 
     def stage(key: str) -> None:
@@ -492,12 +576,15 @@ async def isolate(
 
     folder = (folder or code_folder(config, target)).resolve()
     spec = launch or launch_spec(folder, config.targets[target].options)
+    setup = setup_for(config, target)
+    seed = seed_path(config, target, setup)
     work = work_folder(config, target)
     copy = copy_of(spec, target, slot, work)
     left: list[str] = []
     downed = False
     try:
         stage("start")
+        stage("copy")
         if isinstance(copy, ComposeCopy):
             await copy.start()
             pid = None
@@ -522,11 +609,13 @@ async def isolate(
         plan = draft_from(folder, stores, seen, found, target=target)
         plan.launch = {**spec, "project": plan.launch.get("project")}
         PlanStore(config.data_dir).save_evidence(target, evidence(stores, found, seen))
+        if on_plan is not None:
+            on_plan(plan)
 
-        stage("rehearse")
         result, notes = await _rehearse_on(
-            plan, copy, spec, prober(adapter, f"isolation-rehearse-{tag}"), folder, work
-        )
+            plan, copy, spec, adapter, f"isolation-rehearse-{tag}", folder, work,
+            setup=setup, seed=seed, stage=stage,
+        )  # fmt: skip
         if not keep:
             left, downed = await take_down(copy), True
         where = copy.project if isinstance(copy, ComposeCopy) else copy.url
@@ -551,25 +640,46 @@ def plan_spec(config: Config, target: str, plan: Plan) -> dict[str, Any]:
     return launch_spec(code_folder(config, target).resolve(), config.targets[target].options)
 
 
-async def rehearse_plan(config: Config, target: str, plan: Plan, *, slot: int = 0) -> Plan:
+async def rehearse_plan(
+    config: Config,
+    target: str,
+    plan: Plan,
+    *,
+    slot: int = 0,
+    on_stage: OnStage | None = None,
+) -> Plan:
     """Rehearse *plan* as it is on a fresh copy of the app and take the copy down. Sends one
     probe message. The plan comes back ``proven`` or ``failed``, with the rehearsal's account in
-    ``report`` and where it leaked in ``leaks``; it is not saved (the caller decides).
+    ``report`` and where it leaked in ``leaks``; it is not saved (the caller decides). The copy
+    starts as the target's setup says (sample data included), so what is proven is what runs.
 
+    :param on_stage: Told ``copy``, ``store:<id>``, ``person`` and ``prove`` as each begins.
     :raises LookupError: No such target, or nothing says how to start a copy.
     :raises LaunchError: The copy didn't start.
+    :raises SetupError: The setup's sample data isn't a ``.sql`` file in the app's folder.
     """
+
+    def stage(key: str) -> None:
+        if on_stage is not None:
+            on_stage(key)
+
     folder = code_folder(config, target).resolve()
     spec = plan_spec(config, target, plan)
+    setup = setup_for(config, target)
+    seed = seed_path(config, target, setup)
     work = work_folder(config, target)
     copy = copy_of(spec, target, slot, work)
     left: list[str] = []
     downed = False
     try:
+        stage("start")
+        stage("copy")
         await copy.start()
         adapter = adapter_on(config, target, copy.url)
-        probe = prober(adapter, f"isolation-rehearse-{secrets.token_hex(4)}")
-        result, notes = await _rehearse_on(plan, copy, spec, probe, folder, work)
+        run = f"isolation-rehearse-{secrets.token_hex(4)}"
+        result, notes = await _rehearse_on(
+            plan, copy, spec, adapter, run, folder, work, setup=setup, seed=seed, stage=stage
+        )
         left, downed = await take_down(copy), True
         where = copy.project if isinstance(copy, ComposeCopy) else copy.url
         draft = plan.report.split("\n\nRehearsed on ", 1)[0]
