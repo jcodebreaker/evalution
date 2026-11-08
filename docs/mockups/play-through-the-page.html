@@ -294,7 +294,7 @@ h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
     </section>
 
     <section class="card steps" aria-label="Steps">
-      <h2>Steps <span class="hint">click one to jump there</span></h2>
+      <h2>Steps <span class="hint">click one to jump near there</span></h2>
       <div id="steps"></div>
       <div id="why"></div>
     </section>
@@ -319,7 +319,7 @@ const TRIES = [
 
 function stepsFor(tr) {
   const common = [
-    { t: 0, s: "info", title: "Before", d: "A fresh copy and a new person, Alex Rivera. Checked empty.", how: "checked by code" },
+    { t: 0, s: "info", title: "Before", d: "The copy put back and checked, and a new person, Alex Rivera.", how: "the copy's restore" },
     { t: 0.6, s: "info", title: "Typed in the message box", d: `“${FIRST}”`, how: "on the page", page: true },
     { t: 4.2, s: "pass", title: "Reply showed on the page", d: "1.5 s after Send.", how: "on the page", page: true },
     { t: 4.5, s: "pass", title: "Stored: a dog named Biscuit", d: "Memory has one new entry for Alex.", how: "checked by code" },
@@ -327,7 +327,7 @@ function stepsFor(tr) {
     { t: 6.5, s: "info", title: "Typed in the message box", d: `“${SECOND}”`, how: "on the page", page: true },
   ];
   if (tr.ok) return [...common,
-    { t: tr.answerAt, s: "pass", title: "Reply showed, and it names Biscuit", d: "Judged by a model.", quote: ANSWER, how: "on the page", page: true },
+    { t: tr.answerAt, s: "pass", title: "Reply showed, and it names Biscuit", d: "The reply's words are on the page. Checked by code.", quote: ANSWER, how: "on the page", page: true },
     { t: 12.8, s: "pass", title: "Page stayed healthy", d: "No errors in the console. Nothing failed to load.", how: "checked by code" },
   ];
   return [...common,
