@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
+import { asSentence } from "../../lib/format";
 import type { ModelBody, ModelSettings, ModelTest, Provider } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
@@ -223,7 +224,10 @@ export function ModelForm({
         </Row>
       </Group>
       {models.status === "error" && canList && !fixed ? (
-        <p className="m-0 text-[13px] text-ink-2">{listError} Type their names, or fix it.</p>
+        <p className="m-0 text-[13px] text-ink-2">
+          {listError ? `${asSentence(listError)} ` : null}So the models can't be listed: type the
+          names of the models to use, or fix the key or address.
+        </p>
       ) : null}
       {note ? <p className="m-0 text-[13px] text-ink-2">{note}</p> : null}
       {!account && stored && moved && !key.trim() ? (

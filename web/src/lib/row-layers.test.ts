@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { asSentence } from "../features/test/VerdictBanner";
+import { asSentence } from "./format";
 import { layerLine } from "./verdict";
 
 it("a row says the page's health apart, as the try's banner does, and only when it failed", () => {
@@ -14,4 +14,8 @@ it("a reason reads as a sentence of its own before the banner's next one", () =>
     "The app answered a request from the page with an error, 503.",
   );
   expect(asSentence("Already a sentence.")).toBe("Already a sentence.");
+});
+
+it("the model list's failure reads as its own sentence, then what to do", () => {
+  expect(`${asSentence("The key was refused")} So`).toBe("The key was refused. So");
 });

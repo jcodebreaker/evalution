@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { seconds } from "../../lib/format";
+import { asSentence, seconds } from "../../lib/format";
 import type { Compare, TryOutcome } from "../../lib/schema";
 import {
   type LayerPill,
@@ -133,12 +133,4 @@ export function VerdictBanner({
       ) : null}
     </div>
   );
-}
-
-/** A reason as the server words it ("the app answered … 503") made a sentence of its own, so the
- * banner's next sentence doesn't run into it. */
-export function asSentence(reason: string): string {
-  const said = reason.trim();
-  const capital = said.charAt(0).toUpperCase() + said.slice(1);
-  return /[.!?…]$/.test(capital) ? capital : `${capital}.`;
 }
