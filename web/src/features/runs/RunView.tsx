@@ -114,7 +114,7 @@ export function RunView({
             </div>
 
             <Comparison
-              run={run.run}
+              run={run}
               runs={runs}
               label={label}
               going={going}

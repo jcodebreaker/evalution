@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Place } from "../../lib/router";
 import { usePlace } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
+import { ready } from "../../lib/use-load";
 import { isBenchmark } from "../benchmarks/BenchmarksView";
 import { OpenEnvironment } from "../environment/use-isolation";
 import type { RunTarget } from "../runs/RunConfirm";
@@ -9,7 +10,7 @@ import { RunConfirm } from "../runs/RunConfirm";
 import { WriterPanel } from "../writer/WriterPanel";
 import { Screen } from "./Screen";
 import { Sidebar } from "./Sidebar";
-import { useShown } from "./use-shown";
+import { followRun, useShown } from "./use-shown";
 import { useWorkspace } from "./use-workspace";
 import { useWriter } from "./use-writer";
 
@@ -39,6 +40,13 @@ export function App() {
   const writer = useWriter(scope, reloadRuns, reloadCases);
   const { agent, ask, writerOpen, setWriterOpen, writerDraft, clearDraft } = writer;
   const shown = useShown(place, scope, scopeKey, rows, runs, writer.agentMessages);
+  // A run opened from another set's page (Home, a link) takes the page to its own set.
+  const follow = followRun(place, ready(shown.detail), { target, set });
+  const followTarget = follow?.target;
+  const followSet = follow?.set;
+  useEffect(() => {
+    if (followSet) go({ target: followTarget, set: followSet }, true);
+  }, [followTarget, followSet, go]);
 
   const runTest = (id: string, name: string) => {
     if (scope && !going) setConfirm({ scope, test: { id, name } });

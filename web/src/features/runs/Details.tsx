@@ -23,7 +23,13 @@ export function Details({
   onTest: (id: string) => void;
 }) {
   const others = runs
-    .filter((entry) => entry.run !== run.run && entry.started_at < run.started_at)
+    .filter(
+      (entry) =>
+        entry.run !== run.run &&
+        entry.target === run.target &&
+        entry.set === run.set &&
+        entry.started_at < run.started_at,
+    )
     .sort((a, b) => b.started_at - a.started_at);
   return (
     <div className="flex flex-col gap-3">

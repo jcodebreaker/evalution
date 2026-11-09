@@ -23,7 +23,8 @@ const WORDS: Record<string, string> = {
   only_one: "In one run only",
 };
 
-/** Did this change make it worse? This run against another: what changed, and which tests moved. */
+/** Did this change make it worse? This run against an earlier run of its own set: what changed,
+ * and which tests moved. */
 export function Comparison({
   run,
   runs,
@@ -32,20 +33,38 @@ export function Comparison({
   onTest,
   onRunMore,
 }: {
-  run: string;
+  run: Pick<RunSummary, "run" | "target" | "set" | "started_at">;
   runs: RunSummary[];
   label: (run: string) => string;
   going: boolean;
   onTest: (id: string) => void;
   onRunMore: (ids: readonly string[], tries: number) => void;
 }) {
-  const [picked, setPicked] = useState<string | null>(null);
-  const [load] = useLoad(`comparison:${run}:${picked ?? ""}`, () => api.comparison(run, picked));
-  if (load.status !== "ready" || !load.data.base) return null;
+  const [chosen, setPicked] = useState<{ run: string; base: string } | null>(null);
+  // A base picked on another run's page is not this one's.
+  const picked = chosen?.run === run.run ? chosen.base : null;
+  const [load] = useLoad(`comparison:${run.run}:${picked ?? ""}`, () =>
+    api.comparison(run.run, picked),
+  );
+  if (load.status !== "ready" || load.data.run !== run.run) return null;
+  if (!load.data.base) {
+    return (
+      <p className="m-0 text-[13px] text-ink-2">No earlier run of this test set to compare with.</p>
+    );
+  }
   const found = load.data;
   const moved = found.tests.filter((test) => test.change !== "same");
   const same = found.tests.length - moved.length;
-  const others = runs.filter((other) => other.run !== run);
+  // Runs of another set or app share none of its tests: every one would be "in one run only".
+  const others = runs
+    .filter(
+      (other) =>
+        other.run !== run.run &&
+        other.target === run.target &&
+        other.set === run.set &&
+        other.started_at < run.started_at,
+    )
+    .sort((a, b) => b.started_at - a.started_at);
   const base = found.base as string;
   return (
     <section className="flex flex-col gap-3 rounded-[14px] bg-group p-4 ring-1 ring-separator">
@@ -55,7 +74,7 @@ export function Comparison({
           Compared with
           <select
             value={base}
-            onChange={(event) => setPicked(event.target.value)}
+            onChange={(event) => setPicked({ run: run.run, base: event.target.value })}
             className="rounded-md bg-bubble px-1.5 py-1 text-[13px] text-foreground"
           >
             {others.some((other) => other.run === base) ? null : (
