@@ -358,6 +358,11 @@ def view(targets: Targets, name: str, jobs: Builds | None = None) -> dict[str, A
     """*name*'s build recipe as the page shows it: the recipe in words with its evidence, how far
     it is proven, the files changed under it, what was built and its cost, the versions kept, the
     free disk, and the job proving it when one is going."""
+    # The job first: one that reads ended has saved its recipe, so the recipe read after it is
+    # never older than the job says (read the other way, a job ending in between showed a done
+    # job beside the recipe from before it).
+    job = jobs.jobs.get(name) if jobs else None
+    shown = job.view() if job else None
     store = _store(targets)
     problem: str | None = None
     try:
@@ -378,7 +383,6 @@ def view(targets: Targets, name: str, jobs: Builds | None = None) -> dict[str, A
     except OSError:
         free = 0
     built = sorted(store.built(name).values(), key=lambda r: -float(r.get("at") or 0))
-    job = jobs.jobs.get(name) if jobs else None
     if recipe is not None and recipe.kind != "process":
         try:
             image_names(recipe, "probe")
@@ -412,6 +416,6 @@ def view(targets: Targets, name: str, jobs: Builds | None = None) -> dict[str, A
         "cost": cost(recipe, name),
         "free_bytes": free,
         "min_free_bytes": build.MIN_FREE,
-        "job": job.view() if job else None,
+        "job": shown,
         "problem": problem,
     }
