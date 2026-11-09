@@ -106,6 +106,23 @@ Run phase 0's measures again. Keep the change only if, on the big app: the skele
 
    The names an area is told and checked against went from 20 to 36. Before, an area past 20 had the rest neither said to it nor checked.
 
+**Run again (2026-11-09, `e709491`).** The same app was learned cold, the same way.
+
+| | Phase 5 (new) | With the fixes |
+|---|---|---|
+| Whole learn | 111 s | 114 s |
+| Model calls | 23 (areas 18) | 39 (areas 35) |
+| Tokens in / out | 401k / 34k | 686k / 57k |
+| Areas learned | the heavy one out of budget | 10 of 11 (two heavy areas in 4 and 2 pieces; the one left has no weight) |
+| Skeleton names covered | 71 of 121 | 116 of 127 (tools 91 of 97, prompts 14 of 18, agents 8 of 8, model calls 2 of 2) |
+| Follow-up steps | — | 3 areas |
+| Named in no section (guard) | 4 | 6 |
+
+- **Gap 1 closed.** Both heavy areas were learned, each piece within its own budget, in about the same time: the pieces run side by side.
+- **Gap 2 narrowed, not closed.** The six names the guard still reports are four OS tools and two policy tools, in two files of one tools piece; a follow-up step wasn't enough, or wasn't left for it. The four prompt files (`.md` templates) are named by the skeleton but not by any section's words.
+- **It costs more, for what it covers.** It made 70% more calls and read 70% more tokens, all in areas: the tools that were skipped are now read.
+- **Seen:** the agent titled one piece's section with its id instead of what it covers, so the brief's request alone isn't enough.
+
 ## Testing
 
 - Unit: skeleton extraction per language the code map parses; trace matching; weights and budgets; per-area save and resume.
