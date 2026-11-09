@@ -294,8 +294,9 @@ async def index(
         why.update({p: error for p in paths if p not in found})
         if found:
             # Kept as each batch finishes: a learn stopped partway keeps what it read, and the
-            # next one reads only what is still unsummarized.
-            await asyncio.to_thread(_keep, targets, name, files, found)
+            # next one reads only what is still unsummarized. Kept here, not in a thread: a
+            # learn cut off right after a batch must not drop the save it was waiting on.
+            _keep(targets, name, files, found)
         shown["read_done"] = shown.get("read_done", 0) + len(found)
         return found
 

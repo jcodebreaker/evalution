@@ -665,7 +665,8 @@ def test_api_propose_prove_undo(client) -> None:
     ]
     client.fake.go = True
     found = _until_ended(client)
-    assert found["status"] == "proven" and found["version"] == 2
+    assert found["job"]["state"] == "done", found["job"]
+    assert found["status"] == "proven" and found["version"] == 2, found
     assert [s["state"] for s in found["job"]["steps"]] == ["done"] * 4
     assert found["last_build"]["seconds"] == 158
     assert found["cost"] == "builds bot's code once: about 3 min and up to 10 GB"
