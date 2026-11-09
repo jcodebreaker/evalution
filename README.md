@@ -75,6 +75,8 @@ uv run --project server evalution serve       # or: evalution service install, t
 
 To see tests played through an app's own page, in a minute and for free: `uv run --project server evalution demo ui` ([UI testing in five minutes](docs/ui-testing.md)).
 
+To see a branch tested against `main` before its pull request, also in a minute and for free: `uv run --project server evalution demo versions` ([Test a version before its pull request](docs/versions.md)).
+
 Open **http://127.0.0.1:8080**, then:
 
 1. **Choose a model** under Settings: Claude, OpenAI or any OpenAI-compatible server, with a strong model for writing and grading and a cheap one for generated messages. *Test model* sends one tiny message to each.

@@ -117,6 +117,9 @@ page_switches.update(
 MESSAGE_SWITCHES = ("refuse_message_once", "hang_message")
 #: A phrase: the page drops the reply to any message holding it, and shows every other.
 drop_reply_to = os.environ.get("DROP_REPLY_TO") or None
+#: Whether it keeps what it's asked to remember. ``evalution demo versions``'s branch
+#: ``feature-x`` turns it off, as a change someone made to the app's code.
+remembers = True
 _background: set[asyncio.Task] = set()
 
 
@@ -219,7 +222,7 @@ async def _turn(sid: str, session: dict, message: str, marks: dict[str, str]) ->
     trace = Trace(sid, marks)
     trace.tool("recall", {"found": 0})
     remembered = re.search(r"remember (?:that )?(.+?)[.]?$", message, re.I)
-    if remembered:
+    if remembered and remembers:
         session["memory"].append(remembered.group(1))
         if SHARED_MEMORY:
             everyone.append(remembered.group(1))
@@ -756,8 +759,14 @@ def _stop_when_orphaned(parent: int) -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-if __name__ == "__main__":
+def serve(port: int) -> None:
+    """Serve the app on *port* until stopped, or until whatever started it is gone. Also what a
+    file that runs the app from elsewhere calls (``evalution demo versions``'s small repo)."""
     if not TRACES:
         sys.exit("TRACES: where the app sends its spans, e.g. http://127.0.0.1:8080/v1/traces")
     threading.Thread(target=_stop_when_orphaned, args=(os.getppid(),), daemon=True).start()
-    uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+if __name__ == "__main__":
+    serve(int(sys.argv[1]))

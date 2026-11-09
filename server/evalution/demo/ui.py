@@ -223,11 +223,21 @@ def environment() -> dict[str, str]:
 class Demo:
     """The demo's folder, server and run, from :meth:`start` to :meth:`stop`."""
 
-    def __init__(self, web_dir: Path) -> None:
-        self.folder = Path(tempfile.mkdtemp(prefix="evalution-demo-"))
+    def __init__(
+        self,
+        web_dir: Path,
+        set_up: Callable[[Path, Path, int], Path] = prepare,
+        prefix: str = "evalution-demo-",
+    ) -> None:
+        """A new scratch folder, set up by *set_up* (``(folder, web_dir, port) -> config``)."""
+        self.folder = Path(tempfile.mkdtemp(prefix=prefix))
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
-        self.config = prepare(self.folder, web_dir, self.port)
+        try:
+            self.config = set_up(self.folder, web_dir, self.port)
+        except BaseException:
+            shutil.rmtree(self.folder, ignore_errors=True)
+            raise
         self.server: subprocess.Popen[bytes] | None = None
         self.client = httpx.Client(base_url=self.url, timeout=30, trust_env=False)
 
@@ -268,9 +278,10 @@ class Demo:
         found = (self.folder / "serve.log").read_text(errors="replace").strip().splitlines()
         return " / ".join(found[-5:]) or "nothing in its log"
 
-    def play(self) -> dict[str, Any]:
-        """Both tests through the real runner, once each; the run as the API shows it."""
-        asked = {"target": TARGET, "set": SET, "tries": 1}
+    def play(self, asked: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Both tests through the real runner, once each, or the run *asked* (what an estimate
+        takes); the run as the API shows it."""
+        asked = asked or {"target": TARGET, "set": SET, "tries": 1}
         estimate = self.client.post("/v1/evals/runs/estimate", json=asked).json()
         if "token" not in estimate:
             raise RuntimeError(f"the run wasn't estimated: {estimate}")

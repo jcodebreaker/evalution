@@ -81,7 +81,9 @@ def versions_router() -> APIRouter:
             remotes = found.remotes()
             chosen = remote or ("origin" if "origin" in remotes else (remotes or [""])[0])
             if not chosen:
-                raise invalid(f"{found.top.name} has no remote to list branches of")
+                raise invalid(
+                    f"{found.top.name} has no remote, so only the branches and tags here are listed"
+                )
             try:
                 branches = found.remote_branches(chosen)
             except versions.VersionError as exc:

@@ -1167,6 +1167,8 @@ class Runs:
             saying.cancel()
             await asyncio.gather(saying, return_exceptions=True)
         doc["version"] = versioned.version_dict(ready.unplayed(), ready.notes)
+        # The run's commit is the version's, not the checkout's: a comparison labels it so.
+        doc["commit"] = ready.commit
         return ready
 
     async def _check_page_map(

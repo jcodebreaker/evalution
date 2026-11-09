@@ -46,6 +46,10 @@ upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 * ``demo ui [--no-open]``: two tests played through the made-up app's page on a copy, in a scratch
   folder of their own, then the failing one's result opened in the browser; Ctrl-C stops it and
   deletes the folder. Spends nothing (:mod:`evalution.demo.ui`, docs/ui-testing.md).
+* ``demo versions [--no-open]``: a small git repository with ``main`` and ``feature-x``, three
+  tests played on each through the real runner (each version checked out into evalution's own
+  folder), and ``feature-x vs main`` printed and opened; Ctrl-C stops it and deletes the folder.
+  Spends nothing (:mod:`evalution.demo.versions`, docs/versions.md).
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
@@ -89,6 +93,7 @@ from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
 from evalution.core.version import described
 from evalution.demo import ui as demo_ui
+from evalution.demo import versions as demo_versions
 from evalution.isolation import containers as store_boxes
 from evalution.isolation import discover as store_scan
 from evalution.isolation import isolate as isolation
@@ -983,7 +988,11 @@ def main(argv: list[str] | None = None) -> int:
     copy_cmd.add_argument("project", nargs="?", help="down: the copy (eval-*); none lists them")
     copy_cmd.add_argument("--target", help="show: whose plan")
     show = sub.add_parser("demo", help="see a part of evalution working on a made-up app: free")
-    show.add_argument("what", choices=("ui",), help="ui: two tests played through a chat page")
+    show.add_argument(
+        "what",
+        choices=("ui", "versions"),
+        help="ui: two tests played through a chat page; versions: a branch tested against main",
+    )
     show.add_argument("--no-open", action="store_true", help="print the result's address only")
     hook = sub.add_parser("hooks", help="git hooks in the target's repo, opt-in")
     hook.add_argument("action", choices=("install", "uninstall", "status"))
@@ -1046,7 +1055,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "hooks":
             return hooks(config, args)
         if args.command == "demo":
-            return demo_ui.run(config.web_dir, open_browser=not args.no_open)
+            shown = demo_versions if args.what == "versions" else demo_ui
+            return shown.run(config.web_dir, open_browser=not args.no_open)
         if args.command == "stores":
             return find_stores(config, args)
         if args.command == "isolate":

@@ -32,6 +32,35 @@ Decided in [ADR 0011](../adr/0011-a-run-plays-a-named-version.md) (Proposed). To
 6. **Limits:** a size per target (default 25 GB; phase 0 measured 19.5 GB for a first relay-lite version and 9.4 GB for each nearby one), oldest unused version first, worktrees with them; a build is refused with less than 5 GB free on the computer's own disk, with what to remove. Sizes are shown, and removing a version trims the Docker VM's disk where it can.
 7. **The reset plan and the page map are re-checked per version** by their evidence files: unchanged, they hold; changed, the run rehearses on that version's copy first and says why.
 
+## Decided while building (2026-11-09)
+
+Phases 1 to 6 are built (`13abb78`, `62fd69f`, `0982031`, and `evalution demo versions`). Where they differ from the decisions above:
+
+- **Fetching writes only evalution's refs, by an explicit refspec and an empty `--refmap`.** `git fetch <remote> refs/heads/<b>:refs/evalution/<target>/<remote>/<b>` alone would still update `refs/remotes/<remote>/<b>` through the remote's configured refspec; `--refmap=` turns that off. No tags follow, `FETCH_HEAD` isn't written, no maintenance runs after. The picker lists a remote's branches live with `ls-remote`, so nothing is fetched until a branch is run. Every git call runs with hooks and fsmonitor off and no password prompt; tests prove the person's refs, index, files, stash and `HEAD` byte-identical.
+- **Stale is decided by file hashes, not by a diff.** The build recipe, the reset plan and the page map each keep a hash of every file their evidence cites, from when they were proposed or proven. A recipe whose files changed on disk is stale; a version whose copies of the plan's or the map's files differ from those hashes gets them checked on its own copy. Comparing hashes needs no git and works on a worktree, an uncommitted change or a folder that isn't a checkout.
+- **Proving a recipe is a build and an HTTP check, no message.** It builds what's on disk into evalution's names (tag `disk-<hash of the watched files>`), starts a copy from those images, checks the copy runs the very images just built (by id) and that its address answers at all, and takes it down. Sending a message would prove the app, which isolation already does. A process recipe's setup is never run in the person's folder, so proving one only starts the copy.
+- **The reset plan and the page map are checked on the version's copy, and saved nowhere.** When the version's files differ, the plan is rehearsed on that version's copy before the first try, the map checked there by the runner; the run says so in its version's notes ("rehearsed again on this version's copy before the first try, and it held"). Neither is saved: they stay as proven on what's on disk. A plan that doesn't hold on the version ends the run before any try, with how to prove it there.
+- **A build is reused by commit, while it is still there.** The recipe store keeps what was built per tag (the commit's first twelve characters, `built.json`); a run reuses it when every image it names is still on this computer (compose), or the worktree it was set up in already existed (process). Otherwise it builds again. What a build made counts toward the target's 25 GB with its worktree, and goes with it.
+- **The base-branch default takes a later run too.** A run of a branch other than the base branch compares by default with the latest earlier run of the same tests on the base branch; when there is none, with a later one, so running `main` after seeing "No run of these tests on main yet" fills the comparison in. Only runs that played anything, in the same environment, count.
+- **A version run's commit is the version's.** The run's top-level `commit` (what the comparison's Code row and older views read) is the commit it played, not the checkout's. Found by the demo: before, a branch's run said "feature-x @ <main's commit>".
+- **The env file stays the person's, even inside the repository.** A copy's `env_file` is read from the person's checkout, as phase 0 decided for relay-lite's git-ignored `.env`. An env file the repository tracks, and that differs on the version, is not mapped into the worktree: the version's copy reads the person's. Known gap.
+- **The writer proposes, the page proves.** The rule's recipe is the default; the test writer explains it and, asked, adjusts it as data (kind, variables, services, profiles, setup), each change checked against the app's files and saved as a new `proposed` version. It never builds: proving is one press on the *How a version is built* card, with the cost said first, not the two approvals in the writer that phase 3 planned.
+- **Phase 5 is a process app, not a Dockerfile.** `evalution demo versions` makes a repository whose one file runs the made-up app (`assistant.py`, `made_up.remembers` set per branch), with a `process` recipe that sets up nothing. It needs no Docker, so it runs anywhere in about a minute; the compose path is tested with fakes, and waits for the live check on relay-lite.
+
+## Where it stands
+
+| Part | Where | State |
+|---|---|---|
+| What a run played (phase 1) | `core/version.py`, `runs/runner.py`, `results/compare.py` | Built. Runs keep a `version` block; old runs read "not recorded" |
+| Versions and worktrees (phase 2) | `project/versions.py`, `evalution versions`, `/v1/targets/{t}/versions` | Built |
+| Build recipes (phase 3) | `isolation/recipe.py`, `isolation/build.py`, `project/building.py`, `writer/building.py`, the *How a version is built* card | Built |
+| Running a version (phase 4) | `runs/versioned.py`, the Run dialog's picker, `evalution run --ref` | Built |
+| The made-up app's versions (phase 5) | `demo/versions.py`, `evalution demo versions` | Built: `feature-x vs main: 1 test got worse` in about 70 s, free |
+| Comparing across versions (phase 6) | `results/compare.py`, the comparison card, the runs list's filter | Built |
+| **Build what's on disk** (decision 5) | | Not built: an unverified disk run says why, with no button yet |
+| Live check on relay-lite | | Not done |
+| Pull requests, CI | | Not started |
+
 ## Phases
 
 ### Phase 0: spike on relay-lite (throwaway)
@@ -66,6 +95,9 @@ What this changes in the plan:
 
 ### Phase 1: say what played (no new behaviour)
 
+Built (2026-11-08, `13abb78`).
+
+
 Worth doing even if nothing else ships: today's runs can be wrong about their code.
 
 1. `Version` in `core/` (pure), and a run's `version` block: `ref: "disk"`, `commit`, `dirty` (from `Code.clean()`), `played` (compose: service → image id and created time; process: the working tree hash), `verified` (false when an image is older than `HEAD` or the tree changed after the build).
@@ -76,6 +108,9 @@ Tests: a run on images built before `HEAD` is marked unverified and says why; tw
 
 ### Phase 2: versions and worktrees
 
+Built (2026-11-08, `62fd69f`).
+
+
 1. `project/versions.py`: list refs (local branches, `refs/remotes/*` after a fetch, tags), resolve a ref to a commit, fetch a remote branch into `refs/evalution/...`, add and remove worktrees under `<data>/versions/<target>/<commit>`, sizes, limits. Every git call through one runner with hooks and fsmonitor off and a timeout.
 2. API: `GET /v1/targets/{t}/versions` (refs, with what's checked out and built), `POST /v1/targets/{t}/versions/fetch`, `DELETE /v1/targets/{t}/versions/{commit}`.
 3. CLI: `evalution versions [--remove COMMIT]`.
@@ -84,6 +119,9 @@ Tests on a throwaway repo: a remote-only branch is fetched without creating or m
 
 ### Phase 3: the build recipe, found and proven
 
+Built (2026-11-08, `62fd69f`).
+
+
 1. `BuildRecipe` (data): `kind: compose | command`, the services built and their image names, the files read as evidence, `setup` for a process copy (e.g. `uv sync`, `npm ci`), timings.
 2. Agent tools in the writer (as isolation's): read the build files, propose a recipe, build the disk version into evalution's names on approval, start a copy from it and probe. Two yeses, as isolation: approve the proposal (it spends minutes of build), approve the proven recipe.
 3. Test environment page: **How a version is built** card, beside How tests reach: the recipe, its evidence, last build time and size, undo.
@@ -91,6 +129,9 @@ Tests on a throwaway repo: a remote-only branch is fetched without creating or m
 Tests: on the made-up app (phase 5 gives it a build), a recipe found, proven, and stale when its Dockerfile changes.
 
 ### Phase 4: run a version
+
+Built (2026-11-09, `0982031`).
+
 
 1. `runs/isolated.py`: before the copy starts, when the run's version isn't disk: worktree (phase 2), build if not built (phase 3), then the copy's override names the version's images; a process copy's `cwd` is the worktree.
 2. Re-check the reset plan and page map against the version's files; rehearse first when they differ.
@@ -103,7 +144,12 @@ Tests: a run of a branch plays that branch's reply, not the disk's; a run of a b
 
 The made-up app (`evalution.demo.app`) gets a tiny git repo in the demo folder with two branches whose replies differ, and a Dockerfile, so `evalution demo versions` shows "feature vs main: 1 got worse" in about a minute, spending nothing. It also gives the acceptance tests a real build.
 
+Built (2026-11-09) as a process app, with no Dockerfile: `evalution demo versions [--no-open]` (`server/evalution/demo/versions.py`). In a new temporary folder it makes a git repository (hooks and the person's git config off) whose one file, `assistant.py`, runs the made-up app; `main` remembers what it's told, `feature-x` changes one line (`made_up.remembers = False`). The target `demo-assistant` has that repository as its code, a reset plan whose copy starts in it with `python assistant.py PORT`, and a `process` recipe with nothing to set up, both saved as proven. Three tests decided by code, four tries each (the fewest that tell 4/4 from 0/4 apart from chance): *Answers a sum*, *Says it noted a message*, *Remembers the dog's name*. It plays them on `main`, then on `feature-x`, through the real runner in an `evalution serve` of that folder: each version checked out as a worktree in the demo's data folder and its copy started there. It prints `feature-x vs main: 1 test got worse: Remembers the dog's name`, checks the repository's own checkout is unchanged, and opens the branch's run, its comparison first. About 70 s here (two runs of about 35 s). Ctrl-C (or a plain `kill`) stops it and deletes the folder, the worktrees with it. `tests/acceptance/test_demo_versions.py` plays it to the end. A real build for the acceptance tests waits for a Dockerfile; until then the compose path is covered by fakes.
+
 ### Phase 6: compare across versions
+
+Built (2026-11-09, `0982031`).
+
 
 1. The comparison card's default base: the latest run of the same set on the base branch (`origin/HEAD`, else `main`, else `master`), when the run is of another branch; else as today.
 2. **Compare with main** on a branch's run: open that run, or offer to run the same tests on `main` with its estimate.
