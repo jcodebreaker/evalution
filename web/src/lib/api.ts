@@ -22,6 +22,7 @@ import {
   AgentSessionSchema,
   ApiTokenSchema,
   BenchmarksSchema,
+  BuildSchema,
   CaseFileViewSchema,
   CaseRowSchema,
   CompareSchema,
@@ -286,6 +287,18 @@ export const api = {
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
   undoIsolation: (name: string) =>
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
+  /** How a version of its code is built into evalution's names, how far that's proven, and the
+   * job proving it. */
+  build: (name: string) => get(one(BuildSchema), `/v1/targets/${enc(name)}/builds`),
+  /** Propose the build recipe by rule from the app's files: builds nothing. */
+  proposeBuild: (name: string) => post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/propose`),
+  /** Prove it: builds what's on disk into evalution's names once, starts a copy, takes it down. */
+  proveBuild: (name: string) =>
+    post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/prove`, { confirm: true }),
+  undoBuild: (name: string) => post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/undo`),
+  /** Remove one built version: evalution's own images of it, then trim the Docker VM's disk. */
+  removeBuild: (name: string, tag: string) =>
+    post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/remove`, { tag }),
   /** How tests reach it: its API, or its page by a learned map, and the map waiting for approval. */
   pageReach: (name: string) => get(one(PageReachSchema), `/v1/targets/${enc(name)}/page`),
   /** What UI testing has on this computer, as `evalution doctor` reads it. */

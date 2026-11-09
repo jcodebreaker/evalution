@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from evalution.isolation.recipe import KINDS as RECIPE_KINDS
 from evalution.project import understanding
 from evalution.review.findings import SUSPECTS
 from evalution.writer.isolating import MAX_FAILED, OPS, STRATEGIES
@@ -419,6 +420,40 @@ TOOLS = [
         f"saved. After {MAX_FAILED} failed rehearsals in a session, none are run: ask the admin.",
         {"plan_id": _STR},
         [],
+    ),
+    _tool(
+        "read_build_recipe",
+        "How a version of this target's code is built into evalution's own names: the saved "
+        "build recipe (kind, the variables naming its images, services and profiles built, a "
+        "process app's setup, its evidence and status), files changed under it, what the rule "
+        "finds in the app's files now, and the last build's time and size.",
+        {},
+        [],
+    ),
+    _tool(
+        "propose_build_recipe",
+        "Adjust the build recipe, checked against the app's files and saved as a new proposed "
+        "version (undoable); nothing is built. kind: compose_env (every built image named "
+        "${name_var}/<name>:${tag_var}), compose_override (an override renames each built "
+        "image) or process. services and profiles: what compose builds. setup: a process "
+        "app's installer commands ({run: [...], cwd}). A refusal says why and saves nothing.",
+        {
+            "kind": {"type": "string", "enum": list(RECIPE_KINDS)},
+            "name_var": _STR,
+            "tag_var": _STR,
+            "services": {"type": "array", "items": _STR},
+            "profiles": {"type": "array", "items": _STR},
+            "setup": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"run": {"type": "array", "items": _STR}, "cwd": _STR},
+                    "required": ["run"],
+                },
+            },
+            "why": {"type": "string", "description": "One line for the admin: why this change"},
+        },
+        ["kind"],
     ),
     _tool(
         "read_page_code",

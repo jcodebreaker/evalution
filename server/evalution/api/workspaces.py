@@ -24,7 +24,7 @@ from evalution.api.plans import CasePlans
 from evalution.config import Config, ConfigError, KeyRing, load
 from evalution.connect import discover, probe
 from evalution.llm import LLM
-from evalution.project import impact, isolating, knowledge
+from evalution.project import building, impact, isolating, knowledge
 from evalution.runs.page.install import Installer
 from evalution.runs.runner import Runs
 from evalution.storage import Database
@@ -59,6 +59,8 @@ class Workspace:
     watcher: impact.Watcher | None
     #: Finding and proving each target's isolation from the page; local only.
     isolations: isolating.Isolations = field(default_factory=isolating.Isolations)
+    #: Proving each target's build recipe from the page; local only.
+    builds: building.Builds = field(default_factory=building.Builds)
     #: Installing what UI testing lacks on this computer, from the page; local only.
     installs: Installer = field(default_factory=Installer)
     #: The agent learning each target's page map, followed on the page; local only.
@@ -70,6 +72,7 @@ class Workspace:
 
     async def close(self) -> None:
         await self.isolations.close()
+        await self.builds.close()
         await self.installs.close()
         if self.page_learns is not None:
             await self.page_learns.close()

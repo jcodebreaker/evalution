@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from evalution.accounts.settings import AuthSettings
 from evalution.api.auth import mount_accounts
 from evalution.api.benchmarks import benchmarks_router
+from evalution.api.builds import builds_router
 from evalution.api.connect import connect_router
 from evalution.api.deps import answers_to, guard
 from evalution.api.health import health_router
@@ -35,6 +36,7 @@ from evalution.api.targets import target_router, targets_router
 from evalution.api.tests import tests_router
 from evalution.api.traces import traces_router
 from evalution.api.understanding import understanding_router
+from evalution.api.versions import versions_router
 from evalution.api.workspaces import Workspaces
 from evalution.api.writer import writer_router
 from evalution.config import Config, ConfigError
@@ -67,7 +69,9 @@ def create_router(url: str = "http://127.0.0.1:8080") -> APIRouter:
         understanding_router(url),
         health_router(),
         isolation_router(),
+        builds_router(),
         page_router(),
+        versions_router(),
         sets_router(),
         benchmarks_router(),
         tests_router(),

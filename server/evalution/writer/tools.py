@@ -42,7 +42,7 @@ from evalution.suite import cases, library, store
 from evalution.targets import Targets
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
-from evalution.writer import isolating, linecheck, paging, saving
+from evalution.writer import building, isolating, linecheck, paging, saving
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
@@ -132,6 +132,8 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "read_isolation": "Reading what was found about the app's state",
         "propose_isolation_plan": "Proposing a change to the isolation plan",
         "rehearse_isolation": "Rehearsing the isolation plan",
+        "read_build_recipe": "Reading how a version is built",
+        "propose_build_recipe": "Proposing how a version is built",
         "read_page_code": "Reading the page's code",
         "look_at_page": "Looking at the page on evalution's copy",
         "try_page_entry": f"Trying where the page has {args.get('entry')}",
@@ -629,6 +631,13 @@ class Tools:
         await self._save(turn.session)
         return found
 
+    async def read_build_recipe(self, turn: AgentTurn, _args: dict) -> Any:
+        turn.read.append("Read how a version is built")
+        return await building.read(self.targets, turn.session)
+
+    async def propose_build_recipe(self, turn: AgentTurn, args: dict) -> Any:
+        return await building.propose_recipe(self.targets, turn.session, args)
+
     async def read_page_code(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the page's code")
         return await paging.read_code(self.targets, turn.session)
@@ -835,6 +844,8 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "read_isolation": Tools.read_isolation,
     "propose_isolation_plan": Tools.propose_isolation_plan,
     "rehearse_isolation": Tools.rehearse_isolation,
+    "read_build_recipe": Tools.read_build_recipe,
+    "propose_build_recipe": Tools.propose_build_recipe,
     "read_page_code": Tools.read_page_code,
     "look_at_page": Tools.look_at_page,
     "try_page_entry": Tools.try_page_entry,

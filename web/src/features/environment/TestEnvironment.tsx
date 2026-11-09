@@ -10,6 +10,7 @@ import { Fold } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { ISOLATE_COST } from "../shared/IsolateButton";
 import { Page, Toolbar, ToolbarTitle } from "../shared/layout";
+import { BuildRecipeCard } from "./BuildRecipe";
 import { Checklist } from "./Checklist";
 import { CopyPicture, type ShownBlock, type Tone } from "./CopyPicture";
 import { PageReach } from "./PageReach";
@@ -298,7 +299,12 @@ export function TestEnvironment({
           />
         ) : null}
       </div>
-      {settled ? <PageReach target={target} /> : null}
+      {settled ? (
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <PageReach target={target} />
+          {mode === "page" ? <BuildRecipeCard target={target} /> : null}
+        </div>
+      ) : null}
       {mode === "page" && data.plan && settled ? (
         <Fold title="Details">
           <PlanDetails isolation={data} onChange={set} />

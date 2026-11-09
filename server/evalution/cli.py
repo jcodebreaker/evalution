@@ -49,6 +49,10 @@ upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
+* ``versions [--target T] [--fetch REMOTE/BRANCH] [--remove COMMIT]``: the target's branches and
+  tags, and the versions evalution checked out on its own, with their sizes
+  (:mod:`evalution.project.versions`). ``--fetch`` fetches a remote branch into evalution's own
+  refs, never the person's; ``--remove`` removes a version evalution keeps.
 
 The config is ``--config``, else ``$EVALUTION_CONFIG``, else ``./evalution.yaml``.
 """
@@ -93,6 +97,7 @@ from evalution.isolation import observe as store_watch
 from evalution.isolation.plan import PlanStore
 from evalution.llm import LLM
 from evalution.project import hooks as git_hooks
+from evalution.project import versions as code_versions
 from evalution.results import baseline
 from evalution.results.compare import comparison, default_base
 from evalution.results.markdown import comparison_markdown
@@ -762,6 +767,54 @@ def hooks(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _when(seconds: float | None) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(seconds)) if seconds else ""
+
+
+def versions(config: Config, args: argparse.Namespace) -> int:
+    """``evalution versions``: list, fetch a remote branch, or remove a kept version."""
+    targets = Targets(config)
+    name = args.target
+    if name is None:
+        names = targets.names()
+        if len(names) != 1:
+            print("evalution: --target: which app (there is more than one)", file=sys.stderr)
+            return 2
+        name = names[0]
+    code = targets.code(name)
+    try:
+        found = code_versions.of(name, code.root if code else None, config.data_dir)
+        if args.fetch:
+            remote, _, branch = args.fetch.partition("/")
+            commit = found.fetch(remote, branch)
+            print(f"fetched {args.fetch} @ {commit[:7]} into evalution's own refs")
+            return 0
+        if args.remove:
+            gone = found.remove(args.remove)
+            print(f"removed {gone.commit[:7]} ({code_versions.said(gone.size)}): {gone.path}")
+            return 0
+        view = found.view()
+    except code_versions.VersionError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    here = view["checked_out"]
+    at = (here["commit"] or "")[:7]
+    print(f"{view['repo']}: checked out {here['branch'] or 'no branch'} @ {at}")
+    for ref in view["refs"]:
+        marks = ("*" if ref["checked_out"] else " ") + ("v" if ref["worktree"] else " ")
+        print(
+            f"{marks} {ref['kind']:<7} {ref['name']:<40} {ref['commit'][:7]} "
+            f"{_when(ref['date'])}  {ref['subject'][:60]}"
+        )
+    print(
+        f"versions kept: {code_versions.said(view['size'])} of "
+        f"{code_versions.said(view['limit'])}; {code_versions.said(view['free'])} free on this disk"
+    )
+    for kept in view["kept"]:
+        print(f"  {kept['commit'][:7]}  {code_versions.said(kept['size']):>8}  {kept['path']}")
+    return 0
+
+
 def carry_sets(config: Config, args: argparse.Namespace) -> int:
     docs = Database.open(config.data_dir).docs()
     folder = args.dir or config.sets_dir
@@ -919,6 +972,13 @@ def main(argv: list[str] | None = None) -> int:
     hook.add_argument("action", choices=("install", "uninstall", "status"))
     hook.add_argument("--target", required=True)
     hook.add_argument("--url", default="http://127.0.0.1:8080", help="where serve listens")
+    kept = sub.add_parser("versions", help="branches, tags and the versions evalution checked out")
+    kept.add_argument("--target", help="which app (default: the only one)")
+    acted = kept.add_mutually_exclusive_group()
+    acted.add_argument(
+        "--fetch", metavar="REMOTE/BRANCH", help="fetch a remote branch into evalution's own refs"
+    )
+    acted.add_argument("--remove", metavar="COMMIT", help="remove the version of this commit")
     args = parser.parse_args(argv)
     if args.command == "run" and args.summary and not args.against:
         parser.error("--summary needs --against")
@@ -964,6 +1024,8 @@ def main(argv: list[str] | None = None) -> int:
             return carry_sets(config, args)
         if args.command == "benchmark":
             return benchmark(config, args)
+        if args.command == "versions":
+            return versions(config, args)
         if args.command == "hooks":
             return hooks(config, args)
         if args.command == "demo":

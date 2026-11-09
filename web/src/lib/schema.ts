@@ -628,6 +628,85 @@ export const PageReachSchema = z.object({
 });
 export type PageReach = z.infer<typeof PageReachSchema>;
 
+/** One thing a build recipe rests on: `path:line` in the app's folder, and what it says there. */
+export const BuildClaimSchema = z.object({ at: z.string(), says: z.string().default("") });
+
+/** How a version of the app's code is built into evalution's own names (ADR 0011): through the
+ * two variables its compose files name images with, an override evalution writes, or a process
+ * app's setup commands. */
+export const BuildRecipeSchema = z.object({
+  kind: z.enum(["compose_env", "compose_override", "process"]).catch("compose_override"),
+  /** The recipe in a sentence or two. */
+  words: z.string().default(""),
+  files: z.array(z.string()).default([]),
+  services: z.array(z.string()).default([]),
+  profiles: z.array(z.string()).default([]),
+  name_var: z.string().nullable().default(null),
+  tag_var: z.string().nullable().default(null),
+  /** Each built service's image under evalution's name, `<commit>` for the version's tag. */
+  images: z.record(z.string(), z.string()).default({}),
+  /** Each built service's image as the app's own files name it. */
+  yours: z.record(z.string(), z.string()).default({}),
+  setup: z.array(z.object({ run: z.array(z.string()), cwd: z.string().default(".") })).default([]),
+  evidence: z.array(BuildClaimSchema).default([]),
+  report: z.string().default(""),
+  /** `rule`, or `agent` when the test writer adjusted it. */
+  by: z.string().default("rule"),
+  why: z.string().default(""),
+  updated: z.number().nullable().default(null),
+});
+export type BuildRecipe = z.infer<typeof BuildRecipeSchema>;
+
+/** One version built into evalution's names: how long it took and the disk it took. */
+export const BuiltVersionSchema = z.object({
+  tag: z.string().default(""),
+  images: z.array(z.string()).default([]),
+  seconds: z.number().nullable().default(null),
+  disk_bytes: z.number().nullable().default(null),
+  image_bytes: z.number().nullable().default(null),
+  at: z.number().nullable().default(null),
+});
+export type BuiltVersion = z.infer<typeof BuiltVersionSchema>;
+
+/** Proving a recipe as it goes: its steps and the build's last lines. */
+export const BuildJobSchema = LiveJobSchema.extend({
+  lines: z.array(z.string()).default([]),
+});
+export type BuildJob = z.infer<typeof BuildJobSchema>;
+
+/** A target's build recipe as the Test environment page shows it. */
+export const BuildSchema = z.object({
+  target: z.string(),
+  status: z.enum(["none", "proposed", "proven", "stale", "failed"]).catch("none"),
+  version: z.number().nullable().default(null),
+  recipe: BuildRecipeSchema.nullable().default(null),
+  last_build: BuiltVersionSchema.nullable().catch(null).default(null),
+  built: z.array(BuiltVersionSchema).default([]),
+  /** The files it rests on that changed since it was proposed. */
+  stale_files: z.array(z.string()).default([]),
+  can_undo: z.boolean().default(false),
+  can_propose: z.boolean().default(false),
+  can_prove: z.boolean().default(false),
+  /** What proving costs, said before it starts: "builds relay-lite's code once: …". */
+  cost: z.string().default(""),
+  free_bytes: z.number().default(0),
+  min_free_bytes: z.number().default(5 * 1024 ** 3),
+  job: BuildJobSchema.nullable().catch(null).default(null),
+  problem: z.string().nullable().default(null),
+  /** What the last removal took away, and whether the Docker VM's disk was trimmed. */
+  removed: z
+    .object({
+      images: z.array(z.string()).default([]),
+      missing: z.array(z.string()).default([]),
+      trimmed: z.boolean().nullable().default(null),
+      note: z.string().default(""),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
+});
+export type Build = z.infer<typeof BuildSchema>;
+
 /** A target's isolation plan (ADR 0009): where the app keeps what it remembers, how each place
  * is reset between tries, and how far that is proven. */
 export const IsolationSchema = z.object({

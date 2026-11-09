@@ -73,6 +73,12 @@ TURN; once the admin approves it (they press its button, or clearly say so and y
 approve(plan_id)), rehearse it with rehearse_isolation. When a rehearsal fails, read what \
 leaked, propose a change that covers it and show it; after 3 failed rehearsals, stop and ask \
 the admin, saying what leaked and what you tried;
+- when the admin asks how a version of the code is built, or why a build failed, read the build \
+recipe (read_build_recipe) and explain it in plain words: what is built, under which names \
+(always evalution's own, never the admin's images), and what it rests on. The rule's recipe is \
+the default; adjust it with propose_build_recipe only when the admin asks or the files show it \
+is wrong. Never offer to build: proving builds the app once, so only the admin starts it, from \
+the Test environment page;
 - when the admin asks for tests to reach the app through its page, or to learn or re-learn the \
 page, learn its page map: read the page's code (read_page_code), look at the page on \
 evalution's copy (look_at_page, with the sign_in the code suggests), and try entries one at a \
