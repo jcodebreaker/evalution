@@ -1780,12 +1780,47 @@ export const ClaimSchema = z.object({
 });
 export type Claim = z.infer<typeof ClaimSchema>;
 
+/** An area of the app as What it learned lists it (ADR 0012): `current` was learned before from
+ * what it is now, `learning` is being learned, `done` landed in this learn, `due` waits for one,
+ * `listed` weighs nothing (no prompt, tool, state or trace hit) and is learned only when asked. */
+export const LearnedAreaSchema = z.object({
+  id: z.string(),
+  title: z.string().default(""),
+  state: z.enum(["current", "learning", "done", "due", "listed", "failed"]),
+  weight: z.number().default(0),
+  files: z.number().default(0),
+  learned_at: z.number().nullable().default(null),
+});
+export type LearnedArea = z.infer<typeof LearnedAreaSchema>;
+
+/** Where a learn stands, as the understanding carries it: its areas, heaviest first, and whether
+ * the overview is a first pass (from the skeleton and the traces) or final. An older server sends
+ * none; a newer one with no learn kept says `state: null` and no areas. */
+export const LearnStateSchema = z.object({
+  state: z.enum(["learning", "done", "stopped"]).nullable().default(null),
+  started_at: z.number().nullable().default(null),
+  areas: z.array(LearnedAreaSchema).default([]),
+  overview: z.enum(["first_pass", "final"]).nullable().default(null),
+});
+export type LearnState = z.infer<typeof LearnStateSchema>;
+
 /**
  * What the agent understood of a target (docs/architecture.md "The understanding"): the project
  * card, how it works, its usual paths, claims to check, what matters and the tests to start with.
  */
 export const UnderstandingSchema = z.object({
   knowledge: KnowledgeSchema.default(NO_KNOWLEDGE),
+  /** Where the latest learn stands; `null` from a server that doesn't say. */
+  progress: LearnStateSchema.nullable().default(null),
+  /** What the overview was written from: a first pass ("the code's skeleton and 12
+   * conversations") until the areas are in, then final. */
+  overview: z
+    .object({
+      state: z.enum(["first_pass", "final"]).nullable().default(null),
+      basis: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
   version: z.number().default(0),
   written_at: z.number().default(0),
   fingerprint: z.string().default(""),

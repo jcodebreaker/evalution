@@ -9,15 +9,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from evalution.api.deps import Current, busy, invalid, local_only, not_found, target_name
+from evalution.api.workspaces import Workspace
 from evalution.code import CodeError
 from evalution.project import hooks, knowledge, profile, skeleton_view, understanding
-from evalution.runs.runner import Runs
 from evalution.suite.store import list_sets
 from evalution.writer import learn
 
 
-async def _understood(runs: Runs, name: str) -> dict[str, Any]:
+async def _understood(ws: Workspace, name: str) -> dict[str, Any]:
+    """The understanding as the page reads it. A learn's progress that says it is learning with
+    no learn going was cut with an earlier server: it says stopped, its areas in flight due."""
+    runs = ws.runs
     found = await asyncio.to_thread(understanding.view, runs.targets, runs, name)
+    progress = found["progress"]
+    if progress["state"] == "learning" and not ws.agent.learning(name):
+        areas = [
+            {**a, "state": "due"} if a["state"] == "learning" else a for a in progress["areas"]
+        ]
+        found["progress"] = {**progress, "state": "stopped", "areas": areas}
     return {**found, "knowledge": await asyncio.to_thread(knowledge.summary, runs, name)}
 
 
@@ -30,8 +39,7 @@ def understanding_router(url: str) -> APIRouter:
     async def get_understanding(ws: Current, target: str) -> dict[str, Any]:
         """What evalution understood of the target, with the admin's steers and the numbers as
         they are now; ``status: "learning"`` before the agent wrote it."""
-        targets, runs = ws.targets, ws.runs
-        return await _understood(runs, target_name(targets, target))
+        return await _understood(ws, target_name(ws.targets, target))
 
     @router.get("/targets/{target}/skeleton")
     async def get_skeleton(ws: Current, target: str) -> dict[str, Any]:
@@ -94,7 +102,7 @@ def understanding_router(url: str) -> APIRouter:
     async def steer_understanding(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """A claim or node marked right or wrong or fixed, a priority picked or added, a
         starter selected."""
-        targets, runs = ws.targets, ws.runs
+        targets = ws.targets
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(understanding.steer, targets, name, body)
@@ -102,7 +110,7 @@ def understanding_router(url: str) -> APIRouter:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise invalid(str(exc)) from exc
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/update")
     async def update_understanding(ws: Current, target: str) -> dict[str, Any]:
@@ -114,18 +122,18 @@ def understanding_router(url: str) -> APIRouter:
             raise busy("No model is set up yet.")
         if outcome in ("failed", "busy", "superseded"):
             raise busy("Couldn't update. Nothing changed.")
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/undo")
     async def undo_understanding(ws: Current, target: str) -> dict[str, Any]:
         """Put back what it knew before the last update from a commit."""
-        targets, runs = ws.targets, ws.runs
+        targets = ws.targets
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(knowledge.undo, targets, name)
         except LookupError as exc:
             raise busy(str(exc)) from exc
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/seen", status_code=204)
     async def saw_understanding(ws: Current, target: str) -> None:

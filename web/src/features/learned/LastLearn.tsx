@@ -40,16 +40,21 @@ export function lastLearn(usage: readonly TurnUsage[]): TurnUsage | null {
 }
 
 /** What the last learn took, stage by stage, in one quiet line; then the areas it listed and
- * didn't learn (nothing in them the app uses), each with "Learn this area" (*onLearnArea*). */
+ * didn't learn (nothing in them the app uses), each with "Learn this area" (*onLearnArea*),
+ * unless the page lists the areas itself (*areasShown*). */
 export function LastLearn({
   session,
   onLearnArea,
+  areasShown = false,
 }: {
   session: AgentSession | null;
   onLearnArea?: LearnAreaFn;
+  areasShown?: boolean;
 }) {
   const found = session ? lastLearn(session.usage) : null;
-  const listed = (session?.learn?.areas ?? []).filter((area) => area.state === "listed");
+  const listed = areasShown
+    ? []
+    : (session?.learn?.areas ?? []).filter((area) => area.state === "listed");
   if (!found && !listed.length) return null;
   return (
     <div className="flex flex-col gap-1.5 px-1">

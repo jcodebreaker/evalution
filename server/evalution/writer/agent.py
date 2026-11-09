@@ -286,6 +286,14 @@ class Agent:
         """
         return await self._session(session_id)
 
+    def learning(self, target: str) -> bool:
+        """Whether a learn of *target* is going in this process: a learn's progress that says
+        so with none going was cut with an earlier process."""
+        return any(
+            self.working(sid) and (self._live.get(sid) or {}).get("target") == target
+            for sid in self._learning
+        )
+
     def working(self, session_id: str) -> bool:
         """Whether the session's loop is going."""
         task = self._tasks.get(session_id)
@@ -573,7 +581,7 @@ class Agent:
                             turn,
                             ask,
                             chat,
-                            (area_key, "strong"),
+                            (area_key, "strong", light),
                             usage.stage,
                             asked=(area_ask["area"],) if area_ask else (),
                             force=bool(area_ask and area_ask.get("force")),

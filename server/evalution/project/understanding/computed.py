@@ -20,7 +20,7 @@ from evalution.project import drift, library_fit
 from evalution.project.history import History
 from evalution.project.profile import read_profile
 from evalution.project.understanding.steering import marks, overlay, steers
-from evalution.project.understanding.store import load
+from evalution.project.understanding.store import load, progress
 from evalution.results.views import latest_rows
 from evalution.suite import library
 from evalution.suite.cases import CaseError, slugify
@@ -307,7 +307,10 @@ def tests_numbers(
 def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
     """The ``Understanding`` the page reads: the stored one with the steers laid over it,
     and the parts that move (stack, tests, library, state, status) computed now. Before the
-    agent wrote one: the card alone, ``learning``."""
+    agent wrote one: the card alone, ``learning``. ``progress``: how the last learn went, area by
+    area (:func:`evalution.project.understanding.store.progress`); ``overview``: what the
+    overview was written from (``state``, ``first_pass`` or ``final``, and its ``basis``), or
+    ``None`` before a learn said."""
     stored = load(targets, name)
     log = steers(targets, name)
     doc = overlay(stored, log) if stored else None
@@ -360,6 +363,8 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
             "sections": [],
             "priorities": [],
             "starters": [],
+            "overview": None,
+            "progress": progress(targets, name),
         }
     return {
         "version": doc["version"],
@@ -374,6 +379,8 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
         "sections": doc["sections"],
         "priorities": doc["priorities"],
         "starters": suggested(targets, name, doc["starters"]),
+        "overview": doc.get("overview"),
+        "progress": progress(targets, name),
     }
 
 

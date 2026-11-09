@@ -67,17 +67,24 @@ function useNow(on: boolean) {
 /** What the test writer is doing while it learns: its stages (Skeleton, Areas, Overview), then
  * each area's agent, the heaviest first. An area listed as weighing nothing offers "Learn this
  * area" (*onLearnArea*). Before the areas start (or a learn from traces alone) it is the last
- * steps, newest first. */
+ * steps, newest first. *areasShown*: the page lists the areas itself, so the card keeps to its
+ * stages and time. */
 export function Learning({
   session,
   onLearnArea,
+  areasShown = false,
 }: {
   session: AgentSession | null;
   onLearnArea?: LearnAreaFn;
+  areasShown?: boolean;
 }) {
   const progress = session?.learn ?? null;
   const now = useNow(Boolean(progress));
-  if (progress) return <Areas progress={progress} now={now} onLearnArea={onLearnArea} />;
+  if (progress) {
+    return (
+      <Areas progress={progress} now={now} onLearnArea={onLearnArea} areasShown={areasShown} />
+    );
+  }
   // A learn from the traces alone has no stages: its last step.
   return <LoadingState label={session?.activity.at(-1)?.text ?? "Learning your app…"} />;
 }
@@ -86,10 +93,12 @@ function Areas({
   progress,
   now,
   onLearnArea,
+  areasShown,
 }: {
   progress: LearnProgress;
   now: number;
   onLearnArea?: LearnAreaFn;
+  areasShown: boolean;
 }) {
   const areas = progress.areas;
   const count = (state: LearnArea["state"]) => areas.filter((a) => a.state === state).length;
@@ -171,45 +180,57 @@ function Areas({
           ) : null}
         </div>
       )}
-      <div
-        hidden={!areas.length}
-        className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12.5px] text-ink-2"
-      >
-        <span className="font-semibold text-foreground">
-          {due.length} of {areas.length} areas
-          {progress.parallel ? (
-            <span className="font-normal text-ink-3"> · {progress.parallel} at a time</span>
-          ) : null}
-          {count("listed") ? (
-            <span className="font-normal text-ink-3"> · {count("listed")} not learned</span>
-          ) : null}
-        </span>
-        <span className="ms-auto flex flex-wrap gap-x-4">
-          <span>
-            <b className="font-semibold text-pass">{count("learned")}</b> done
-          </span>
-          <span>
-            <b className="font-semibold text-tint">{count("running")}</b> running
-          </span>
-          <span>
-            <b className="font-semibold text-foreground">{count("waiting")}</b> waiting
-          </span>
-          {count("failed") ? (
-            <span>
-              <b className="font-semibold text-fail">{count("failed")}</b> failed
-            </span>
-          ) : null}
-          <span className="font-mono text-ink-3">
+      {areas.length && areasShown ? (
+        <p className="m-0 flex flex-wrap gap-x-4 px-4 py-2.5 text-[12.5px] text-ink-3">
+          {progress.parallel ? <span>{progress.parallel} areas at a time</span> : null}
+          <span className="ms-auto font-mono">
             {tokens(spent)} · {clock(now - progress.at)}
           </span>
-        </span>
-      </div>
+        </p>
+      ) : null}
+      {areasShown ? null : (
+        <>
+          <div
+            hidden={!areas.length}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12.5px] text-ink-2"
+          >
+            <span className="font-semibold text-foreground">
+              {due.length} of {areas.length} areas
+              {progress.parallel ? (
+                <span className="font-normal text-ink-3"> · {progress.parallel} at a time</span>
+              ) : null}
+              {count("listed") ? (
+                <span className="font-normal text-ink-3"> · {count("listed")} not learned</span>
+              ) : null}
+            </span>
+            <span className="ms-auto flex flex-wrap gap-x-4">
+              <span>
+                <b className="font-semibold text-pass">{count("learned")}</b> done
+              </span>
+              <span>
+                <b className="font-semibold text-tint">{count("running")}</b> running
+              </span>
+              <span>
+                <b className="font-semibold text-foreground">{count("waiting")}</b> waiting
+              </span>
+              {count("failed") ? (
+                <span>
+                  <b className="font-semibold text-fail">{count("failed")}</b> failed
+                </span>
+              ) : null}
+              <span className="font-mono text-ink-3">
+                {tokens(spent)} · {clock(now - progress.at)}
+              </span>
+            </span>
+          </div>
 
-      <ul className="m-0 list-none p-0">
-        {areas.map((area) => (
-          <AreaRow key={area.id} area={area} now={now} onLearnArea={onLearnArea} />
-        ))}
-      </ul>
+          <ul className="m-0 list-none p-0">
+            {areas.map((area) => (
+              <AreaRow key={area.id} area={area} now={now} onLearnArea={onLearnArea} />
+            ))}
+          </ul>
+        </>
+      )}
     </Group>
   );
 }

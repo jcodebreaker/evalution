@@ -28,6 +28,13 @@ from evalution.targets import Targets
 DOC = "understanding.json"
 VERSIONS_DOC = "understanding_versions.json"
 VERSIONS = 10
+#: How the last learn went, area by area (ADR 0012): kept apart from the understanding, so an
+#: area starting writes no version.
+PROGRESS_DOC = "learn_progress.json"
+#: What a learn's progress says of itself, and of each of its areas.
+PROGRESS_STATES = ("learning", "done", "stopped")
+AREA_STATES = ("current", "learning", "done", "due", "listed", "failed")
+OVERVIEW_STATES = ("first_pass", "final")
 
 
 def load(targets: Targets, name: str) -> dict[str, Any] | None:
@@ -40,13 +47,19 @@ def versions(targets: Targets, name: str) -> list[dict[str, Any]]:
     return found if isinstance(found, list) else []
 
 
-def save(targets: Targets, name: str, doc: dict[str, Any], *, by: str = "agent") -> dict:
+def save(
+    targets: Targets, name: str, doc: dict[str, Any], *, by: str = "agent", replace: bool = False
+) -> dict:
     """Store *doc* as a new version (with the hash of the fingerprint kept) and render
-    the profile from it."""
+    the profile from it. *replace*: in place of the last version, under its number (a learn
+    saving as its areas land keeps one version, the last it saved)."""
     kept = versions(targets, name)
+    number = (kept[-1]["version"] + 1) if kept else 1
+    if replace and kept:
+        number, kept = kept[-1]["version"], kept[:-1]
     doc = {
         **doc,
-        "version": (kept[-1]["version"] + 1) if kept else 1,
+        "version": number,
         "written_at": time.time(),
         "by": by,
         "fingerprint": fingerprint_hash(read_doc(targets, name, FINGERPRINT_DOC)) or "",
@@ -55,6 +68,31 @@ def save(targets: Targets, name: str, doc: dict[str, Any], *, by: str = "agent")
     write_doc(targets, name, DOC, doc)
     write_profile(targets, name, render_profile(name, doc, steers(targets, name)), by=by)
     return doc
+
+
+def progress(targets: Targets, name: str) -> dict[str, Any]:
+    """How the last learn went: ``state`` (``learning``, ``done``, ``stopped``; ``None`` when no
+    learn kept one, as before ADR 0012), ``started_at``, its ``areas`` heaviest first (each
+    ``id``, ``title``, ``state`` (:data:`AREA_STATES`), ``weight``, ``files``, ``learned_at``)
+    and the ``overview``'s state (``first_pass``, ``final`` or ``None``)."""
+    found = read_doc(targets, name, PROGRESS_DOC)
+    found = found if isinstance(found, dict) else {}
+    state = found.get("state")
+    overview = found.get("overview")
+    return {
+        "state": state if state in PROGRESS_STATES else None,
+        "started_at": found.get("started_at"),
+        "areas": [
+            a
+            for a in found.get("areas") or []
+            if isinstance(a, dict) and a.get("state") in AREA_STATES
+        ],
+        "overview": overview if overview in OVERVIEW_STATES else None,
+    }
+
+
+def keep_progress(targets: Targets, name: str, body: Mapping[str, Any]) -> None:
+    write_doc(targets, name, PROGRESS_DOC, dict(body))
 
 
 def steer(targets: Targets, name: str, body: Mapping[str, Any]) -> dict[str, Any]:

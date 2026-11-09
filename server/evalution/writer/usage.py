@@ -13,11 +13,21 @@ from evalution.llm import Reply
 
 #: Turns kept on a session, newest last.
 TURNS_KEPT = 20
-#: A learn's stages, in the order they are shown: the code map and the skeleton (no model), Read
+#: A learn's stages, in the order they are shown: the code map and the skeleton (no model), the
+#: first overview (one call from the skeleton, when the learn has most of the app to learn), Read
 #: (file summaries: only the fallback's, for files no grammar reads), the folder and app summaries
 #: (none since ADR 0012; kept so older learns still show), the areas, the overview, and the rest
 #: (checking whether anything moved, the traces, the docs' summary, the merge and its save).
-STAGES = ("code map", "skeleton", "read", "modules", "areas", "overview", "other")
+STAGES = (
+    "code map",
+    "skeleton",
+    "first overview",
+    "read",
+    "modules",
+    "areas",
+    "overview",
+    "other",
+)
 #: What a stage counts.
 STAGE_COUNTS = ("calls", "tokens_in", "tokens_out", "chars_in", "chars_out")
 
@@ -67,11 +77,12 @@ class TurnUsage:
     skeleton_hits: int = 0
     #: A learn's areas: how many the code was split into, how many were understood again, how
     #: many were listed and not learned (no weight), the names no section said, and the
-    #: overview's calls.
+    #: overview's calls: the first one's (from the skeleton, early) and the final one's.
     areas_total: int = 0
     areas_run: int = 0
     areas_listed: int = 0
     uncovered: int = 0
+    first_overview_calls: int = 0
     overview_calls: int = 0
     #: The tools called, in order.
     tools: list[str] = field(default_factory=list)

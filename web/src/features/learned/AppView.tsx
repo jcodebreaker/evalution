@@ -10,6 +10,7 @@ import { Fold, Group } from "../shared/group";
 import { OutOfDate } from "../shared/KnowledgeUpdate";
 import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import { AppSkeleton } from "./AppSkeleton";
+import { FirstPass, isFirstPass, LearnedAreas, learnState } from "./Areas";
 import { ClaimText } from "./ClaimText";
 import { DiagramView } from "./Diagram";
 import { LastChanges } from "./LastChanges";
@@ -33,6 +34,20 @@ import { apply } from "./steer";
  * test writer's notes, kept for it, not shown. */
 const forPeople = (section: { id: string }) =>
   !section.id.startsWith("area-") && section.id !== "details" && section.id !== "what_it_is";
+
+/** The sections the areas wrote, in the areas' order (heaviest first): shown once the page
+ * lists the areas, each as it lands. */
+function areaSections(understanding: Understanding): Understanding["sections"] {
+  const written = understanding.sections.filter((section) => section.id.startsWith("area-"));
+  const ordered = (understanding.progress?.areas ?? []).flatMap((area) => {
+    const found = written.find(
+      (section) =>
+        section.id === `area-${area.id}` || (area.title !== "" && section.title === area.title),
+    );
+    return found ? [found] : [];
+  });
+  return [...ordered, ...written.filter((section) => !ordered.includes(section))];
+}
 
 /** Claims a section shows before "Show more". */
 const SHOWN = 5;
@@ -72,7 +87,9 @@ export function AppView({
   // While the writer works, what it learns shows up here.
   const working = agent?.status === "working" && agent.target === target;
   const messages = agent?.messages.length ?? 0;
-  useVisiblePoll(reload, POLL_MS, working);
+  // A learn the understanding says is running: its areas land as it goes.
+  const live = loaded?.progress?.state === "learning";
+  useVisiblePoll(reload, POLL_MS, working || live);
   useEffect(() => {
     if (messages) void reload();
   }, [messages, reload]);
@@ -139,11 +156,20 @@ export function AppView({
       </Page>
     );
   }
+  const progress = learnState(shown);
+  const areasShown = Boolean(progress?.areas.length);
   const activity = working ? (
-    <Learning session={working ? agent : null} onLearnArea={onLearnArea} />
+    <Learning session={working ? agent : null} onLearnArea={onLearnArea} areasShown={areasShown} />
   ) : (
-    <LastLearn session={agent?.target === target ? agent : null} onLearnArea={onLearnArea} />
+    <LastLearn
+      session={agent?.target === target ? agent : null}
+      onLearnArea={onLearnArea}
+      areasShown={areasShown}
+    />
   );
+  const areas = progress ? (
+    <LearnedAreas progress={progress} busy={working} onGoOn={onLearn} onLearnArea={onLearnArea} />
+  ) : null;
   // Before the writer learns anything, the server sends only the card, at version 0.
   if (shown.version === 0) {
     return (
@@ -151,6 +177,7 @@ export function AppView({
         {toolbar}
         <ProjectCard card={shown.card} target={target} learning={working} />
         {activity}
+        {areas}
         <AppSkeleton target={target} />
         {connection}
       </Page>
@@ -158,6 +185,109 @@ export function AppView({
   }
 
   const picked = shown.diagram.nodes.find((entry) => entry.id === node) ?? null;
+  const overview = [
+    shown.diagram.nodes.length ? (
+      <div key="how" className={SECTION}>
+        <SectionHeading>How it works</SectionHeading>
+        <DiagramView
+          diagram={shown.diagram}
+          name={shown.card.name}
+          selected={node}
+          onSelect={(id) => setNode((now) => (now === id ? null : id))}
+        />
+        {picked ? <NodeCheck node={picked} /> : null}
+      </div>
+    ) : null,
+    shown.paths.length ? (
+      <div key="paths" className={SECTION}>
+        <SectionHeading>Typical paths</SectionHeading>
+        <Paths paths={shown.paths} />
+      </div>
+    ) : null,
+    shown.card.summary || shown.card.one_line ? (
+      <div key="what" className={SECTION}>
+        <SectionHeading>What it is</SectionHeading>
+        <p className="mx-[18px] mt-1 mb-1.5 max-w-[68ch] text-[14px] leading-relaxed">
+          {shown.card.summary || shown.card.one_line}
+        </p>
+      </div>
+    ) : null,
+  ];
+  const sections = [
+    ...shown.sections.filter(forPeople),
+    ...(progress ? areaSections(shown) : []),
+  ].map((section) => (
+    <div key={section.id} className={SECTION}>
+      <SectionHeading>{section.title}</SectionHeading>
+      {section.note ? (
+        <div className="mx-[18px] mt-1.5 mb-1 flex items-start gap-2.5 rounded-[10px] bg-unjudged-soft px-3 py-2.5 text-[14px]">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+          <span>{section.note}</span>
+        </div>
+      ) : null}
+      {shownClaims(section.claims, all.has(section.id)).map((claim) => (
+        <div
+          key={claim.id}
+          data-flagged={claim.flagged ? "" : undefined}
+          className="px-[18px] py-[9px] hover:bg-sunk/50"
+        >
+          <ClaimText text={claim.text} item={claim} />
+        </div>
+      ))}
+      {section.claims.length > SHOWN && !all.has(section.id) ? (
+        <button
+          type="button"
+          onClick={() => setAll((open) => new Set(open).add(section.id))}
+          className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
+        >
+          Show {section.claims.length - shownClaims(section.claims, false).length} more
+        </button>
+      ) : null}
+    </div>
+  ));
+  const priorities =
+    shown.priorities.length || shown.sections.length ? (
+      <div className={SECTION}>
+        <SectionHeading>What matters most to test</SectionHeading>
+        <Priorities priorities={shown.priorities} onSteer={steer} />
+      </div>
+    ) : null;
+  const failed = error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null;
+  const suggested = shown.starters.length ? (
+    <Suggested understanding={shown} onSteer={steer} onAdd={onAdd} />
+  ) : null;
+
+  // A server that says where the learn stands: the overview, then the areas as they land, then
+  // what they learned, then the skeleton.
+  if (progress) {
+    return (
+      <Page>
+        {toolbar}
+        <ProjectCard card={shown.card} target={target} learning={working} />
+        {activity}
+        <OutOfDate target={target} knowledge={shown.knowledge} onUpdated={setShown} />
+        <LastChanges knowledge={shown.knowledge} onUndo={undo} />
+        {overview.some(Boolean) ? (
+          <Group role="region" aria-label="Overview">
+            {isFirstPass(shown) ? <FirstPass basis={shown.overview?.basis ?? null} /> : null}
+            {overview}
+          </Group>
+        ) : null}
+        {areas}
+        {sections.length || priorities ? (
+          <Group>
+            {sections}
+            {priorities}
+          </Group>
+        ) : null}
+        {failed}
+        <AppSkeleton target={target} />
+        {suggested}
+        {connection}
+      </Page>
+    );
+  }
+
   return (
     <Page>
       {toolbar}
@@ -167,76 +297,13 @@ export function AppView({
       <LastChanges knowledge={shown.knowledge} onUndo={undo} />
 
       <Group>
-        {shown.diagram.nodes.length ? (
-          <div className={SECTION}>
-            <SectionHeading>How it works</SectionHeading>
-            <DiagramView
-              diagram={shown.diagram}
-              name={shown.card.name}
-              selected={node}
-              onSelect={(id) => setNode((now) => (now === id ? null : id))}
-            />
-            {picked ? <NodeCheck node={picked} /> : null}
-          </div>
-        ) : null}
-
-        {shown.paths.length ? (
-          <div className={SECTION}>
-            <SectionHeading>Typical paths</SectionHeading>
-            <Paths paths={shown.paths} />
-          </div>
-        ) : null}
-
-        {shown.card.summary || shown.card.one_line ? (
-          <div className={SECTION}>
-            <SectionHeading>What it is</SectionHeading>
-            <p className="mx-[18px] mt-1 mb-1.5 max-w-[68ch] text-[14px] leading-relaxed">
-              {shown.card.summary || shown.card.one_line}
-            </p>
-          </div>
-        ) : null}
-        {shown.sections.filter(forPeople).map((section) => (
-          <div key={section.id} className={SECTION}>
-            <SectionHeading>{section.title}</SectionHeading>
-            {section.note ? (
-              <div className="mx-[18px] mt-1.5 mb-1 flex items-start gap-2.5 rounded-[10px] bg-unjudged-soft px-3 py-2.5 text-[14px]">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
-                <span>{section.note}</span>
-              </div>
-            ) : null}
-            {shownClaims(section.claims, all.has(section.id)).map((claim) => (
-              <div
-                key={claim.id}
-                data-flagged={claim.flagged ? "" : undefined}
-                className="px-[18px] py-[9px] hover:bg-sunk/50"
-              >
-                <ClaimText text={claim.text} item={claim} />
-              </div>
-            ))}
-            {section.claims.length > SHOWN && !all.has(section.id) ? (
-              <button
-                type="button"
-                onClick={() => setAll((open) => new Set(open).add(section.id))}
-                className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
-              >
-                Show {section.claims.length - shownClaims(section.claims, false).length} more
-              </button>
-            ) : null}
-          </div>
-        ))}
-
-        {shown.priorities.length || shown.sections.length ? (
-          <div className={SECTION}>
-            <SectionHeading>What matters most to test</SectionHeading>
-            <Priorities priorities={shown.priorities} onSteer={steer} />
-          </div>
-        ) : null}
+        {overview}
+        {sections}
+        {priorities}
       </Group>
 
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
-      {shown.starters.length ? (
-        <Suggested understanding={shown} onSteer={steer} onAdd={onAdd} />
-      ) : null}
+      {failed}
+      {suggested}
       <AppSkeleton target={target} />
       {connection}
     </Page>

@@ -499,6 +499,20 @@ OVERVIEW_ARGS = {
 }
 
 
+#: The first overview: from the skeleton alone, before any area is read.
+FIRST_ARGS = {
+    "one_line": "A bot that greets, by its skeleton.",
+    "summary": "A small bot with a greeting tool, by what its code declares.",
+    "claims": [
+        {
+            "id": "greets_tool",
+            "text": "It declares a greeting tool.",
+            "evidence": [{"kind": "code", "ref": "app.py"}],
+        }
+    ],
+}
+
+
 def _learning(
     tmp_path,
     kind: str = "anthropic",
@@ -511,8 +525,9 @@ def _learning(
 ):
     """:data:`APP` (and *extra* files) in a repo, and a model: the light one summarizes the files,
     modules and app it is sent (never a path in *skip*); an area's agent writes a section naming
-    its area and what it was asked to cover (never one in *fail*), the overview its one line; the
-    writer in a chat plays the script, ``(tool, arguments)`` or a closing text per call."""
+    its area and what it was asked to cover (never one in *fail*), the overview its one line, the
+    first overview :data:`FIRST_ARGS`; the writer in a chat plays the script, ``(tool,
+    arguments)`` or a closing text per call."""
     repo = tmp_path / "app"
     for rel, text in {**APP, **(extra or {})}.items():
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -536,6 +551,7 @@ def _learning(
         "app": [],
         "areas": [],
         "overview": [],
+        "first": [],
         "docs": [],
         "writer": [],
     }
@@ -580,6 +596,9 @@ def _learning(
         elif system == learn.OVERVIEW:
             sent["overview"].append(body)
             said = ("write_overview", OVERVIEW_ARGS)
+        elif system == learn.FIRST_OVERVIEW:
+            sent["first"].append(body)
+            said = ("write_overview", FIRST_ARGS)
         else:
             sent["writer"].append(body)
             said = script.pop(0)
@@ -727,23 +746,26 @@ async def test_a_learn_is_split_into_areas_merged_and_kept(tmp_path, monkeypatch
 async def test_a_learn_is_measured_stage_by_stage(tmp_path, capsys) -> None:
     """The baseline a change to the learn is checked against: each stage's seconds and calls,
     tokens and characters, a call counted for the stage running when it was made. Since ADR 0012
-    the stages are the code map, the skeleton, the areas and the overview: nothing is read in
-    bulk, and no folder is summarized."""
+    the stages are the code map, the skeleton, the first overview (a first learn: one call from
+    the skeleton, by the light model), the areas and the overview: nothing is read in bulk, and no
+    folder is summarized."""
     agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, docs=True)
     sid = (await agent.create("bot", "main"))["id"]
     usage = (await _learn(agent, sid))["usage"][-1]
     stages = {s["stage"]: s for s in usage["stages"]}
-    assert list(stages) == ["code map", "skeleton", "areas", "overview", "other"]
+    assert list(stages) == ["code map", "skeleton", "first overview", "areas", "overview", "other"]
     calls = {name: s["calls"] for name, s in stages.items()}
     assert calls == {
         "code map": 0,
         "skeleton": 0,
+        "first overview": len(sent["first"]),
         "areas": len(sent["areas"]),
         "overview": len(sent["overview"]),
         "other": len(sent["docs"]),
     }
     assert not sent["light"] and not sent["modules"] and not sent["app"]
-    assert calls["other"] == 1 and usage["light_calls"] == 1, "the docs' summary alone"
+    assert calls["other"] == 1 and calls["first overview"] == usage["first_overview_calls"] == 1
+    assert usage["light_calls"] == 2, "the docs' summary and the first overview"
     assert calls["areas"] == sum(a["calls"] for a in usage["areas"]) == usage["areas_run"]
     assert calls["overview"] == usage["overview_calls"] == 1
     assert usage["skeleton_entries"] > 0 and usage["slice_files"] == 0
@@ -763,8 +785,8 @@ async def test_a_learn_is_measured_stage_by_stage(tmp_path, capsys) -> None:
     printed = capsys.readouterr().out.splitlines()
     assert printed[0].startswith("evalution: the last learn of bot") and "calls" in printed[0]
     assert f"{usage['areas_run']} of {usage['areas_total']} areas learned" in printed[0]
-    assert [line[2:12].strip() for line in printed[2:]] == list(stages)
-    assert printed[4].split()[1:3] == [f"{stages['areas']['seconds']:,.1f}", str(calls["areas"])]
+    assert [line[2:16].strip() for line in printed[2:]] == list(stages)
+    assert printed[5].split()[1:3] == [f"{stages['areas']['seconds']:,.1f}", str(calls["areas"])]
     assert cli.main([*config, "learn", "--report", "nobody"]) == 2
     assert "no learn of nobody measured yet" in capsys.readouterr().err
 
@@ -991,9 +1013,10 @@ async def test_a_file_no_grammar_reads_is_read_in_bulk_tried_again_then_named(tm
     failed = filememory.load(agent.targets, "bot")["failed"]
     assert failed["lib/rules.rb"]["why"] == "left out of the answer"
     usage = shown["usage"][-1]
-    assert usage["slice_files"] == 1 and [s["stage"] for s in usage["stages"]][:3] == [
+    assert usage["slice_files"] == 1 and [s["stage"] for s in usage["stages"]][:4] == [
         "code map",
         "skeleton",
+        "first overview",
         "read",
     ]
 

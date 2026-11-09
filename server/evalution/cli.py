@@ -622,11 +622,11 @@ def learn_report(config: Config, args: argparse.Namespace) -> int:
         f"{found.get('areas_total', 0):,} areas learned, {found.get('slice_files', 0):,} files "
         "read in bulk"
     )
-    print(f"  {'stage':<10}" + "".join(f"{c.replace('_', ' '):>12}" for c in _STAGE_COLUMNS))
+    print(f"  {'stage':<14}" + "".join(f"{c.replace('_', ' '):>12}" for c in _STAGE_COLUMNS))
     for stage in found["stages"]:
         cells = [f"{stage.get('seconds', 0):>12,.1f}"]
         cells += [f"{stage.get(c, 0):>12,}" for c in writer_usage.STAGE_COUNTS]
-        print(f"  {stage['stage']:<10}" + "".join(cells))
+        print(f"  {stage['stage']:<14}" + "".join(cells))
     return 0
 
 

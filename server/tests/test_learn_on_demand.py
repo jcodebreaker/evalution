@@ -11,14 +11,23 @@ import json
 import pytest
 import yaml
 from fastapi.testclient import TestClient
-from test_agent_approval import APP, _area_runs, _first_text, _git, _learn, _learning
+from test_agent_approval import (
+    APP,
+    FIRST_ARGS,
+    OVERVIEW_ARGS,
+    _area_runs,
+    _first_text,
+    _git,
+    _learn,
+    _learning,
+)
 
 from evalution.api.app import create_app
 from evalution.config import ConfigError, load
 from evalution.project import areas, drift, filememory, understanding
 from evalution.project.skeleton import Entry
 from evalution.writer import areas as area_agents
-from evalution.writer import learn
+from evalution.writer import learn, saving
 
 
 def _with_use(monkeypatch, tools: dict[str, int]) -> None:
@@ -145,7 +154,19 @@ async def test_a_learn_stopped_after_two_areas_keeps_both_and_the_next_learns_on
     assert started == ["root", "agents", "lib"]
     kept = filememory.load(agent.targets, "bot")
     assert sorted(kept["areas"]) == ["agents", "root"] and kept["incomplete"] is True
-    assert understanding.load(agent.targets, "bot") is None, "nothing merged yet"
+    # The understanding was saved as each area landed: the first overview and those two.
+    doc = understanding.load(agent.targets, "bot")
+    assert [s["id"] for s in doc["sections"]] == [
+        "what_it_is",
+        f"{understanding.AREA_PREFIX}root",
+        f"{understanding.AREA_PREFIX}agents",
+    ]
+    assert doc["overview"]["state"] == "first_pass"
+    progress = understanding.progress(agent.targets, "bot")
+    assert progress["state"] == "stopped" and progress["overview"] == "first_pass"
+    states = {a["id"]: a["state"] for a in progress["areas"]}
+    assert states == {"root": "done", "agents": "done", "lib": "due", "web": "listed"}
+    assert len(understanding.versions(agent.targets, "bot")) == 1, "one version a learn"
 
     monkeypatch.undo()
     before = len(sent["areas"])
@@ -155,6 +176,13 @@ async def test_a_learn_stopped_after_two_areas_keeps_both_and_the_next_learns_on
     assert states == {"root": "kept", "agents": "kept", "lib": "learned", "web": "listed"}
     sections = {s["id"] for s in understanding.load(agent.targets, "bot")["sections"]}
     assert {f"{understanding.AREA_PREFIX}{a}" for a in ("root", "agents", "lib")} <= sections
+    # Still no final overview, so a first one is due, but of the same skeleton and areas: the one
+    # kept, with no call. The final one replaces it.
+    assert len(sent["first"]) == 1
+    progress = understanding.progress(agent.targets, "bot")
+    states = {a["id"]: a["state"] for a in progress["areas"]}
+    assert states == {"root": "current", "agents": "current", "lib": "done", "web": "listed"}
+    assert progress["state"] == "done" and progress["overview"] == "final"
 
 
 async def test_a_listed_area_is_learned_on_request_and_a_current_one_only_when_forced(
@@ -267,3 +295,203 @@ def test_an_areas_parallel_setting_is_checked(tmp_path) -> None:
     (tmp_path / "evalution.yaml").write_text(yaml.safe_dump({"targets": {"bot": block}}))
     code = load(tmp_path / "evalution.yaml").targets["bot"].code
     assert code is not None and code.area_parallel == 2
+
+
+def _states(progress: dict) -> dict[str, str]:
+    return {a["id"]: a["state"] for a in progress["areas"]}
+
+
+async def test_the_understanding_shows_a_first_overview_then_each_area_as_it_lands(
+    tmp_path, monkeypatch
+) -> None:
+    """Phase 3 and the server half of phase 4: a first learn writes a first overview from the
+    skeleton before any area, saves the understanding again as each area lands, and says how it
+    goes area by area; the final overview replaces the first."""
+    agent, _repo, sent, _script = _learning(tmp_path)
+    targets = agent.targets
+    sid = (await agent.create("bot", "main"))["id"]
+    real_run, real_partial = area_agents.run_area, saving.keep_partial
+    seen: dict[str, dict] = {}
+    partial: list[tuple[list[str], str | None]] = []
+
+    async def run(area, ctx, before, budget=None, shown=None):
+        seen[area.id] = {
+            "progress": understanding.progress(targets, "bot"),
+            "doc": understanding.load(targets, "bot"),
+            "view": understanding.view(targets, agent.tools.runs, "bot"),
+        }
+        return await real_run(area, ctx, before, budget, shown)
+
+    def keep_partial(targets_, name, written, found, replace):
+        ids = [s["id"] for s in written["sections"]]
+        partial.append((ids, (written.get("overview") or {}).get("state")))
+        return real_partial(targets_, name, written, found, replace)
+
+    monkeypatch.setattr(area_agents, "run_area", run)
+    monkeypatch.setattr(saving, "keep_partial", keep_partial)
+    monkeypatch.setattr(learn, "PARALLEL", 1)
+    shown = await _learn(agent, sid)
+
+    # One call more than before ADR 0012's phase 3: the first overview, by the light model, from
+    # the skeleton and the areas alone.
+    assert len(sent["first"]) == 1 and sent["first"][0]["model"] == "l"
+    assert sent["first"][0]["max_tokens"] == learn.OVERVIEW_TOKENS
+    brief = _first_text(sent["first"][0])
+    assert "tool greet_people (app.py:6)" in brief
+    assert "root (" in brief and "web (" in brief and "nothing in it" in brief
+    assert "[Data: the areas' sections" not in brief
+    assert len(sent["overview"]) == 1 and len(sent["areas"]) == 3
+    usage = shown["usage"][-1]
+    assert usage["first_overview_calls"] == 1 and usage["overview_calls"] == 1
+
+    # Saved before any area started: the first pass alone, said as such.
+    first = seen["root"]["doc"]
+    assert first["one_line"] == FIRST_ARGS["one_line"]
+    assert [s["id"] for s in first["sections"]] == ["what_it_is"]
+    assert first["overview"] == {"state": "first_pass", "basis": "the code's skeleton"}
+    view = seen["root"]["view"]
+    assert view["card"]["one_line"] == FIRST_ARGS["one_line"] and view["diagram"]["nodes"] == []
+    assert view["overview"]["state"] == "first_pass"
+    assert view["progress"]["overview"] == "first_pass"
+    progress = seen["root"]["progress"]
+    assert progress["state"] == "learning" and progress["overview"] == "first_pass"
+    assert progress["started_at"] > 0
+    assert [a["id"] for a in progress["areas"]] == ["root", "agents", "lib", "web"], "heaviest"
+    assert _states(progress) == {
+        "root": "learning",
+        "agents": "due",
+        "lib": "due",
+        "web": "listed",
+    }
+    root = progress["areas"][0]
+    assert root == {
+        "id": "root",
+        "title": "the top folder",
+        "state": "learning",
+        "weight": 4,
+        "files": root["files"],
+        "learned_at": None,
+    }
+    assert root["files"] >= 1
+    assert _states(seen["lib"]["progress"])["lib"] == "learning"
+    assert _states(seen["lib"]["progress"])["web"] == "listed"
+
+    # Saved again as each area landed, the sections growing, the first pass standing meanwhile.
+    assert partial[0] == (["what_it_is"], "first_pass")
+    counts = [len(ids) for ids, _ in partial[1:]]
+    assert counts == sorted(counts) and counts[0] >= 2
+    area_ids = {f"{understanding.AREA_PREFIX}{a}" for a in ("root", "agents", "lib")}
+    assert area_ids <= set(partial[-1][0])
+    assert all(state == "first_pass" for _, state in partial)
+
+    # Done: the final overview replaced the first, and every area says how it went.
+    doc = understanding.load(targets, "bot")
+    assert doc["one_line"] == OVERVIEW_ARGS["one_line"]
+    assert doc["overview"] == {"state": "final", "basis": "3 learned areas and the code's skeleton"}
+    progress = understanding.progress(targets, "bot")
+    assert progress["state"] == "done" and progress["overview"] == "final"
+    assert _states(progress) == {"root": "done", "agents": "done", "lib": "done", "web": "listed"}
+    learned = {a["id"]: a for a in progress["areas"]}
+    assert all(learned[a]["learned_at"] for a in ("root", "agents", "lib"))
+    assert learned["root"]["title"] == "The root area", "its section's title once learned"
+    assert learned["web"]["learned_at"] is None
+    assert len(understanding.versions(targets, "bot")) == 1, "one version a learn"
+
+
+async def test_no_first_overview_when_nothing_or_little_moved(tmp_path) -> None:
+    agent, repo, sent, _script = _learning(tmp_path)
+    targets = agent.targets
+    sid = (await agent.create("bot", "main"))["id"]
+    await _learn(agent, sid)
+    assert len(sent["first"]) == 1 and len(sent["overview"]) == 1
+    doc = understanding.load(targets, "bot")
+
+    # Nothing moved: no call, the overview and the progress untouched.
+    progress = understanding.progress(targets, "bot")
+    shown = await _learn(agent, sid)
+    assert shown["messages"][-1]["text"].startswith("Nothing changed since")
+    assert len(sent["first"]) == 1 and understanding.progress(targets, "bot") == progress
+    assert understanding.load(targets, "bot")["version"] == doc["version"]
+
+    # A small change (one area of three) with an overview: no first pass; the area learned again
+    # came out the same, so the overview stands, with no call.
+    (repo / "lib/memory.py").write_text(
+        "class MemoryStore:\n    def remember(self, name):\n        return name.strip()\n"
+    )
+    _git(repo, "commit", "-qam", "keep")
+    shown = await _learn(agent, sid)
+    assert _area_runs(shown) == ["lib"]
+    assert len(sent["first"]) == 1 and len(sent["overview"]) == 1
+    assert shown["usage"][-1]["first_overview_calls"] == 0
+    progress = understanding.progress(targets, "bot")
+    assert progress["state"] == "done" and progress["overview"] == "final"
+    states = _states(progress)
+    assert states == {"root": "current", "agents": "current", "lib": "done", "web": "listed"}
+    after = understanding.load(targets, "bot")
+    assert after["overview"]["state"] == "final" and after["one_line"] == doc["one_line"]
+    assert len(understanding.versions(targets, "bot")) == 2, "one version a learn"
+
+    # Most of it moved (two areas of three): a first overview again, then the final one.
+    (repo / "app.py").write_text(APP["app.py"] + "\nGREETING = 1\n")
+    (repo / "agents/planner.md").write_text("# Planner\nPlans the week.\n")
+    _git(repo, "commit", "-qam", "most")
+    shown = await _learn(agent, sid)
+    assert sorted(_area_runs(shown)) == ["agents", "root"]
+    assert len(sent["first"]) == 2 and shown["usage"][-1]["first_overview_calls"] == 1
+    assert understanding.load(targets, "bot")["overview"]["state"] == "final"
+
+
+def test_an_understanding_from_before_progress_reads_as_no_learn(tmp_path) -> None:
+    """Old understandings have no progress: ``state: null``. One left learning by an earlier
+    server says stopped, its area in flight due again."""
+    agent, _repo, _sent, _script = _learning(tmp_path)
+    targets = agent.targets
+    assert understanding.progress(targets, "bot") == {
+        "state": None,
+        "started_at": None,
+        "areas": [],
+        "overview": None,
+    }
+
+    async def first() -> None:
+        sid = (await agent.create("bot", "main"))["id"]
+        await _learn(agent, sid)
+
+    asyncio.run(first())
+    config = load(tmp_path / "evalution.yaml")
+    with TestClient(create_app(config)) as client:
+        body = client.get("/v1/targets/bot/understanding").json()
+        assert body["progress"]["state"] == "done" and body["progress"]["overview"] == "final"
+        assert [a["id"] for a in body["progress"]["areas"]] == ["root", "agents", "lib", "web"]
+        assert set(body["progress"]["areas"][0]) == {
+            "id",
+            "title",
+            "state",
+            "weight",
+            "files",
+            "learned_at",
+        }
+        assert body["overview"]["state"] == "final"
+
+        understanding.keep_progress(targets, "bot", {})
+        body = client.get("/v1/targets/bot/understanding").json()
+        assert body["progress"] == {
+            "state": None,
+            "started_at": None,
+            "areas": [],
+            "overview": None,
+        }
+
+        cut = {
+            "state": "learning",
+            "started_at": 1.0,
+            "overview": "first_pass",
+            "areas": [
+                {"id": "root", "title": "r", "state": "learning", "weight": 4, "files": 1},
+                {"id": "lib", "title": "l", "state": "done", "weight": 1, "files": 1},
+            ],
+        }
+        understanding.keep_progress(targets, "bot", cut)
+        body = client.get("/v1/targets/bot/understanding").json()
+        assert body["progress"]["state"] == "stopped"
+        assert [a["state"] for a in body["progress"]["areas"]] == ["due", "done"]
