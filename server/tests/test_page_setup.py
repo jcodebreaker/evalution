@@ -15,8 +15,11 @@ from evalution.runs.page.target import PAGE_SETUP, page_lacks, page_parts
 
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
+    """Playwright's own folder, empty; Playwright itself installed, as the `page` extra makes it,
+    whether or not this test run has the extra (CI's server job doesn't)."""
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
     monkeypatch.setattr(page_target, "system_chrome", lambda: None)
+    monkeypatch.setattr(page_target, "page_missing", lambda: None)
     return tmp_path
 
 
@@ -82,6 +85,7 @@ def test_each_missing_piece_is_one_sentence_with_the_command_that_installs_it(
     monkeypatch.undo()
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache))
     monkeypatch.setattr(page_target, "system_chrome", lambda: None)
+    monkeypatch.setattr(page_target, "page_missing", lambda: None)
     assert page_lacks(video=True) == []
 
 
