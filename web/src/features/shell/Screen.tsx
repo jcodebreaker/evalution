@@ -184,6 +184,7 @@ export function Screen({
     return (
       <HomeView
         scope={scope}
+        runs={runs}
         lastRunAt={runs[0]?.started_at ?? null}
         tests={rows.length}
         stamp={runs[0]?.run ?? ""}

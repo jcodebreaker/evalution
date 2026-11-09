@@ -172,7 +172,7 @@ it("a failed step says why in the warning colour, and offers Try again", async (
     { [`POST ${T}/isolation/run`]: isolation({}) },
   );
   const detail = await screen.findByText("Port 5432 is taken");
-  expect(detail.className).toContain("text-warning");
+  expect(detail.className).toContain("text-fail");
   expect(screen.getByLabelText("Failed")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
@@ -334,15 +334,12 @@ it("the sidebar opens the Test environment, between What it learned and the test
       target="relay-lite"
       sets={[]}
       set={null}
-      going={null}
-      goingLabel=""
       asking={false}
       onAskAi={null}
       cards={null}
       onTarget={() => {}}
       onSet={() => {}}
       onView={onView}
-      onGoing={() => {}}
     />,
   );
   const item = screen.getByRole("button", { name: "Test environment" });

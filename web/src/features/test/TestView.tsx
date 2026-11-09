@@ -1,15 +1,17 @@
-import { ExternalLink, FileCode, Play } from "lucide-react";
+import { ExternalLink, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { api } from "../../lib/api";
+import { cn } from "../../lib/cn";
 import type { CaseFileView, Compare, Finding } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { POLL_MS, ready, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Button, buttonClass } from "../../ui/button";
 import { Fold } from "../shared/group";
-import { BackLink, Centered, Page, Toolbar } from "../shared/layout";
+import { Centered, Page } from "../shared/layout";
 import { StaleChip } from "../shared/marks";
 import { BrokenMapNote } from "../shared/next-step";
+import { Card } from "./Card";
 import { Earlier } from "./Earlier";
 import { EditFile } from "./EditFile";
 import { FindingNote } from "./FindingNote";
@@ -17,16 +19,23 @@ import type { Doubt } from "./HowDecided";
 import { HowDecided } from "./HowDecided";
 import { HowItPlays } from "./HowItPlays";
 import { Inspector } from "./Inspector";
+import { PageNextStep } from "./NextStep";
 import { Output } from "./Output";
 import { PageNotes } from "./Page";
-import { messageOf, PageBeside, PageNextStep } from "./PageBeside";
+import { PageFilm } from "./PageFilm";
 import type { Mode } from "./Segmented";
 import { Segmented } from "./Segmented";
 import { Steps } from "./Steps";
 import { Timeline } from "./Timeline";
 import { Trajectory } from "./Trajectory";
 import { TryContext } from "./TryContext";
+import { Turns } from "./Turns";
+import { type Fact, playsFact, tryFacts } from "./try-words";
 import { VerdictBanner } from "./VerdictBanner";
+
+const CHIP =
+  "inline-flex h-6 items-center rounded-full border border-separator bg-group px-2 text-[12px] whitespace-nowrap text-ink-2";
+const TINT = "border-tint-soft-2 bg-tint-soft text-tint-ink";
 
 /** The rubric lines that failed on the try shown although the grader is unreliable on them. */
 function doubtsOf(shown: Compare): Doubt[] {
@@ -126,49 +135,74 @@ export function TestView({
   // Limits in words, not where the test came from.
   const limits = (head?.limits ?? []).filter((limit) => !/^from\b/i.test(limit));
 
+  const tryShown = view === "result" && shown?.try ? shown : null;
+  // "Try 3 of 3": the tries a run kept may skip a number.
+  const tries = shown ? Math.max(shown.tries.length, ...shown.tries.map((entry) => entry.n)) : 0;
+  const facts: Fact[] = tryShown
+    ? tryFacts(tryShown)
+    : [playsFact(test.plays), ...limits.map((text) => ({ text }))];
+
   return (
     <div className="flex min-h-0 flex-1 max-lg:flex-col">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <Toolbar>
-          <BackLink label={back.label} onClick={back.onClick} />
-          <div className="flex-1" />
-          <Segmented
-            value={view}
-            onChange={setMode}
-            resultLabel={hasResult ? "Latest result" : live ? "Running…" : "Not run yet"}
-            resultOff={!hasResult}
-          />
-          <Button variant="ghost" className="text-ink-2" onClick={() => setEditing(true)}>
-            <FileCode />
-            Edit file
-          </Button>
-          <Button
-            variant="ghost"
-            className="text-ink-2"
-            onClick={() => onAsk(`Write variations of "${test.name}".`)}
-          >
-            Variations
-          </Button>
-          <Button disabled={going} onClick={() => onRun(test.name)}>
-            <Play />
-            Run
-          </Button>
-        </Toolbar>
-        <Page>
-          <div className="flex flex-col gap-2">
-            <h1 className="m-0 text-[24px] leading-tight font-semibold tracking-[-0.4px]">
-              {test.name}
-            </h1>
-            {test.about ? (
-              <p className="m-0 max-w-[62ch] text-[13.5px] text-ink-2">{test.about}</p>
-            ) : null}
-            {limits.length || stale ? (
-              <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
-                {limits.length ? <span>{limits.join(" · ")}</span> : null}
-                {stale ? <StaleChip reason={stale} /> : null}
+        <Page wide>
+          <header className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
+              <div className="flex min-w-0 flex-[1_1_420px] flex-col">
+                <div className="mb-2 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-3">
+                  <button
+                    type="button"
+                    onClick={back.onClick}
+                    className="text-tint-ink underline-offset-[3px] hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    {`${appName} · ${back.label}`}
+                  </button>
+                  {tryShown?.try ? (
+                    <span>
+                      {`/ ${back.label === runLabel(tryShown.run) ? "" : `${runLabel(tryShown.run)} · `}Try ${tryShown.try} of ${tries}`}
+                    </span>
+                  ) : null}
+                </div>
+                <h1 className="m-0 text-[30px] leading-[1.15] font-semibold tracking-[-0.01em] [overflow-wrap:anywhere] max-sm:text-[24px]">
+                  {test.name}
+                </h1>
+                {test.about ? (
+                  <p className="m-0 mt-2 max-w-[70ch] text-[15px] text-ink-2">{test.about}</p>
+                ) : null}
+                {facts.length || stale ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="facts">
+                    {facts.map((fact) => (
+                      <span key={fact.text} className={cn(CHIP, fact.tint && TINT)}>
+                        {fact.text}
+                      </span>
+                    ))}
+                    {stale ? <StaleChip reason={stale} /> : null}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => onAsk(`Write variations of "${test.name}".`)}
+                >
+                  Variations
+                </Button>
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  Edit test
+                </Button>
+                <Button disabled={going} onClick={() => onRun(test.name)}>
+                  <Play />
+                  {hasResult ? "Run this test again" : "Run this test"}
+                </Button>
+              </div>
+            </div>
+            <Segmented
+              value={view}
+              onChange={setMode}
+              resultLabel={hasResult ? "Latest result" : live ? "Running…" : "Not run yet"}
+              resultOff={!hasResult}
+            />
+          </header>
 
           {view === "plan" ? (
             <HowItPlays scope={scope} id={id} plays={test.plays} proof={test.proof} />
@@ -191,55 +225,54 @@ export function TestView({
               onRelearn={(text) => onAsk(text)}
             />
           ) : null}
-          {view === "result" && shown?.try ? <PageBeside shown={shown} /> : null}
-          {view === "result" && shown?.try ? (
+          {tryShown ? (
             <PageNextStep
-              shown={shown}
+              shown={tryShown}
               appName={appName}
               going={going}
               onRun={() => onRun(test.name)}
             />
           ) : null}
-          {view === "result" && shown?.trace_note ? (
-            <p className="m-0 text-[13px] text-warning">{shown.trace_note}</p>
-          ) : null}
           {view === "result" && ready(finding) ? (
             <FindingNote finding={ready(finding) as Finding} onSpan={setFocus} />
           ) : null}
+          {view === "result" && shown?.trace_note ? (
+            <p className="m-0 text-[13px] text-warning">{shown.trace_note}</p>
+          ) : null}
+          {tryShown ? <PageFilm shown={tryShown} /> : null}
+          {tryShown ? <Turns shown={tryShown} /> : null}
 
           {steps ? (
-            <Steps
-              steps={steps}
-              names={head?.names ?? {}}
-              appName={appName}
-              result={view === "result"}
-              onSpan={setFocus}
-              agreement={view === "result" ? shown?.agreement : undefined}
-              isolation={view === "result" ? shown?.isolation : undefined}
-              onLabel={
-                view === "result" && shown?.try
-                  ? (item, agree) => {
-                      const line = Number(item.split("-")[1]);
-                      void api
-                        .label(shown.run, id, shown.try ?? 0, line, agree)
-                        .then(reloadResult, () => null);
-                    }
-                  : undefined
-              }
-            />
+            <Card title="Steps">
+              <div className="px-5 pt-2 pb-3">
+                <Steps
+                  steps={steps}
+                  names={head?.names ?? {}}
+                  appName={appName}
+                  result={view === "result"}
+                  onSpan={setFocus}
+                  agreement={view === "result" ? shown?.agreement : undefined}
+                  isolation={view === "result" ? shown?.isolation : undefined}
+                  onLabel={
+                    view === "result" && shown?.try
+                      ? (item, agree) => {
+                          const line = Number(item.split("-")[1]);
+                          void api
+                            .label(shown.run, id, shown.try ?? 0, line, agree)
+                            .then(reloadResult, () => null);
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            </Card>
           ) : plan.status === "loading" ? (
             <p className="m-0 shimmer text-[14px]">Reading the test…</p>
           ) : (
             <Centered>Couldn't read what this test checks.</Centered>
           )}
-          {view === "result" && shown?.page ? (
-            <PageNotes
-              page={shown.page}
-              video={
-                !messageOf(shown.steps) || shown.outcome === "passed" || !!shown.page.broken_map
-              }
-            />
-          ) : null}
+          {/* The video is in the filmstrip above. */}
+          {view === "result" && shown?.page ? <PageNotes page={shown.page} video={false} /> : null}
 
           {view === "result" && shown?.try ? (
             <>
@@ -293,7 +326,7 @@ export function TestView({
                 ) : null}
               </div>
               {shown.detail?.timeline.length || shown.detail?.context.length ? (
-                <Fold title="Show steps">
+                <Fold title="Show the trace">
                   <div className="flex flex-col gap-3">
                     <TryContext
                       context={shown.detail.context}

@@ -1,4 +1,4 @@
-import { Check, Download } from "lucide-react";
+import { Download } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -7,6 +7,7 @@ import { useVisiblePoll } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { CopyField } from "../../ui/copy-field";
 import { Spinner } from "../../ui/loading";
+import { StatusDot } from "../../ui/status";
 import { useAccount } from "../account/account";
 import { Checklist, Mark } from "../environment/Checklist";
 
@@ -91,7 +92,7 @@ export function InstallProgress({ job, steps = true }: { job: InstallJob; steps?
       {steps ? <Checklist steps={job.steps} /> : null}
       {job.state === "running" && lines.length ? (
         <pre
-          className="m-0 overflow-hidden rounded-md bg-bubble px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
+          className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
           role="log"
           aria-label="What the install says"
         >
@@ -100,7 +101,7 @@ export function InstallProgress({ job, steps = true }: { job: InstallJob; steps?
       ) : null}
       {job.state === "failed" && job.error ? <p className="m-0 text-warning">{job.error}</p> : null}
       {job.state === "failed" && lines.length ? (
-        <pre className="m-0 overflow-hidden rounded-md bg-bubble px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2">
+        <pre className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2">
           {lines.join("\n")}
         </pre>
       ) : null}
@@ -159,8 +160,8 @@ function InstallWith({
     return (
       <div className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}>
         <InstallProgress job={job} steps={steps} />
-        <p className="m-0 flex items-center gap-1.5 text-success" data-testid="ui-installed">
-          <Check className="size-3.5" aria-hidden />
+        <p className="m-0 flex items-center gap-2" data-testid="ui-installed">
+          <StatusDot state="pass" label="Installed" />
           Installed. UI testing is ready.
         </p>
       </div>
@@ -193,7 +194,7 @@ function InstallWith({
         </span>
       </div>
       {job ? <InstallProgress job={job} steps={steps} /> : null}
-      {error ? <p className="m-0 text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-fail">{error}</p> : null}
       {byHand.length ? (
         <details className="text-ink-2">
           <summary className="cursor-pointer select-none">Or run it yourself</summary>
@@ -271,7 +272,7 @@ function Parts({ data }: { data: UiTesting }) {
                   aria-valuenow={percent}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  className="mt-1.5 h-1.5 max-w-[360px] overflow-hidden rounded-full bg-bubble"
+                  className="mt-1.5 h-1.5 max-w-[360px] overflow-hidden rounded-full bg-sunk"
                 >
                   <div className="h-full rounded-full bg-tint" style={{ width: `${percent}%` }} />
                 </div>
@@ -312,8 +313,8 @@ export function UiTestingStatus() {
         ))
       )}
       {shown.ready && !running ? (
-        <span className="flex items-center gap-1.5" data-testid="ui-testing-ready">
-          <Check className="size-3.5 text-success" aria-hidden />
+        <span className="flex items-center gap-2" data-testid="ui-testing-ready">
+          <StatusDot state="pass" label="Ready" />
           Ready: tests can play through a page here.
         </span>
       ) : (

@@ -4,7 +4,6 @@ import type { RemoteBranches, Version, Versions } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Input, Select } from "../../ui/field";
 import { useAccount } from "../account/account";
-import { TextLink } from "../shared/group";
 import { CodeLines } from "./Version";
 
 /** What's on disk now: the default, and what a run played before versions could be picked. */
@@ -123,8 +122,8 @@ export function CodePicker({
   const here = refs?.checked_out?.branch;
 
   return (
-    <div className="flex flex-col items-center gap-1.5 text-center" data-testid="code-picker">
-      <CodeLines version={version} className="items-center text-center" />
+    <div className="flex flex-col items-start gap-2" data-testid="code-picker">
+      <CodeLines version={version} className="w-full" />
       {hosted ? null : open ? (
         <div className="flex w-full max-w-[360px] flex-col gap-1.5 text-[13px]">
           <Select
@@ -189,12 +188,16 @@ export function CodePicker({
           {listing ? <p className="m-0 text-ink-3">Listing the remote's branches…</p> : null}
           {remoteError ? <p className="m-0 text-ink-3">{remoteError}</p> : null}
           {fetching ? <p className="m-0 text-ink-3">{`Fetching ${fetching}…`}</p> : null}
-          {error ? <p className="m-0 text-destructive">{error}</p> : null}
+          {error ? <p className="m-0 text-fail">{error}</p> : null}
         </div>
       ) : (
-        <TextLink className="text-[13px]" onClick={() => setOpen(true)}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="text-[13px] font-medium text-tint-ink hover:underline hover:underline-offset-[3px] focus-visible:outline-2 focus-visible:outline-tint"
+        >
           Run another version
-        </TextLink>
+        </button>
       )}
     </div>
   );

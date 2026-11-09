@@ -259,7 +259,7 @@ export function TargetFields({
       {leavesKey ? <p className="m-0 text-[13px] text-ink-2">{KEY_LEFT_BEHIND}</p> : null}
       {checker.check ? <CheckResult check={checker.check} /> : null}
       {checker.error || error ? (
-        <p className="m-0 text-[13px] text-destructive">{checker.error ?? error}</p>
+        <p className="m-0 text-[13px] text-fail">{checker.error ?? error}</p>
       ) : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {extra}

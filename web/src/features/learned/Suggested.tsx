@@ -50,7 +50,7 @@ export function Suggested({
               checked={entry.exists || entry.selected}
               disabled={entry.exists}
               onChange={(event) => onSteer({ starter: entry.id, selected: event.target.checked })}
-              className="mt-[3px] size-4 accent-primary"
+              className="mt-[3px] size-4 accent-tint"
             />
             <div className="min-w-0">
               <p className="m-0 font-medium text-[14px]">{entry.title}</p>
@@ -69,7 +69,7 @@ export function Suggested({
       })}
       {starters.some((entry) => !entry.exists) ? (
         <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-separator px-[18px] py-3">
-          {error ? <span className="me-auto text-[12.5px] text-destructive">{error}</span> : null}
+          {error ? <span className="me-auto text-[12.5px] text-fail">{error}</span> : null}
           <Button disabled={!picked.length || busy} onClick={() => void add()}>
             {picked.length ? `Add ${count(picked.length, "test")}` : "Pick a test"}
           </Button>

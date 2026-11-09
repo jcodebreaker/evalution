@@ -1,31 +1,23 @@
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 
 /** A chart's card: what it plots and in what unit. */
 export function ChartPanel({
-  icon: Icon,
   title,
   unit,
   className,
   children,
 }: {
-  icon: LucideIcon;
   className?: string;
   title: string;
   unit: string;
   children: ReactNode;
 }) {
   return (
-    <section className={cn("glass flex min-w-0 flex-col gap-3 rounded-xl p-4", className)}>
+    <section className={cn("glass flex min-w-0 flex-col gap-3 rounded-[12px] p-4", className)}>
       <div className="flex flex-wrap items-center justify-between gap-x-3">
-        <h3 className="m-0 flex items-center gap-2 text-[14px] font-medium">
-          <span className="grid size-6 place-items-center rounded-md border border-separator">
-            <Icon className="size-3.5 text-ink-2" aria-hidden />
-          </span>
-          {title}
-        </h3>
+        <h3 className="m-0 text-[16px] font-semibold tracking-[-0.01em]">{title}</h3>
         <span className="text-[12.5px] text-ink-3">{unit}</span>
       </div>
       {children}
@@ -334,7 +326,7 @@ export function BarChart({
     <div className="-mx-4 -mb-4 overflow-x-auto">
       <table className="w-full border-collapse text-[14px]">
         <thead>
-          <tr className="bg-head text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase">
+          <tr className="bg-head text-[12px] font-medium text-ink-3">
             <th scope="col" className="px-4 py-2 text-start font-medium">
               {head}
             </th>

@@ -2,85 +2,34 @@ import { cn } from "../../lib/cn";
 import { score } from "../../lib/format";
 import type { Suspect, TryOutcome, Verdict } from "../../lib/schema";
 import { verdictWord } from "../../lib/verdict";
+import type { Outcome } from "../../ui/status";
+import { StatusDot } from "../../ui/status";
 
-/** A verdict: a quiet check, a half-filled ring for flaky, a filled cross for fail, a question
- * mark in a ring when nobody could judge. */
+/** A verdict as the one outcome mark (ui/status.tsx): a dot whose colour carries it, half pass and
+ * half fail for flaky. Never a tick or a cross. */
 export function VerdictGlyph({ verdict, className }: { verdict: Verdict; className?: string }) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      role="img"
-      aria-label={verdictWord(verdict)}
+    <StatusDot
+      state={DOT[verdict]}
+      label={verdictWord(verdict)}
       className={cn(
-        "size-3.5 shrink-0",
-        verdict === "pass" && "text-success",
-        verdict === "flaky" && "text-warning",
-        verdict === "fail" && "text-destructive",
-        verdict === "unjudged" && "text-ink-2",
+        verdict === "flaky" && "bg-[linear-gradient(90deg,var(--pass)_50%,var(--fail)_50%)]",
         className,
       )}
-    >
-      {verdict === "pass" ? (
-        <path
-          d="M3.5 8.5l3 3 6-7"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      ) : verdict === "unjudged" ? (
-        <>
-          <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-          <path
-            d="M6.3 6.4a1.8 1.8 0 1 1 2.6 1.6c-.6.3-.9.7-.9 1.3"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-          <circle cx="8" cy="11.4" r="0.8" fill="currentColor" />
-        </>
-      ) : verdict === "flaky" ? (
-        <>
-          <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-          <path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor" />
-        </>
-      ) : (
-        <>
-          <circle cx="8" cy="8" r="7" fill="currentColor" />
-          <path
-            d="M5.5 5.5l5 5M10.5 5.5l-5 5"
-            className="stroke-background"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          />
-        </>
-      )}
-    </svg>
+    />
   );
 }
 
-/** A test with no result yet: a dashed ring. */
+const DOT: Record<Verdict, Outcome> = {
+  pass: "pass",
+  flaky: "fail",
+  fail: "fail",
+  unjudged: "unjudged",
+};
+
+/** A test with no result yet: the hollow dot. */
 export function NotRunGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      role="img"
-      aria-label="Not run"
-      className={cn("size-3.5 shrink-0 text-ink-3", className)}
-    >
-      <circle
-        cx="8"
-        cy="8"
-        r="6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeDasharray="2 2"
-      />
-    </svg>
-  );
+  return <StatusDot state="none" className={className} />;
 }
 
 /** A 0–1 score with its bar; both turn destructive below the pass score. */
@@ -89,12 +38,12 @@ export function ScoreBar({ value, pass }: { value: number | null; pass: number }
   const low = value < pass;
   return (
     <div className="flex min-w-0 items-center gap-2 text-[12.5px]">
-      <span className={cn("w-[30px] text-end tabular-nums", low && "text-destructive")}>
+      <span className={cn("w-[30px] text-end font-mono tabular-nums", low && "text-fail")}>
         {score(value)}
       </span>
-      <span className="h-1 min-w-7 flex-1 overflow-hidden rounded-full bg-selection">
+      <span className="h-1.5 min-w-7 flex-1 overflow-hidden rounded-full bg-sunk-2">
         <span
-          className={cn("block h-full rounded-full", low ? "bg-destructive" : "bg-ink-2")}
+          className={cn("block h-full rounded-full", low ? "bg-fail" : "bg-ink-3")}
           style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }}
         />
       </span>
@@ -103,12 +52,12 @@ export function ScoreBar({ value, pass }: { value: number | null; pass: number }
 }
 
 const TRY_DOT: Record<TryOutcome, string> = {
-  passed: "bg-foreground/20",
-  failed: "bg-destructive",
-  unjudged: "ring-1 ring-inset ring-ink-3",
+  passed: "bg-pass",
+  failed: "bg-fail",
+  unjudged: "bg-unjudged",
 };
 
-/** One dot per try: quiet when it passed, destructive when it failed, hollow when unjudged. */
+/** One dot per try, in the outcome colours: passed, failed, couldn't judge. */
 export function TryDots({ tries }: { tries: readonly TryOutcome[] }) {
   const failed = tries.filter((outcome) => outcome === "failed").length;
   return (
@@ -130,10 +79,10 @@ const SUSPECT_LABEL: Record<Suspect, string> = {
   unclear: "Unclear",
 };
 
-/** Where the model reads the fault to be, as a small outlined tag. */
+/** Where the model reads the fault to be, as a small soft badge. */
 export function SuspectTag({ suspect }: { suspect: Suspect }) {
   return (
-    <span className="inline-flex h-[18px] shrink-0 items-center rounded-[5px] px-1.5 text-[11px] font-medium text-ink-2 ring-1 ring-inset ring-separator">
+    <span className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-sunk-2 px-[7px] text-[11px] font-medium text-ink-2">
       {SUSPECT_LABEL[suspect]}
     </span>
   );
@@ -144,7 +93,7 @@ export function StaleChip({ reason }: { reason: string }) {
   return (
     <span
       title={reason}
-      className="shrink-0 rounded-[6px] bg-warning/10 px-1.5 py-px text-[11.5px] text-warning"
+      className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-unjudged-soft px-[7px] text-[11px] font-medium text-warning"
     >
       May be stale
     </span>
@@ -163,8 +112,8 @@ export function PlaysChip({ plays }: { plays: "api" | "page" }) {
       }
       data-testid="plays-chip"
       className={cn(
-        "shrink-0 rounded-[6px] px-1.5 py-px text-[11.5px]",
-        page ? "bg-tint/10 text-tint" : "bg-bubble text-ink-2",
+        "inline-flex h-5 shrink-0 items-center rounded-[5px] px-[7px] text-[11px] font-semibold tracking-[0.01em]",
+        page ? "bg-tint-soft text-tint-ink" : "bg-sunk-2 text-ink-2",
       )}
     >
       {page ? "Page" : "API"}
@@ -172,9 +121,10 @@ export function PlaysChip({ plays }: { plays: "api" | "page" }) {
   );
 }
 
+/** A verdict as a cell's fill, in the outcome colours. */
 export const VERDICT_CELL: Record<Verdict, string> = {
-  pass: "bg-success",
-  flaky: "bg-warning",
-  fail: "bg-destructive",
-  unjudged: "ring-1 ring-inset ring-ink-3",
+  pass: "bg-pass",
+  flaky: "bg-[linear-gradient(90deg,var(--pass)_50%,var(--fail)_50%)]",
+  fail: "bg-fail",
+  unjudged: "bg-unjudged",
 };

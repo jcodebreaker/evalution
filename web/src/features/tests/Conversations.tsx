@@ -24,7 +24,7 @@ export function Conversations({
           key={`${source.session_id}:${source.round_id}`}
           type="button"
           onClick={() => onPick(source)}
-          className="flex w-full items-baseline gap-3 border-separator px-3.5 py-2.5 text-start text-[13.5px] not-first:border-t hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          className="flex w-full items-baseline gap-3 border-separator px-3.5 py-2.5 text-start text-[13.5px] not-first:border-t hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint"
         >
           <span className="min-w-0 flex-1 truncate">{source.ask}</span>
           <span className="shrink-0 text-[12.5px] text-ink-3 tabular-nums">{when(source.at)}</span>

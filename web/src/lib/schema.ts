@@ -824,6 +824,26 @@ export const VersionSchema = z.object({
   /** What was said of a version beside it: the reset plan or page map made on another version,
    * a compose file read from the person's checkout. */
   notes: z.array(z.string()).default([]),
+  /** What actually played: on a compose copy each service's image (`kind: "images"`), on a
+   * process copy the working tree (`kind: "tree"`); `null` on the person's own app, or a run
+   * from before it was kept. */
+  played: z
+    .object({
+      kind: z.string(),
+      images: z
+        .array(
+          z.object({
+            service: z.string().default(""),
+            image: z.string(),
+            /** The app's own files build it, as against an image pulled from elsewhere. */
+            built: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type Version = z.infer<typeof VersionSchema>;
 
@@ -881,6 +901,8 @@ export const RunSummarySchema = z.object({
   target: z.string().nullable().default(null),
   set: z.string(),
   started_at: z.number(),
+  /** When it ended; `null` while it goes, or from an older server. */
+  ended_at: z.number().nullable().catch(null).default(null),
   environment: EnvironmentSchema.default({ where: "local", name: null }),
   status: z.enum(["running", "done", "stopped", "failed"]),
   /** Why a failed run stopped, as a kind (`version_not_built`, `app_not_ready`, ...) and in words;

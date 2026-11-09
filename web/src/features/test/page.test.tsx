@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CompareSchema, PlanStepSchema, StepPageSchema, TryPageSchema } from "../../lib/schema";
 import { API_ALONE, layerWords, PAGE_ONLY, shownWords } from "../../lib/verdict";
 import { pageLines } from "./Page";
+import { PageFilm } from "./PageFilm";
 import { Steps } from "./Steps";
 import { VerdictBanner } from "./VerdictBanner";
 
@@ -67,14 +68,15 @@ describe("The layered banner", () => {
     expect(pills()).toEqual(["Stored: failed", "Answered: held", "Shown: failed"]);
   });
 
-  it("keeps the banner as it was for a try through the API", () => {
+  it("says only the layers a try through the API has", () => {
     banner({
       outcome: "failed",
       label: "Failed",
       layers: { stored: "fail", answered: "pass", shown: "absent" },
     });
     expect(screen.getByText(/^Failed on try 3/)).toBeTruthy();
-    expect(screen.queryByRole("list", { name: "Which layer held" })).toBeNull();
+    expect(pills()).toEqual(["Stored: failed", "Answered: held"]);
+    expect(screen.queryByText(new RegExp(API_ALONE))).toBeNull();
     // A server from before layers says nothing of them either.
     expect(layerWords(undefined, "failed")).toBeNull();
   });
@@ -99,7 +101,11 @@ describe("The layered banner", () => {
     });
     expect(screen.getByText("The app refused the message (503) · try 3")).toBeTruthy();
     expect(screen.queryByText(/Failed on the page/)).toBeNull();
-    expect(pills()).toEqual(["Answered: couldn't judge", "Shown: couldn't judge"]);
+    expect(pills()).toEqual([
+      "Stored: nothing to check",
+      "Answered: couldn't judge",
+      "Shown: couldn't judge",
+    ]);
     // Even where only the page's own checks failed, a message the app didn't take is the app's.
     const layers = { stored: "absent", answered: "absent", shown: "fail" } as const;
     expect(layerWords(layers, "failed", "passed", false, { status: null })?.headline).toBe(
@@ -169,6 +175,11 @@ describe("A message's step on the page", () => {
     ).toBeTruthy();
     expect(screen.getByText(/checked on the page/)).toBeTruthy();
     expect(screen.queryByText(/model/i)).toBeNull();
+    cleanup();
+    // The screenshot is in the filmstrip of what the page showed.
+    render(
+      <PageFilm shown={CompareSchema.parse({ name: "Dog", run: "r1", try: 3, steps, page: {} })} />,
+    );
     const thumb = screen.getByAltText("The page after message 1") as HTMLImageElement;
     expect(thumb.getAttribute("src")).toBe("/v1/evals/runs/r1/cases/dog/tries/3/files/turn-1.png");
     fireEvent.click(

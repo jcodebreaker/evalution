@@ -24,7 +24,7 @@ function Marked({ text, marks }: { text: string; marks: { text: string; good: bo
         key={key++}
         className={cn(
           "rounded px-0.5 text-inherit",
-          first.mark.good ? "bg-success/15" : "bg-destructive/15",
+          first.mark.good ? "bg-pass-soft" : "bg-fail-soft",
         )}
       >
         {first.mark.text}
@@ -44,7 +44,7 @@ export function Output({ shown }: { shown: Compare }) {
       <SectionHead title="Output" sub="what it said vs what it should say" />
       <div className="group-card grid grid-cols-2 max-md:grid-cols-1">
         <div className="p-3.5">
-          <h4 className="m-0 mb-1.5 text-[11.5px] font-semibold text-ink-3 uppercase">
+          <h4 className="m-0 mb-1.5 text-[12px] font-medium text-ink-3">
             What it said{shown.tries.length > 1 ? ` (try ${shown.try})` : ""}
           </h4>
           <p className="m-0 text-[13.5px] whitespace-pre-wrap">
@@ -52,9 +52,7 @@ export function Output({ shown }: { shown: Compare }) {
           </p>
         </div>
         <div className="border-separator p-3.5 md:border-s max-md:border-t">
-          <h4 className="m-0 mb-1.5 text-[11.5px] font-semibold text-ink-3 uppercase">
-            What it should say
-          </h4>
+          <h4 className="m-0 mb-1.5 text-[12px] font-medium text-ink-3">What it should say</h4>
           {output.reference ? (
             <p className="m-0 text-[13.5px] text-ink-2 whitespace-pre-wrap">{output.reference}</p>
           ) : null}

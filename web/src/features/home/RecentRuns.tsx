@@ -1,59 +1,123 @@
-import { cn } from "../../lib/cn";
-import { count, when } from "../../lib/format";
-import type { Health } from "../../lib/schema";
-import { TextLink } from "../shared/group";
-import { VERDICT_CELL } from "../shared/marks";
-import { CARD } from "./card";
+import { live, seconds, tokens, when } from "../../lib/format";
+import type { RunSummary } from "../../lib/schema";
+import { Button } from "../../ui/button";
+import { StatusDot } from "../../ui/status";
+import { VersionChip } from "../runs/Version";
+import { PANEL } from "./card";
+import { didntStart, RECENT, runOutcome, runReason } from "./overview";
 
-/** The latest runs, each with a square per test. */
+const FAILED = new Set(["fail", "flaky"]);
+
+/** "Recent runs": each run's outcome and why in a line, its result, its code, its numbers. */
 export function RecentRuns({
-  recent,
-  runLabel,
+  runs,
+  numbers,
   onRun,
   onRuns,
 }: {
-  recent: Health["recent"];
-  runLabel: (run: string) => string;
+  runs: readonly RunSummary[];
+  numbers: ReadonlyMap<string, number>;
   onRun: (run: string) => void;
   onRuns: () => void;
 }) {
+  if (!runs.length) return null;
+  const shown = runs.slice(0, RECENT);
+  const th = "bg-sunk px-5 py-2 text-[12px] font-medium whitespace-nowrap text-ink-3";
   return (
-    <div className={cn(CARD, "flex flex-col gap-1")}>
-      <div className="mb-2 flex items-baseline gap-2">
-        <h2 className="m-0 text-[17px] font-bold">Recent runs</h2>
-        <TextLink
-          className="ms-auto text-[14px] font-semibold text-tint no-underline"
-          onClick={onRuns}
-        >
-          All runs
-        </TextLink>
+    <section className={PANEL} aria-labelledby="recent-runs" data-testid="recent-runs">
+      <div className="flex items-baseline gap-3 px-5 pt-4 pb-3">
+        <h2 id="recent-runs" className="m-0 text-[16px] font-semibold">
+          Recent runs
+        </h2>
+        <Button variant="link" size="sm" className="ms-auto" onClick={onRuns}>
+          {runs.length === 1 ? "The run →" : `All ${runs.length} runs →`}
+        </Button>
       </div>
-      {recent.map((run) => {
-        const passed = run.results.filter((verdict) => verdict === "pass").length;
-        return (
-          <button
-            key={run.run}
-            type="button"
-            onClick={() => onRun(run.run)}
-            className="-mx-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3.5 rounded-[10px] px-3 py-[11px] text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
-          >
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-[14px] font-semibold">
-                {runLabel(run.run)} · {count(run.results.length, "test")}
-              </span>
-              <span className="text-[13px] text-ink-2">{when(run.at)}</span>
-            </span>
-            <span className="flex max-w-40 flex-wrap gap-[3px]" aria-hidden>
-              {run.results.map((verdict, at) => (
-                <span key={at} className={cn("size-[9px] rounded-[3px]", VERDICT_CELL[verdict])} />
-              ))}
-            </span>
-            <span className="min-w-10 text-end text-[14px] font-bold tabular-nums">
-              {passed}/{run.results.length}
-            </span>
-          </button>
-        );
-      })}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[14px]">
+          <thead>
+            <tr className="border-y border-separator text-start">
+              <th className={`${th} text-start`}>Run</th>
+              <th className={`${th} text-start`}>Result</th>
+              <th className={`${th} text-start max-md:hidden`}>Code</th>
+              <th className={`${th} text-end`}>Typical try</th>
+              <th className={`${th} text-end max-md:hidden`}>Tokens</th>
+              <th className={`${th} text-end`}>Started</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((run) => {
+              const label = `Run ${numbers.get(run.run) ?? run.run}`;
+              const tried = !live(run) && run.progress.done > 0;
+              return (
+                <tr
+                  key={run.run}
+                  className="border-separator not-last:border-b hover:bg-sunk"
+                  data-testid="recent-run"
+                >
+                  <td className="px-5 py-3 align-middle">
+                    <div className="flex min-w-0 items-baseline gap-3">
+                      <StatusDot state={runOutcome(run)} className="-translate-y-px" />
+                      <span className="flex min-w-0 flex-col">
+                        <button
+                          type="button"
+                          onClick={() => onRun(run.run)}
+                          className="w-fit text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-tint"
+                        >
+                          {label}
+                        </button>
+                        <small className="max-w-[52ch] truncate text-[12px] text-ink-3">
+                          {runReason(run)}
+                        </small>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 align-middle">
+                    <ResultBar run={run} />
+                  </td>
+                  <td className="px-5 py-3 align-middle max-md:hidden">
+                    <VersionChip version={run.version} />
+                  </td>
+                  <td className="px-5 py-3 text-end align-middle font-mono text-[13px] tabular-nums">
+                    {tried ? seconds(run.totals.median_seconds) : "—"}
+                  </td>
+                  <td className="px-5 py-3 text-end align-middle font-mono text-[13px] text-ink-3 tabular-nums max-md:hidden">
+                    {live(run) ? "—" : tokens(run.totals.tokens)}
+                  </td>
+                  <td className="px-5 py-3 text-end align-middle font-mono text-[13px] whitespace-nowrap text-ink-3 tabular-nums">
+                    {when(run.started_at)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** A run's tests as one bar: passed, failed, couldn't judge; then "n of N". */
+function ResultBar({ run }: { run: RunSummary }) {
+  const total = run.tests.length || run.totals.cases;
+  const passed = run.tests.filter((test) => test.verdict === "pass").length;
+  const failed = run.tests.filter((test) => FAILED.has(test.verdict ?? "")).length;
+  const unjudged = run.tests.filter((test) => test.verdict === "unjudged").length;
+  const share = (n: number) => `${total ? (n / total) * 100 : 0}%`;
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="flex h-1.5 w-[88px] overflow-hidden rounded-[3px] bg-sunk-2"
+        role="img"
+        aria-label={`${passed} passed, ${failed} failed, ${unjudged} couldn't be judged, of ${total}`}
+      >
+        <i className="h-full bg-pass" style={{ width: share(passed) }} />
+        <i className="h-full bg-fail" style={{ width: share(failed) }} />
+        <i className="h-full bg-unjudged" style={{ width: share(unjudged) }} />
+      </div>
+      <small className="font-mono text-[12px] text-ink-3 tabular-nums">
+        {didntStart(run) ? "didn't start" : `${run.totals.passed} of ${run.totals.cases}`}
+      </small>
     </div>
   );
 }

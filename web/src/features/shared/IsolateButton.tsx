@@ -44,7 +44,7 @@ export function IsolateButton({
         {busy ? <Spinner /> : null}
         {label}
       </Button>
-      {error ? <span className="text-[13px] text-destructive">{error}</span> : null}
+      {error ? <span className="text-[13px] text-fail">{error}</span> : null}
       {asking ? (
         <ConfirmDialog
           onClose={() => setAsking(false)}

@@ -1,6 +1,6 @@
-import { Check, CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { StatusDot } from "../../ui/status";
 
 export type StepState = "waiting" | "now" | "done" | "problem";
 
@@ -20,15 +20,15 @@ export function SetupStep({
     <section className="flex min-w-0 flex-col gap-3" aria-label={title}>
       <h2
         className={cn(
-          "m-0 flex items-center gap-2 text-[14px] font-semibold",
+          "m-0 flex items-center gap-2 text-[15px] font-semibold",
           state === "waiting" && "font-medium text-ink-3",
         )}
       >
-        <span className="grid size-5 shrink-0 place-items-center rounded-md bg-selection text-[11px] font-semibold text-ink-2">
+        <span className="grid w-4 shrink-0 place-items-center font-mono text-[13px] font-normal text-ink-3 tabular-nums">
           {state === "done" ? (
-            <Check className="size-3.5 text-success" aria-label="Done" />
+            <StatusDot state="pass" label="Done" />
           ) : state === "problem" ? (
-            <CircleAlert className="size-3.5 text-warning" aria-label="Needs attention" />
+            <StatusDot state="unjudged" label="Needs attention" />
           ) : (
             n
           )}

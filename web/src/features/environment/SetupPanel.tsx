@@ -1,4 +1,4 @@
-import { Activity, CircleAlert, Minus, Plus, UserRound } from "lucide-react";
+import { CircleAlert, Minus, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ApiError, api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -31,7 +31,7 @@ function timeZones(): string[] {
   }
 }
 
-const SECTION = "mb-2 text-[11px] font-semibold tracking-[0.06em] text-ink-3 uppercase";
+const SECTION = "mb-2 text-[13px] font-medium text-ink-2";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -61,8 +61,8 @@ function Choice({
   return (
     <label
       className={cn(
-        "flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 has-focus-visible:outline-2 has-focus-visible:outline-ring",
-        checked ? "border-tint bg-selection-strong" : "border-border",
+        "flex items-center gap-2.5 rounded-[8px] border px-2.5 py-2 has-focus-visible:outline-2 has-focus-visible:outline-tint",
+        checked ? "border-tint bg-tint-soft" : "border-separator hover:bg-sunk",
         disabled && "opacity-60",
       )}
     >
@@ -77,7 +77,7 @@ function Choice({
       <i
         className={cn(
           "size-3.5 shrink-0 rounded-full",
-          checked ? "border-4 border-tint" : "border-[1.5px] border-input",
+          checked ? "border-4 border-tint" : "border-[1.5px] border-rule-strong",
         )}
         aria-hidden
       />
@@ -155,7 +155,7 @@ export function SetupPanel({
 
   return (
     <aside
-      className="flex flex-col rounded-[14px] border border-border bg-group p-4"
+      className="flex flex-col rounded-[12px] border border-separator bg-group p-4"
       aria-label="Test setup"
     >
       <h2 className="m-0 flex items-baseline justify-between gap-2 text-[14px] font-semibold">
@@ -166,16 +166,14 @@ export function SetupPanel({
       <Section title="Test person">
         {fields.length ? (
           <>
-            <div className="flex items-center gap-2.5 rounded-[11px] border border-border p-2.5">
-              <span className="grid size-[38px] shrink-0 place-items-center rounded-full bg-up font-bold text-success">
-                {named ? (
-                  initials(setup.person.name || "Test person")
-                ) : (
-                  <UserRound className="size-4" aria-hidden />
-                )}
-              </span>
+            <div className="flex items-center gap-3 rounded-[10px] border border-separator p-2.5">
+              {named ? (
+                <span className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-tint-soft text-[13px] font-semibold text-tint-ink">
+                  {initials(setup.person.name || "Test person")}
+                </span>
+              ) : null}
               <span className="flex min-w-0 flex-col">
-                <b className="truncate font-semibold">
+                <b className="truncate font-medium">
                   {(named && setup.person.name) || "Test person"}
                 </b>
                 {meta ? <span className="truncate text-[12.5px] text-ink-3">{meta}</span> : null}
@@ -386,7 +384,7 @@ export function SetupPanel({
             {Array.from({ length: Math.max(1, setup.copies) }, (_, index) => (
               <i
                 key={index}
-                className="block h-[18px] w-3.5 rounded-[4px] border border-tint bg-selection-strong"
+                className="block h-[18px] w-3.5 rounded-[4px] border border-tint bg-tint-soft"
               />
             ))}
           </span>
@@ -395,20 +393,19 @@ export function SetupPanel({
 
       <Section title="Left alone">
         <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-bubble px-2 py-1 text-[12.5px] text-ink-2">
-            <Activity className="size-3.5" aria-hidden />
+          <span className="inline-flex h-6 items-center rounded-full border border-separator bg-group px-2 text-[12px] text-ink-2">
             Traces · kept as evidence
           </span>
         </div>
       </Section>
 
       {setup.needs_check ? (
-        <p className="m-0 mt-3.5 flex items-center gap-2 rounded-[10px] bg-warning/10 px-2.5 py-2 text-[12.5px] text-warning">
+        <p className="m-0 mt-3.5 flex items-center gap-2 rounded-[10px] bg-unjudged-soft px-3 py-2 text-[13px] text-warning">
           <CircleAlert className="size-4 shrink-0" aria-hidden />
           Changed. It's checked again before the next run.
         </p>
       ) : null}
-      {error ? <p className="m-0 mt-2.5 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 mt-2.5 text-[13px] text-fail">{error}</p> : null}
     </aside>
   );
 }

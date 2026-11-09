@@ -1,4 +1,3 @@
-import { Check, MousePointerClick } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -6,6 +5,7 @@ import type { PageOffer, PageReach } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { CopyField } from "../../ui/copy-field";
 import { Spinner } from "../../ui/loading";
+import { StatusDot } from "../../ui/status";
 import { TextLink } from "../shared/group";
 import { MissingPieceNote } from "../shared/next-step";
 import { LearnSteps, oneMessage, ProposedMap, useLearnPoll } from "./LearnFlow";
@@ -102,20 +102,15 @@ export function UiOffer({ target, className }: { target: string; className?: str
 
   return (
     <section
-      className={cn(
-        "flex flex-col gap-3 text-[14px]",
-        className,
-        "border-tint/50 shadow-[inset_3px_0_0_var(--color-tint)]",
-      )}
+      className={cn("flex flex-col gap-3 text-[14px]", className, "border-tint-soft-2")}
       aria-label="UI testing"
       data-testid="ui-offer"
     >
       <div className="flex flex-col gap-1">
-        <span className="text-[11.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">
+        <span className="inline-flex h-5 w-fit items-center rounded-[5px] bg-tint-soft px-[7px] text-[11px] font-semibold tracking-[0.01em] text-tint-ink">
           New for {target}
         </span>
-        <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold">
-          <MousePointerClick className="size-4 text-tint" aria-hidden />
+        <h2 className="m-0 text-[16px] font-semibold">
           {target} has a page. Test it the way people use it?
         </h2>
       </div>
@@ -129,8 +124,8 @@ export function UiOffer({ target, className }: { target: string; className?: str
           ) : null}
           {approved ? (
             <div className="flex flex-wrap items-center gap-3">
-              <p className="m-0 flex items-center gap-1.5" data-testid="ui-approved">
-                <Check className="size-4 text-success" aria-hidden />
+              <p className="m-0 flex items-center gap-2" data-testid="ui-approved">
+                <StatusDot state="pass" label="Approved" />
                 Approved. From the next run, tests reach {target} through its page.
               </p>
               {reach.can_undo ? (
@@ -203,7 +198,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
           </div>
         </>
       )}
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
     </section>
   );
 }

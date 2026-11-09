@@ -40,9 +40,12 @@ export function ReportCard({
   };
   return (
     <section className={cn(CARD, "flex flex-col gap-4")}>
-      <h2 className="m-0 text-[21px] font-semibold tracking-[-0.015em] text-balance">
-        {headline(facts)}
-      </h2>
+      <div className="flex flex-col gap-1">
+        <span className="text-[13px] text-ink-3">{label}, in words</span>
+        <h2 className="m-0 text-[19px] font-semibold tracking-[-0.01em] text-balance">
+          {headline(facts)}
+        </h2>
+      </div>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-6">
         <ReportList title="Passed before, fails now">
           {facts.regressions.map((item) => (
@@ -111,7 +114,7 @@ export function ReportCard({
           ]}
         </ReportList>
       </div>
-      <form onSubmit={send} className="flex items-center gap-2 rounded-xl bg-bubble px-3.5 py-2">
+      <form onSubmit={send} className="flex items-center gap-2 rounded-[10px] bg-sunk px-3.5 py-2">
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}

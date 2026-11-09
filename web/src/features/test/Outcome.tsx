@@ -19,7 +19,7 @@ export function Outcome({
       <span
         className={cn(
           "font-semibold",
-          actual.unjudged ? "text-ink-2" : actual.passed ? "text-success" : "text-destructive",
+          actual.unjudged ? "text-ink-2" : actual.passed ? "text-pass" : "text-fail",
         )}
       >
         {actual.unjudged

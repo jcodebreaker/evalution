@@ -6,9 +6,9 @@ import { SectionHead } from "./SectionHead";
 const NODE: Record<LaneStep["status"] | "plan", string> = {
   plan: "bg-bubble",
   ok: "bg-bubble",
-  missing: "border-[1.5px] border-dashed border-destructive text-destructive",
+  missing: "border-[1.5px] border-dashed border-fail text-fail",
   extra: "ring-1 ring-inset ring-separator",
-  wrong: "bg-destructive/10 text-destructive",
+  wrong: "bg-fail-soft text-fail",
   unjudged: "ring-1 ring-inset ring-ink-3 text-ink-2",
   automatic: "text-ink-3 ring-1 ring-inset ring-separator",
 };
@@ -55,10 +55,10 @@ function Lane({
 function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
   return (
     <div className="group-card grid grid-cols-2 text-[13px] max-md:grid-cols-1">
-      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-3 uppercase max-md:hidden">
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[12px] font-medium text-ink-3 max-md:hidden">
         Expected
       </h4>
-      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-3 uppercase max-md:hidden">
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[12px] font-medium text-ink-3 max-md:hidden">
         What it did{try_ ? ` (try ${try_})` : ""}
       </h4>
       {rows.map((row, index) => (
@@ -74,7 +74,7 @@ function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
                 "m-0 px-3.5 pb-2 -mt-1 text-[12.5px]",
                 row.status === "matched" || row.status === "extra" || row.status === "automatic"
                   ? "text-ink-3"
-                  : "text-destructive",
+                  : "text-fail",
               )}
             >
               {row.status === "automatic" ? "Ran by itself, not scored" : row.reason || row.status}

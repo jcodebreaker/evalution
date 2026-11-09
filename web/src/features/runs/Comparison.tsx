@@ -1,13 +1,14 @@
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import type { BaseBranch, Comparison as Compared, RunSummary } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
-import { TextLink } from "../shared/group";
+import { Card, CardHead } from "./parts";
 
 /** Enough tries for a total swing to rule out chance, against the three a test usually has. */
-const MORE_TRIES = 5;
+export const MORE_TRIES = 5;
 
 type Side = Compared["tests"][number]["before"];
 
@@ -34,6 +35,9 @@ export function sameWords(all: readonly Compared["tests"][number][]): string | n
     .filter(Boolean)
     .join("; ");
 }
+
+/** The sign a moved test's row starts with, as a diff's. */
+const SIGN: Record<string, string> = { worse: "−", better: "+" };
 
 const WORDS: Record<string, string> = {
   worse: "Worse",
@@ -126,12 +130,15 @@ export function Comparison({
   );
   if (!load.data.base) {
     return (
-      <div className="flex flex-col gap-2">
-        <p className="m-0 text-[14px] text-ink-2">
-          No earlier run of this test set to compare with.
-        </p>
-        {onBase}
-      </div>
+      <Card data-testid="comparison">
+        <CardHead title="What changed" />
+        <div className="flex flex-col gap-2 px-5 pt-2 pb-4">
+          <p className="m-0 text-[14px] text-ink-2">
+            No earlier run of this test set to compare with.
+          </p>
+          {onBase}
+        </div>
+      </Card>
     );
   }
   const found = load.data;
@@ -149,113 +156,154 @@ export function Comparison({
     )
     .sort((a, b) => b.started_at - a.started_at);
   const base = found.base as string;
+  const chance = moved.filter((test) => test.change === "worse" || test.change === "better");
   return (
-    <section className="flex flex-col gap-3 rounded-[14px] bg-group p-4 ring-1 ring-separator">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+    <Card data-testid="comparison">
+      <CardHead
+        title="What changed"
+        aside={
+          <label className="relative inline-flex h-7 items-center gap-1 rounded-[6px] border border-rule-strong bg-group ps-2.5 pe-7 text-[13px] font-medium hover:bg-sunk focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-tint">
+            Compared with
+            <select
+              value={base}
+              onChange={(event) => pick(event.target.value)}
+              className="cursor-default appearance-none bg-transparent font-medium text-foreground outline-none"
+            >
+              {others.some((other) => other.run === base) ? null : (
+                <option value={base}>{label(base)}</option>
+              )}
+              {others.map((other) => (
+                <option key={other.run} value={other.run}>
+                  {label(other.run)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              aria-hidden
+              className="pointer-events-none absolute end-2 size-3.5 text-ink-3"
+            />
+          </label>
+        }
+      />
+      <div className="flex flex-col gap-2 px-5 pt-2 pb-3">
+        <p className="m-0 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="text-[14px] font-medium text-balance">{found.headline}</span>
           {versions?.heading ? (
-            <p
-              className="m-0 font-mono text-[12.5px] text-ink-2"
+            <span
+              className="font-mono text-[12px] text-ink-2"
               title={`${versions.now.said} vs ${versions.before.said}`}
               data-testid="compare-versions"
             >
               {versions.heading}
-            </p>
+            </span>
           ) : null}
-          <h3 className="m-0 text-[17px] font-bold text-balance">{found.headline}</h3>
-        </div>
-        <label className="flex items-center gap-1.5 text-[14px] text-ink-2">
-          Compared with
-          <select
-            value={base}
-            onChange={(event) => pick(event.target.value)}
-            className="rounded-md bg-bubble px-1.5 py-1 text-[14px] text-foreground"
-          >
-            {others.some((other) => other.run === base) ? null : (
-              <option value={base}>{label(base)}</option>
-            )}
-            {others.map((other) => (
-              <option key={other.run} value={other.run}>
-                {label(other.run)}
-              </option>
-            ))}
-          </select>
-        </label>
+        </p>
+        {onBase}
       </div>
-      {onBase}
-      {found.changed.length ? (
-        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-[14px] text-ink-2">
-          {found.changed.map((row) => (
-            <li key={row.what} className="min-w-0 break-words">
-              {`${row.what}: ${row.before} → ${row.now}`}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="m-0 text-[14px] text-ink-2">
-          Same setup as that run: no recorded change in model, code, prompt or grader.
-        </p>
-      )}
-      {found.code ? (
-        <p className="m-0 text-[14px] text-ink-2" data-testid="code-played">
-          {`${found.code}.`}
-        </p>
-      ) : null}
-      {moved.length ? (
-        <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[14px]">
-          {moved.map((test) => (
-            <li key={test.case} className="flex flex-wrap items-baseline gap-x-2">
-              <span
+      {moved.length || same ? (
+        <ul className="m-0 list-none p-0" aria-label="Tests that moved">
+          {moved.map((test) => {
+            const notRun = test.change === "unknown" && test.now?.verdict === "not_run";
+            const word = notRun ? "Not run" : (WORDS[test.change] ?? test.change);
+            return (
+              <li
+                key={test.case}
+                data-change={test.change}
                 className={cn(
-                  "font-semibold",
-                  test.change === "worse" && "text-destructive",
-                  test.change === "better" && "text-tint",
-                  test.change !== "worse" && test.change !== "better" && "text-ink-2",
+                  "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-t border-separator px-5 py-2",
+                  test.change === "worse" &&
+                    "bg-[linear-gradient(90deg,var(--fail-soft),var(--group)_70%)]",
+                  test.change === "better" &&
+                    "bg-[linear-gradient(90deg,var(--pass-soft),var(--group)_70%)]",
                 )}
               >
-                {test.change === "unknown" && test.now?.verdict === "not_run"
-                  ? "Not run"
-                  : (WORDS[test.change] ?? test.change)}
+                <span
+                  className={cn(
+                    "text-center font-mono text-[14px] font-semibold",
+                    test.change === "worse"
+                      ? "text-fail"
+                      : test.change === "better"
+                        ? "text-pass"
+                        : "text-ink-3",
+                  )}
+                >
+                  <span aria-hidden>{SIGN[test.change] ?? "·"}</span>
+                  <span className="sr-only">{word}</span>
+                </span>
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  <button
+                    type="button"
+                    onClick={() => onTest(test.case)}
+                    className={cn(
+                      "min-w-0 truncate text-start text-[14px] hover:underline focus-visible:outline-2 focus-visible:outline-tint",
+                      test.change === "worse" || test.change === "better"
+                        ? "font-medium text-foreground"
+                        : "text-ink-2",
+                    )}
+                  >
+                    {test.name}
+                  </button>
+                  {test.caveats.length ? (
+                    <span className="text-[12px] text-ink-3">{test.caveats.join(", ")}</span>
+                  ) : null}
+                </span>
+                <span className="font-mono text-[13px] font-medium whitespace-nowrap text-ink-2">
+                  {`${tries(test.before)} → ${tries(test.now)}`}
+                </span>
+              </li>
+            );
+          })}
+          {same ? (
+            <li className="grid grid-cols-[24px_minmax(0,1fr)] items-baseline gap-3 border-t border-separator px-5 py-2 text-[14px]">
+              <span className="text-center font-mono font-semibold text-ink-3">
+                <span aria-hidden>=</span>
+                <span className="sr-only">Same</span>
               </span>
-              <TextLink onClick={() => onTest(test.case)}>{test.name}</TextLink>
-              <span className="text-[14px] text-ink-2">
-                {`${tries(test.before)} → ${tries(test.now)}`}
-              </span>
-              {test.caveats.length ? (
-                <span className="text-[13px] text-ink-3">{test.caveats.join(", ")}</span>
-              ) : null}
+              <span className="text-ink-2">{same}</span>
             </li>
-          ))}
+          ) : null}
         </ul>
       ) : null}
-      {same ? (
-        <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-[14px]">
-          <span className="font-semibold text-ink-2">Same</span>
-          <span className="text-ink-2">{same}</span>
-        </p>
-      ) : null}
-      {found.could_be_chance ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p className="m-0 min-w-0 flex-1 text-[14px] text-ink-2">
-            Too few tries to tell this from the agent varying.
+      <div className="flex flex-col gap-1.5 border-t border-separator px-5 py-3 text-[13px] text-ink-2">
+        {found.changed.length ? (
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+            {found.changed.map((row) => (
+              <li key={row.what} className="min-w-0 break-words">
+                {`${row.what}: ${row.before} → ${row.now}`}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0">
+            Same setup as that run: no recorded change in model, code, prompt or grader.
           </p>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={going}
-            onClick={() =>
-              onRunMore(
-                moved
-                  .filter((test) => test.change === "worse" || test.change === "better")
-                  .map((test) => test.case),
-                MORE_TRIES,
-              )
-            }
-          >
-            {`Run with ${MORE_TRIES} tries`}
-          </Button>
-        </div>
-      ) : null}
-    </section>
+        )}
+        {found.code ? (
+          <p className="m-0" data-testid="code-played">
+            {`${found.code}.`}
+          </p>
+        ) : null}
+        {found.could_be_chance ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="m-0 min-w-0 flex-1">Too few tries to tell this from the agent varying.</p>
+            {chance.length ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={going}
+                onClick={() =>
+                  onRunMore(
+                    chance.map((test) => test.case),
+                    MORE_TRIES,
+                  )
+                }
+              >
+                {`Run ${chance.length === 1 ? "it" : "them"} with ${MORE_TRIES} tries`}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </Card>
   );
 }

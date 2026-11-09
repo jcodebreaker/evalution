@@ -50,7 +50,7 @@ function standing(build: Build): { text: string; tone: string } | null {
         tone: "text-warning",
       };
     case "failed":
-      return { text: "The last proof didn't work: see why below.", tone: "text-destructive" };
+      return { text: "The last proof didn't work: see why below.", tone: "text-fail" };
     default:
       return null;
   }
@@ -59,17 +59,22 @@ function standing(build: Build): { text: string; tone: string } | null {
 function Badge({ status }: { status: Build["status"] }) {
   const words =
     status === "proven"
-      ? { text: "Proven", tone: "bg-up text-success" }
+      ? { text: "Proven", tone: "bg-pass-soft text-pass" }
       : status === "stale"
-        ? { text: "Out of date", tone: "bg-warning/10 text-warning" }
+        ? { text: "Out of date", tone: "bg-unjudged-soft text-warning" }
         : status === "failed"
-          ? { text: "Not proven", tone: "bg-destructive/10 text-destructive" }
+          ? { text: "Not proven", tone: "bg-fail-soft text-fail" }
           : status === "proposed"
-            ? { text: "Proposed", tone: "bg-bubble text-ink-2" }
+            ? { text: "Proposed", tone: "bg-sunk-2 text-ink-2" }
             : null;
   if (!words) return null;
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", words.tone)}>
+    <span
+      className={cn(
+        "inline-flex h-[22px] items-center rounded-full px-2 text-[12px] font-medium",
+        words.tone,
+      )}
+    >
       {words.text}
     </span>
   );
@@ -131,7 +136,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
 
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-[14px] border border-border bg-group p-5 text-[14px] max-md:p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-[12px] border border-separator bg-group p-5 text-[14px] max-md:p-4"
       aria-label="How a version is built"
       data-testid="build-recipe"
     >
@@ -213,7 +218,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
           <Checklist steps={job.steps} />
           {lines.length && job.state === "running" ? (
             <pre
-              className="m-0 overflow-hidden rounded-md bg-bubble px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
+              className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
               role="log"
               aria-label="What the build says"
             >
@@ -226,7 +231,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
         </div>
       ) : null}
       {build.status === "failed" && job?.error && job.state === "done" ? (
-        <p className="m-0 text-[13px] whitespace-pre-wrap text-destructive">{job.error}</p>
+        <p className="m-0 text-[13px] whitespace-pre-wrap text-fail">{job.error}</p>
       ) : null}
 
       {low ? (
@@ -235,7 +240,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
           {sizeWords(build.min_free_bytes)}: remove built versions or free space elsewhere first.
         </p>
       ) : null}
-      {build.problem ? <p className="m-0 text-destructive">{build.problem}</p> : null}
+      {build.problem ? <p className="m-0 text-fail">{build.problem}</p> : null}
 
       {running ? null : (
         <div className="flex flex-col gap-2">
@@ -290,7 +295,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
           ) : null}
         </div>
       )}
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
     </section>
   );
 }

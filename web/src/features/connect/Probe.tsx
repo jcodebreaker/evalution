@@ -1,9 +1,9 @@
-import { Check, X } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import type { Probe as ProbeResult, Redraft } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
+import { StatusDot } from "../../ui/status";
 import { Fold, Group } from "../shared/group";
 import { KEY_LEFT_BEHIND } from "../shared/hosts";
 
@@ -88,12 +88,12 @@ export function Probe({
     <div className="flex flex-col gap-3">
       {result ? (
         <Group>
-          <div className="flex items-start gap-2.5 px-3.5 py-2.5 text-[14px] font-medium">
-            {result.ok ? (
-              <Check className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden />
-            ) : (
-              <X className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
-            )}
+          <div className="flex items-start gap-3 px-4 py-2.5 text-[14px] font-medium">
+            <StatusDot
+              state={result.ok ? "pass" : "fail"}
+              label={result.ok ? "It works" : "It didn't work"}
+              className="mt-[7px]"
+            />
             {result.ok ? `It works, in ${result.seconds} s` : "It didn't work"}
           </div>
           {result.reply ? <Line label="Reply">{result.reply}</Line> : null}
@@ -102,7 +102,7 @@ export function Probe({
           {result.problems.map((problem) => (
             <div
               key={problem}
-              className="border-t border-separator px-3.5 py-2.5 text-[14px] break-words text-destructive"
+              className="border-t border-separator px-3.5 py-2.5 text-[14px] break-words text-fail"
             >
               {problem}
             </div>
@@ -138,7 +138,7 @@ export function Probe({
               </span>
               {round.reply ? <span className="break-words text-ink-2">{round.reply}</span> : null}
               {round.problems.map((problem) => (
-                <span key={problem} className="break-words text-destructive">
+                <span key={problem} className="break-words text-fail">
                   {problem}
                 </span>
               ))}
@@ -169,7 +169,7 @@ export function Probe({
         </Group>
       ) : null}
 
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {checked && !result ? <span className="text-[14px] text-ink-2">Passed.</span> : null}

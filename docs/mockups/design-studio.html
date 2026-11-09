@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evalution redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Hallmark · genre: modern-minimal · macrostructure: app (index-first) · theme: custom "evalution light"
+ * paper oklch(98.2% 0.003 270) · accent oklch(50% 0.21 279) evalution purple · IBM Plex Sans + IBM Plex Mono
+ * axes: light / grotesk-sans / cool · data: real runs of relay-lite's Page stress set and demo-chat
+ * pre-emit critique: P5 H5 E4 S5 R4 V5
+ */
+:root{
+  color-scheme:light;
+  --font-ui:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:28px; --space-8:32px; --space-10:40px; --space-12:48px;
+  --text-2xs:11px; --text-xs:12px; --text-sm:13px; --text-md:14px; --text-lg:16px; --text-xl:19px; --text-2xl:24px; --text-3xl:30px;
+  --radius-xs:5px; --radius-sm:7px; --radius-md:10px; --radius-lg:14px;
+  --ease-out:cubic-bezier(.2,.7,.2,1); --dur-fast:120ms; --dur-mid:200ms;
+
+  /* Surfaces: evalution's own window grey, white groups. */
+  --color-window:oklch(98.2% 0.003 270);
+  --color-group:oklch(100% 0 0);
+  --color-sunk:oklch(96.8% 0.004 270);
+  --color-sunk-2:oklch(94.8% 0.006 270);
+  --color-rule:oklch(92.6% 0.006 270);
+  --color-rule-strong:oklch(87.5% 0.008 270);
+  /* Ink: evalution's #14162b family. */
+  --color-ink:oklch(21% 0.03 275);
+  --color-ink-2:oklch(46% 0.025 275);
+  --color-ink-3:oklch(56% 0.02 275);
+  --color-on-tint:oklch(100% 0 0);
+  /* The purple: evalution's #5546d8. Primary action, selection, focus, links, "now". */
+  --color-tint:oklch(50% 0.21 279);
+  --color-tint-hover:oklch(45% 0.21 279);
+  --color-tint-soft:oklch(95.5% 0.025 285);
+  --color-tint-soft-2:oklch(91.5% 0.05 285);
+  --color-tint-ink:oklch(42% 0.19 279);
+  /* Outcomes only. */
+  --color-pass:oklch(56% 0.12 170);
+  --color-pass-soft:oklch(95.5% 0.035 170);
+  --color-fail:oklch(55% 0.19 30);
+  --color-fail-soft:oklch(96% 0.03 30);
+  --color-unj:oklch(64% 0.14 70);
+  --color-unj-soft:oklch(96.5% 0.04 80);
+  --color-none:oklch(88% 0.008 270);
+  --color-mark:oklch(91% 0.07 30);
+  --color-shadow:oklch(25% 0.04 275 / .06);
+  --color-shadow-2:oklch(25% 0.04 275 / .14);
+  --color-scrim:oklch(20% 0.03 275 / .32);
+  /* The app under test, so it reads as someone else's page. */
+  --color-app-paper:oklch(98.5% 0.006 85);
+  --color-app-side:oklch(95.5% 0.01 85);
+  --color-app-ink:oklch(27% 0.012 85);
+  --color-app-line:oklch(90% 0.012 85);
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;overflow-x:clip}
+body{background:var(--color-window);color:var(--color-ink);font:400 var(--text-md)/1.55 var(--font-ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;letter-spacing:inherit}
+a{color:var(--color-tint-ink);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--color-tint);outline-offset:2px}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--font-mono);font-size:.92em;letter-spacing:-.01em}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.dim{color:var(--color-ink-3)} .ink2{color:var(--color-ink-2)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------------- Shell ---------------- */
+.shell{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;background:var(--color-group);border-right:1px solid var(--color-rule);padding:var(--space-3)}
+.brand{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2) var(--space-3);font:600 var(--text-lg)/1 var(--font-ui);letter-spacing:-.03em}
+.logo{width:24px;height:24px;display:grid;place-items:center}
+.logo svg{width:24px;height:24px}
+.app{display:flex;align-items:center;gap:var(--space-3);width:100%;padding:var(--space-2);border:1px solid var(--color-rule);border-radius:var(--radius-md);background:var(--color-group);text-align:left}
+.app:hover{background:var(--color-sunk)}
+.app .av{width:30px;height:30px;border-radius:var(--radius-sm);background:var(--color-tint-soft);color:var(--color-tint-ink);display:grid;place-items:center;font-weight:600}
+.app b{display:block;font-weight:600;line-height:1.25}
+.app small{display:block;font-size:var(--text-xs);color:var(--color-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+.app .chev{margin-left:auto;color:var(--color-ink-3)}
+.setpick{display:flex;align-items:center;gap:6px;margin:var(--space-2) var(--space-2) 0;font-size:var(--text-sm);color:var(--color-ink-2)}
+.setpick b{font-weight:500;color:var(--color-ink)}
+.nav{display:flex;flex-direction:column;gap:1px;margin-top:var(--space-4)}
+.nav a{display:flex;align-items:center;gap:var(--space-3);height:34px;padding:0 var(--space-2);border-radius:var(--radius-sm);color:var(--color-ink-2);text-decoration:none;cursor:pointer;font-weight:400}
+.nav a:hover{background:var(--color-sunk);color:var(--color-ink)}
+.nav a.on{background:var(--color-tint-soft);color:var(--color-tint-ink);font-weight:500}
+.nav a .count{margin-left:auto;font:500 var(--text-2xs) var(--font-mono);color:var(--color-ink-3);background:var(--color-sunk);padding:1px 6px;border-radius:99px}
+.nav a.on .count{background:var(--color-group);color:var(--color-tint-ink)}
+.nav a .count.bad{background:var(--color-fail-soft);color:var(--color-fail)}
+.nav .h{font-size:var(--text-xs);color:var(--color-ink-3);padding:var(--space-4) var(--space-2) var(--space-1)}
+.side .foot{margin-top:auto;display:flex;flex-direction:column;gap:var(--space-2)}
+.status{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--color-sunk);font-size:var(--text-xs);color:var(--color-ink-2)}
+.status i{width:7px;height:7px;border-radius:50%;background:var(--color-pass);box-shadow:0 0 0 3px var(--color-pass-soft)}
+
+.main{min-width:0}
+.topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:var(--space-3);height:52px;padding:0 var(--space-8);background:oklch(98.2% 0.003 270 / .86);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--color-rule)}
+.crumbs{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-sm);color:var(--color-ink-3);white-space:nowrap;overflow:hidden}
+.crumbs b{color:var(--color-ink);font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.crumbs .sep{color:var(--color-rule-strong)}
+.topbar .sp{flex:1}
+.search{display:flex;align-items:center;gap:var(--space-2);height:32px;width:min(300px,30vw);padding:0 var(--space-3);border:1px solid var(--color-rule);border-radius:var(--radius-sm);background:var(--color-group);color:var(--color-ink-3);font-size:var(--text-sm)}
+.search .kbd{margin-left:auto}
+.kbd{font:500 var(--text-2xs) var(--font-mono);padding:1px 5px;border:1px solid var(--color-rule-strong);border-bottom-width:2px;border-radius:4px;color:var(--color-ink-3);background:var(--color-group)}
+.livepill{display:inline-flex;align-items:center;gap:var(--space-2);height:30px;padding:0 var(--space-3);border-radius:99px;background:var(--color-tint-soft);color:var(--color-tint-ink);font-size:var(--text-sm);font-weight:500;white-space:nowrap}
+.livepill i{width:7px;height:7px;border-radius:50%;background:var(--color-tint);animation:pulse 1.6s var(--ease-out) infinite}
+@keyframes pulse{0%{opacity:1}60%{opacity:.35}100%{opacity:1}}
+
+.page{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-8) var(--space-12)}
+
+/* ---------------- Buttons and bits ---------------- */
+.btn{display:inline-flex;align-items:center;gap:var(--space-2);height:32px;padding:0 var(--space-3);border-radius:6px;border:1px solid var(--color-rule-strong);background:var(--color-group);color:var(--color-ink);font-weight:500;white-space:nowrap;transition:background var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.btn:hover{background:var(--color-sunk);border-color:var(--color-ink-3)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--color-tint);border-color:var(--color-tint);color:var(--color-on-tint)}
+.btn.primary:hover{background:var(--color-tint-hover);border-color:var(--color-tint-hover)}
+.btn.ghost{border-color:transparent;background:none;color:var(--color-tint-ink);padding:0 var(--space-1)}
+.btn.ghost:hover{background:none;text-decoration:underline;text-underline-offset:3px}
+.btn.sm{height:28px;padding:0 10px;font-size:var(--text-sm)}
+.btn .kbd{margin-left:var(--space-1)}
+.btn.primary .kbd{background:oklch(100% 0 0 / .14);border-color:oklch(100% 0 0 / .3);color:var(--color-on-tint)}
+
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 var(--space-2);border-radius:99px;border:1px solid var(--color-rule);background:var(--color-group);font-size:var(--text-xs);color:var(--color-ink-2);white-space:nowrap}
+.chip svg.i{width:13px;height:13px}
+.chip.tint{border-color:var(--color-tint-soft-2);background:var(--color-tint-soft);color:var(--color-tint-ink)}
+.chip.ver{font-family:var(--font-mono);font-size:var(--text-2xs)}
+.badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:var(--radius-xs);font-size:var(--text-2xs);font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.badge.page{background:var(--color-tint-soft);color:var(--color-tint-ink)}
+.badge.api{background:var(--color-sunk-2);color:var(--color-ink-2)}
+
+.st{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;vertical-align:middle}
+.st.pass{background:var(--color-pass)}
+.st.fail{background:var(--color-fail)}
+.st.unj{background:var(--color-unj)}
+.st.none{background:none;box-shadow:inset 0 0 0 1.5px var(--color-rule-strong)}
+.dash{color:var(--color-ink-3)}
+.keyline{display:inline-flex;gap:var(--space-4);font-size:var(--text-xs);color:var(--color-ink-2)}
+.keyline > span{display:inline-flex;align-items:center;gap:6px}
+.lay{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-xs);color:var(--color-ink-2);white-space:nowrap}
+.lay b{font:600 var(--text-xs) var(--font-mono)}
+td.lay{display:table-cell;text-align:center}
+.lay .pass{color:var(--color-pass)} .lay .fail{color:var(--color-fail)} .lay .unj{color:var(--color-unj)} .lay .none{color:var(--color-ink-3)}
+
+.card{background:var(--color-group);border:1px solid var(--color-rule);border-radius:12px}
+.card > .hd{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5) 0}
+.card > .hd h3{margin:0;font:600 var(--text-lg)/1.3 var(--font-ui);letter-spacing:-.01em}
+.card > .hd .sp{flex:1}
+.card > .bd{padding:var(--space-4) var(--space-5) var(--space-5)}
+.card > .bd.flush{padding:var(--space-3) 0 0}
+
+h1{margin:0;font:600 var(--text-3xl)/1.15 var(--font-ui);letter-spacing:-.01em;overflow-wrap:anywhere}
+h2{margin:0;font:600 var(--text-xl)/1.3 var(--font-ui);letter-spacing:-.01em}
+.lede{margin:var(--space-2) 0 0;color:var(--color-ink-2);font-size:var(--text-lg);max-width:70ch}
+
+.phead{display:flex;align-items:flex-start;gap:var(--space-5);flex-wrap:wrap}
+.phead .t{flex:1 1 420px;min-width:0}
+.phead .acts{display:flex;gap:var(--space-2);flex-wrap:wrap;padding-top:var(--space-1)}
+.over{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm);color:var(--color-ink-3)}
+.chips{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-3)}
+
+.grid{display:grid;gap:var(--space-4)}
+.g-main{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.stack{display:flex;flex-direction:column;gap:var(--space-4)}
+.mt{margin-top:var(--space-6)}
+
+/* ---------------- Overview ---------------- */
+.inbox .item{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-5);border-top:1px solid var(--color-rule)}
+.inbox .item:first-child{border-top:0}
+.inbox .ico{width:32px;height:32px;border-radius:var(--radius-sm);display:grid;place-items:center;flex:none}
+.inbox .ico.bad{background:var(--color-fail-soft);color:var(--color-fail)}
+.inbox .ico.tint{background:var(--color-tint-soft);color:var(--color-tint-ink)}
+.inbox .ico.unj{background:var(--color-unj-soft);color:var(--color-unj)}
+.inbox .lead{flex:0 0 36px;display:flex;justify-content:center;align-self:flex-start;padding-top:7px}
+.inbox .t{flex:1;min-width:0}
+.inbox b{font-weight:500}
+.inbox p{margin:1px 0 0;font-size:var(--text-sm);color:var(--color-ink-2)}
+
+.kpi{padding:var(--space-4) var(--space-5)}
+.kpi .k{display:flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--color-ink-2)}
+.kpi .v{display:flex;align-items:baseline;gap:var(--space-2);margin-top:var(--space-1)}
+.kpi .v b{font:600 28px/1.1 var(--font-ui);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.kpi .delta{font-size:var(--text-xs);font-weight:500;padding:1px 6px;border-radius:99px}
+.kpi .delta.bad{background:var(--color-fail-soft);color:var(--color-fail)}
+.kpi .delta.ok{background:var(--color-pass-soft);color:var(--color-pass)}
+.kpi .sub{font-size:var(--text-xs);color:var(--color-ink-3);margin-top:2px}
+.kpi svg.spark{display:block;width:100%;height:44px;margin-top:var(--space-3);overflow:visible}
+
+.heat{display:grid;grid-template-columns:minmax(150px,1.3fr) repeat(9,minmax(26px,1fr));gap:4px;align-items:center;font-size:var(--text-sm)}
+.heat .col{text-align:center;font:500 var(--text-2xs) var(--font-mono);color:var(--color-ink-3)}
+.heat .col.now{color:var(--color-tint-ink);font-weight:600}
+.heat .name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:var(--space-2)}
+.cell{height:26px;border-radius:5px;border:1px solid transparent;cursor:pointer;transition:transform var(--dur-fast) var(--ease-out)}
+.cell:hover{transform:scale(1.08)}
+.cell.p{background:var(--color-pass)}
+.cell.f{background:var(--color-fail)}
+.cell.n{background:var(--color-sunk-2)}
+.cell.x{background:repeating-linear-gradient(135deg,var(--color-sunk-2) 0 4px,var(--color-group) 4px 8px);border-color:var(--color-rule)}
+.cell.now{box-shadow:0 0 0 2px var(--color-group),0 0 0 4px var(--color-tint)}
+.legend{display:flex;flex-wrap:wrap;gap:var(--space-4);margin-top:var(--space-4);font-size:var(--text-xs);color:var(--color-ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:var(--text-xs);font-weight:500;color:var(--color-ink-3);text-align:left;padding:var(--space-2) var(--space-5);border-bottom:1px solid var(--color-rule);white-space:nowrap;background:var(--color-sunk)}
+td{padding:var(--space-3) var(--space-5);border-bottom:1px solid var(--color-rule);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer;transition:background var(--dur-fast) var(--ease-out)}
+tbody tr:hover{background:var(--color-sunk)}
+td.r,th.r{text-align:right} td.c,th.c{text-align:center}
+.rowname{display:flex;align-items:baseline;gap:var(--space-3);min-width:0}
+.rowname > .st{transform:translateY(-1px)}
+.rowname b{display:block;font-weight:500}
+.rowname small{display:block;font-size:var(--text-xs);color:var(--color-ink-3);max-width:52ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.minibar{display:flex;width:88px;height:6px;border-radius:3px;overflow:hidden;background:var(--color-sunk-2)}
+.minibar i{height:100%}
+
+/* ---------------- Run ---------------- */
+.status-pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:99px;font-size:var(--text-sm);font-weight:500}
+.status-pill.fail{background:var(--color-fail-soft);color:var(--color-fail)}
+.result{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-6);align-items:center;padding:var(--space-5)}
+.ring{width:84px;height:84px}
+.result .big{font:600 var(--text-3xl)/1 var(--font-ui);letter-spacing:-.03em}
+.result .bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--color-sunk-2);margin:var(--space-3) 0 var(--space-2)}
+.result .bar i{height:100%}
+.counts{display:flex;flex-wrap:wrap;gap:var(--space-5);font-size:var(--text-sm);color:var(--color-ink-2)}
+.counts span{display:inline-flex;align-items:center;gap:6px}
+.counts i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.notice{display:flex;gap:var(--space-3);align-items:flex-start;padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);font-size:var(--text-sm)}
+.notice.unj{background:var(--color-unj-soft);color:oklch(40% 0.09 70)}
+.notice.bad{background:var(--color-fail-soft);color:oklch(42% 0.14 30)}
+.notice b{font-weight:600;color:inherit}
+.notice svg.i{margin-top:2px}
+
+.tabs{display:flex;gap:var(--space-1);padding:0 var(--space-5);border-bottom:1px solid var(--color-rule)}
+.tabs button{height:38px;padding:0 var(--space-2);border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--color-ink-2);font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.tabs button .n{font:500 var(--text-2xs) var(--font-mono);padding:1px 6px;border-radius:99px;background:var(--color-sunk-2);color:var(--color-ink-2)}
+.tabs button.on{color:var(--color-tint-ink);border-bottom-color:var(--color-tint)}
+.tabs button.on .n{background:var(--color-tint-soft);color:var(--color-tint-ink)}
+
+.diffrow{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:var(--space-3);align-items:center;padding:var(--space-2) var(--space-5);border-top:1px solid var(--color-rule)}
+.diffrow:first-of-type{border-top:0}
+.diffrow .sg{font:600 var(--text-md) var(--font-mono);text-align:center}
+.diffrow.worse{background:linear-gradient(90deg,var(--color-fail-soft),var(--color-group) 70%)}
+.diffrow.worse .sg{color:var(--color-fail)}
+.diffrow .ch{font:500 var(--text-sm) var(--font-mono);color:var(--color-ink-2);white-space:nowrap}
+.diffrow .ch .to{color:var(--color-fail)}
+
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-2) var(--space-4);margin:0;font-size:var(--text-sm)}
+.kv dt{color:var(--color-ink-3)}
+.kv dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.analysis p{margin:0;font-size:var(--text-sm);color:var(--color-ink-2)}
+.analysis .claim{font-weight:500;color:var(--color-ink);margin-bottom:var(--space-1)}
+.unverified{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:99px;background:var(--color-sunk-2);font-size:var(--text-xs);color:var(--color-ink-2)}
+
+/* ---------------- A failed try ---------------- */
+.pipeline{display:flex;align-items:stretch;gap:0;margin-top:var(--space-5);border:1px solid var(--color-rule);border-radius:12px;background:var(--color-group);overflow:hidden}
+.stage{flex:1;display:flex;gap:var(--space-3);align-items:center;padding:var(--space-4) var(--space-5);position:relative;min-width:0}
+.stage + .stage{border-left:1px solid var(--color-rule)}
+.stage .t{min-width:0}
+.stage b{display:block;font-weight:500}
+.stage small{display:block;font-size:var(--text-xs);color:var(--color-ink-3)}
+.stage.broke{background:var(--color-fail-soft)}
+.stage.broke b{color:var(--color-fail)}
+.stage.skip b{color:var(--color-ink-3)}
+
+.film{display:flex;gap:var(--space-3);overflow-x:auto;padding:var(--space-4) var(--space-5) var(--space-5)}
+.frame{flex:0 0 220px;border:1px solid var(--color-rule);border-radius:var(--radius-md);overflow:hidden;background:var(--color-group);cursor:pointer;text-align:left;padding:0}
+.frame.on{border-color:var(--color-tint);box-shadow:0 0 0 3px var(--color-tint-soft-2)}
+.frame .cap{display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);font-size:var(--text-xs);border-top:1px solid var(--color-rule)}
+.frame .cap b{font-weight:500}
+.shot{height:132px;display:grid;grid-template-columns:34px minmax(0,1fr);background:var(--color-app-paper);color:var(--color-app-ink);font:10.5px/1.3 Georgia,serif}
+.shot .s{background:var(--color-app-side);border-right:1px solid var(--color-app-line)}
+.shot .m{padding:var(--space-2);display:flex;flex-direction:column;gap:5px;min-width:0}
+.shot .me{align-self:flex-end;max-width:84%;padding:3px 7px;border-radius:7px;background:var(--color-app-ink);color:var(--color-app-paper)}
+.shot .them{max-width:88%;padding:3px 7px;border-radius:7px;background:var(--color-group);border:1px solid var(--color-app-line)}
+.shot .them.miss{outline:2px dashed var(--color-fail);outline-offset:1px}
+.shot .box{margin-top:auto;border:1px solid var(--color-app-line);border-radius:5px;padding:2px 6px;color:oklch(60% 0.01 85);background:var(--color-group)}
+.frame.video .shot{place-items:center;grid-template-columns:1fr;background:oklch(24% 0.02 275)}
+.play{width:40px;height:40px;border-radius:50%;background:oklch(100% 0 0 / .14);display:grid;place-items:center;color:oklch(100% 0 0)}
+.play svg{width:16px;height:16px;fill:currentColor;stroke:none}
+
+.turns{display:flex;flex-direction:column}
+.turn{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--color-rule)}
+.turn > div{padding:var(--space-4) var(--space-5);min-width:0}
+.turn > div + div{border-left:1px solid var(--color-rule)}
+.turn .lbl{display:flex;align-items:center;gap:6px;font-size:var(--text-xs);font-weight:500;color:var(--color-ink-3);margin-bottom:var(--space-2)}
+.turn .lbl{display:none}
+.turn .txt{font-size:var(--text-md)}
+.turn .txt.mono{font-size:var(--text-sm);background:var(--color-sunk);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)}
+.turn.broke{background:linear-gradient(0deg,var(--color-group),var(--color-group))}
+.turn mark{background:var(--color-mark);color:inherit;border-radius:3px;padding:0 2px;text-decoration:underline wavy var(--color-fail);text-decoration-thickness:1px;text-underline-offset:3px}
+.thead{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:0 0 0}
+.thead div{padding:var(--space-2) var(--space-5);font-size:var(--text-xs);font-weight:500;color:var(--color-ink-3);background:var(--color-sunk);border-top:1px solid var(--color-rule)}
+.tno{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-5);font-size:var(--text-xs);font-weight:600;color:var(--color-ink-2);border-top:1px solid var(--color-rule);background:var(--color-group)}
+.tno .sp{flex:1}
+
+.nextstep{display:flex;gap:var(--space-4);align-items:center;padding:var(--space-4) var(--space-5);border-radius:12px;background:var(--color-tint-soft);border:1px solid var(--color-tint-soft-2)}
+.nextstep .ico{width:40px;height:40px;border-radius:var(--radius-md);background:var(--color-tint);color:var(--color-on-tint);display:grid;place-items:center;flex:none}
+.nextstep .t{flex:1;min-width:0}
+.nextstep .k{font-size:var(--text-md);font-weight:600;color:var(--color-ink)}
+.nextstep p{margin:2px 0 0;font-size:var(--text-md)}
+
+.timeline{list-style:none;margin:0;padding:var(--space-2) var(--space-5) var(--space-4);position:relative}
+.timeline li{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:var(--space-3);padding:var(--space-2) 0;position:relative}
+.timeline li::before{content:"";position:absolute;left:9.5px;top:22px;bottom:-10px;width:1px;background:var(--color-rule)}
+.timeline li > .st{justify-self:center;margin-top:6px}
+.timeline li:last-child::before{display:none}
+.timeline b{font-weight:500}
+.timeline small{display:block;font-size:var(--text-xs);color:var(--color-ink-3)}
+.timeline .ts{font:500 var(--text-2xs) var(--font-mono);color:var(--color-ink-3);padding-top:3px}
+
+/* ---------------- Run dialog ---------------- */
+.scrim{position:fixed;inset:0;z-index:20;background:var(--color-scrim);display:grid;place-items:center;padding:var(--space-4);backdrop-filter:blur(2px)}
+.dialog{width:min(620px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--color-group);border-radius:var(--radius-lg);box-shadow:0 24px 60px var(--color-shadow-2),0 0 0 1px var(--color-rule)}
+.dialog .dh{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-5) var(--space-6) var(--space-3)}
+.dialog .dh h2{font-size:var(--text-xl)}
+.dialog .dh p{margin:2px 0 0;font-size:var(--text-sm);color:var(--color-ink-2)}
+.dialog .dh .x{margin-left:auto}
+.drow{display:grid;grid-template-columns:120px minmax(0,1fr);gap:var(--space-4);padding:var(--space-3) var(--space-6);border-top:1px solid var(--color-rule);align-items:start}
+.drow > .k{font-size:var(--text-sm);color:var(--color-ink-3);padding-top:6px}
+.drow .v b{font-weight:500}
+.drow .v small{display:block;font-size:var(--text-xs);color:var(--color-ink-3);margin-top:2px}
+.select{display:flex;align-items:center;gap:var(--space-2);height:34px;padding:0 var(--space-3);border:1px solid var(--color-rule-strong);border-radius:var(--radius-sm);background:var(--color-group);width:100%;text-align:left}
+.select .sp{flex:1}
+.seg{display:inline-flex;padding:3px;border-radius:var(--radius-sm);background:var(--color-sunk-2);gap:2px}
+.seg button{border:0;background:none;height:26px;padding:0 10px;border-radius:5px;font-size:var(--text-sm);color:var(--color-ink-2)}
+.seg button.on{background:var(--color-group);color:var(--color-ink);box-shadow:0 1px 2px var(--color-shadow-2);font-weight:500}
+.proofrow{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
+.proofrow + .proofrow{margin-top:var(--space-2)}
+.est{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-4) var(--space-6);background:var(--color-sunk);border-top:1px solid var(--color-rule);flex-wrap:wrap}
+.est .t{flex:1;min-width:0;font-size:var(--text-sm);color:var(--color-ink-2)}
+.est .t b{color:var(--color-ink);font-weight:500}
+
+/* ---------------- The sketch's switcher (not evalution) ---------------- */
+.sketch{position:fixed;left:50%;transform:translateX(-50%);bottom:var(--space-4);z-index:30;display:flex;gap:2px;padding:4px;border-radius:12px;background:oklch(21% 0.03 275);box-shadow:0 12px 30px var(--color-shadow-2);max-width:calc(100vw - 24px);overflow-x:auto}
+.sketch button{border:0;background:none;height:30px;padding:0 12px;border-radius:8px;font-size:var(--text-sm);color:oklch(80% 0.01 275);white-space:nowrap}
+.sketch button.on{background:oklch(100% 0 0);color:var(--color-ink);font-weight:500}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:opacity 150ms!important}.cell:hover,.btn:active{transform:none}}
+@media (max-width:1100px){.g-main{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .side{display:none}
+  .topbar{padding:0 var(--space-4)}
+  .search{display:none}
+  .page{padding:var(--space-5) var(--space-4) 96px}
+  .g-3{grid-template-columns:1fr}
+  .turn,.thead{grid-template-columns:1fr}
+  .turn > div + div{border-left:0;border-top:1px dashed var(--color-rule)}
+  .thead{display:none}
+  .turn .lbl{display:flex}
+  .pipeline{flex-direction:column}
+  .stage + .stage{border-left:0;border-top:1px solid var(--color-rule)}
+  .heat{grid-template-columns:minmax(96px,1fr) repeat(9,minmax(18px,1fr));gap:3px}
+  .hide-md{display:none}
+}
+@media (max-width:560px){
+  h1{font-size:var(--text-2xl)}
+  .result{grid-template-columns:1fr}
+  .ring{display:none}
+  .drow{grid-template-columns:1fr;gap:var(--space-1)}
+  .drow > .k{padding-top:0}
+  .inbox .item{flex-wrap:wrap}
+  .livepill span{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Icon sprite: drawn once, referenced by <use>. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-tests" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+  <symbol id="i-runs" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+  <symbol id="i-learn" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></symbol>
+  <symbol id="i-env" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+  <symbol id="i-bench" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M15 6a9 9 0 0 0-9 9V3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></symbol>
+  <symbol id="i-page" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-q" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+</svg>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="logo"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z" fill="var(--color-tint)" stroke="var(--color-tint)" stroke-width="3" stroke-linejoin="round"/><circle cx="24" cy="29" r="5.5" fill="var(--color-group)"/><circle cx="40" cy="29" r="5.5" fill="var(--color-group)"/></svg></span>evalution</div>
+    <button class="app"><span class="av">S</span><span><b>relay-lite</b><small>Relay is a personal assistant</small></span><svg class="i chev"><use href="#i-down"/></svg></button>
+    <div class="setpick">Test set <b>Page stress</b> <svg class="i" style="width:13px;height:13px"><use href="#i-down"/></svg></div>
+    <nav class="nav" aria-label="Main">
+      <a data-go="home"><svg class="i"><use href="#i-home"/></svg>Overview</a>
+      <a data-go="tests"><svg class="i"><use href="#i-tests"/></svg>Tests <span class="count">4</span></a>
+      <a data-go="run"><svg class="i"><use href="#i-runs"/></svg>Runs <span class="count bad">3 failing</span></a>
+      <a><svg class="i"><use href="#i-learn"/></svg>What it learned</a>
+      <a><svg class="i"><use href="#i-env"/></svg>Test environment</a>
+      <div class="h">Standard</div>
+      <a><svg class="i"><use href="#i-bench"/></svg>Benchmarks</a>
+    </nav>
+    <div class="foot">
+      <div class="status"><i></i>Copy ready · plan v2 proven</div>
+      <nav class="nav" style="margin:0"><a><svg class="i"><use href="#i-gear"/></svg>Settings</a></nav>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Where you are"><span>relay-lite</span><span class="sep">/</span><span class="hide-md">Page stress</span><span class="sep hide-md">/</span><b id="crumb">Overview</b></nav>
+      <span class="sp"></span>
+      <span class="livepill" title="A run is playing"><i></i><span>Run 10 · 2 of 4</span></span>
+      <button class="search"><svg class="i"><use href="#i-search"/></svg>Jump to a test, run or try<span class="kbd">⌘K</span></button>
+    </header>
+
+    <!-- =============================== OVERVIEW =============================== -->
+    <section class="page" data-screen="home">
+      <div class="phead">
+        <div class="t">
+          <div class="over">Sunday, November 8 · last run 2 hours ago</div>
+          <h1>How relay-lite is doing</h1>
+          <div class="chips">
+            <span class="chip">Plays on evalution's copy, reset before every try</span>
+            <span class="chip ver">evals-w0 @ e535c4d</span>
+            <span class="chip tint">Through its page</span>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btn">Write a test</button>
+          <button class="btn primary" data-dialog><svg class="i"><use href="#i-play"/></svg>Run all <span class="kbd">R</span></button>
+        </div>
+      </div>
+
+      <div class="card inbox mt">
+        <div class="hd"><h3>Needs you</h3><span class="dim num" style="font-size:var(--text-sm)">3</span><span class="sp"></span></div>
+        <div class="bd flush">
+          <div class="item">
+            <span class="lead"><span class="st fail"></span></span>
+            <div class="t"><b>3 tests got worse in run 9</b><p>The app answered the page's messages with 503, so they never reached the assistant. Not the tests' fault.</p></div>
+            <button class="btn sm" data-go="run">Open run 9</button>
+          </div>
+          <div class="item">
+            <span class="lead"><span class="st unj"></span></span>
+            <div class="t"><b>Runs may not have played this commit</b><p>Its host image was built a day before <span class="mono">e535c4d</span>, its engine 3 minutes before. What played may be an earlier version.</p></div>
+            <button class="btn ghost sm">See what played →</button>
+          </div>
+          <div class="item">
+            <span class="lead"><span class="badge page">New</span></span>
+            <div class="t"><b>The agent can learn relay-lite's page</b><p>Then tests type each message there and check the reply shows. You approve the map once, after its screenshots and video.</p></div>
+            <button class="btn sm">Set up UI testing</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g-3 mt">
+        <div class="card kpi">
+          <div class="k">Passing in the last run</div>
+          <div class="v"><b class="num">0 of 4</b><span class="delta bad">−4 vs run 8</span></div>
+          <div class="sub">A run's share of tests passing</div>
+          <svg class="spark" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="Share passing per run: runs 7 and 8 all passed">
+            <g>
+              <rect x="2" y="42" width="16" height="2" rx="1" fill="var(--color-fail)"/>
+              <rect x="22" y="40" width="16" height="4" rx="1" fill="var(--color-none)"/>
+              <rect x="42" y="42" width="16" height="2" rx="1" fill="var(--color-fail)"/>
+              <rect x="62" y="4" width="16" height="40" rx="2" fill="var(--color-pass)" opacity=".55"/>
+              <rect x="82" y="4" width="16" height="40" rx="2" fill="var(--color-pass)" opacity=".55"/>
+              <rect x="102" y="42" width="16" height="2" rx="1" fill="var(--color-fail)"/>
+              <rect x="122" y="4" width="16" height="40" rx="2" fill="var(--color-pass)"/>
+              <rect x="142" y="4" width="16" height="40" rx="2" fill="var(--color-pass)"/>
+              <rect x="162" y="42" width="16" height="2" rx="1" fill="var(--color-tint)"/>
+            </g>
+          </svg>
+        </div>
+        <div class="card kpi">
+          <div class="k">Typical try</div>
+          <div class="v"><b class="num">35 s</b><span class="delta ok">run 8</span></div>
+          <div class="sub">Run 9's tries ran out of time at 123 s</div>
+          <svg class="spark" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="Median seconds per try across runs">
+            <polyline fill="none" stroke="var(--color-rule-strong)" stroke-width="1" stroke-dasharray="3 3" points="0,30 180,30"/>
+            <polyline fill="none" stroke="var(--color-tint)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="10,36.8 50,2 70,42 90,40.6 110,21.4 130,39.5 150,32.2 170,4.5"/>
+            <circle cx="170" cy="4.5" r="3.5" fill="var(--color-tint)" stroke="var(--color-group)" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="card kpi">
+          <div class="k">Spent</div>
+          <div class="v"><b class="num">103k</b><span class="dim" style="font-size:var(--text-sm)">tokens a run</span></div>
+          <div class="sub">Runs 7 and 8; run 9 spent nothing (never reached the model)</div>
+          <svg class="spark" viewBox="0 0 180 44" preserveAspectRatio="none" aria-label="Tokens per run">
+            <rect x="2" y="6" width="16" height="38" rx="2" fill="var(--color-tint-soft-2)"/>
+            <rect x="22" y="43" width="16" height="1" fill="var(--color-none)"/>
+            <rect x="42" y="43" width="16" height="1" fill="var(--color-none)"/>
+            <rect x="62" y="34" width="16" height="10" rx="2" fill="var(--color-tint-soft-2)"/>
+            <rect x="82" y="34" width="16" height="10" rx="2" fill="var(--color-tint-soft-2)"/>
+            <rect x="102" y="43" width="16" height="1" fill="var(--color-none)"/>
+            <rect x="122" y="6" width="16" height="38" rx="2" fill="var(--color-tint-soft-2)"/>
+            <rect x="142" y="6" width="16" height="38" rx="2" fill="var(--color-tint)"/>
+            <rect x="162" y="43" width="16" height="1" fill="var(--color-none)"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <div class="hd"><h3>Each test, run by run</h3><span class="sp"></span><span class="dim" style="font-size:var(--text-xs)">Page stress · last 9 runs</span></div>
+        <div class="bd">
+          <div class="heat" role="table" aria-label="Each test's outcome per run">
+            <span></span>
+            <span class="col">1</span><span class="col">2</span><span class="col">3</span><span class="col">4</span><span class="col">5</span><span class="col">6</span><span class="col">7</span><span class="col">8</span><span class="col now">9</span>
+            <span class="name">A code block shows</span>
+            <i class="cell f" title="Run 1: failed (the page showed it in another form)"></i><i class="cell x" title="Run 2: didn't start"></i><i class="cell f" title="Run 3: no answer"></i><i class="cell n" title="Run 4: not in this run"></i><i class="cell n" title="Run 5: not in this run"></i><i class="cell f" title="Run 6: no answer"></i><i class="cell p" title="Run 7: passed"></i><i class="cell p" title="Run 8: passed"></i><i class="cell f now" data-go="try" title="Run 9: the app answered with 503"></i>
+            <span class="name">A link shows</span>
+            <i class="cell f"></i><i class="cell x"></i><i class="cell f"></i><i class="cell p"></i><i class="cell p"></i><i class="cell f"></i><i class="cell p"></i><i class="cell p"></i><i class="cell f now"></i>
+            <span class="name">A Markdown table shows</span>
+            <i class="cell f"></i><i class="cell x"></i><i class="cell f"></i><i class="cell n"></i><i class="cell n"></i><i class="cell f"></i><i class="cell p"></i><i class="cell p"></i><i class="cell f now"></i>
+            <span class="name">A numbered list shows</span>
+            <i class="cell f"></i><i class="cell x"></i><i class="cell n"></i><i class="cell n"></i><i class="cell n"></i><i class="cell n"></i><i class="cell p"></i><i class="cell p"></i><i class="cell n now"></i>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--color-pass)"></i>Passed</span>
+            <span><i style="background:var(--color-fail)"></i>Failed</span>
+            <span><i style="background:var(--color-sunk-2)"></i>Not run</span>
+            <span><i class="cell x" style="height:12px;width:12px"></i>Run didn't start</span>
+            <span style="margin-left:auto" class="dim">Fails in runs 3, 6 and 9 are the app's 503, not the tests</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <div class="hd"><h3>Recent runs</h3><span class="sp"></span><a href="#" data-go="run">All 9 runs →</a></div>
+        <div class="bd flush tablewrap">
+          <table>
+            <thead><tr><th>Run</th><th>Result</th><th class="hide-md">Code</th><th class="r">Typical try</th><th class="r hide-md">Tokens</th><th class="r">Started</th></tr></thead>
+            <tbody>
+              <tr data-go="run"><td><div class="rowname"><span class="st fail"></span><span><b>Run 9</b><small>Stopped: 3 tries in a row got no answer (503)</small></span></div></td><td><div class="minibar"><i style="width:75%;background:var(--color-fail)"></i></div><small class="num dim">0 of 4</small></td><td class="hide-md"><span class="chip ver">evals-w0 @ e535c4d</span></td><td class="r num">123 s</td><td class="r num dim hide-md">0</td><td class="r num dim">11:26</td></tr>
+              <tr><td><div class="rowname"><span class="st pass"></span><span><b>Run 8</b><small>All passed, one at a time through the page</small></span></div></td><td><div class="minibar"><i style="width:100%;background:var(--color-pass)"></i></div><small class="num dim">4 of 4</small></td><td class="hide-md"><span class="chip ver">evals-w0 @ e535c4d</span></td><td class="r num">35 s</td><td class="r num dim hide-md">103k</td><td class="r num dim">11:21</td></tr>
+              <tr><td><div class="rowname"><span class="st pass"></span><span><b>Run 7</b><small>All passed</small></span></div></td><td><div class="minibar"><i style="width:100%;background:var(--color-pass)"></i></div><small class="num dim">4 of 4</small></td><td class="hide-md"><span class="chip ver">evals-w0 @ e535c4d</span></td><td class="r num">13 s</td><td class="r num dim hide-md">103k</td><td class="r num dim">11:18</td></tr>
+              <tr><td><div class="rowname"><span class="st fail"></span><span><b>Run 6</b><small>Stopped: tries side by side got no answer</small></span></div></td><td><div class="minibar"><i style="width:75%;background:var(--color-fail)"></i></div><small class="num dim">0 of 4</small></td><td class="hide-md"><span class="chip ver">evals-w0 @ e535c4d</span></td><td class="r num">61 s</td><td class="r num dim hide-md">0</td><td class="r num dim">11:13</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================== TESTS (behind the dialog) =============================== -->
+    <section class="page" data-screen="tests" hidden>
+      <div class="phead">
+        <div class="t"><div class="over">Page stress</div><h1>Tests</h1><p class="lede">Each test types its messages into relay-lite's page and checks the reply shows.</p></div>
+        <div class="acts"><button class="btn">Write a test</button><button class="btn primary" data-dialog><svg class="i"><use href="#i-play"/></svg>Run all</button></div>
+      </div>
+      <div class="card mt"><div class="bd flush tablewrap"><table>
+        <thead><tr><th>Test</th><th>Plays</th><th class="r">Last</th></tr></thead>
+        <tbody>
+          <tr><td><div class="rowname"><span class="st fail"></span><span><b>A code block shows</b><small>What the page shows of a reply with formatting</small></span></div></td><td><span class="badge page">Page</span></td><td class="r num dim">run 9</td></tr>
+          <tr><td><div class="rowname"><span class="st fail"></span><span><b>A link shows</b><small>What the page shows of a reply with formatting</small></span></div></td><td><span class="badge page">Page</span></td><td class="r num dim">run 9</td></tr>
+          <tr><td><div class="rowname"><span class="st fail"></span><span><b>A Markdown table shows</b><small>What the page shows of a reply with formatting</small></span></div></td><td><span class="badge page">Page</span></td><td class="r num dim">run 9</td></tr>
+          <tr><td><div class="rowname"><span class="st pass"></span><span><b>A numbered list shows</b><small>What the page shows of a reply with formatting</small></span></div></td><td><span class="badge page">Page</span></td><td class="r num dim">run 8</td></tr>
+        </tbody></table></div></div>
+    </section>
+
+    <!-- =============================== A RUN =============================== -->
+    <section class="page" data-screen="run" hidden>
+      <div class="phead">
+        <div class="t">
+          <div class="over"><a href="#" data-go="home">Runs</a> / Page stress</div>
+          <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap"><h1>Run 9</h1><span class="status-pill fail">Stopped early</span></div>
+          <div class="chips">
+            <span class="chip">Today 11:26 · 6 min</span>
+            <span class="chip ver">evals-w0 @ e535c4d</span>
+            <span class="chip">Copy · plan v2 · started in 81 s</span>
+            <span class="chip tint">Through the page, one at a time</span>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btn">Run with 5 tries</button>
+          <button class="btn primary" data-dialog><svg class="i"><use href="#i-play"/></svg>Run again</button>
+        </div>
+      </div>
+
+      <div class="grid g-main mt">
+        <div class="stack">
+          <div class="card">
+            <div class="result">
+              <svg class="ring" viewBox="0 0 36 36" aria-label="0 of 4 passed">
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-sunk-2)" stroke-width="4"/>
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-fail)" stroke-width="4" stroke-dasharray="73 97.4" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+                <text x="18" y="21" text-anchor="middle" font-family="IBM Plex Sans" font-weight="650" font-size="9" fill="var(--color-ink)">0/4</text>
+              </svg>
+              <div>
+                <div class="big">0 of 4 tests pass</div>
+                <div class="bar"><i style="width:75%;background:var(--color-fail)"></i><i style="width:25%;background:var(--color-none)"></i></div>
+                <div class="counts"><span><i style="background:var(--color-fail)"></i>3 failed every try</span><span><i style="background:var(--color-none)"></i>1 not run</span><span class="dim">0 tokens · never reached the model</span></div>
+              </div>
+            </div>
+            <div style="padding:0 var(--space-5) var(--space-5)">
+              <div class="notice bad"><svg class="i"><use href="#i-alert"/></svg><div><b>Why it stopped:</b> 3 tries in a row ran out of time with no answer at all. relay-lite answered the page's <span class="mono">POST /v1/sessions/…/events</span> with 503.</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="hd"><h3>What changed</h3><span class="sp"></span><button class="btn sm">Compared with run 8 <svg class="i" style="width:13px;height:13px"><use href="#i-down"/></svg></button></div>
+            <div class="bd flush">
+              <div class="diffrow worse"><span class="sg">−</span><span><b style="font-weight:500">A code block shows</b></span><span class="ch">1/1 → <span class="to">0/1</span></span></div>
+              <div class="diffrow worse"><span class="sg">−</span><span><b style="font-weight:500">A link shows</b></span><span class="ch">1/1 → <span class="to">0/1</span></span></div>
+              <div class="diffrow worse"><span class="sg">−</span><span><b style="font-weight:500">A Markdown table shows</b></span><span class="ch">1/1 → <span class="to">0/1</span></span></div>
+              <div class="diffrow"><span class="sg dim">·</span><span class="ink2">A numbered list shows</span><span class="ch">1/1 → not run</span></div>
+              <div style="padding:var(--space-3) var(--space-5);border-top:1px solid var(--color-rule);font-size:var(--text-sm);color:var(--color-ink-2)">Same model, prompt and grader as run 8. One try each is too few to tell this from the agent varying.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="tabs" role="tablist">
+              <button class="on">All <span class="n">4</span></button>
+              <button>Failed <span class="n">3</span></button>
+              <button>Not run <span class="n">1</span></button>
+            </div>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Test</th><th class="c">Stored</th><th class="c">Answered</th><th class="c">Shown</th><th class="c">Page healthy</th><th class="r">Time</th></tr></thead>
+                <tbody>
+                  <tr data-go="try"><td><div class="rowname"><span class="st fail"></span><span><b>A code block shows</b><small>The app answered a request from the page with an error, 503</small></span></div></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st fail" title="Failed"></span></td><td class="r num">123 s</td></tr>
+                  <tr><td><div class="rowname"><span class="st fail"></span><span><b>A link shows</b><small>The app answered a request from the page with an error, 503</small></span></div></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st fail" title="Failed"></span></td><td class="r num">124 s</td></tr>
+                  <tr><td><div class="rowname"><span class="st fail"></span><span><b>A Markdown table shows</b><small>The app answered a request from the page with an error, 503</small></span></div></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st unj" title="Couldn't judge"></span></td><td class="c lay"><span class="st fail" title="Failed"></span></td><td class="r num">123 s</td></tr>
+                  <tr><td><div class="rowname"><span class="st none"></span><span><b class="ink2">A numbered list shows</b><small>Not run: the run stopped first</small></span></div></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="dash">–</span></td><td class="c lay"><span class="dash">–</span></td><td class="r num dim">–</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <aside class="stack">
+          <div class="card analysis">
+            <div class="hd"><h3>What went wrong</h3><span class="sp"></span><span class="unverified">Not verified</span></div>
+            <div class="bd">
+              <p class="claim">The message never reached the assistant.</p>
+              <p>In all three tries the page's message request got 503 and the turn timed out at about 123 s with no reply. No agent activity was recorded. Most likely the app's capacity at that moment; one try each can't rule out a blip.</p>
+              <div style="display:flex;gap:var(--space-2);margin-top:var(--space-4);flex-wrap:wrap"><button class="btn sm">Check the app's logs</button><button class="btn ghost sm">See why →</button></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Details</h3></div>
+            <div class="bd">
+              <dl class="kv">
+                <dt>App</dt><dd>relay-lite</dd>
+                <dt>Tests</dt><dd>Page stress · all 4</dd>
+                <dt>Code</dt><dd class="mono">evals-w0 @ e535c4d</dd>
+                <dt>What played</dt><dd><span class="mono">relay/engine:local</span>, <span class="mono">relay/host:local</span><br><span class="dim">both built before this commit</span></dd>
+                <dt>Copy</dt><dd>eval-relay-lite-0 · plan v2</dd>
+                <dt>Plays</dt><dd>Through the page, one at a time</dd>
+                <dt>Keeps</dt><dd>Screenshots always, video on failure</dd>
+                <dt>Judged by</dt><dd>Code only</dd>
+              </dl>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- =============================== A FAILED TRY =============================== -->
+    <section class="page" data-screen="try" hidden>
+      <div class="phead">
+        <div class="t">
+          <div class="over"><a href="#" data-go="run">demo-chat · Run 1</a> / Try 1 of 1</div>
+          <h1>Remembers the dog's name</h1>
+          <div class="chips">
+            <span class="chip">1.1 s</span>
+            <span class="chip">2 messages</span>
+            <span class="chip tint">Through the page</span>
+          </div>
+        </div>
+        <div class="acts"><button class="btn">Edit test</button><button class="btn primary"><svg class="i"><use href="#i-play"/></svg>Run this test again</button></div>
+      </div>
+
+      <div class="pipeline" aria-label="Where it broke">
+        <div class="stage skip"><span class="st none"></span><div class="t"><b>Stored</b><small>Nothing to check</small></div></div>
+        <div class="stage"><span class="st pass"></span><div class="t"><b>Answered</b><small>The reply is right</small></div></div>
+        <div class="stage broke"><span class="st fail"></span><div class="t"><b>Shown</b><small>Turn 2's reply never showed</small></div></div>
+        <div class="stage"><span class="st pass"></span><div class="t"><b>Page healthy</b><small>No errors, no failed requests</small></div></div>
+      </div>
+
+      <div class="nextstep mt">
+                <div class="t"><span class="k">Next step</span><p>The reply is right, so the page is the one to fix: it didn't show <span class="mono">my dog is called Biscuit</span>. Change demo-chat's page, then run this test again. Through the API alone, this try passes.</p></div>
+        <button class="btn primary"><svg class="i"><use href="#i-play"/></svg>Run again</button>
+      </div>
+
+      <div class="card mt">
+        <div class="hd"><h3>What the page showed</h3><span class="sp"></span><span class="dim" style="font-size:var(--text-xs)">Kept: screenshots always, video because it failed</span></div>
+        <div class="film">
+          <button class="frame"><div class="shot"><div class="s"></div><div class="m"><div class="me">Please remember that my dog is called Biscuit.</div><div class="them">Noted, turn 1.</div><div class="box">Message…</div></div></div><div class="cap"><b>Message 1</b><span class="st pass"></span></div></button>
+          <button class="frame on"><div class="shot"><div class="s"></div><div class="m"><div class="me">What did I tell you?</div><div class="them miss">Please remember that my dog is called Biscuit. Noted, turn 1.</div><div class="box">Message…</div></div></div><div class="cap"><b>Message 2</b><span class="st fail"></span></div></button>
+          <button class="frame video"><div class="shot"><span class="play"><svg><use href="#i-play"/></svg></span></div><div class="cap"><b>Video</b><span class="num dim">0:01</span></div></button>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <div class="hd"><h3>Turn by turn</h3><span class="sp"></span><span class="dim" style="font-size:var(--text-xs)">Missing words are marked</span></div>
+        <div class="bd flush turns">
+          <div class="thead"><div>The person said</div><div>The app answered</div><div>The page showed</div></div>
+          <div class="tno">Turn 1<span class="sp"></span><span class="lay"><span class="st pass"></span>Shown at 0.3 s</span></div>
+          <div class="turn">
+            <div><div class="lbl">The person said</div><div class="txt">Please remember that my dog is called Biscuit.</div></div>
+            <div><div class="lbl">The app answered</div><div class="txt mono">Noted, turn 1.</div></div>
+            <div><div class="lbl">The page showed</div><div class="txt">Noted, turn 1.</div></div>
+          </div>
+          <div class="tno" style="background:var(--color-fail-soft)">Turn 2<span class="sp"></span><span class="lay"><span class="st fail"></span>Not shown</span></div>
+          <div class="turn">
+            <div><div class="lbl">The person said</div><div class="txt">What did I tell you?</div></div>
+            <div><div class="lbl">The app answered</div><div class="txt mono"><mark>my dog is called Biscuit</mark></div></div>
+            <div><div class="lbl">The page showed</div><div class="txt">Please remember that my dog is called Biscuit. Noted, turn 1.<div class="dim" style="font-size:var(--text-xs);margin-top:var(--space-2)">The page repeated turn 1 instead · missing: <span class="mono">my dog is called Biscuit</span></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt">
+        <div class="hd"><h3>Steps</h3></div>
+        <ol class="timeline">
+          <li><span class="st pass"></span><span><b>Started clean</b><small>Put back folder copy-data in 0.4 s, and checked it</small></span><span class="ts">0.0 s</span></li>
+          <li><span class="st pass"></span><span><b>Typed message 1, pressed Send</b><small>The reply showed on the page at 0.3 s</small></span><span class="ts">0.4 s</span></li>
+          <li><span class="st fail"></span><span><b>Typed message 2, pressed Send</b><small>The app answered; the page didn't show it</small></span><span class="ts">0.8 s</span></li>
+          <li><span class="st pass"></span><span><b>Console and requests</b><small>No errors, no failed requests</small></span><span class="ts">1.1 s</span></li>
+        </ol>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- =============================== RUN DIALOG =============================== -->
+<div class="scrim" id="dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div class="dh">
+      <div><h2 id="dlg-title">Run Page stress</h2><p>On evalution's copy of relay-lite. Your app isn't touched.</p></div>
+      <button class="btn ghost sm x" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="drow"><div class="k">Tests</div><div class="v"><button class="select"><b>All 4 tests</b><span class="dim">· 1 try each</span><span class="sp"></span><svg class="i"><use href="#i-down"/></svg></button></div></div>
+    <div class="drow"><div class="k">Code</div><div class="v"><button class="select"><svg class="i"><use href="#i-branch"/></svg><span>What's on disk now: <span class="mono">evals-w0 @ e535c4d</span></span><span class="sp"></span><svg class="i"><use href="#i-down"/></svg></button>
+      <div class="notice unj" style="margin-top:var(--space-2)"><svg class="i"><use href="#i-alert"/></svg><div>relay/host:local was built a day before this commit, so the run may play an earlier version.</div></div></div></div>
+    <div class="drow"><div class="k">How it plays</div><div class="v"><b><span class="badge page">Page</span> Through relay-lite's page, one at a time</b><small>Each try starts from a clean copy (memory index and conversations put back). About 35 s a try.</small></div></div>
+    <div class="drow"><div class="k">Keeps</div><div class="v">
+      <div class="proofrow"><span>Screenshots</span><span class="seg"><button class="on">Always</button><button>On failure</button><button>Off</button></span></div>
+      <div class="proofrow"><span>Video</span><span class="seg"><button>Always</button><button class="on">On failure</button><button>Off</button></span></div>
+      <small class="dim" style="display:block;margin-top:var(--space-2)">For every page test of relay-lite. A test can set its own.</small>
+    </div></div>
+    <div class="est">
+      <div class="t"><b>About 3 min</b> · starts the copy (about 81 s), then 4 tries · about 103k tokens, as run 8 spent</div>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn primary" data-close><svg class="i"><use href="#i-play"/></svg>Run 4 tests <span class="kbd">⌘↵</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="sketch" role="group" aria-label="Sketch screens">
+  <button data-go="home">Overview</button>
+  <button data-go="run">A run</button>
+  <button data-go="try">A failed try</button>
+  <button data-open-dialog>Run dialog</button>
+</div>
+
+<script>
+const crumbs = {home: "Overview", tests: "Tests", run: "Run 9", try: "Remembers the dog's name"};
+const dialog = document.getElementById("dialog");
+function go(name){
+  document.querySelectorAll("[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
+  document.querySelectorAll(".sketch [data-go]").forEach(b => b.classList.toggle("on", b.dataset.go === name && dialog.hidden));
+  document.querySelectorAll(".nav [data-go]").forEach(a => a.classList.toggle("on", a.dataset.go === (name === "try" ? "run" : name)));
+  document.getElementById("crumb").textContent = crumbs[name];
+  window.scrollTo(0, 0);
+}
+function openDialog(){ go("tests"); dialog.hidden = false; document.querySelectorAll(".sketch button").forEach(b => b.classList.toggle("on", b.hasAttribute("data-open-dialog"))); }
+function closeDialog(){ dialog.hidden = true; go("tests"); }
+document.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", e => { e.preventDefault(); dialog.hidden = true; go(el.dataset.go); }));
+document.querySelectorAll("[data-dialog],[data-open-dialog]").forEach(el => el.addEventListener("click", openDialog));
+document.querySelectorAll("[data-close]").forEach(el => el.addEventListener("click", closeDialog));
+dialog.addEventListener("click", e => { if (e.target === dialog) closeDialog(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !dialog.hidden) closeDialog(); });
+document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+}));
+document.querySelectorAll(".tabs").forEach(t => t.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  t.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+}));
+go("home");
+</script>
+</body>
+</html>

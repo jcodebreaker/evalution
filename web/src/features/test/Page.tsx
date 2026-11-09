@@ -1,59 +1,20 @@
-import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { count, seconds } from "../../lib/format";
 import type { StepPage, TryPage } from "../../lib/schema";
 import { CHECKED_ON_PAGE, shownWords } from "../../lib/verdict";
-import { PictureDialog } from "../../ui/dialog";
 import { Fold } from "../shared/group";
 import { MissingPieceNote } from "../shared/next-step";
 
-/** What the app's page showed of one message: in a line, decided by code, with its screenshot. */
-export function PageShown({ page, n }: { page: StepPage; n: number }) {
-  const [open, setOpen] = useState(false);
+/** What the app's page showed of one message, in a line, decided by code. */
+export function PageShown({ page }: { page: StepPage }) {
   const said = shownWords(page);
-  const alt = `The page after message ${n}`;
   return (
-    <div className="mt-1 flex items-start gap-3" data-testid="page-shown">
-      {page.shot_url ? (
-        <button
-          type="button"
-          aria-label={`Enlarge the screenshot of the page after message ${n}`}
-          onClick={() => setOpen(true)}
-          className="shrink-0 overflow-hidden rounded-lg ring-[0.5px] ring-separator hover:ring-tint focus-visible:outline-2 focus-visible:outline-ring"
-        >
-          <img
-            src={page.shot_url}
-            alt={alt}
-            loading="lazy"
-            className="block h-[72px] w-[116px] object-cover object-top"
-          />
-        </button>
-      ) : null}
-      <div className="flex min-w-0 flex-col gap-0.5 text-[13px]">
-        <span
-          className={cn(
-            "font-semibold break-words",
-            said.held === true && "text-success",
-            said.held === false && "text-destructive",
-            said.held === null && "text-ink-2",
-          )}
-        >
-          {said.text}
-          {said.held !== false && page.shown_at !== null ? (
-            <span className="font-normal text-ink-3">{` · at ${seconds(page.shown_at, true)}`}</span>
-          ) : null}
-        </span>
-        <span className="text-[11.5px] text-ink-3">{CHECKED_ON_PAGE}, by code</span>
-      </div>
-      {open && page.shot_url ? (
-        <PictureDialog
-          onClose={() => setOpen(false)}
-          title={`After message ${n}, on the page`}
-          src={page.shot_url}
-          alt={alt}
-        />
-      ) : null}
-    </div>
+    <p className="m-0 mt-1 flex flex-wrap gap-x-1.5 text-[13px]" data-testid="page-shown">
+      <span className={cn("break-words", said.held === false ? "text-fail" : "text-ink-2")}>
+        {said.text}
+      </span>
+      <span className="text-ink-3">· {CHECKED_ON_PAGE}, by code</span>
+    </p>
   );
 }
 
@@ -113,7 +74,7 @@ export function PageNotes({ page, video = true }: { page: TryPage; video?: boole
                 <span
                   className={cn(
                     "font-semibold",
-                    line.tone === "error" ? "text-destructive" : "text-warning",
+                    line.tone === "error" ? "text-fail" : "text-warning",
                   )}
                 >
                   {line.tone === "error" ? "Error" : "Warning"}

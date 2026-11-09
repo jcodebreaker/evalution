@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
 import {
@@ -7,7 +7,6 @@ import {
   EstimateSchema,
   RunDetailSchema,
   RunSummarySchema,
-  RunTestSchema,
 } from "../../lib/schema";
 import { Comparison } from "./Comparison";
 import { RunConfirm } from "./RunConfirm";
@@ -68,8 +67,10 @@ const view = (version: unknown) => {
 
 it("says in the run's header what code it played, and warns when it can't vouch for it", () => {
   view(PLAYED);
+  const details = within(screen.getByTestId("run-details"));
+  expect(details.getByText("Code")).toBeTruthy();
   expect(
-    screen.getByText("Code: what was on disk: page-testing @ e535c4d, with uncommitted changes"),
+    details.getByText("What was on disk: page-testing @ e535c4d, with uncommitted changes"),
   ).toBeTruthy();
   const warning = screen.getByText(`Can't vouch for this: ${STALE}.`);
   expect(warning.className).toContain("text-warning");
@@ -82,7 +83,7 @@ it("says an old run's code as recorded, quietly, and nothing for a run from an o
     why_unverified: "not recorded: run before evalution kept what played",
     said: "what was on disk: e535c4d",
   });
-  expect(screen.getByText("Code: what was on disk: e535c4d")).toBeTruthy();
+  expect(screen.getByText("What was on disk: e535c4d")).toBeTruthy();
   expect(screen.getByText("Not recorded: run before evalution kept what played.")).toBeTruthy();
   cleanup();
   view(undefined);
@@ -90,24 +91,17 @@ it("says an old run's code as recorded, quietly, and nothing for a run from an o
 });
 
 it("chips each run in the list with its branch and short commit", () => {
-  const test = RunTestSchema.parse({
-    case: "a",
-    name: "A",
-    verdict: "pass",
-    passed: 1,
-    tries: 1,
-  });
-  render(<RunRow entry={{ run: summary(PLAYED), test }} label="Run r1" onOpen={() => {}} />);
+  render(<RunRow run={summary(PLAYED)} label="Run r1" onOpen={() => {}} />);
   const chip = screen.getByTestId("version-chip");
   expect(chip.textContent).toBe("page-testing @ e535c4d");
   expect(chip.getAttribute("title")).toBe(`Code: ${PLAYED.said}`);
   cleanup();
   // Not on a branch: the commit alone; no commit: no chip.
   const detached = summary({ ...PLAYED, branch: null });
-  render(<RunRow entry={{ run: detached, test }} label="Run r1" onOpen={() => {}} />);
+  render(<RunRow run={detached} label="Run r1" onOpen={() => {}} />);
   expect(screen.getByTestId("version-chip").textContent).toBe("e535c4d");
   cleanup();
-  render(<RunRow entry={{ run: summary(null), test }} label="Run r1" onOpen={() => {}} />);
+  render(<RunRow run={summary(null)} label="Run r1" onOpen={() => {}} />);
   expect(screen.queryByTestId("version-chip")).toBeNull();
 });
 
@@ -133,9 +127,7 @@ it("says in the Run dialog what code the run will play, from the server", async 
       onStarted={() => null}
     />,
   );
-  await screen.findByText(
-    "Code: what's on disk now: page-testing @ e535c4d, with uncommitted changes",
-  );
+  await screen.findByText("What's on disk now: page-testing @ e535c4d, with uncommitted changes");
   expect(screen.getByText(`Can't vouch for this: ${STALE}.`)).toBeTruthy();
 });
 

@@ -54,7 +54,7 @@ export function WorkspaceSettings({ account }: { account: Account }) {
       </Group>
       <Members account={account} act={act} />
       <Tokens act={act} />
-      {error ? <p className="m-0 px-1 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 px-1 text-[13px] text-fail">{error}</p> : null}
     </div>
   );
 }
@@ -223,7 +223,7 @@ function Tokens({ act }: { act: Act }) {
           ) : null}
           {tokens.length ? (
             <div
-              className={`${TOKEN_GRID} border-separator px-3.5 pt-2 pb-1 text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase not-first:border-t`}
+              className={`${TOKEN_GRID} border-separator px-3.5 pt-2 pb-1 text-[12px] font-medium text-ink-3 not-first:border-t`}
             >
               <span>Name</span>
               <span>Token</span>

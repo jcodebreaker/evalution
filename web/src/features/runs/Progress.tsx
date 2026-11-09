@@ -2,10 +2,11 @@ import { cn } from "../../lib/cn";
 import { progressText } from "../../lib/format";
 import type { RunDetail } from "../../lib/schema";
 import { LoadingState } from "../../ui/loading";
-import { Group, GroupHeading } from "../shared/group";
-import { VerdictGlyph } from "../shared/marks";
+import { StatusDot } from "../../ui/status";
+import { Card, CardHead } from "./parts";
 
-const GLYPH = { passed: "pass", failed: "fail", unjudged: "unjudged" } as const;
+const DOT = { passed: "pass", failed: "fail", unjudged: "unjudged" } as const;
+const SAID = { passed: "Passed", failed: "Failed", unjudged: "Couldn't judge" } as const;
 
 /** What the going try is doing: its message while playing, else its stage. */
 function doing(current: NonNullable<RunDetail["progress"]["current"]>): string {
@@ -34,13 +35,13 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
   const current = run.progress.current;
   return (
     <>
-      <Group className="flex flex-col">
-        <div className="flex flex-col gap-2.5 px-4 pt-4 pb-3.5">
+      <Card className="flex flex-col">
+        <div className="flex flex-col gap-3 p-5">
           {run.analyzing ? (
             <LoadingState label="Looking at what went wrong…" />
           ) : (
             <>
-              <span className="text-[28px] leading-[1.15] font-semibold tracking-[-0.5px] tabular-nums">
+              <span className="text-[30px] leading-none font-semibold tracking-[-0.03em] tabular-nums">
                 {progressText(run)}
               </span>
               <span
@@ -49,10 +50,10 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
                 aria-valuemax={total}
                 aria-valuenow={done}
                 aria-label={`${done} of ${total} tries`}
-                className="h-1.5 overflow-hidden rounded-full bg-selection"
+                className="h-2.5 overflow-hidden rounded-[5px] bg-sunk-2"
               >
                 <span
-                  className="block h-full rounded-full bg-foreground transition-[width] duration-500"
+                  className="block h-full bg-tint transition-[width] duration-500"
                   style={{ width: `${total ? (done / total) * 100 : 0}%` }}
                 />
               </span>
@@ -60,26 +61,26 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
             </>
           )}
         </div>
-      </Group>
+      </Card>
       {finished.length ? (
-        <section className="flex flex-col">
-          <GroupHeading title="Finished" />
-          <Group>
+        <Card className="flex flex-col">
+          <CardHead title="Finished" />
+          <div className="mt-3">
             {finished.map((entry) => (
               <button
                 key={`${entry.row.case}:${entry.n}`}
                 type="button"
                 onClick={() => onTest(entry.row.case)}
-                className="flex w-full items-center gap-2.5 border-separator px-3.5 py-2 text-start text-[14px] not-first:border-t hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                className="flex w-full items-center gap-3 border-t border-separator px-5 py-2.5 text-start text-[14px] hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint"
               >
-                <VerdictGlyph verdict={GLYPH[entry.outcome]} />
+                <StatusDot state={DOT[entry.outcome]} label={SAID[entry.outcome]} />
                 <span className="shrink-0 truncate max-md:max-w-[45%]">{entry.row.name}</span>
                 <span className="shrink-0 text-[12.5px] text-ink-3">try {entry.n}</span>
                 {entry.reason ? (
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-[13px]",
-                      entry.outcome === "failed" ? "text-destructive" : "text-ink-2",
+                      entry.outcome === "failed" ? "text-fail" : "text-ink-2",
                     )}
                   >
                     {entry.label ? `${entry.label} · ${entry.reason}` : entry.reason}
@@ -87,8 +88,8 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
                 ) : null}
               </button>
             ))}
-          </Group>
-        </section>
+          </div>
+        </Card>
       ) : null}
     </>
   );

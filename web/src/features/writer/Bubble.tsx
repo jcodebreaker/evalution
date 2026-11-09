@@ -7,7 +7,7 @@ export function Bubble({ text, waiting }: { text: string; waiting?: boolean }) {
   return (
     <div
       className={cn(
-        "flex max-w-[88%] flex-col gap-0.5 self-end rounded-2xl rounded-br-md bg-selection-strong px-3.5 py-2 text-[13.5px] leading-[1.45] whitespace-pre-wrap [overflow-wrap:anywhere]",
+        "flex max-w-[88%] flex-col gap-0.5 self-end rounded-2xl rounded-br-md bg-tint-soft px-3.5 py-2 text-[13.5px] leading-[1.45] whitespace-pre-wrap [overflow-wrap:anywhere]",
         waiting && "opacity-60",
       )}
     >

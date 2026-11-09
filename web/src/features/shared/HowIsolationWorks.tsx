@@ -44,12 +44,10 @@ export function HowIsolationWorks() {
       </p>
       <ol className="m-0 flex list-none flex-col gap-3 p-0">
         {HOW_STEPS.map(([title, text], index) => (
-          <li key={title} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2.5">
-            <span className="grid size-[22px] place-items-center rounded-full bg-bubble text-[11.5px] font-semibold text-ink-2">
-              {index + 1}
-            </span>
+          <li key={title} className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
+            <span className="font-mono text-[13px] text-ink-3 tabular-nums">{index + 1}</span>
             <div className="flex flex-col gap-0.5">
-              <span className="font-semibold">{title}</span>
+              <span className="font-medium">{title}</span>
               <span className="text-ink-2">{text}</span>
             </div>
           </li>

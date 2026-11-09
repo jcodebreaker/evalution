@@ -51,20 +51,20 @@ export function TestsView({
   const [marking, setMarking] = useState(false);
   return (
     <>
-      <Toolbar>
-        <ToolbarTitle title="Tests" />
-        <MoreMenu
-          label="More"
-          actions={[{ label: "Pass marks", onClick: () => setMarking(true) }]}
-        />
-      </Toolbar>
       <Page>
+        <Toolbar>
+          <ToolbarTitle title="Tests" />
+          <MoreMenu
+            label="More"
+            actions={[{ label: "Pass marks", onClick: () => setMarking(true) }]}
+          />
+        </Toolbar>
         <Composer target={scope.target} onAsk={onAsk} />
         {rows.length ? (
           <>
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                <h2 className="m-0 min-w-0 flex-1 text-[17px] font-semibold tracking-[-0.2px]">
+                <h2 className="m-0 min-w-0 flex-1 text-[19px] font-semibold tracking-[-0.01em]">
                   {count(rows.length, "test")}
                 </h2>
                 <RunAll going={going} onGoing={onGoing} onRun={onRunAll} />

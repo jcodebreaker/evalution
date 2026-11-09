@@ -92,15 +92,12 @@ describe("the page, local", () => {
         target={null}
         sets={[]}
         set={null}
-        going={null}
-        goingLabel=""
         asking={false}
         onAskAi={null}
         cards={null}
         onTarget={() => {}}
         onSet={() => {}}
         onView={() => {}}
-        onGoing={() => {}}
       />,
     );
     expect(screen.getByText("evalution")).toBeTruthy();

@@ -2,7 +2,6 @@ import { cn } from "../../lib/cn";
 import { asSentence, seconds } from "../../lib/format";
 import type { Compare, TryOutcome } from "../../lib/schema";
 import {
-  type LayerPill,
   layerWords,
   NEVER_REACHED,
   notTakenOf,
@@ -11,26 +10,16 @@ import {
   retriedWords,
   tryWord,
 } from "../../lib/verdict";
+import { StatusDot } from "../../ui/status";
+import { breakCells, markOf } from "./try-words";
 
 const MODEL_ONLY = PASSED_MODEL_ONLY.split(", ")[1];
-const TONE: Record<TryOutcome, [string, string, string]> = {
-  passed: ["bg-success/12", "text-success", "✓"],
-  failed: ["bg-destructive/10", "text-destructive", "✕"],
-  unjudged: ["bg-bubble", "text-ink-2", "?"],
-};
-const PILL: Record<LayerPill["state"], string> = {
-  pass: "text-success",
-  fail: "text-destructive",
-  unjudged: "text-ink-2",
-  absent: "text-ink-2",
-};
-const DOT: Record<TryOutcome, string> = {
-  passed: "bg-success",
-  failed: "bg-destructive",
-  unjudged: "ring-1 ring-inset ring-ink-3",
-};
 
-/** The try shown, failed or passed, with the way to the other tries. */
+/**
+ * The try shown, failed or passed, in a line, with the way to the other tries; under it, where it
+ * broke: each layer of the try (Stored, Answered, Shown, Page healthy) with its mark and one plain
+ * line, the one that broke on a soft red wash.
+ */
 export function VerdictBanner({
   shown,
   runLabel,
@@ -52,7 +41,7 @@ export function VerdictBanner({
     said(those("unjudged"), "couldn't be judged"),
   ];
   const lead = shown.tries.length === 1 ? "" : ` on try ${shown.try}`;
-  // Played through the page: which layer held, and plain words when only the page failed.
+  // Played through the page: plain words when only the page failed, or the app didn't take it.
   const pageOnly = shown.page?.page_only ?? false;
   const layered = layerWords(
     shown.layers,
@@ -64,73 +53,90 @@ export function VerdictBanner({
       ? { healthy: shown.page.health?.outcome ?? null, shownAlone: shown.page.shown_alone }
       : null,
   );
+  const cells = breakCells(shown);
   return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-3 rounded-[14px] px-4 py-3.5",
-        TONE[shown.outcome][0],
-      )}
-    >
-      <span className={cn("text-[21px]", TONE[shown.outcome][1])}>{TONE[shown.outcome][2]}</span>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <b className="text-[15px]">
-          {layered?.headline
-            ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
-            : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}${shown.passed && pageOnly ? `, ${PAGE_ONLY}` : ""}`}
-        </b>
-        <small className="text-[13px] text-ink-2">
-          {[
-            layered?.line ?? null,
-            shown.passed || !shown.reason ? null : asSentence(shown.reason),
-            shown.called ? null : NEVER_REACHED,
-            ...retriedWords(shown.retried),
-            ...rest,
-            runLabel(shown.run),
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          {shown.seconds === null ? null : ` · ${seconds(shown.seconds)}`}
-        </small>
-        {layered ? (
-          <ul
-            aria-label="Which layer held"
-            className="m-0 mt-1.5 flex list-none flex-wrap gap-1.5 p-0"
-          >
-            {layered.pills.map((pill) => (
-              <li
-                key={pill.layer}
-                title={pill.label}
+    <section className="group-card" aria-label="Where it broke">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-2.5 px-5 py-4">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
+          <StatusDot state={markOf(shown.outcome)} label={tryWord(shown.outcome)} />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <b className="text-[15px] font-semibold">
+              {layered?.headline
+                ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
+                : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}${shown.passed && pageOnly ? `, ${PAGE_ONLY}` : ""}`}
+            </b>
+            <small className="text-[13px] text-ink-2">
+              {[
+                layered?.line ?? null,
+                shown.passed || !shown.reason ? null : asSentence(shown.reason),
+                shown.called ? null : NEVER_REACHED,
+                ...retriedWords(shown.retried),
+                ...rest,
+                runLabel(shown.run),
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              {shown.seconds === null ? null : ` · ${seconds(shown.seconds)}`}
+            </small>
+          </div>
+        </div>
+        {shown.tries.length > 1 ? (
+          <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0" aria-label="Tries">
+            {shown.tries.map((entry) => (
+              <button
+                key={entry.n}
+                type="button"
+                aria-pressed={entry.n === shown.try}
+                aria-label={`Try ${entry.n}, ${tryWord(entry.outcome).toLowerCase()}`}
+                onClick={() => onTry(entry.n)}
                 className={cn(
-                  "rounded-full bg-group px-2 py-0.5 text-[12.5px] font-medium ring-[0.5px] ring-separator",
-                  PILL[pill.state],
+                  "flex h-7 items-center gap-1.5 rounded-md border border-separator bg-group px-2.5 text-[13px] text-ink-2 hover:bg-sunk focus-visible:outline-2 focus-visible:outline-ring",
+                  entry.n === shown.try &&
+                    "border-tint-soft-2 bg-tint-soft font-medium text-tint-ink hover:bg-tint-soft",
                 )}
               >
-                <span aria-hidden>{pill.text}</span>
-                <span className="sr-only">{pill.label}</span>
-              </li>
+                <StatusDot state={markOf(entry.outcome)} label={tryWord(entry.outcome)} />
+                Try {entry.n}
+              </button>
             ))}
-          </ul>
+          </fieldset>
         ) : null}
       </div>
-      {shown.tries.length > 1 ? (
-        <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0" aria-label="Tries">
-          {shown.tries.map((entry) => (
-            <button
-              key={entry.n}
-              type="button"
-              aria-pressed={entry.n === shown.try}
-              onClick={() => onTry(entry.n)}
+      {cells ? (
+        <ul
+          aria-label="Which layer held"
+          className="m-0 flex list-none border-t border-separator p-0 max-md:flex-col"
+          data-testid="where-it-broke"
+        >
+          {cells.map((cell) => (
+            <li
+              key={cell.layer}
+              title={cell.label}
+              data-broke={cell.state === "fail" || undefined}
               className={cn(
-                "flex h-7 items-center gap-1.5 rounded-[7px] bg-group px-2.5 text-[13px] ring-[0.5px] ring-separator focus-visible:outline-2 focus-visible:outline-ring",
-                entry.n === shown.try && "ring-2 ring-tint",
+                "flex min-w-0 flex-1 items-baseline gap-2.5 px-5 py-3.5 not-first:border-separator md:not-first:border-s max-md:not-first:border-t",
+                cell.state === "fail" && "bg-fail-soft",
               )}
             >
-              <i className={cn("size-2 rounded-full", DOT[entry.outcome])} />
-              Try {entry.n}
-            </button>
+              <StatusDot state={cell.state} label={cell.label} className="translate-y-[-1px]" />
+              <span className="flex min-w-0 flex-col">
+                <b
+                  className={cn(
+                    "text-[14px] font-medium",
+                    cell.state === "fail" && "text-fail",
+                    cell.state === "none" && "text-ink-3",
+                  )}
+                >
+                  {cell.name}
+                </b>
+                <small className="line-clamp-2 text-[12.5px] break-words text-ink-3">
+                  {cell.line}
+                </small>
+              </span>
+            </li>
           ))}
-        </fieldset>
+        </ul>
       ) : null}
-    </div>
+    </section>
   );
 }

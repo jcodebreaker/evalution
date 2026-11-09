@@ -1,4 +1,3 @@
-import { CircleAlert, ShieldCheck } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../../lib/cn";
 import { storeLabel } from "../../lib/isolation";
@@ -29,9 +28,12 @@ const day = (at: number) =>
 export function HowTestsRun({
   target,
   isolation,
+  quiet = false,
 }: {
   target: string;
   isolation: Health["isolation"];
+  /** Needs you has the button for this plan: the card says where it stands without it. */
+  quiet?: boolean;
 }) {
   const [started, setStarted] = useState(false);
   const open = useOpenEnvironment();
@@ -56,42 +58,46 @@ export function HowTestsRun({
       aria-label="How tests run"
       data-testid="how-tests-run"
     >
-      <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold">
-        {proven ? (
-          <ShieldCheck className="size-4 text-success" aria-hidden />
-        ) : (
-          <CircleAlert className="size-4 text-warning" aria-hidden />
-        )}
-        How tests run
-      </h2>
+      <h2 className="m-0 text-[16px] font-semibold">How tests run</h2>
       {started ? (
         <Following target={target} />
       ) : (
-        <Body target={target} card={isolation} onStarted={() => setStarted(true)} />
+        <Body target={target} card={isolation} quiet={quiet} onStarted={() => setStarted(true)} />
       )}
       {links}
     </section>
   );
 }
 
-function Body({ target, card, onStarted }: { target: string; card: Card; onStarted: () => void }) {
+function Body({
+  target,
+  card,
+  quiet,
+  onStarted,
+}: {
+  target: string;
+  card: Card;
+  quiet: boolean;
+  onStarted: () => void;
+}) {
   const reset = card.stores.filter((store) => store.reset);
   const kept = card.stores.filter((store) => !store.reset);
-  const button = (label?: string) => (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <IsolateButton
-          target={target}
-          label={label}
-          disabled={!card.can_run}
-          onStarted={onStarted}
-        />
+  const button = (label?: string) =>
+    quiet ? null : (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <IsolateButton
+            target={target}
+            label={label}
+            disabled={!card.can_run}
+            onStarted={onStarted}
+          />
+        </div>
+        <p className="m-0 text-[12.5px] text-ink-3">
+          {card.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}
+        </p>
       </div>
-      <p className="m-0 text-[12.5px] text-ink-3">
-        {card.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}
-      </p>
-    </div>
-  );
+    );
   const problem = card.problem ? <p className="m-0 text-destructive">{card.problem}</p> : null;
 
   switch (card.status) {
@@ -130,7 +136,7 @@ function Body({ target, card, onStarted }: { target: string; card: Card; onStart
     case "failed":
       return (
         <>
-          <p className="m-0 max-w-[68ch] text-warning">
+          <p className="m-0 max-w-[68ch] text-ink">
             Tries aren't isolated yet: the rehearsal found {target} keeping things the plan doesn't
             put back, so tries may see what earlier ones left.
           </p>
@@ -141,7 +147,7 @@ function Body({ target, card, onStarted }: { target: string; card: Card; onStart
     default:
       return (
         <>
-          <p className="m-0 max-w-[68ch] text-warning">
+          <p className="m-0 max-w-[68ch] text-ink">
             Tries aren't isolated. Each try can see what earlier tries left behind: a pass may rest
             on leftovers, and a fail may be caused by one.
           </p>
@@ -172,8 +178,8 @@ function Listed({ title, items, mono }: { title: string; items: string[]; mono?:
   );
 }
 
-/** After the button: the rehearsal's steps as they run. */
-function Following({ target }: { target: string }): ReactNode {
+/** After the button (here or in Needs you): the rehearsal's steps as they run. */
+export function Following({ target }: { target: string }): ReactNode {
   const { data } = useIsolation(target);
   const job: Isolation["job"] = data?.job ?? null;
   if (!job) return <p className="m-0 text-ink-2">Starting…</p>;

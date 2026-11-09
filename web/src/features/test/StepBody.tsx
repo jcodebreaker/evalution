@@ -1,4 +1,3 @@
-import { Paperclip } from "lucide-react";
 import { count } from "../../lib/format";
 import type { LineAgreement, PlanStep } from "../../lib/schema";
 import { Check } from "./Check";
@@ -40,7 +39,6 @@ export function StepBody({
               className="flex min-w-0 flex-col border-separator not-first:border-t"
             >
               <span className="m-3 inline-flex w-fit max-w-[calc(100%-24px)] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[9px] px-2.5 py-1.5 text-[13px] ring-1 ring-inset ring-separator">
-                <Paperclip className="size-3.5 text-ink-3" aria-hidden />
                 <code className="font-mono text-[12.5px]">{entry.name}</code>
                 {[
                   entry.rows !== undefined ? count(entry.rows, "row") : null,

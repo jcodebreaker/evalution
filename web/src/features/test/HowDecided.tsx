@@ -1,32 +1,25 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { count } from "../../lib/format";
-import type { CheckRow, Explain, TryOutcome } from "../../lib/schema";
+import type { CheckRow, Explain } from "../../lib/schema";
 import { checkKindWord, checkWord } from "../../lib/verdict";
+import { StatusDot } from "../../ui/status";
 import { SectionHead } from "./SectionHead";
-
-const MARK: Record<TryOutcome, [string, string]> = {
-  passed: ["✓", "text-success"],
-  failed: ["✕", "text-destructive"],
-  unjudged: ["?", "text-ink-2"],
-};
+import { markOf } from "./try-words";
 
 function Row({ check }: { check: CheckRow }) {
-  const [glyph, tone] = MARK[check.outcome];
   const kind = checkKindWord(check.kind);
   const tags = [kind, check.guide ? "guide" : null].filter(Boolean).join(" · ");
   return (
-    <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-1.5 text-[13px]">
-      <span
-        role="img"
-        aria-label={checkWord({
+    <li className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-baseline gap-2 text-[13px]">
+      <StatusDot
+        state={markOf(check.outcome)}
+        label={checkWord({
           passed: check.outcome === "passed",
           unjudged: check.outcome === "unjudged",
         })}
-        className={cn("font-bold", tone)}
-      >
-        {glyph}
-      </span>
+        className="translate-y-[-1px]"
+      />
       <span className="break-words text-ink-2">{check.text}</span>
       {tags ? <span className="text-[11px] text-ink-3">{tags}</span> : null}
     </li>
@@ -44,7 +37,7 @@ function Panel({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2 border-separator p-3.5 not-first:md:border-s not-first:max-md:border-t">
-      <h4 className="m-0 text-[11.5px] font-semibold text-ink-3 uppercase">{title}</h4>
+      <h4 className="m-0 text-[12px] font-medium text-ink-3">{title}</h4>
       {tally ? <b className="text-[15px] font-semibold">{tally}</b> : null}
       {children}
     </div>

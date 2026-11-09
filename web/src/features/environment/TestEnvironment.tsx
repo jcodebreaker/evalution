@@ -94,17 +94,17 @@ const TONES: Record<Standing, Tone> = {
 function Badge({ standing: at }: { standing: Standing }) {
   const words =
     at === "stale"
-      ? { text: "Out of date", tone: "bg-warning/10 text-warning" }
+      ? { text: "Out of date", tone: "bg-unjudged-soft text-warning" }
       : at === "leaky"
-        ? { text: "Not isolated", tone: "bg-destructive/10 text-destructive" }
+        ? { text: "Not isolated", tone: "bg-fail-soft text-fail" }
         : at === "none"
-          ? { text: "Not set up", tone: "bg-bubble text-ink-2" }
+          ? { text: "Not set up", tone: "bg-sunk-2 text-ink-2" }
           : null;
   if (!words) return null;
   return (
     <span
       className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] font-medium tracking-normal normal-case",
+        "inline-flex h-[22px] items-center rounded-full px-2 text-[12px] font-medium",
         words.tone,
       )}
     >
@@ -162,7 +162,7 @@ export function TestEnvironment({
     return failed ? (
       <p className="m-0 text-[14px] text-ink-2">Couldn't load the test environment.</p>
     ) : (
-      <Skeleton className="h-72 rounded-[14px]" />
+      <Skeleton className="h-72 rounded-[12px]" />
     );
   }
   const now = at ?? "none";
@@ -246,7 +246,7 @@ export function TestEnvironment({
         )}
       >
         <section
-          className="flex min-w-0 flex-col rounded-[14px] border border-border bg-group"
+          className="flex min-w-0 flex-col rounded-[12px] border border-separator bg-group"
           aria-label="Test copy"
         >
           <div className="p-5 max-md:p-4">
@@ -266,12 +266,12 @@ export function TestEnvironment({
               </p>
             ) : null}
             {now === "leaky" ? (
-              <p className="m-0 mt-3 text-destructive">
+              <p className="m-0 mt-3 text-fail">
                 The last check found {target} keeping things it doesn't put back, so tries may see
                 what earlier ones left.
               </p>
             ) : null}
-            {data.problem ? <p className="m-0 mt-3 text-destructive">{data.problem}</p> : null}
+            {data.problem ? <p className="m-0 mt-3 text-fail">{data.problem}</p> : null}
           </div>
           {checklist ? (
             <div className="border-t border-separator px-5 py-3.5 max-md:px-4">
@@ -287,7 +287,7 @@ export function TestEnvironment({
             {action}
           </div>
           {error ? (
-            <p className="m-0 px-5 pb-3 text-[13px] text-destructive max-md:px-4">{error}</p>
+            <p className="m-0 px-5 pb-3 text-[13px] text-fail max-md:px-4">{error}</p>
           ) : null}
         </section>
         {setup ? (
@@ -317,13 +317,11 @@ export function TestEnvironment({
 /** The Test environment screen: the copy as it stands, its setup, and how tests reach it. */
 export function TestEnvironmentView({ target }: { target: string }) {
   return (
-    <>
+    <Page wide>
       <Toolbar>
         <ToolbarTitle title="Test environment" />
       </Toolbar>
-      <Page wide>
-        <TestEnvironment target={target} mode="page" />
-      </Page>
-    </>
+      <TestEnvironment target={target} mode="page" />
+    </Page>
   );
 }

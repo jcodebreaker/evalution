@@ -53,7 +53,7 @@ export function ProofControl({
           <span className="w-24 shrink-0 text-ink-2">{label}</span>
           <fieldset
             aria-label={label}
-            className="m-0 flex gap-0.5 rounded-lg border-0 bg-bubble p-0.5"
+            className="m-0 flex gap-0.5 rounded-[7px] border-0 bg-sunk-2 p-[3px]"
           >
             {KEEPS.map(({ keep, label: word }) => (
               <button
@@ -65,8 +65,10 @@ export function ProofControl({
                   if (proof[part] !== keep) onChange(part, keep);
                 }}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60",
-                  proof[part] === keep ? "bg-group text-foreground shadow-sm" : "text-ink-2",
+                  "h-[26px] rounded-[5px] px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-tint disabled:opacity-60",
+                  proof[part] === keep
+                    ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
+                    : "text-ink-2",
                 )}
               >
                 {word}

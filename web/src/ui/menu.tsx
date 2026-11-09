@@ -4,7 +4,11 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 
 const ITEM =
-  "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 outline-none select-none data-[highlighted]:bg-selection";
+  "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none select-none data-[highlighted]:bg-sunk";
+
+/** A menu's sheet: white on a hairline, lifted by one soft shadow. */
+const POPUP =
+  "rounded-[10px] bg-popover p-1 text-[14px] text-popover-foreground shadow-[0_12px_32px_-8px_rgba(20,22,43,0.18)] ring-1 ring-separator outline-none";
 
 /** A quiet picker: the current choice as a button that opens the others, and any actions. */
 export function Picker<T extends string>({
@@ -32,7 +36,7 @@ export function Picker<T extends string>({
       <Menu.Trigger
         aria-label={label}
         className={cn(
-          "flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[14px] font-semibold hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-selection",
+          "flex min-w-0 items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[14px] font-semibold hover:bg-sunk focus-visible:outline-2 focus-visible:outline-tint data-[popup-open]:bg-sunk",
           className,
         )}
       >
@@ -41,7 +45,7 @@ export function Picker<T extends string>({
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={4} align="start" className="z-50 outline-none">
-          <Menu.Popup className="min-w-44 rounded-lg bg-popover p-1 text-[14px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
+          <Menu.Popup className={cn("min-w-44", POPUP)}>
             {header ? (
               <>
                 <div className="truncate px-2 pt-1 pb-1.5 text-[12.5px] text-ink-3">{header}</div>
@@ -82,7 +86,7 @@ export function MoreMenu({
       <Menu.Trigger
         aria-label={label}
         className={cn(
-          "grid size-7 shrink-0 place-items-center rounded-md text-ink-2 hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-selection",
+          "grid size-7 shrink-0 place-items-center rounded-[6px] text-ink-2 hover:bg-sunk focus-visible:outline-2 focus-visible:outline-tint data-[popup-open]:bg-sunk",
           className,
         )}
       >
@@ -90,7 +94,7 @@ export function MoreMenu({
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={4} align="end" className="z-50 outline-none">
-          <Menu.Popup className="min-w-40 rounded-lg bg-popover p-1 text-[14px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
+          <Menu.Popup className={cn("min-w-40", POPUP)}>
             {actions.map((action, index) => (
               <Menu.Item key={index} onClick={action.onClick} className={ITEM}>
                 {action.label}

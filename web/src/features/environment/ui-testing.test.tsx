@@ -157,8 +157,9 @@ it("says in the Run dialog how each test plays, what it keeps and how long", asy
     "Page3 tests through relay-lite's pageOne at a time, about 40 s a try. Screenshots of every message, video when a try fails.",
     "Page1 test through relay-lite's pageOne at a time, about 40 s a try. No screenshots, video when a try fails.",
   ]);
-  // Played one at a time: the button says the rough total (4 tries at about 40 s).
-  expect(screen.getByRole("button", { name: "Run 4 tests · about 3 min" })).toBeTruthy();
+  // Played one at a time: the footer says the rough total (4 tries at about 40 s).
+  expect(screen.getByTestId("run-estimate").textContent).toBe("About 3 min · 4 tries");
+  expect(screen.getByRole("button", { name: "Run 4 tests" })).toBeTruthy();
 });
 
 it("sets what a page try keeps right in the Run dialog, and says the run again", async () => {
@@ -225,6 +226,7 @@ it("says an API run plays through the API, with nothing to capture", async () =>
   expect(screen.getByText("API")).toBeTruthy();
   // Through the API tests may play side by side: no total is guessed.
   expect(screen.getByRole("button", { name: "Run 2 tests" })).toBeTruthy();
+  expect(screen.getByTestId("run-estimate").textContent).toBe("2 tries");
   expect(screen.queryByTestId("run-proof")).toBeNull();
 });
 

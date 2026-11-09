@@ -159,204 +159,200 @@ export function ConnectView({
   const proven = copy === "proven";
 
   return (
-    <>
+    <Page narrow>
       <Toolbar>
         <ToolbarTitle title={title} />
       </Toolbar>
-      <Page narrow>
-        {made ? (
-          <Progress
-            steps={[
-              { label: "Connect", state: "done" },
-              { label: "Learn", state: learned ? "done" : modelChosen ? "now" : "waiting" },
-              { label: "Set up testing", state: proven ? "done" : learned ? "now" : "waiting" },
-              { label: "First test", state: proven ? "now" : "waiting" },
-            ]}
-          />
-        ) : null}
-        <SetupStep n={1} title="App" state={appState}>
-          <form
-            className="flex flex-col gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void start(path);
-            }}
-          >
-            <label htmlFor="folder" className="text-[14px] font-medium">
-              Address or project folder
-            </label>
-            <div className="flex gap-2">
-              <Input
-                id="folder"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="~/code/my-app or http://localhost:3000/chat"
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                className="h-9"
-              />
-              <Button type="submit" size="lg" className="h-9" disabled={!path.trim() || looking}>
-                Connect
-              </Button>
-            </div>
-            {recent.length && !job ? (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {recent.map((folder) => (
-                  <Button
-                    key={folder}
-                    variant="secondary"
-                    size="xs"
-                    title={folder}
-                    onClick={() => {
-                      setPath(folder);
-                      void start(folder);
-                    }}
-                  >
-                    {lastPart(folder)}
-                  </Button>
-                ))}
-              </div>
-            ) : null}
-          </form>
-
-          {job ? (
-            <Group className="flex flex-col gap-4 px-4 py-4">
-              <Steps
-                steps={[
-                  ...job.steps,
-                  ...(made
-                    ? [
-                        { text: "Ready", state: "done" as const },
-                        ...(modelChosen
-                          ? [
-                              learned
-                                ? { text: "Learned your app", state: "done" as const }
-                                : { text: "Learning your app…", state: "doing" as const },
-                            ]
-                          : []),
-                      ]
-                    : []),
-                ]}
-              />
-              {made && modelChosen && !busy ? (
-                <TextLink className="w-fit text-[14px]" onClick={onLearned}>
-                  What it learned
-                </TextLink>
-              ) : null}
-              {asking ? (
-                <form
-                  className="flex flex-col gap-3 border-separator border-t pt-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (answered) void finish(() => api.accept(job.id, { answers }));
+      {made ? (
+        <Progress
+          steps={[
+            { label: "Connect", state: "done" },
+            { label: "Learn", state: learned ? "done" : modelChosen ? "now" : "waiting" },
+            { label: "Set up testing", state: proven ? "done" : learned ? "now" : "waiting" },
+            { label: "First test", state: proven ? "now" : "waiting" },
+          ]}
+        />
+      ) : null}
+      <SetupStep n={1} title="App" state={appState}>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void start(path);
+          }}
+        >
+          <label htmlFor="folder" className="text-[14px] font-medium">
+            Address or project folder
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="folder"
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              placeholder="~/code/my-app or http://localhost:3000/chat"
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              className="h-9"
+            />
+            <Button type="submit" size="lg" className="h-9" disabled={!path.trim() || looking}>
+              Connect
+            </Button>
+          </div>
+          {recent.length && !job ? (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {recent.map((folder) => (
+                <Button
+                  key={folder}
+                  variant="secondary"
+                  size="xs"
+                  title={folder}
+                  onClick={() => {
+                    setPath(folder);
+                    void start(folder);
                   }}
                 >
-                  {job.questions.map((question) => (
-                    <div key={question.key} className="flex flex-col gap-1.5 text-[14px]">
-                      <label htmlFor={`question-${question.key}`}>{question.text}</label>
-                      <Input
-                        id={`question-${question.key}`}
-                        value={answers[question.key] ?? ""}
-                        onChange={(event) =>
-                          setAnswers((now) => ({ ...now, [question.key]: event.target.value }))
-                        }
-                        placeholder={question.hint}
-                        autoComplete="off"
-                      />
-                    </div>
-                  ))}
-                  <Button type="submit" className="self-end" disabled={!answered || busy}>
-                    Connect
-                  </Button>
-                </form>
-              ) : null}
-              {job.status === "ready" && waiting && job.traces && !made ? (
-                <>
-                  <TracesHelp
-                    traces={job.traces}
-                    checking={checking}
-                    onCheck={() => void checkTraces(job.id)}
-                  />
-                  {asks ? null : (
-                    <Button
-                      className="self-end"
-                      disabled={busy}
-                      onClick={() => void finish(() => api.accept(job.id, {}))}
-                    >
-                      Connect
-                    </Button>
-                  )}
-                </>
-              ) : null}
-            </Group>
-          ) : null}
-
-          {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
-
-          {made ? (
-            <p className="m-0 text-[14px] text-ink-2">Connected as {made.adapter_label}.</p>
-          ) : null}
-
-          <Fold title="Details">
-            <TargetFields
-              key={made ? `made:${made.name}` : job?.target ? job.id : "blank"}
-              saved={made ?? job?.target ?? undefined}
-              fresh={!made}
-              action={made ? "Save" : "Connect"}
-              onSave={async (body) => {
-                if (made) {
-                  setMade(await api.updateTarget(body));
-                  await reloadTargets();
-                  return;
-                }
-                await finish(() =>
-                  job?.status === "ready"
-                    ? api.accept(job.id, { target: body })
-                    : api.connect(body),
-                );
-              }}
-            />
-          </Fold>
-        </SetupStep>
-
-        <SetupStep n={2} title="Model" state={modelChosen ? "done" : "now"}>
-          <ModelStep onChosen={chooseModel} />
-        </SetupStep>
-
-        <SetupStep n={3} title="Test message" state={row?.checked ? "done" : later}>
-          {name ? <Probe target={name} checked={!!row?.checked} onChange={reloadTargets} /> : null}
-        </SetupStep>
-
-        <SetupStep
-          n={4}
-          title="Set up testing"
-          state={learned ? (proven ? "done" : "now") : "waiting"}
-        >
-          {name ? (
-            <TestEnvironment
-              target={name}
-              mode="setup"
-              onStanding={setCopy}
-              onFirstTest={onFirstTest}
-            />
-          ) : null}
-        </SetupStep>
-
-        <SetupStep n={5} title="First test" state={made && modelChosen ? "now" : "waiting"}>
-          {name ? (
-            <div className="flex flex-col gap-5">
-              <UiOffer
-                // Read again once the copy is proven: the agent can learn the page from then.
-                key={proven ? "proven" : "not yet"}
-                target={name}
-                className="rounded-[14px] border border-border bg-group p-5 max-md:p-4"
-              />
-              <Composer target={name} onAsk={onAsk} />
+                  {lastPart(folder)}
+                </Button>
+              ))}
             </div>
           ) : null}
-        </SetupStep>
-      </Page>
-    </>
+        </form>
+
+        {job ? (
+          <Group className="flex flex-col gap-4 px-4 py-4">
+            <Steps
+              steps={[
+                ...job.steps,
+                ...(made
+                  ? [
+                      { text: "Ready", state: "done" as const },
+                      ...(modelChosen
+                        ? [
+                            learned
+                              ? { text: "Learned your app", state: "done" as const }
+                              : { text: "Learning your app…", state: "doing" as const },
+                          ]
+                        : []),
+                    ]
+                  : []),
+              ]}
+            />
+            {made && modelChosen && !busy ? (
+              <TextLink className="w-fit text-[14px]" onClick={onLearned}>
+                What it learned
+              </TextLink>
+            ) : null}
+            {asking ? (
+              <form
+                className="flex flex-col gap-3 border-separator border-t pt-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (answered) void finish(() => api.accept(job.id, { answers }));
+                }}
+              >
+                {job.questions.map((question) => (
+                  <div key={question.key} className="flex flex-col gap-1.5 text-[14px]">
+                    <label htmlFor={`question-${question.key}`}>{question.text}</label>
+                    <Input
+                      id={`question-${question.key}`}
+                      value={answers[question.key] ?? ""}
+                      onChange={(event) =>
+                        setAnswers((now) => ({ ...now, [question.key]: event.target.value }))
+                      }
+                      placeholder={question.hint}
+                      autoComplete="off"
+                    />
+                  </div>
+                ))}
+                <Button type="submit" className="self-end" disabled={!answered || busy}>
+                  Connect
+                </Button>
+              </form>
+            ) : null}
+            {job.status === "ready" && waiting && job.traces && !made ? (
+              <>
+                <TracesHelp
+                  traces={job.traces}
+                  checking={checking}
+                  onCheck={() => void checkTraces(job.id)}
+                />
+                {asks ? null : (
+                  <Button
+                    className="self-end"
+                    disabled={busy}
+                    onClick={() => void finish(() => api.accept(job.id, {}))}
+                  >
+                    Connect
+                  </Button>
+                )}
+              </>
+            ) : null}
+          </Group>
+        ) : null}
+
+        {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+
+        {made ? (
+          <p className="m-0 text-[14px] text-ink-2">Connected as {made.adapter_label}.</p>
+        ) : null}
+
+        <Fold title="Details">
+          <TargetFields
+            key={made ? `made:${made.name}` : job?.target ? job.id : "blank"}
+            saved={made ?? job?.target ?? undefined}
+            fresh={!made}
+            action={made ? "Save" : "Connect"}
+            onSave={async (body) => {
+              if (made) {
+                setMade(await api.updateTarget(body));
+                await reloadTargets();
+                return;
+              }
+              await finish(() =>
+                job?.status === "ready" ? api.accept(job.id, { target: body }) : api.connect(body),
+              );
+            }}
+          />
+        </Fold>
+      </SetupStep>
+
+      <SetupStep n={2} title="Model" state={modelChosen ? "done" : "now"}>
+        <ModelStep onChosen={chooseModel} />
+      </SetupStep>
+
+      <SetupStep n={3} title="Test message" state={row?.checked ? "done" : later}>
+        {name ? <Probe target={name} checked={!!row?.checked} onChange={reloadTargets} /> : null}
+      </SetupStep>
+
+      <SetupStep
+        n={4}
+        title="Set up testing"
+        state={learned ? (proven ? "done" : "now") : "waiting"}
+      >
+        {name ? (
+          <TestEnvironment
+            target={name}
+            mode="setup"
+            onStanding={setCopy}
+            onFirstTest={onFirstTest}
+          />
+        ) : null}
+      </SetupStep>
+
+      <SetupStep n={5} title="First test" state={made && modelChosen ? "now" : "waiting"}>
+        {name ? (
+          <div className="flex flex-col gap-5">
+            <UiOffer
+              // Read again once the copy is proven: the agent can learn the page from then.
+              key={proven ? "proven" : "not yet"}
+              target={name}
+              className="rounded-[12px] border border-separator bg-group p-5 max-md:p-4"
+            />
+            <Composer target={name} onAsk={onAsk} />
+          </div>
+        ) : null}
+      </SetupStep>
+    </Page>
   );
 }

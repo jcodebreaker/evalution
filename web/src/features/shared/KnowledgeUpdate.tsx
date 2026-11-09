@@ -37,7 +37,7 @@ export function OutOfDate({
           Update
         </Button>
       ) : null}
-      {error ? <span className="text-destructive">{error}</span> : null}
+      {error ? <span className="text-fail">{error}</span> : null}
     </div>
   );
 }

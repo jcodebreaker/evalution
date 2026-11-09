@@ -115,7 +115,8 @@ export function verdictLine(
 
 // A try played through the app's page (ADR 0010): which layer held, and what the page showed.
 
-const LAYER_NAME: Record<keyof Layers, string> = {
+/** A layer of a try, by name: `Stored`, `Page healthy`. */
+export const LAYER_NAME: Record<keyof Layers, string> = {
   stored: "Stored",
   answered: "Answered",
   shown: "Shown",
@@ -123,7 +124,8 @@ const LAYER_NAME: Record<keyof Layers, string> = {
 };
 
 const LAYER_GLYPH: Record<Layer, string> = { pass: "✓", fail: "✕", unjudged: "?", absent: "" };
-const LAYER_SAID: Record<Layer, string> = {
+/** How a layer came out, in a word or two: `held`, `failed`. */
+export const LAYER_SAID: Record<Layer, string> = {
   pass: "held",
   fail: "failed",
   unjudged: "couldn't judge",

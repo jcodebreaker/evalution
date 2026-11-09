@@ -24,38 +24,38 @@ export function TestRow({
           ? PASSED_MODEL_ONLY
           : row.about;
   return (
-    <div className="group/row flex items-center gap-2 border-separator pe-2.5 not-first:border-t hover:bg-selection">
+    <div className="group/row flex items-center gap-2 border-separator pe-3 transition-colors not-first:border-t hover:bg-sunk">
       <button
         type="button"
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-start gap-2.5 py-2.5 ps-3.5 text-start focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        className="flex min-w-0 flex-1 items-start gap-3 py-3 ps-5 text-start focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint"
       >
         {row.verdict ? (
-          <VerdictGlyph verdict={row.verdict} className="mt-[3px]" />
+          <VerdictGlyph verdict={row.verdict} className="mt-[7px]" />
         ) : (
-          <NotRunGlyph className="mt-[3px]" />
+          <NotRunGlyph className="mt-[7px]" />
         )}
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate">{row.name}</span>
+            <span className="truncate font-medium">{row.name}</span>
             <PlaysChip plays={row.plays} />
             {row.stale ? <StaleChip reason={row.stale} /> : null}
             {row.different ? (
-              <span className="shrink-0 text-[12.5px] text-ink-3">Different route</span>
+              <span className="shrink-0 text-[12px] text-ink-3">Different route</span>
             ) : null}
             {row.originally ? (
-              <span className="shrink-0 text-[12.5px] text-ink-3">
+              <span className="shrink-0 text-[12px] text-ink-3">
                 {originallyWord(row.originally)}
               </span>
             ) : null}
           </span>
           {line ? (
-            <span title={line} className="truncate text-[12.5px] text-ink-3">
+            <span title={line} className="truncate text-[12px] text-ink-3">
               {line}
             </span>
           ) : null}
         </span>
-        <span className="shrink-0 pt-px text-[12.5px] text-ink-3 tabular-nums">
+        <span className="shrink-0 pt-0.5 font-mono text-[12px] text-ink-3 tabular-nums">
           {row.last_at ? when(row.last_at) : row.verdict === null ? "Not run" : null}
         </span>
       </button>

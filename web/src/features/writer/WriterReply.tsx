@@ -1,8 +1,9 @@
-import { ArrowRight, Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Play, Plus } from "lucide-react";
 import { count } from "../../lib/format";
 import type { AgentMessage, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Markdown } from "../../ui/markdown";
+import { StatusDot } from "../../ui/status";
 import { Fold, Group, TextLink } from "../shared/group";
 import { MeaningChanges } from "../shared/MeaningChanges";
 import { SuspectTag } from "../shared/marks";
@@ -83,9 +84,9 @@ export function WriterReply({
       {LEARNED.test(message.text) ? (
         <Group>
           <button type="button" onClick={onLearned} className={ROW_LINK}>
-            <Network className="size-3.5 shrink-0 text-ink-3" aria-hidden />
-            <span className="min-w-0 flex-1 truncate font-medium">What it learned</span>
-            <ChevronRight className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+            <span className="min-w-0 flex-1 truncate font-medium text-tint-ink">
+              What it learned →
+            </span>
           </button>
         </Group>
       ) : null}
@@ -96,7 +97,7 @@ export function WriterReply({
               key={index}
               className="flex items-start gap-2.5 border-separator px-3.5 py-2.5 not-first:border-t"
             >
-              <span className="grid size-5 shrink-0 place-items-center rounded-md bg-selection text-[11px] font-semibold text-ink-2">
+              <span className="w-4 shrink-0 font-mono text-[13px] text-ink-3 tabular-nums">
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
@@ -131,7 +132,7 @@ export function WriterReply({
                 </p>
                 {use ? (
                   <p className="m-0 flex items-start gap-1 text-[12.5px] text-ink-2">
-                    <ArrowRight className="mt-1 size-3 shrink-0" aria-hidden />
+                    <span aria-hidden>→</span>
                     <span className="min-w-0">{suggested(use)}</span>
                   </p>
                 ) : null}
@@ -169,12 +170,12 @@ export function WriterReply({
       ) : null}
       {saved ? (
         <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13.5px]">
-          <Check className="size-4 shrink-0 text-success" aria-hidden />
+          <StatusDot state="pass" label="Added" />
           <span className="min-w-0 flex-1">
             Added:{" "}
             <button
               type="button"
-              className="text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              className="text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-tint"
               onClick={() => onTest(saved)}
             >
               {testName(saved)}

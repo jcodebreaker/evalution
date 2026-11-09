@@ -5,7 +5,7 @@ import { Spinner } from "../../ui/loading";
 import { Group } from "../shared/group";
 
 export const ROW_LINK =
-  "flex w-full items-center gap-2.5 px-3.5 py-2.5 text-start text-[14px] hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
+  "flex w-full items-center gap-2.5 px-3.5 py-2.5 text-start text-[14px] hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint";
 
 /** A run the writer started or reviewed: how far it is, or how it ended. */
 export function RunLink({

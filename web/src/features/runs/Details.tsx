@@ -8,8 +8,9 @@ import { ScoreBar } from "../shared/marks";
 import { History } from "./History";
 import { Metrics } from "./Metrics";
 
-/** Folded under Details: the base run, the numbers against it, each test's scores, and history. */
-export function Details({
+/** Folded under the results: the base run, the numbers against it, each test's scores, and
+ * history. */
+export function Scores({
   run,
   runs,
   label,
@@ -44,7 +45,7 @@ export function Details({
               value={run.base ? label(run.base.run) : "—"}
               options={others.map((entry) => ({ value: entry.run, label: label(entry.run) }))}
               onPick={onBase}
-              className="h-6 bg-selection font-medium text-foreground"
+              className="h-6 bg-sunk-2 font-medium text-foreground"
             />
           </>
         ) : null}

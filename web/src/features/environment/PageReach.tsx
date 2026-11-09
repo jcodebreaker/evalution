@@ -21,7 +21,7 @@ function standing(target: string, kept: KeptPageMap): { text: string; tone: stri
     case "broken":
       return {
         text: `It no longer matches the page: ${target}'s page has no ${kept.missing.join(", ")}. Runs through the page stop until it's learned again.`,
-        tone: "text-destructive",
+        tone: "text-fail",
       };
     case "by_hand":
       return { text: "Written by hand in the target's page: block.", tone: "text-ink-2" };
@@ -113,7 +113,7 @@ export function PageReach({ target }: { target: string }) {
 
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-[14px] border border-border bg-group p-5 text-[14px] max-md:p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-[12px] border border-separator bg-group p-5 text-[14px] max-md:p-4"
       aria-label={`How tests reach ${target}`}
       data-testid="page-reach"
     >
@@ -126,7 +126,7 @@ export function PageReach({ target }: { target: string }) {
         ) : null}
         <fieldset
           hidden={only}
-          className="m-0 ms-auto flex gap-0.5 rounded-lg border-0 bg-bubble p-0.5"
+          className="m-0 ms-auto flex gap-0.5 rounded-[7px] border-0 bg-sunk-2 p-[3px]"
           aria-label="How tests reach it"
         >
           {(["api", "page"] as const).map((each) => (
@@ -136,8 +136,10 @@ export function PageReach({ target }: { target: string }) {
               aria-pressed={shown === each}
               onClick={() => setWay(each)}
               className={cn(
-                "rounded-md px-2.5 py-1 text-[13px]",
-                shown === each ? "bg-group text-foreground shadow-sm" : "text-ink-2",
+                "h-[26px] rounded-[5px] px-2.5 text-[13px]",
+                shown === each
+                  ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
+                  : "text-ink-2",
               )}
             >
               {each === "api" ? "Its API" : "Its page"}
@@ -206,7 +208,7 @@ export function PageReach({ target }: { target: string }) {
           ) : !reach.can_learn && reach.why_not ? (
             <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{reach.why_not}</p>
           ) : null}
-          {reach.problem ? <p className="m-0 text-destructive">{reach.problem}</p> : null}
+          {reach.problem ? <p className="m-0 text-fail">{reach.problem}</p> : null}
           {learning || (reach.proposed && !reach.can_undo) ? null : (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
@@ -234,7 +236,7 @@ export function PageReach({ target }: { target: string }) {
           )}
         </>
       )}
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
     </section>
   );
 }

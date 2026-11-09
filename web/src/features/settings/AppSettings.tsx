@@ -44,7 +44,7 @@ export function AppSettings({ target }: { target: string }) {
       <h2 className="m-0 px-1 text-[14px] font-semibold">{target}</h2>
       <Group>
         <Row label="Update what it knows" group>
-          <span className="flex flex-wrap gap-0.5 self-start rounded-lg bg-selection p-0.5">
+          <span className="flex flex-wrap gap-0.5 self-start rounded-[7px] bg-sunk-2 p-[3px]">
             {UPDATE_MODES.map((entry) => (
               <button
                 key={entry.value}
@@ -53,9 +53,9 @@ export function AppSettings({ target }: { target: string }) {
                 aria-pressed={mode === entry.value}
                 onClick={() => void act(() => api.updates.set(target, entry.value), reloadUpdates)}
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
+                  "h-[26px] rounded-[5px] px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-tint disabled:opacity-50",
                   mode === entry.value
-                    ? "bg-background font-medium shadow-sm"
+                    ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
                     : "text-ink-2 hover:text-foreground",
                 )}
               >
@@ -71,7 +71,7 @@ export function AppSettings({ target }: { target: string }) {
             ) : (
               <input
                 type="checkbox"
-                className="mt-2 size-4 self-start accent-primary"
+                className="mt-2 size-4 self-start accent-tint"
                 disabled={busy || !found}
                 checked={found?.installed ?? false}
                 onChange={(event) =>
@@ -97,7 +97,7 @@ export function AppSettings({ target }: { target: string }) {
           </Row>
         )}
       </Group>
-      {error ? <p className="m-0 px-1 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 px-1 text-[13px] text-fail">{error}</p> : null}
     </div>
   );
 }

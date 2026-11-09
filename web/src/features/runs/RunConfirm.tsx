@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { ApiError, api, errorText, missingOf } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { count } from "../../lib/format";
+import { count, runNumbers, tokens } from "../../lib/format";
 import { about } from "../../lib/isolation";
 import type { Estimate, Keep, MissingPiece, PageReach, Proof, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
@@ -15,6 +16,7 @@ import { PlaysChip } from "../shared/marks";
 import { MissingPieceNote } from "../shared/next-step";
 import { ProofControl } from "../shared/ProofControl";
 import { CodePicker, DISK } from "./CodePicker";
+import { Notice } from "./parts";
 
 /** "How this works": the Test environment screen, or the explainer where the page can't move. */
 function HowItWorks() {
@@ -22,11 +24,19 @@ function HowItWorks() {
   return open ? <TextLink onClick={open}>How this works</TextLink> : <HowIsolationLink />;
 }
 
-/** What a run sends, and how its tries are kept apart, in two or three short lines. */
-export function IsolationLines({ estimate, app }: { estimate: Estimate; app: string }) {
+/** What a run sends (unless `sends` is false: the Run dialog says it by its tests), and how its
+ * tries are kept apart, in two or three short lines. */
+export function IsolationLines({
+  estimate,
+  app,
+  sends = true,
+}: {
+  estimate: Estimate;
+  app: string;
+  sends?: boolean;
+}) {
   const isolation = estimate.isolation;
-  const sends = `${count(estimate.tries, "try", "tries")}, ${count(estimate.chats, "message")} to the app`;
-  const lines: { text: string; warn?: boolean }[] = [{ text: sends }];
+  const lines: { text: string; warn?: boolean }[] = sends ? [{ text: sendsWords(estimate) }] : [];
   const at = (seconds: number | null) => (seconds === null ? "" : ` (${about(seconds)})`);
   const each = (seconds: number | null) => (seconds === null ? "" : ` (${about(seconds)} each)`);
   const copy = (start: number | null, restore: number | null) =>
@@ -48,8 +58,9 @@ export function IsolationLines({ estimate, app }: { estimate: Estimate; app: str
       warn: true,
     });
   }
+  if (!lines.length && !isolation) return null;
   return (
-    <div className="flex flex-col items-center gap-1 text-center text-[13px]">
+    <div className="flex flex-col items-start gap-1 text-[13px]">
       {lines.map((line) => (
         <p key={line.text} className={cn("m-0", line.warn ? "text-warning" : "text-ink-2")}>
           {line.text}
@@ -58,6 +69,11 @@ export function IsolationLines({ estimate, app }: { estimate: Estimate; app: str
       {isolation ? <HowItWorks /> : null}
     </div>
   );
+}
+
+/** What a run sends the app: "4 tries, 8 messages to the app". */
+function sendsWords(estimate: Estimate): string {
+  return `${count(estimate.tries, "try", "tries")}, ${count(estimate.chats, "message")} to the app`;
 }
 
 /** A rough time, as the server's estimate says one: "about 35 s", "about 3 min". */
@@ -86,16 +102,12 @@ function playWords(line: Estimate["plays"][number], app: string): { head: string
 export function PlaysLines({ estimate, app }: { estimate: Estimate; app: string }) {
   if (!estimate.plays.length) return null;
   return (
-    <ul className="m-0 flex list-none flex-col gap-2 p-0 text-[13px]" data-testid="run-plays">
+    <ul className="m-0 flex list-none flex-col gap-2.5 p-0 text-[13px]" data-testid="run-plays">
       {estimate.plays.map((line) => {
         // An older server's line, without its tests: said as it comes.
         const words = line.cases.length && line.seconds ? playWords(line, app) : null;
         return (
-          <li
-            key={line.text}
-            className="flex items-start gap-2.5 rounded-lg bg-bubble px-3 py-2.5"
-            data-how={line.how}
-          >
+          <li key={line.text} className="flex items-start gap-2.5" data-how={line.how}>
             <span className="pt-px">
               <PlaysChip plays={line.how === "api" ? "api" : "page"} />
             </span>
@@ -170,18 +182,99 @@ function RunProof({ app, onChanged }: { app: string; onChanged: () => void }) {
     setWorking(false);
   };
   return (
-    <div className="flex flex-col gap-2 text-[13px]" data-testid="run-proof">
-      <ProofControl
-        proof={reach.proof}
-        disabled={working}
-        onChange={(part, keep) => void change(part, keep)}
-      />
-      <p className="m-0 text-[12.5px] text-ink-3">
-        For every page test of {app}. A test can set its own under "What it checks".
-      </p>
-      {error ? <p className="m-0 text-destructive">{error}</p> : null}
+    <Row label="Keeps">
+      <div className="flex flex-col gap-2 text-[13px]" data-testid="run-proof">
+        <ProofControl
+          proof={reach.proof}
+          disabled={working}
+          onChange={(part, keep) => void change(part, keep)}
+        />
+        <p className="m-0 text-[12px] text-ink-3">
+          For every page test of {app}. A test can set its own under "What it checks".
+        </p>
+        {error ? <p className="m-0 text-fail">{error}</p> : null}
+      </div>
+    </Row>
+  );
+}
+
+/** A row of the Run dialog: what it is on the start, the run's choice of it beside. */
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-4 border-t border-separator px-6 py-3 max-[560px]:grid-cols-1 max-[560px]:gap-1">
+      <div className="pt-px text-[13px] text-ink-3">{label}</div>
+      <div className="min-w-0 text-[14px]">{children}</div>
     </div>
   );
+}
+
+/** Which tests a run plays, and how many tries each: "All 4 tests · 1 try each". */
+function testsWords(estimate: Estimate, target: RunTarget): string {
+  const which = target.test
+    ? target.test.name
+    : target.cases
+      ? count(estimate.cases, "test")
+      : estimate.cases === 1
+        ? "The 1 test"
+        : `All ${estimate.cases} tests`;
+  const each = estimate.cases ? estimate.tries / estimate.cases : 0;
+  const tries = Number.isInteger(each)
+    ? `${count(each, "try", "tries")} each`
+    : `${count(estimate.tries, "try", "tries")} in all`;
+  return estimate.cases ? `${which} · ${tries}` : which;
+}
+
+/** The run before, in plain words, as far as the estimate and the set's last run have numbers:
+ * "About 3 min · starts the copy (about 81 s), then 4 tries · about 103k tokens, as run 8 spent". */
+export function estimateWords(estimate: Estimate, spent: Spent | null): string {
+  const total = runSeconds(estimate);
+  const isolation = estimate.isolation;
+  const copied =
+    isolation?.how === "proven" || isolation?.status === "proven" || isolation?.status === "stale";
+  const tries = count(estimate.tries, "try", "tries");
+  const plays =
+    copied && isolation?.start_seconds
+      ? `starts the copy (${about(isolation.start_seconds)}), then ${tries}`
+      : tries;
+  return [
+    total ? capital(rough(total)) : null,
+    total ? plays : capital(plays),
+    spent && spent.cases === estimate.cases
+      ? `about ${tokens(spent.tokens)} tokens, as run ${spent.n} spent`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** What the set's last full run spent: its number, its tests and its tokens. */
+type Spent = { n: number; cases: number; tokens: number };
+
+/** The tokens the set's latest finished run of all its tests spent, to say what this one may. */
+function useSpent(scope: Scope, whole: boolean): Spent | null {
+  const [spent, setSpent] = useState<Spent | null>(null);
+  const { target, set } = scope;
+  useEffect(() => {
+    setSpent(null);
+    if (!whole) return;
+    let cancelled = false;
+    api.runs({ target, set }).then(
+      (runs) => {
+        if (cancelled) return;
+        const numbers = runNumbers(runs);
+        const last = runs
+          .filter((run) => run.status === "done" && run.scope === "all" && run.totals.tokens > 0)
+          .sort((a, b) => b.started_at - a.started_at)[0];
+        const n = last ? numbers.get(last.run) : undefined;
+        if (last && n) setSpent({ n, cases: last.totals.cases, tokens: last.totals.tokens });
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [target, set, whole]);
+  return spent;
 }
 
 /** What a run plays: the whole set, one of its tests, or some of them. */
@@ -221,6 +314,7 @@ export function RunConfirm({
   const [busy, setBusy] = useState(false);
   /** The version it plays: what's on disk now, unless another is picked (ADR 0011). */
   const [ref, setRef] = useState(target.ref ?? DISK);
+  const spent = useSpent(target.scope, !target.test && !target.cases && !target.tries);
 
   const given = !!target.estimate;
   const { target: name, set } = target.scope;
@@ -271,20 +365,23 @@ export function RunConfirm({
   };
 
   const title = target.test
-    ? `Run ${target.test.name}?`
+    ? `Run ${target.test.name}`
     : cases
-      ? `Run ${count(cases.length, "test")}${tries ? ` with ${tries} tries each` : ""}?`
+      ? `Run ${count(cases.length, "test")}${tries ? ` with ${tries} tries each` : ""}`
       : estimate
         ? estimate.cases === 1
-          ? "Run the 1 test?"
-          : `Run all ${estimate.cases} tests?`
-        : "Run all tests?";
+          ? "Run the 1 test"
+          : `Run all ${estimate.cases} tests`
+        : "Run all tests";
 
-  const total = estimate ? runSeconds(estimate) : null;
-  const run = estimate?.cases
-    ? `Run ${count(estimate.cases, "test")}${total ? ` · ${rough(total)}` : ""}`
-    : "Run";
+  const run = estimate?.cases ? `Run ${count(estimate.cases, "test")}` : "Run";
   const page = estimate?.plays.some((line) => line.how !== "api") ?? false;
+  const plays = estimate ? (
+    <>
+      <PlaysLines estimate={estimate} app={name} />
+      <IsolationLines estimate={estimate} app={name} sends={false} />
+    </>
+  ) : null;
 
   return (
     <ConfirmDialog
@@ -296,6 +393,14 @@ export function RunConfirm({
       description={estimate || error ? null : "…"}
       footer={
         <>
+          {estimate ? (
+            <p
+              className="m-0 min-w-0 flex-[1_1_220px] text-[13px] text-ink-2"
+              data-testid="run-estimate"
+            >
+              {estimateWords(estimate, spent)}
+            </p>
+          ) : null}
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
@@ -308,26 +413,39 @@ export function RunConfirm({
         </>
       }
     >
-      {estimate ? <PlaysLines estimate={estimate} app={name} /> : null}
-      {page ? <RunProof app={name} onChanged={() => setRound((n) => n + 1)} /> : null}
-      {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
-      {estimate?.version || ref !== DISK ? (
-        <CodePicker
-          app={name}
-          picked={ref}
-          version={estimate?.ref === ref ? estimate.version : null}
-          onRef={setRef}
-        />
-      ) : null}
-      {estimate?.refused.map((item) => (
-        <p key={item.case} className="m-0 text-center text-[13px] text-warning">
-          {`Left out: ${item.case}, because ${item.why}`}
-        </p>
-      ))}
-      {missing ? (
-        <MissingPieceNote piece={missing} onLeave={onClose} />
-      ) : error ? (
-        <p className="m-0 text-center text-[13px] text-destructive">{error}</p>
+      <div className="-mx-6 flex flex-col">
+        {estimate ? (
+          <Row label="Tests">
+            <span className="font-medium">{testsWords(estimate, target)}</span>
+            <small className="mt-0.5 block text-[12px] text-ink-3">{sendsWords(estimate)}</small>
+          </Row>
+        ) : null}
+        {estimate?.version || ref !== DISK ? (
+          <Row label="Code">
+            <CodePicker
+              app={name}
+              picked={ref}
+              version={estimate?.ref === ref ? estimate.version : null}
+              onRef={setRef}
+            />
+          </Row>
+        ) : null}
+        {plays ? <Row label="How it plays">{plays}</Row> : null}
+        {page ? <RunProof app={name} onChanged={() => setRound((n) => n + 1)} /> : null}
+      </div>
+      {estimate?.refused.length || missing || error ? (
+        <div className="flex flex-col gap-2">
+          {estimate?.refused.map((item) => (
+            <Notice key={item.case} tone="amber">
+              <p className="m-0 text-warning">{`Left out: ${item.case}, because ${item.why}`}</p>
+            </Notice>
+          ))}
+          {missing ? (
+            <MissingPieceNote piece={missing} onLeave={onClose} />
+          ) : error ? (
+            <p className="m-0 text-[13px] text-fail">{error}</p>
+          ) : null}
+        </div>
       ) : null}
     </ConfirmDialog>
   );

@@ -49,8 +49,8 @@ function PastChats({
               aria-current={chat.id === current ? "true" : undefined}
               onClick={() => onPick(chat.id)}
               className={cn(
-                "flex min-w-0 flex-col gap-0.5 rounded-lg px-2.5 py-2 text-start hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring",
-                chat.id === current && "bg-selection-strong",
+                "flex min-w-0 flex-col gap-0.5 rounded-[7px] px-2.5 py-2 text-start hover:bg-sunk focus-visible:outline-2 focus-visible:outline-tint",
+                chat.id === current && "bg-tint-soft",
               )}
             >
               <span className="truncate text-[14px]">{chat.asked.replace(ABOUT_RUN, "")}</span>
@@ -128,10 +128,10 @@ export function WriterPanel({
   return (
     <aside
       aria-label="Ask AI"
-      className="flex min-h-0 flex-col border-s border-separator bg-content max-md:fixed max-md:inset-0 max-md:z-40 max-md:border-s-0"
+      className="flex min-h-0 flex-col border-s border-separator bg-group max-md:fixed max-md:inset-0 max-md:z-40 max-md:border-s-0"
     >
-      <header className="flex min-h-[52px] items-center gap-1 border-b border-separator ps-4 pe-2 py-2">
-        <h2 className="m-0 flex-1 truncate text-[14px] font-semibold tracking-[-0.2px]">Ask AI</h2>
+      <header className="flex h-[52px] shrink-0 items-center gap-1 border-b border-separator ps-4 pe-2">
+        <h2 className="m-0 flex-1 truncate text-[14px] font-semibold">Ask AI</h2>
         {working ? (
           <Button size="sm" variant="secondary" onClick={() => void agent.stop()}>
             <Square />
@@ -189,7 +189,7 @@ export function WriterPanel({
                   key={starter}
                   type="button"
                   onClick={() => void send(starter)}
-                  className="rounded-lg border border-separator bg-group px-3 py-2 text-start text-[14px] text-ink-2 hover:border-input hover:text-ink focus-visible:outline-2 focus-visible:outline-ring"
+                  className="rounded-[8px] border border-separator bg-group px-3 py-2 text-start text-[14px] text-ink-2 hover:bg-sunk hover:text-ink focus-visible:outline-2 focus-visible:outline-tint"
                 >
                   {starter}
                 </button>
@@ -227,7 +227,7 @@ export function WriterPanel({
       </div>
 
       <div className="px-3 pt-1 pb-3">
-        <div className="flex items-end gap-2 rounded-2xl border border-input bg-group px-3 py-2 focus-within:border-tint focus-within:ring-1 focus-within:ring-tint">
+        <div className="flex items-end gap-2 rounded-[10px] border border-rule-strong bg-group px-3 py-2 focus-within:border-tint focus-within:ring-3 focus-within:ring-tint-soft-2">
           <textarea
             // biome-ignore lint/a11y/noAutofocus: the panel opens to be written in
             autoFocus={!session}
@@ -238,18 +238,12 @@ export function WriterPanel({
             aria-label="Ask about your runs, traces or tests"
             className={cn(TEXTAREA, "min-h-6 py-0.5 text-[13.5px]")}
           />
-          <Button
-            size="icon-sm"
-            aria-label="Send"
-            disabled={busy || !text.trim()}
-            className="rounded-full"
-            onClick={submit}
-          >
+          <Button size="icon-sm" aria-label="Send" disabled={busy || !text.trim()} onClick={submit}>
             <ArrowUp />
           </Button>
         </div>
         {error || approval.error || swap.error ? (
-          <p className="m-0 pt-2 text-[12.5px] text-destructive">
+          <p className="m-0 pt-2 text-[12.5px] text-fail">
             {error ?? approval.error ?? swap.error}
           </p>
         ) : null}

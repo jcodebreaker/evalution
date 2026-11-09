@@ -70,7 +70,7 @@ export function PageShot({ src, title, alt }: { src: string; title: string; alt:
         type="button"
         aria-label={`Enlarge: ${alt}`}
         onClick={() => setOpen(true)}
-        className="shrink-0 self-start overflow-hidden rounded-lg ring-[0.5px] ring-separator hover:ring-tint focus-visible:outline-2 focus-visible:outline-ring"
+        className="shrink-0 self-start overflow-hidden rounded-lg ring-1 ring-separator hover:ring-tint focus-visible:outline-2 focus-visible:outline-tint"
       >
         <img
           src={src}
@@ -103,7 +103,7 @@ export function BrokenMapNote({
 }) {
   return (
     <section
-      className="flex flex-wrap items-start gap-3 rounded-[14px] bg-bubble px-4 py-3.5 text-[14px]"
+      className="flex flex-wrap items-start gap-3 rounded-[10px] bg-unjudged-soft px-4 py-3.5 text-[14px]"
       aria-label="The page map no longer matches the page"
       data-testid="broken-map"
     >

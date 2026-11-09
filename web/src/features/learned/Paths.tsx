@@ -7,7 +7,7 @@ function Step({ children, dashed }: { children: ReactNode; dashed?: boolean }) {
     <span
       className={cn(
         "inline-flex min-h-[26px] items-center rounded-full px-2.5 text-[13px]",
-        dashed ? "border border-dashed border-separator py-0.5 text-ink-3" : "bg-bubble",
+        dashed ? "border border-dashed border-separator py-0.5 text-ink-3" : "bg-sunk",
       )}
     >
       {children}
@@ -28,7 +28,7 @@ export function Paths({ paths }: { paths: Understanding["paths"] }) {
           <span className="me-1 w-11 text-end text-[12.5px] text-ink-2 tabular-nums">
             {percent(path.share)}%
           </span>
-          <span className="me-1.5 h-[5px] w-14 overflow-hidden rounded-full bg-bubble">
+          <span className="me-1.5 h-[5px] w-14 overflow-hidden rounded-full bg-sunk">
             <i className="block h-full bg-tint" style={{ width: `${percent(path.share)}%` }} />
           </span>
           {path.steps.map((step, at) => (

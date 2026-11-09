@@ -62,7 +62,7 @@ export function PassMarksDialog({
           onChange={(reply) => setScores((now) => ({ ...now, reply }))}
         />
       </Group>
-      {error ? <p className="m-0 text-center text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
     </ConfirmDialog>
   );
 }
@@ -87,7 +87,7 @@ function ScoreSlider({
         value={value}
         aria-label={`${label} pass mark`}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-primary"
+        className="w-full accent-tint"
       />
       <span className="text-end font-mono text-[12.5px] tabular-nums">{score(value)}</span>
     </label>

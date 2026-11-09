@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { cn } from "../lib/cn";
 
 const FIELD =
-  "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-[14px] outline-none transition-colors placeholder:text-ink-3 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-50";
+  "w-full min-w-0 rounded-[6px] border border-rule-strong bg-group px-2.5 text-[14px] outline-none transition-colors placeholder:text-ink-3 hover:border-ink-3 focus-visible:border-tint focus-visible:ring-3 focus-visible:ring-tint-soft-2 disabled:opacity-50";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input className={cn(FIELD, "h-8", className)} {...props} />;
@@ -17,5 +17,5 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-md bg-selection", className)} />;
+  return <div className={cn("animate-pulse rounded-[6px] bg-sunk-2", className)} />;
 }

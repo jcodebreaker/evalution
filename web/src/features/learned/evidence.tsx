@@ -32,7 +32,7 @@ export function EvidenceLine({ evidence }: { evidence: readonly Evidence[] }) {
       {evidence.map((entry, index) => (
         <span key={index} className="inline-flex items-center gap-1">
           {index ? <span aria-hidden>·</span> : null}
-          <b className="rounded-[5px] bg-bubble px-1.5 py-px font-mono text-[11px] font-medium text-ink-2">
+          <b className="rounded-[5px] bg-sunk px-1.5 py-px font-mono text-[11px] font-medium text-ink-2">
             {EVIDENCE_LABEL[entry.kind]}
           </b>
           {entry.ref}

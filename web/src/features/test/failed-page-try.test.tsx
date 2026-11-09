@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompareSchema } from "../../lib/schema";
 import { notTakenOf, pageNextStep } from "../../lib/verdict";
-import { PageBeside, PageNextStep } from "./PageBeside";
+import { PageNextStep } from "./NextStep";
+import { PageFilm } from "./PageFilm";
+import { Turns } from "./Turns";
 import { VerdictBanner } from "./VerdictBanner";
 
 afterEach(cleanup);
@@ -96,6 +98,7 @@ describe("The banner of a failed page try", () => {
     expect(screen.getByText("The app never answered the message")).toBeTruthy();
     expect(screen.queryByText(/Failed check/)).toBeNull();
     expect(pills()).toEqual([
+      "Stored: nothing to check",
       "Answered: couldn't judge",
       "Shown: couldn't judge",
       "Page healthy: failed",
@@ -115,34 +118,53 @@ describe("The banner of a failed page try", () => {
   });
 });
 
-describe("What the page showed beside what the app answered", () => {
-  it("lays the screenshot and video beside the reply, with how far the page showed it", () => {
-    render(<PageBeside shown={tableTry()} />);
-    const beside = screen.getByTestId("page-beside");
-    expect(within(beside).getByText("What the page showed")).toBeTruthy();
-    expect(within(beside).getByText("What the app answered")).toBeTruthy();
-    expect(within(beside).getByText(/\| Trait \| Cats \| Dogs \|/)).toBeTruthy();
+describe("What the page showed, and what the app answered", () => {
+  it("shows the page after the message and the video, beside the reply, with how far it showed", () => {
+    render(<PageFilm shown={tableTry()} />);
+    const film = screen.getByTestId("page-film");
+    expect(within(film).getByText("What the page showed")).toBeTruthy();
     expect(
-      (within(beside).getByAltText("The page after message 1") as HTMLImageElement).src,
+      (within(film).getByAltText("The page after message 1") as HTMLImageElement).src,
     ).toContain("/files/turn-1.png");
-    expect(within(beside).getByLabelText("Recording of the try on the page")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Enlarge the screenshot/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    cleanup();
+    render(<PageFilm shown={tableTry()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Video of the try" }));
+    expect(screen.getByLabelText("Recording of the try on the page")).toBeTruthy();
+
+    render(<Turns shown={tableTry()} />);
+    const turn = within(screen.getByTestId("turns")).getByRole("listitem", { name: "Turn 1" });
+    expect(within(turn).getByText("The app answered")).toBeTruthy();
+    expect(within(turn).getByText("The page showed")).toBeTruthy();
+    expect(within(turn).getByText(/\| Trait \| Cats \| Dogs \|/)).toBeTruthy();
     expect(screen.getByTestId("page-part").textContent).toBe(
       "Shown on the page: Here's a comparison · Missing: Trait Cats Dogs Walks No Yes",
     );
-    fireEvent.click(screen.getByRole("button", { name: /Enlarge the screenshot/ }));
-    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
   it("says there was no reply, and whose, when the app never answered", () => {
-    render(<PageBeside shown={refusedTry()} />);
+    render(<Turns shown={refusedTry()} />);
     expect(screen.getByText("No reply: the app never answered the message.")).toBeTruthy();
     expect(screen.queryByTestId("page-part")).toBeNull();
   });
 
-  it("shows nothing for a passed try, or one the page map ended", () => {
-    render(<PageBeside shown={tableTry({ outcome: "passed", passed: true })} />);
-    render(<PageBeside shown={refusedTry({ broken_map: { missing: "button named Send" } })} />);
-    expect(screen.queryByTestId("page-beside")).toBeNull();
+  it("shows no filmstrip for a try through the API, or one that kept no picture", () => {
+    render(<PageFilm shown={tableTry({ page: null })} />);
+    const bare = tableTry();
+    render(
+      <PageFilm
+        shown={{
+          ...bare,
+          steps: bare.steps.map((step) => ({
+            ...step,
+            page: step.page && { ...step.page, shot_url: null },
+          })),
+          page: bare.page && { ...bare.page, video: null },
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("page-film")).toBeNull();
   });
 });
 
@@ -150,9 +172,14 @@ describe("The one next step", () => {
   it("the page dropped the table: the page's to fix, then run this test again", () => {
     const onRun = vi.fn();
     render(<PageNextStep shown={tableTry()} appName={APP} going={false} onRun={onRun} />);
-    expect(screen.getByTestId("next-step").textContent).toBe(
-      "Next step: The reply is right, so this is the page's to fix: it didn't show “Trait Cats Dogs Walks No Yes”. Change relay-lite's page, then run this test again.Run this test again",
-    );
+    const next = screen.getByTestId("next-step");
+    expect(within(next).getByText("Next step")).toBeTruthy();
+    expect(
+      within(next).getByText(
+        "The reply is right, so this is the page's to fix: it didn't show “Trait Cats Dogs Walks No Yes”. Change relay-lite's page, then run this test again.",
+      ),
+    ).toBeTruthy();
+    expect(within(next).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Run this test again" }));
     expect(onRun).toHaveBeenCalledTimes(1);
   });

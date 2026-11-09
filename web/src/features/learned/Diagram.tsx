@@ -195,9 +195,9 @@ export function DiagramView({
                     selected === node.id
                       ? "stroke-tint"
                       : node.verdict === "right"
-                        ? "stroke-success"
+                        ? "stroke-pass"
                         : wrong
-                          ? "stroke-destructive"
+                          ? "stroke-fail"
                           : "stroke-separator group-hover/node:stroke-tint group-focus-visible/node:stroke-tint",
                   )}
                 />
@@ -232,7 +232,7 @@ export function DiagramView({
         <button
           type="button"
           onClick={() => setAll((now) => !now)}
-          className="mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
         >
           {all ? "Show fewer" : `Show ${hidden} more never seen in use`}
         </button>

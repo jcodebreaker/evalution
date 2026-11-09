@@ -42,7 +42,7 @@ it("reads as before on a test played through the API, or from a server that does
   expect(rowLine(row({ about: "Remembers the dog" }))).toBe("Remembers the dog");
 });
 
-it("marks each played test Page or API once any test of the run played through the page", () => {
+it("marks each played test Page or API where the run played both ways", () => {
   const rows = [
     row({ case: "a", name: "A table shows", plays: "page" }),
     row({ case: "b", name: "Remembers the dog", plays: "api" }),
@@ -55,5 +55,9 @@ it("marks each played test Page or API once any test of the run played through t
   ]);
   cleanup();
   render(<Results rows={rows.slice(1, 2)} going={false} onTest={() => null} onRun={() => null} />);
+  expect(screen.queryByTestId("plays-chip")).toBeNull();
+  cleanup();
+  // Every played test through the page: the run's header says it, once.
+  render(<Results rows={rows.slice(0, 1)} going={false} onTest={() => null} onRun={() => null} />);
   expect(screen.queryByTestId("plays-chip")).toBeNull();
 });

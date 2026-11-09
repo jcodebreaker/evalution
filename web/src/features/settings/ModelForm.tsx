@@ -145,7 +145,7 @@ export function ModelForm({
       {fixed ? <p className="m-0 text-[14px] text-ink-2">Set in evalution.yaml.</p> : null}
       <Group>
         <Row label="Provider" group>
-          <span className="flex flex-wrap gap-0.5 self-start rounded-lg bg-selection p-0.5">
+          <span className="flex flex-wrap gap-0.5 self-start rounded-[7px] bg-sunk-2 p-[3px]">
             {PROVIDERS.map((entry) => (
               <button
                 key={entry.value}
@@ -157,9 +157,9 @@ export function ModelForm({
                   setTest(null);
                 }}
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
+                  "h-[26px] rounded-[5px] px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-tint disabled:opacity-50",
                   provider === entry.value
-                    ? "bg-background font-medium shadow-sm"
+                    ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
                     : "text-ink-2 hover:text-foreground",
                 )}
               >
@@ -237,7 +237,7 @@ export function ModelForm({
       ) : null}
 
       {test ? <TestResult test={test} /> : null}
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           variant="secondary"

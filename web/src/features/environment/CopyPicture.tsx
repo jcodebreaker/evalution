@@ -1,18 +1,6 @@
-import {
-  Activity,
-  ArrowRight,
-  Brain,
-  Check,
-  Database,
-  Folder,
-  HardDrive,
-  Lock,
-  Monitor,
-  ShieldCheck,
-  UserRound,
-} from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { Status, StatusDot } from "../../ui/status";
 import { type Block, copyName } from "./words";
 
 /** A block on the copy as it is now: checked by the proof, or marked while it's proven. */
@@ -21,64 +9,42 @@ export type ShownBlock = Block & { checked: boolean; marking: boolean };
 /** How the copy looks: green when proven, amber out of date, red not isolated. */
 export type Tone = "plain" | "ready" | "stale" | "leaky";
 
-const LANE = "mb-2 text-[11px] font-semibold tracking-[0.06em] text-ink-3 uppercase";
-
-function storeIcon(kind: string | undefined) {
-  if (kind === "memory" || kind === "vector") return <Brain className="size-4" aria-hidden />;
-  if (kind === "volume") return <HardDrive className="size-4" aria-hidden />;
-  if (kind === "dir") return <Folder className="size-4" aria-hidden />;
-  return <Database className="size-4" aria-hidden />;
-}
+const LANE = "mb-2 text-[12px] text-ink-3";
 
 function BlockCard({ block, animate }: { block: ShownBlock; animate: boolean }) {
   const person = block.kind === "person";
-  const icon =
-    block.kind === "app" ? (
-      <Monitor className="size-4" aria-hidden />
-    ) : block.kind === "traces" ? (
-      <Activity className="size-4" aria-hidden />
-    ) : block.kind === "store" ? (
-      storeIcon(block.of)
-    ) : (
-      (block.face ?? <UserRound className="size-4" aria-hidden />)
-    );
   return (
     <li
       className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-[11px] border border-border bg-group p-3",
+        "flex min-w-0 items-center gap-3 rounded-[10px] border border-separator bg-group px-3 py-2.5",
         person && "col-span-full",
         animate && "block-in",
       )}
       data-testid={`block-${block.key}`}
     >
-      <span
-        className={cn(
-          "relative grid size-9 shrink-0 place-items-center",
-          person
-            ? "rounded-full bg-up text-[14px] font-bold text-success"
-            : "rounded-[10px] bg-selection-strong text-tint",
-        )}
-      >
-        {icon}
+      {person && block.face ? (
+        <span className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-tint-soft text-[13px] font-semibold text-tint-ink">
+          {block.face}
+        </span>
+      ) : null}
+      <span className="flex min-w-0 flex-col">
+        <b className="truncate font-medium">{block.title}</b>
+        <span className="truncate text-[12px] text-ink-3">{block.sub}</span>
+      </span>
+      <span className="ms-auto flex shrink-0 items-center gap-2">
         {block.marking ? (
           <i
-            className="marker-pulse absolute -top-[3px] -right-[3px] size-2.5 rounded-full bg-warning"
+            className="marker-pulse size-2 rounded-full bg-unjudged"
+            title="Marked while it's proven"
             aria-hidden
           />
         ) : null}
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <b className="truncate font-semibold">{block.title}</b>
-        <span className="truncate text-[12.5px] text-ink-3">{block.sub}</span>
-      </span>
-      <Check
-        className={cn(
-          "ms-auto size-4 shrink-0 text-success transition-opacity duration-300",
-          block.checked ? "opacity-100" : "opacity-0",
+        {block.checked ? (
+          <StatusDot state="pass" label="Checked" />
+        ) : (
+          <span aria-hidden className="size-2" />
         )}
-        aria-label={block.checked ? "Checked" : undefined}
-        aria-hidden={!block.checked}
-      />
+      </span>
     </li>
   );
 }
@@ -113,25 +79,25 @@ export function CopyPicture({
       <div className="flex flex-col">
         <div className={LANE}>Your app</div>
         <div
-          className="flex flex-1 flex-col gap-2 rounded-xl border-[1.5px] border-dashed border-input p-3 opacity-75"
+          className="flex flex-1 flex-col gap-2 rounded-[12px] border border-dashed border-rule-strong p-3 opacity-75"
           data-testid="your-app"
         >
           {[target, ...yours].map((name) => (
             <div
               key={name}
-              className="truncate rounded-[9px] bg-bubble px-2.5 py-2 font-medium text-ink-2"
+              className="truncate rounded-[8px] bg-sunk px-2.5 py-2 font-medium text-ink-2"
             >
               {name}
             </div>
           ))}
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-3">
-            <Lock className="size-3.5" aria-hidden />
-            Never touched
-          </div>
+          <div className="mt-0.5 text-[12px] text-ink-3">Never touched</div>
         </div>
       </div>
-      <div className="grid place-items-center text-ink-3 max-sm:rotate-90 max-sm:py-1.5">
-        <ArrowRight className="size-5" aria-hidden />
+      <div
+        aria-hidden
+        className="grid place-items-center text-[18px] text-ink-3 max-sm:rotate-90 max-sm:py-1.5"
+      >
+        →
       </div>
       <div className="flex min-w-0 flex-col">
         <div className={cn(LANE, "flex items-center gap-2")}>
@@ -140,11 +106,11 @@ export function CopyPicture({
         </div>
         <div
           className={cn(
-            "relative flex min-h-[200px] flex-1 flex-col rounded-xl border-[1.5px] p-3 transition-colors duration-500",
-            tone === "ready" && "border-success bg-up/35",
-            tone === "stale" && "border-warning",
-            tone === "leaky" && "border-destructive",
-            tone === "plain" && "border-border",
+            "relative flex min-h-[200px] flex-1 flex-col rounded-[12px] border p-3 transition-colors duration-500",
+            tone === "ready" && "border-pass/50 bg-pass-soft/40",
+            tone === "stale" && "border-unjudged",
+            tone === "leaky" && "border-fail",
+            tone === "plain" && "border-separator",
           )}
           data-testid="test-copy"
           data-tone={tone}
@@ -160,9 +126,10 @@ export function CopyPicture({
             <p className="m-auto text-[13px] text-ink-3">{empty}</p>
           )}
           {tone === "ready" ? (
-            <div className="mt-2.5 flex items-center justify-end gap-1.5 font-semibold text-success">
-              <ShieldCheck className="size-4" aria-hidden />
-              Starts fresh, proven
+            <div className="mt-2.5 flex justify-end">
+              <Status state="pass" className="font-medium text-ink">
+                Starts fresh, proven
+              </Status>
             </div>
           ) : null}
         </div>

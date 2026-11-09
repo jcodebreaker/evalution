@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
 import {
@@ -8,7 +8,6 @@ import {
   RemoteBranchesSchema,
   RunDetailSchema,
   RunSummarySchema,
-  RunTestSchema,
   VersionsSchema,
 } from "../../lib/schema";
 import { RunConfirm } from "./RunConfirm";
@@ -91,9 +90,7 @@ function open() {
 
 it("runs what's on disk by default, and lists the versions when the picker opens", async () => {
   const { estimate, remote } = open();
-  await screen.findByText(
-    "Code: what's on disk now: page-testing @ e535c4d, with uncommitted changes",
-  );
+  await screen.findByText("What's on disk now: page-testing @ e535c4d, with uncommitted changes");
   expect(estimate).toHaveBeenLastCalledWith(
     { target: "relay-lite", set: "main" },
     undefined,
@@ -135,7 +132,7 @@ it("opens on a version passed in, with its cost line", async () => {
       onStarted={() => null}
     />,
   );
-  await screen.findByText("Code: main @ a1b2c3d");
+  await screen.findByText("Main @ a1b2c3d");
   expect(screen.getByTestId("version-cost").textContent).toBe(COST.replace("feature-x", "main"));
   expect(estimate.mock.calls.at(-1)?.[4]).toBe("main");
 });
@@ -146,7 +143,7 @@ it("says the build and its cost before Run when a branch is picked", async () =>
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("feature-x");
   fireEvent.change(picker, { target: { value: "local:feature-x" } });
-  await screen.findByText("Code: feature-x @ a1b2c3d");
+  await screen.findByText("Feature-x @ a1b2c3d");
   expect(screen.getByTestId("version-cost").textContent).toBe(COST);
   expect(estimate).toHaveBeenLastCalledWith(
     { target: "relay-lite", set: "main" },
@@ -164,7 +161,7 @@ it("fetches a remote's branch when it is picked, then estimates it", async () =>
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("origin/pushed");
   fireEvent.change(picker, { target: { value: "remote:origin/pushed" } });
-  await screen.findByText("Code: origin/pushed @ a1b2c3d");
+  await screen.findByText("Origin/pushed @ a1b2c3d");
   expect(fetched).toHaveBeenCalledWith("relay-lite", "origin", "pushed");
   expect(estimate.mock.calls.at(-1)?.[4]).toBe("origin/pushed");
 });
@@ -235,15 +232,14 @@ const RUN = {
 };
 
 it("chips a run of a version with its branch and commit, and says its notes", () => {
-  const test = RunTestSchema.parse({ case: "a", name: "A", verdict: "pass", passed: 1, tries: 1 });
-  render(
-    <RunRow entry={{ run: RunSummarySchema.parse(RUN), test }} label="Run r1" onOpen={() => {}} />,
-  );
+  render(<RunRow run={RunSummarySchema.parse(RUN)} label="Run r1" onOpen={() => {}} />);
   expect(screen.getByTestId("version-chip").textContent).toBe("feature-x @ a1b2c3d");
   cleanup();
   vi.spyOn(api, "comparison").mockResolvedValue(ComparisonSchema.parse({ run: "r1", base: null }));
   renderRun(RUN);
-  expect(screen.getByText("Code: feature-x @ a1b2c3d")).toBeTruthy();
+  const details = within(screen.getByTestId("run-details"));
+  expect(details.getByText("Code")).toBeTruthy();
+  expect(details.getByText("Feature-x @ a1b2c3d")).toBeTruthy();
   expect(screen.getByText(RUN.version.notes[0] as string).className).toContain("text-warning");
 });
 

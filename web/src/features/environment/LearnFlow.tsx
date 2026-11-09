@@ -25,7 +25,7 @@ export function useLearnPoll(reach: PageReach | null, read: () => unknown) {
 /** A page map in plain words: each entry, and where it is on the page. */
 export function MapWords({ kept }: { kept: KeptPageMap }) {
   if (kept.error) {
-    return <p className="m-0 text-[13px] text-destructive">The map doesn't read: {kept.error}</p>;
+    return <p className="m-0 text-[13px] text-fail">The map doesn't read: {kept.error}</p>;
   }
   return (
     <Group>
@@ -55,7 +55,7 @@ const SETTINGS = new Set([
  * keeps in one line. */
 export function MapChips({ kept }: { kept: KeptPageMap }) {
   if (kept.error) {
-    return <p className="m-0 text-[13px] text-destructive">The map doesn't read: {kept.error}</p>;
+    return <p className="m-0 text-[13px] text-fail">The map doesn't read: {kept.error}</p>;
   }
   const parts = kept.map.filter((entry) => !SETTINGS.has(entry.what));
   const settings = kept.map.filter((entry) => SETTINGS.has(entry.what));
@@ -65,7 +65,7 @@ export function MapChips({ kept }: { kept: KeptPageMap }) {
         {parts.map((entry) => (
           <li
             key={entry.what}
-            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-full bg-group px-2.5 py-1 text-[12.5px] ring-[0.5px] ring-separator"
+            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-full bg-group px-2.5 py-1 text-[12.5px] ring-1 ring-separator"
           >
             <span className="shrink-0 font-medium">{entry.what}</span>
             <span
@@ -98,7 +98,7 @@ export function Shots({ shots }: { shots: string[] }) {
           type="button"
           aria-label={`Enlarge screenshot ${index + 1} of the rehearsal`}
           onClick={() => setOpen(shot)}
-          className="overflow-hidden rounded-lg ring-[0.5px] ring-separator hover:ring-tint focus-visible:outline-2 focus-visible:outline-ring"
+          className="overflow-hidden rounded-lg ring-1 ring-separator hover:ring-tint focus-visible:outline-2 focus-visible:outline-tint"
         >
           <img
             src={shot}
@@ -130,7 +130,7 @@ export function RehearsalVideo({ src }: { src: string }) {
       playsInline
       preload="metadata"
       aria-label="A video of the rehearsal on the page"
-      className="block w-full max-w-[560px] rounded-lg bg-black ring-[0.5px] ring-separator"
+      className="block w-full max-w-[560px] rounded-lg bg-black ring-1 ring-separator"
     />
   );
 }
@@ -182,9 +182,7 @@ export function ProposedMap({
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-[11.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">
-          What it found
-        </span>
+        <span className="text-[13px] font-medium text-ink-2">What it found</span>
         <MapChips kept={kept} />
       </div>
       {kept.report ? <p className="m-0 max-w-[68ch] text-ink-2">{kept.report}</p> : null}
@@ -212,7 +210,7 @@ export function ProposedMap({
             : `${target}'s page: block in evalution.yaml wins: change the map there, or take the block out to use this one.`}
         </span>
       </div>
-      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
     </div>
   );
 }

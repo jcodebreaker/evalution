@@ -4,7 +4,7 @@ import { CodeMark, EvidenceLine } from "./evidence";
 /** The box picked in the diagram: what it is and where it was seen. */
 export function NodeCheck({ node }: { node: DiagramNode }) {
   return (
-    <div className="mx-[18px] my-1.5 rounded-[10px] bg-selection-strong px-3 py-2.5">
+    <div className="mx-[18px] my-1.5 rounded-[10px] bg-tint-soft px-3 py-2.5">
       <b className="block text-[13.5px] font-semibold">
         {node.fix ?? node.title}
         {node.seen ? null : (

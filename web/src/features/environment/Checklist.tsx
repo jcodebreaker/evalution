@@ -1,6 +1,6 @@
-import { Check, CircleAlert } from "lucide-react";
 import { cn } from "../../lib/cn";
 import type { IsolationStep } from "../../lib/schema";
+import { StatusDot } from "../../ui/status";
 import { stepTime } from "./words";
 
 /** The agent's steps as they go: waiting, running, done with its time, or failed with why. */
@@ -15,7 +15,7 @@ export function Checklist({ steps }: { steps: readonly IsolationStep[] }) {
               step.state === "waiting" && "text-ink-3",
               step.state === "running" && "font-medium text-ink",
               step.state === "done" && "text-ink-2",
-              step.state === "failed" && "font-medium text-warning",
+              step.state === "failed" && "font-medium text-fail",
             )}
           >
             <Mark state={step.state} />
@@ -27,7 +27,7 @@ export function Checklist({ steps }: { steps: readonly IsolationStep[] }) {
             ) : null}
           </div>
           {step.state === "failed" && step.detail ? (
-            <p className="m-0 ps-7 text-[13px] text-warning">{step.detail}</p>
+            <p className="m-0 ps-[22px] text-[13px] text-fail">{step.detail}</p>
           ) : null}
         </li>
       ))}
@@ -35,32 +35,23 @@ export function Checklist({ steps }: { steps: readonly IsolationStep[] }) {
   );
 }
 
-/** A step's mark: waiting, running, done or failed. */
+/** A step's mark, in a 12px slot: the outcome dot when done or failed, a small spinner while it
+ * runs, the hollow dot while it waits. */
 export function Mark({ state }: { state: IsolationStep["state"] }) {
-  if (state === "done") {
-    return (
-      <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-up text-success">
-        <Check className="size-3" aria-label="Done" />
-      </span>
-    );
-  }
-  if (state === "failed") {
-    return <CircleAlert className="size-[18px] shrink-0 text-warning" aria-label="Failed" />;
-  }
-  if (state === "running") {
-    return (
-      <span
-        role="status"
-        aria-label="Running"
-        className="size-[18px] shrink-0 animate-spin rounded-full border-[1.5px] border-tint border-t-transparent"
-      />
-    );
-  }
   return (
-    <span
-      role="img"
-      aria-label="Waiting"
-      className="size-[18px] shrink-0 rounded-full border-[1.5px] border-input"
-    />
+    <span className="grid w-3 shrink-0 place-items-center">
+      {state === "running" ? (
+        <span
+          role="status"
+          aria-label="Running"
+          className="size-3 animate-spin rounded-full border-[1.5px] border-tint border-t-transparent"
+        />
+      ) : (
+        <StatusDot
+          state={state === "done" ? "pass" : state === "failed" ? "fail" : "none"}
+          label={state === "done" ? "Done" : state === "failed" ? "Failed" : "Waiting"}
+        />
+      )}
+    </span>
   );
 }

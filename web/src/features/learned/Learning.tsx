@@ -1,4 +1,3 @@
-import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../../lib/cn";
 import type { AgentSession, LearnArea, LearnProgress } from "../../lib/schema";
@@ -18,24 +17,29 @@ const STATE: Record<LearnArea["state"], { label: string; dot: string; pill: stri
   {
     running: {
       label: "Running",
-      dot: "bg-tint ring-4 ring-tint/15",
-      pill: "bg-tint/10 text-tint",
+      dot: "bg-tint ring-3 ring-tint-soft-2",
+      pill: "bg-tint-soft text-tint-ink",
       bar: "bg-tint",
     },
     learned: {
       label: "Done",
-      dot: "bg-success",
-      pill: "bg-success/10 text-success",
-      bar: "bg-success",
+      dot: "bg-pass",
+      pill: "bg-pass-soft text-pass",
+      bar: "bg-pass",
     },
     failed: {
       label: "Failed",
-      dot: "bg-destructive",
-      pill: "bg-destructive/10 text-destructive",
-      bar: "bg-destructive",
+      dot: "bg-fail",
+      pill: "bg-fail-soft text-fail",
+      bar: "bg-fail",
     },
-    waiting: { label: "Waiting", dot: "bg-ink-3/40", pill: "bg-selection text-ink-2", bar: "" },
-    kept: { label: "Unchanged", dot: "bg-ink-3/25", pill: "bg-selection text-ink-3", bar: "" },
+    waiting: {
+      label: "Waiting",
+      dot: "ring-[1.5px] ring-inset ring-rule-strong",
+      pill: "bg-sunk-2 text-ink-2",
+      bar: "",
+    },
+    kept: { label: "Unchanged", dot: "bg-sunk-2", pill: "bg-sunk-2 text-ink-3", bar: "" },
   };
 
 const tokens = (n: number) => (n ? (n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`) : "—");
@@ -91,21 +95,19 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
               key={key}
               className={cn(
                 "flex flex-col gap-1 border-separator px-4 py-3 not-last:border-e",
-                current && "bg-tint/5",
+                current && "bg-tint-soft/60",
               )}
             >
-              <span className="flex items-center gap-2 text-[14px] font-semibold">
+              <span className="flex items-center gap-2 text-[14px] font-medium">
                 <span
                   aria-hidden
                   className={cn(
-                    "flex size-4 items-center justify-center rounded-full",
-                    done && "bg-success text-white",
-                    current && "border-4 border-tint",
-                    !done && !current && "border-[1.5px] border-ink-3/40",
+                    "size-2 shrink-0 rounded-full",
+                    done && "bg-pass",
+                    current && "bg-tint ring-3 ring-tint-soft-2",
+                    !done && !current && "ring-[1.5px] ring-inset ring-rule-strong",
                   )}
-                >
-                  {done ? <Check className="size-2.5" strokeWidth={3.5} /> : null}
-                </span>
+                />
                 {name}
               </span>
               <span className="font-mono text-[11.5px] text-ink-3">
@@ -130,7 +132,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
             </span>
           </p>
           {progress.stage === "read" && progress.read ? (
-            <span className="h-1.5 overflow-hidden rounded-full bg-selection-strong" aria-hidden>
+            <span className="h-1.5 overflow-hidden rounded-full bg-tint-soft" aria-hidden>
               <span
                 className="block h-full rounded-full bg-tint transition-[width] duration-500"
                 style={{ width: `${(100 * (progress.read_done ?? 0)) / progress.read}%` }}
@@ -151,7 +153,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
         </span>
         <span className="ms-auto flex flex-wrap gap-x-4">
           <span>
-            <b className="font-semibold text-success">{count("learned")}</b> done
+            <b className="font-semibold text-pass">{count("learned")}</b> done
           </span>
           <span>
             <b className="font-semibold text-tint">{count("running")}</b> running
@@ -161,7 +163,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
           </span>
           {count("failed") ? (
             <span>
-              <b className="font-semibold text-destructive">{count("failed")}</b> failed
+              <b className="font-semibold text-fail">{count("failed")}</b> failed
             </span>
           ) : null}
           <span className="font-mono text-ink-3">
@@ -212,11 +214,7 @@ function AreaRow({ area, now }: { area: LearnArea; now: number }) {
             key={step}
             className={cn(
               "h-1.5 rounded-full",
-              area.state === "kept"
-                ? "bg-ink-3/20"
-                : step < filled
-                  ? look.bar
-                  : "bg-selection-strong",
+              area.state === "kept" ? "bg-ink-3/20" : step < filled ? look.bar : "bg-tint-soft",
             )}
           />
         ))}

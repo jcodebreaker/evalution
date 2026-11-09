@@ -12,7 +12,7 @@ export type Card = Understanding["card"];
 function Figure({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
     <div className="min-w-0 border-separator px-4 py-3 not-first:sm:border-s max-sm:[&:nth-child(n+3)]:border-t max-sm:[&:nth-child(even)]:border-s">
-      <b className="block text-[21px] font-bold tracking-[-0.4px] tabular-nums">{value}</b>
+      <b className="block text-[21px] font-semibold tracking-[-0.02em] tabular-nums">{value}</b>
       <small className="block text-[12.5px] text-ink-2">{label}</small>
       {sub ? (
         <i className="mt-0.5 block truncate text-[11.5px] text-ink-3 not-italic">{sub}</i>
@@ -36,13 +36,13 @@ export function ProjectCard({
   const [copied, setCopied] = useState<string | null>(null);
   const status =
     card.status === "learning"
-      ? { label: learning ? "Learning" : "Not learned", tone: "bg-bubble text-ink-2" }
+      ? { label: learning ? "Learning" : "Not learned", tone: "bg-sunk text-ink-2" }
       : card.status === "out_of_date"
         ? {
             label: card.changes
               ? `Changed since learned · ${card.changes}`
               : "Changed since learned",
-            tone: "bg-warning/10 text-warning",
+            tone: "bg-unjudged-soft text-warning",
           }
         : null;
   const tests =
@@ -64,11 +64,11 @@ export function ProjectCard({
   return (
     <Group className="px-[18px] pt-[18px]">
       <div className="flex items-start gap-3.5">
-        <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-[19px] font-bold text-primary-foreground">
+        <div className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-tint-soft text-[19px] font-semibold text-tint-ink">
           {card.name.slice(0, 1).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="m-0 truncate text-[18px] font-bold tracking-[-0.3px]">{card.name}</h2>
+          <h2 className="m-0 truncate text-[19px] font-semibold tracking-[-0.01em]">{card.name}</h2>
           {card.one_line ? (
             <p className="m-0 mt-0.5 max-w-[56ch] text-[13.5px] text-ink-2">{card.one_line}</p>
           ) : null}
@@ -95,7 +95,7 @@ export function ProjectCard({
           {card.stack.map((entry) => (
             <span
               key={entry}
-              className="rounded-[7px] bg-bubble px-2.5 py-0.5 text-[12.5px] text-ink-2"
+              className="rounded-[7px] bg-sunk px-2.5 py-0.5 text-[12.5px] text-ink-2"
             >
               {entry}
             </span>
