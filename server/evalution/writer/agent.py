@@ -541,7 +541,9 @@ class Agent:
                     clock = asyncio.get_running_loop()
                     limit.reschedule(clock.time() + LEARN_SECONDS)
                     learning = True
-                    begun = await learn.begin(self.targets, turn, ask, chat, (area_key, "strong"))
+                    begun = await learn.begin(
+                        self.targets, turn, ask, chat, (area_key, "strong"), usage.stage
+                    )
                     learning = False
                     limit.reschedule(clock.time() + MAX_SECONDS)
                     usage.note(begun.stats)

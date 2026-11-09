@@ -1641,6 +1641,29 @@ export const LearnProgressSchema = z.object({
 });
 export type LearnProgress = z.infer<typeof LearnProgressSchema>;
 
+/** One stage of a learn (code map, read, modules, areas, overview, other): its seconds, and the
+ * model calls, tokens and characters made while it ran. */
+export const LearnStageSchema = z.object({
+  stage: z.string(),
+  seconds: z.number().default(0),
+  calls: z.number().default(0),
+  tokens_in: z.number().default(0),
+  tokens_out: z.number().default(0),
+  chars_in: z.number().default(0),
+  chars_out: z.number().default(0),
+});
+export type LearnStage = z.infer<typeof LearnStageSchema>;
+
+/** What one turn of the test writer took; a learn's, stage by stage. */
+export const TurnUsageSchema = z.object({
+  learn: z.boolean().default(false),
+  at: z.number(),
+  seconds: z.number().default(0),
+  calls: z.number().default(0),
+  stages: z.array(LearnStageSchema).default([]),
+});
+export type TurnUsage = z.infer<typeof TurnUsageSchema>;
+
 export const AgentSessionSchema = z.object({
   id: z.string(),
   target: z.string().nullable().default(null),
@@ -1651,6 +1674,8 @@ export const AgentSessionSchema = z.object({
   activity: z.array(z.object({ at: z.number(), text: z.string() })).default([]),
   /** A learn's progress: its stage and each area's agent. */
   learn: LearnProgressSchema.nullable().default(null),
+  /** What its turns took, newest last. */
+  usage: z.array(TurnUsageSchema).default([]),
 });
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 
@@ -1820,6 +1845,52 @@ export const UnderstandingSchema = z.object({
     .default([]),
 });
 export type Understanding = z.infer<typeof UnderstandingSchema>;
+
+/** One part of the app's skeleton, read off its code with no model (ADR 0012). */
+export const SkeletonEntrySchema = z.object({
+  id: z.string(),
+  kind: z.enum(["entry", "prompt", "tool", "model", "route", "state", "agent"]),
+  name: z.string(),
+  path: z.string(),
+  line: z.number(),
+  /** How it was found or what it is: a store's kind, the call a model goes through. */
+  what: z.string().default(""),
+  /** The definition it sits in. */
+  inside: z.string().default(""),
+  /** A prompt's text, capped. */
+  text: z.string().default(""),
+  args: z.array(z.string()).default([]),
+  model: z.string().default(""),
+  /** The setting or name a model comes from, when the code doesn't write it out. */
+  model_from: z.string().default(""),
+  /** Its other places (`path:line`): copies, and the agents' settings that list a tool. */
+  places: z.array(z.string()).default([]),
+  /** For a tool: how many agents' settings list it. */
+  agents: z.number().default(0),
+  /** How often real use touched it in the window; null with no use to go by. */
+  uses: z.number().nullable().default(null),
+});
+export type SkeletonEntry = z.infer<typeof SkeletonEntrySchema>;
+
+/** The app's skeleton, and what real use named that the code doesn't. */
+export const SkeletonSchema = z.object({
+  fingerprint: z.string().default(""),
+  entries: z.array(SkeletonEntrySchema).default([]),
+  unseen: z
+    .array(z.object({ kind: z.string(), name: z.string(), calls: z.number().default(0) }))
+    .default([]),
+  /** The use counted: conversations and asks read, from when to when (seconds). */
+  window: z
+    .object({
+      sessions: z.number(),
+      asks: z.number().default(0),
+      since: z.number().nullable().default(null),
+      until: z.number().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+});
+export type AppSkeleton = z.infer<typeof SkeletonSchema>;
 
 /** One steer: check a claim or a box, fix it, pick or add a priority, pick a starter. */
 export type Steer =

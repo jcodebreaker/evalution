@@ -10,7 +10,7 @@ from fastapi.responses import PlainTextResponse
 
 from evalution.api.deps import Current, busy, invalid, local_only, not_found, target_name
 from evalution.code import CodeError
-from evalution.project import hooks, knowledge, profile, understanding
+from evalution.project import hooks, knowledge, profile, skeleton_view, understanding
 from evalution.runs.runner import Runs
 from evalution.suite.store import list_sets
 
@@ -31,6 +31,23 @@ def understanding_router(url: str) -> APIRouter:
         they are now; ``status: "learning"`` before the agent wrote it."""
         targets, runs = ws.targets, ws.runs
         return await _understood(runs, target_name(targets, target))
+
+    @router.get("/targets/{target}/skeleton")
+    async def get_skeleton(ws: Current, target: str) -> dict[str, Any]:
+        """The app's skeleton from its code, with no model (ADR 0012): entry points, prompts,
+        tools, model calls, routes, state and agents, each with its file and line, and how often
+        real use touched each; what real use names that the code doesn't, apart."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        code = targets.code(name)
+        if code is None:
+            raise busy("This app has no code folder, so there is no skeleton to show.")
+        try:
+            found = await asyncio.to_thread(skeleton_view.current, targets, name, code)
+        except (CodeError, OSError) as exc:
+            raise busy(f"Couldn't read the app's code: {exc}") from exc
+        used = await skeleton_view.uses(targets, name)
+        return skeleton_view.shown(found, used)
 
     @router.post("/targets/{target}/understanding/steer")
     async def steer_understanding(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:

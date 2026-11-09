@@ -11,7 +11,7 @@ import httpx
 import pytest
 import yaml
 
-from evalution import llm
+from evalution import cli, llm
 from evalution.code import Code
 from evalution.config import ModelConfig, load
 from evalution.judging.rubric import INSTRUCTIONS, SCEPTIC_INSTRUCTIONS
@@ -35,6 +35,7 @@ from evalution.targets import Targets
 from evalution.writer import agent as agent_module
 from evalution.writer import areas as area_agents
 from evalution.writer import learn
+from evalution.writer import usage as writer_usage
 from evalution.writer.agent import Agent
 from evalution.writer.prompts import INSTRUCTIONS as WRITER_INSTRUCTIONS
 from evalution.writer.prompts import LINE_DRAFT_INSTRUCTIONS
@@ -703,6 +704,67 @@ async def test_a_learn_is_split_into_areas_merged_and_kept(tmp_path, monkeypatch
     assert _area_runs(shown) == [lib] and len(sent["areas"]) - before <= 2
     assert len(sent["overview"]) == 1 and shown["usage"][-1]["overview_calls"] == 0
     assert understanding.load(targets, "bot")["sections"][:-1] == doc["sections"][:-1]
+
+
+async def test_a_learn_is_measured_stage_by_stage(tmp_path, capsys) -> None:
+    """The baseline a change to the learn is checked against: each stage's seconds and calls,
+    tokens and characters, a call counted for the stage running when it was made."""
+    agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, docs=True)
+    sid = (await agent.create("bot", "main"))["id"]
+    usage = (await _learn(agent, sid))["usage"][-1]
+    stages = {s["stage"]: s for s in usage["stages"]}
+    assert list(stages) == ["code map", "read", "modules", "areas", "overview", "other"]
+    calls = {name: s["calls"] for name, s in stages.items()}
+    assert calls == {
+        "code map": 0,
+        "read": len(sent["light"]),
+        "modules": len(sent["modules"]) + len(sent["app"]),
+        "areas": len(sent["areas"]),
+        "overview": len(sent["overview"]),
+        "other": len(sent["docs"]),
+    }
+    assert calls["read"] and calls["modules"] and calls["other"] == 1
+    assert calls["areas"] == sum(a["calls"] for a in usage["areas"]) == usage["areas_run"]
+    assert calls["overview"] == usage["overview_calls"] == 1
+    assert calls["read"] == usage["light_calls"] - calls["modules"] - calls["other"]
+    for key in ("calls", "tokens_in", "tokens_out", "chars_in", "chars_out"):
+        assert sum(s[key] for s in stages.values()) == usage[key], key
+    assert all(s["tokens_out"] == 5 * s["calls"] for s in stages.values())
+    assert all((s["chars_in"] > 0) == bool(s["calls"]) for s in stages.values())
+    assert all(s["seconds"] >= 0 for s in stages.values())
+    assert sum(s["seconds"] for s in stages.values()) <= usage["seconds"] + 0.05
+
+    # Nothing moved: a learn that found so is not the one the report shows.
+    await _learn(agent, sid)
+    config = ["--config", str(tmp_path / "evalution.yaml")]
+    assert cli.main([*config, "learn", "--report", "bot", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["stages"] == usage["stages"]
+    assert cli.main([*config, "learn", "--report", "bot"]) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert printed[0].startswith("evalution: the last learn of bot") and "calls" in printed[0]
+    assert [line[2:12].strip() for line in printed[2:]] == list(writer_usage.STAGES)
+    assert printed[5].split()[1:3] == [f"{stages['areas']['seconds']:,.1f}", str(calls["areas"])]
+    assert cli.main([*config, "learn", "--report", "nobody"]) == 2
+    assert "no learn of nobody measured yet" in capsys.readouterr().err
+
+
+def test_a_stage_cut_off_is_measured_up_to_the_cut() -> None:
+    """A learn cut by its time limit mid-read: the read is recorded with what it had done."""
+    turn = writer_usage.TurnUsage(learn=True)
+    turn.add(10, llm.Reply(text="before any stage", tokens_in=3, tokens_out=1))
+    turn.stage("code map")
+    turn.stage("read")
+    turn.add(100, llm.Reply(text="four", tokens_in=7, tokens_out=2), light=True)
+    turn.stage("read")
+    turn.add(50, llm.Reply(text="", tokens_in=4, tokens_out=1), light=True)
+    session: dict[str, Any] = {}
+    turn.record(session)
+    kept = session["usage"][-1]
+    assert kept["calls"] == 3 and [s["stage"] for s in kept["stages"]] == ["code map", "read"]
+    read = kept["stages"][1]
+    assert (read["calls"], read["tokens_in"], read["tokens_out"]) == (2, 11, 3)
+    assert (read["chars_in"], read["chars_out"]) == (150, 4)
+    assert kept["stages"][0]["calls"] == 0 and read["seconds"] >= 0
 
 
 def test_the_areas_are_the_same_for_the_same_files() -> None:

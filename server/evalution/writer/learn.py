@@ -446,12 +446,15 @@ async def begin(
     ask: filememory.Ask,
     chat: area_agents.Chat,
     keys: tuple[str, str],
+    stage: Callable[[str], None] | None = None,
 ) -> Begun:
     """*ask*: the light model, for the summaries; *chat*: a counted model call, for the areas and
-    the overview; *keys*: the models of the areas and of the overview."""
+    the overview; *keys*: the models of the areas and of the overview; *stage*: told as each of
+    the learn's stages starts (``code map``, ``read``, ``modules``, ``areas``, ``overview``,
+    ``other``), so its calls are measured by stage."""
     clock = _Clock()
     try:
-        return await _begin(targets, turn, ask, chat, keys, clock)
+        return await _begin(targets, turn, ask, chat, keys, clock, stage or (lambda _name: None))
     finally:
         _logger.info("learn %s: %s", turn.session["target"], ", ".join(clock.steps))
 
@@ -463,7 +466,9 @@ async def _begin(
     chat: area_agents.Chat,
     keys: tuple[str, str],
     clock: _Clock,
+    stage: Callable[[str], None],
 ) -> Begun:
+    stage("other")
     name = str(turn.session["target"])
     before = understanding.written(targets, name)
     code = targets.code(name)
@@ -497,6 +502,7 @@ async def _begin(
 
     files = taken["code"]["files"]
     moved = filememory.changes(memory, files)
+    stage("code map")
     made = await asyncio.to_thread(codemap.build, targets, name, code)
     turn.map = cmap = made.map
     stats: dict[str, Any] = {
@@ -507,6 +513,7 @@ async def _begin(
         "static_facts": sum(len(cmap.facts(p)) for p in cmap.files),
     }
     clock("code map")
+    stage("read")
     shown |= {"stage": "read", "files": len(files), "map_seconds": round(made.seconds, 1)}
     if before is not None and not traces and _small(moved, len(files)):
         # The light model reads a changed file again only when it is in the slice and what it
@@ -524,6 +531,7 @@ async def _begin(
         await filememory.index(targets, name, code, ask, chosen, shown)
         stats["slice_files"] = len(chosen)
         clock("slice")
+        stage("modules")
         await modules.index(targets, name, cmap, ask)
         clock("modules")
     kept = filememory.load(targets, name)
@@ -541,6 +549,7 @@ async def _begin(
     sizes = _sizes(cmap, kept)
     shaping = {p for p in coded if slicing.does(cmap, p)}
     parts = areas.partition({p: sizes[p] for p in coded}, shaping)
+    stage("other")
     docs_said = await _docs(targets, name, cmap, kept, ask)
     clock("docs")
     stored = kept.get("areas") or {}
@@ -567,6 +576,7 @@ async def _begin(
         sections = (stored.get(area.id) or {}).get("sections")
         return {"sections": sections} if sections else None
 
+    stage("areas")
     done = await asyncio.gather(
         *(_understand(a, ctx, previous(a), gate, entries[a.id]) for a in due_areas)
     )
@@ -596,6 +606,7 @@ async def _begin(
             done=f"I couldn't learn this app: {said}.", stats=stats, areas=usage, failed=failed
         )
 
+    stage("overview")
     made_of = _hash([sections, nodes])
     old = kept.get("overview") or {}
     # An overview from before it had a summary is written again.
@@ -612,6 +623,7 @@ async def _begin(
     same = written_now is not None or bool(usable)
     kept_overview = {"of": made_of, "doc": overview} if same else {}
     clock("overview")
+    stage("other")
     if overview is None:
         overview = {"one_line": modules.app_summary(kept)[:200] or name, "sections": []}
     prior = before or {}

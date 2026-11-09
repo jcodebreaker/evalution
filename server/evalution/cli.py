@@ -1,5 +1,5 @@
-"""``evalution serve | run | accept | sets | profile | hooks | migrate | regrade | backup |
-upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
+"""``evalution serve | run | accept | sets | learn | profile | hooks | migrate | regrade |
+backup | upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 
 * ``serve``: the API, the page and the trace intake, on 127.0.0.1:8080. There is no login: it
   answers only this computer, unless ``--host`` names another address on purpose (it then warns:
@@ -31,6 +31,10 @@ upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 * ``regrade RUN --rules | --judge [--yes]``: judge a stored run again. ``--rules`` reads its checks
   under today's rules: free and offline. ``--judge`` grades its replies again from its evidence:
   new model calls, so it says how many tries and asks first, and a run without evidence is refused.
+* ``learn --report T [--json]``: the measures of T's last learn, from its sessions: per stage
+  (code map, read, modules, areas, overview, other) its seconds, model calls, tokens and
+  characters in and out (:mod:`evalution.writer.usage`). Free: the baseline a change to the
+  learn is checked against.
 * ``profile --target T``: the digest of the target's recent traces (no model call).
 * ``stores FOLDER [--target T [--port P] [--yes]]``: where the app in FOLDER keeps state (a
   prototype, :mod:`evalution.isolation`). Alone, a read of the folder: free. With ``--target``,
@@ -118,6 +122,8 @@ from evalution.suite.store import export_sets, import_sets
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
 from evalution.traces.profile import digest, recent_sessions, render
+from evalution.writer import usage as writer_usage
+from evalution.writer.sessions import SessionStore
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 
@@ -594,6 +600,34 @@ def migrate(config: Config) -> int:
     return 0
 
 
+_STAGE_COLUMNS = ("seconds", *writer_usage.STAGE_COUNTS)
+
+
+def learn_report(config: Config, args: argparse.Namespace) -> int:
+    """Print the last learn of ``--report``'s target, stage by stage; as JSON with ``--json``.
+
+    :raises LookupError: It has no learn measured by stage yet.
+    """
+    turns = SessionStore(Database.open(config.data_dir).docs()).usage(args.report)
+    found = writer_usage.last_learn(turns)
+    if found is None:
+        raise LookupError(f"no learn of {args.report} measured yet: learn it, then ask again")
+    if args.json:
+        print(json.dumps(found, indent=2))
+        return 0
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(found.get("at") or 0)))
+    print(
+        f"evalution: the last learn of {args.report}, {at}: {found.get('seconds', 0):,.0f} s, "
+        f"{found.get('calls', 0):,} model calls, {found.get('slice_files', 0):,} files read"
+    )
+    print(f"  {'stage':<10}" + "".join(f"{c.replace('_', ' '):>12}" for c in _STAGE_COLUMNS))
+    for stage in found["stages"]:
+        cells = [f"{stage.get('seconds', 0):>12,.1f}"]
+        cells += [f"{stage.get(c, 0):>12,}" for c in writer_usage.STAGE_COUNTS]
+        print(f"  {stage['stage']:<10}" + "".join(cells))
+    return 0
+
+
 def keeping(found: upgrade.Outcome) -> int:
     """Print what ``backup``, ``upgrade`` or ``restore`` did; 1 when something didn't check out."""
     print("\n".join(found.lines))
@@ -967,6 +1001,15 @@ def main(argv: list[str] | None = None) -> int:
         "--judge", action="store_true", help="grade again from its evidence: calls the model"
     )
     again.add_argument("--yes", action="store_true", help="start without asking")
+    taught = sub.add_parser("learn", help="a learn's measures, stage by stage: free")
+    taught.add_argument(
+        "--report",
+        required=True,
+        metavar="TARGET",
+        help="print the last learn of TARGET from its sessions: each stage's seconds, calls, "
+        "tokens and characters",
+    )
+    taught.add_argument("--json", action="store_true", help="the whole measure, as JSON")
     prof = sub.add_parser("profile", help="a digest of the target's recent traces")
     prof.add_argument("--target", required=True)
     prof.add_argument("--sessions", type=int, default=50)
@@ -1069,6 +1112,8 @@ def main(argv: list[str] | None = None) -> int:
             return compare_runs(config, args)
         if args.command == "accept":
             return accept(config, args)
+        if args.command == "learn":
+            return learn_report(config, args)
         if args.command == "doctor":
             return asyncio.run(run_doctor(config))
         if args.command == "service":

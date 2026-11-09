@@ -4,9 +4,10 @@ so the agent reads a page, not raw spans; and the fingerprint drift is checked a
 
 The digest holds: tools (name, argument shapes, how often called, and the tools offered to the
 model), trajectory shapes (tool sequences, delegation, depth), the main agent's system prompt
-and its sections (from LLM spans; helpers' prompts are counted apart), and typical time and tokens
-per ask. An ask is one trace (one message and everything it set off); a session (a
-conversation, which may live for days) only counts conversations.
+and its sections (from LLM spans; helpers' prompts are counted apart), every system prompt seen
+with its first words and how often it was sent, the models called, the routes AI spans name, and
+typical time and tokens per ask. An ask is one trace (one message and everything it set off); a
+session (a conversation, which may live for days) only counts conversations.
 
 Eval traffic is left out (:func:`is_eval`): sessions evalution opened itself, and traces
 stamped with an eval run, as each adapter marks them (its ``own_traffic``).
@@ -29,6 +30,7 @@ from evalution.core.trace import tool_name
 from evalution.traces.base import Span, TraceSource, ancestors, by_trace, get, is_ai, session_of
 from evalution.traces.view import (
     helper_of,
+    model_of,
     request_of,
     span_tokens,
     system_text,
@@ -46,6 +48,8 @@ PAGE_CAP = 40
 FLOOD_PAGES = 4
 _HEADING = re.compile(r"^\s*(#{1,4}\s+.+|<[A-Za-z_][\w-]*>)\s*$")
 _SEQ_LEN = 8
+#: How much of a system prompt's start the digest keeps, to match it to the code's prompts.
+HEAD_CHARS = 300
 
 
 def is_eval(key: str, spans: Sequence[Span]) -> bool:
@@ -184,6 +188,8 @@ def digest(sessions: Sequence[Sequence[Span]]) -> dict[str, Any]:
     #: ``role -> system prompt hash -> count``; ``main`` is the app's own agent.
     systems: dict[str, Counter[str]] = {"main": Counter(), "helper": Counter()}
     system_by_hash: dict[str, str] = {}
+    models: Counter[str] = Counter()
+    routes: Counter[str] = Counter()
     delegated = 0
     max_depth = 0
     per: dict[str, list[float]] = {
@@ -209,10 +215,15 @@ def digest(sessions: Sequence[Sequence[Span]]) -> dict[str, Any]:
                 request = request_of(span)
                 for name, keys in offered_tools(request).items():
                     offered[name] = keys
+                if model := model_of(span):
+                    models[model] += 1
                 if system := system_text(request):
                     digest_id = hashlib.sha256(system.encode()).hexdigest()[:12]
                     systems["helper" if helper_of(span, by_id) else "main"][digest_id] += 1
                     system_by_hash[digest_id] = system
+            if route := get(span.attrs, "http.route"):
+                method = get(span.attrs, "http.request.method") or get(span.attrs, "http.method")
+                routes[f"{str(method).upper()} {route}" if method else str(route)] += 1
         max_depth = max([max_depth, *(_depth(s, by_id) for s in spans)])
         for trace in by_trace(spans).values():
             asks += 1
@@ -265,6 +276,19 @@ def digest(sessions: Sequence[Sequence[Span]]) -> dict[str, Any]:
             key: {"median": _median(values), "p90": _p90(values)} for key, values in per.items()
         },
         "per_ask": per_ask,
+        "prompts": [
+            {
+                "hash": hashed,
+                "role": role,
+                "calls": count,
+                "head": " ".join(system_by_hash[hashed].split())[:HEAD_CHARS],
+                "sections": [s["hash"] for s in prompt_sections(system_by_hash[hashed])],
+            }
+            for role in ("main", "helper")
+            for hashed, count in sorted(systems[role].items())
+        ],
+        "models": dict(sorted(models.items())),
+        "routes": dict(sorted(routes.items())),
     }
 
 

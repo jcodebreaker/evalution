@@ -53,6 +53,7 @@ import {
   RunDetailSchema,
   RunSummarySchema,
   SetSummarySchema,
+  SkeletonSchema,
   SourceSchema,
   TargetCheckSchema,
   TargetDetailSchema,
@@ -451,6 +452,8 @@ export const api = {
     get(one(HealthSchema), `/v1/targets/${enc(target)}/health${query({ period })}`),
   understanding: (target: string) =>
     get(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding`),
+  /** The app's skeleton from its code, with no model, and how often real use touched each part. */
+  skeleton: (target: string) => get(one(SkeletonSchema), `/v1/targets/${enc(target)}/skeleton`),
   /** Stores one steer; the answer is the understanding after it, when the server sends it. */
   steer: (target: string, steer: Steer): Promise<Understanding | null> =>
     post(maybe(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/steer`, steer),

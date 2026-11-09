@@ -9,9 +9,11 @@ import { Connection } from "../connect/Connection";
 import { Fold, Group } from "../shared/group";
 import { OutOfDate } from "../shared/KnowledgeUpdate";
 import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
+import { AppSkeleton } from "./AppSkeleton";
 import { ClaimText } from "./ClaimText";
 import { DiagramView } from "./Diagram";
 import { LastChanges } from "./LastChanges";
+import { LastLearn } from "./LastLearn";
 import { Learning } from "./Learning";
 import { NodeCheck } from "./NodeCheck";
 import { Paths } from "./Paths";
@@ -133,7 +135,11 @@ export function AppView({
       </Page>
     );
   }
-  const activity = working ? <Learning session={working ? agent : null} /> : null;
+  const activity = working ? (
+    <Learning session={working ? agent : null} />
+  ) : (
+    <LastLearn session={agent?.target === target ? agent : null} />
+  );
   // Before the writer learns anything, the server sends only the card, at version 0.
   if (shown.version === 0) {
     return (
@@ -141,6 +147,7 @@ export function AppView({
         {toolbar}
         <ProjectCard card={shown.card} target={target} learning={working} />
         {activity}
+        <AppSkeleton target={target} />
         {connection}
       </Page>
     );
@@ -226,6 +233,7 @@ export function AppView({
       {shown.starters.length ? (
         <Suggested understanding={shown} onSteer={steer} onAdd={onAdd} />
       ) : null}
+      <AppSkeleton target={target} />
       {connection}
     </Page>
   );
