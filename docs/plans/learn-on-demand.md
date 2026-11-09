@@ -77,6 +77,24 @@ What it learned shows the skeleton immediately, areas as they land (with "Learn 
 
 Run phase 0's measures again. Keep the change only if, on the big app: the skeleton shows in under 10 s after the map, a first overview in under 5 minutes, the full learn in well under today's, with fewer model calls; and on the made-up app the understanding still covers every prompt, tool and store (the existing coverage checks). Retire the bulk path then, or keep it behind the fallback only.
 
+**Run (2026-11-09).** One real app (relay-lite: 123 files in its code include, 54 read), learned cold twice from copies of the same data: the old path at `75ccd25`, the new at `8898f55`, one after the other, measured by `evalution learn --report`.
+
+| | Old | New |
+|---|---|---|
+| Whole learn | 175 s | 111 s |
+| Model calls | 34 (read 17, folders 1, areas 14, overview 1, other 1) | 23 (first overview 2, fallback read 1, areas 18, overview 1, other 1) |
+| Tokens in / out | 425k / 108k | 401k / 34k |
+| Skeleton shown | — | 2.7 s after the map |
+| First overview | at the end, 175 s | 26 s after the skeleton |
+| Skeleton names covered by the understanding | 65 of 121 | 71 of 121 (tools 51 → 56, model calls 0 → 2, prompts 7 and agents 8 both) |
+| What it wrote | 9 sections, 583 claims, 173k characters | 7 sections, 221 claims, 75k characters |
+
+- **Kept.** Faster, fewer calls, a third of the output, more of what matters covered, a first overview within half a minute. Bulk reading stays behind the fallback only (files no grammar parses), as phase 2 built it.
+- **Reading moved, it didn't vanish.** Tokens in are about the same: area agents now read files themselves (areas 109k → 368k in). On a bigger app the old Read grows with every file in the slice, the new reading with the areas' weight, so the gap should widen; this app is small for that.
+- **Two gaps found, to fix:**
+  1. One heavy area (48 tools named only in agent settings) ran out of its budget and wasn't learned. A heavy area should be split, or given its budget by its entries rather than capped at `MAX_BUDGET`.
+  2. Four prompts were named in no section (reported, not asked again). The coverage guard should give the area that holds them one more step to say them.
+
 ## Testing
 
 - Unit: skeleton extraction per language the code map parses; trace matching; weights and budgets; per-area save and resume.
