@@ -279,6 +279,7 @@ class Docker:
     def __init__(self, resolved: dict | None = None) -> None:
         self.runs: list[tuple[list[str], dict | None]] = []
         self.streamed: list[tuple[list[str], dict | None, Path | None]] = []
+        self.watched: list[Path | None] = []
         self.resolved = resolved
         self.build_code = 0
         self.removed: list[str] = []
@@ -309,8 +310,9 @@ class Docker:
             return self.trim_code, "", "fstrim: permission denied" if self.trim_code else ""
         return 0, "", ""
 
-    async def stream(self, args, said, *, cwd=None, env=None, secrets=None, limit=0):
+    async def stream(self, args, said, *, cwd=None, env=None, secrets=None, limit=0, watch=None):
         self.streamed.append((list(args), env, cwd))
+        self.watched.append(watch)
         said("#1 [engine] building")
         return self.build_code, ["#1 [engine] building", "ERROR: failed"]
 
@@ -344,6 +346,7 @@ def test_compose_env_builds_with_two_variables_and_the_persons_env_file(tmp_path
     )
     assert env == {"IMAGE_REGISTRY": "evalution/relay-lite", "IMAGE_TAG": TAG}
     assert cwd == folder.resolve()
+    assert docker.watched == [tmp_path / "data"], "the build watches the disk it fills"
     # The names were resolved, with the same env, before anything was built.
     config = [a for a, _ in docker.runs if "config" in a]
     assert config and docker.runs[0][1] == env
@@ -423,6 +426,7 @@ def test_a_process_version_is_set_up_only_in_evalutions_folder(tmp_path, docker)
         tmp_path / "data/versions/bot/abc", {"uv.lock": "", "web/package-lock.json": "{}"}
     )
     asyncio.run(build.build_version(recipe, version, TAG, data_dir=tmp_path / "data"))
+    assert docker.watched and all(w == version for w in docker.watched)
     assert [(a, c) for a, _, c in docker.streamed] == [
         (["/usr/bin/uv", "sync"], version.resolve()),
         (["/usr/bin/npm", "ci"], (version / "web").resolve()),
@@ -773,3 +777,42 @@ def test_writer_reads_and_adjusts_the_recipe(config) -> None:
         )
     )
     assert "already builds this way" in again
+
+
+# The disk while a build runs
+
+
+_SLOW = [
+    "python3",
+    "-c",
+    "import time\nfor i in range(400):\n    print(i, flush=True)\n    time.sleep(0.01)",
+]
+
+
+def test_a_build_that_fills_the_disk_is_stopped_while_it_runs(tmp_path, monkeypatch) -> None:
+    """The check before a build isn't enough: a build from cache still added 6.5 GB and left
+    2.9 GB free. Below the limit while it runs, the build is stopped and says why."""
+    free = iter([build.MIN_FREE + 10**9, build.MIN_FREE - 10**9])
+    monkeypatch.setattr(build, "DISK_EVERY", 0.05)
+    monkeypatch.setattr(build, "free_bytes", lambda _folder: next(free, build.MIN_FREE - 10**9))
+
+    async def nothing_built() -> list[tuple[str, int]]:
+        return []
+
+    monkeypatch.setattr(build, "own_images", nothing_built)
+    lines: list[str] = []
+    with pytest.raises(build.DiskLow) as stopped:
+        asyncio.run(build.stream(_SLOW, lines.append, watch=tmp_path))
+    said = str(stopped.value)
+    assert said.startswith("Stopped the build: only 4.4 GB was left free")
+    assert "stops a build below 5.4 GB" in said and "free space elsewhere" in said
+    assert isinstance(stopped.value, BuildFailed), "a stopped build is a failed build: unjudged"
+    assert len(lines) < 400 and lines[-1] == "stopped: only 4.4 GB left free"
+
+
+def test_a_build_with_room_runs_to_its_end(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(build, "DISK_EVERY", 0.05)
+    monkeypatch.setattr(build, "free_bytes", lambda _folder: build.MIN_FREE + 10**9)
+    lines: list[str] = []
+    code, last = asyncio.run(build.stream(_SLOW, lines.append, watch=tmp_path))
+    assert code == 0 and len(lines) == 400 and last[-1] == "399"

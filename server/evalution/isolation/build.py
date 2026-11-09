@@ -62,6 +62,10 @@ if TYPE_CHECKING:
 
 #: A build is refused with less than this free on this computer's disk (decision 6).
 MIN_FREE = 5 * 1024**3
+#: How often a running build checks the computer's free disk, in seconds: it stops below
+#: :data:`MIN_FREE`, so a build that grows past what was free can't fill the disk (a build
+#: from cache still added 6.5 GB and left 2.9 GB free on 2026-11-09).
+DISK_EVERY = 2.0
 #: Seconds one build may take before it is stopped: a cold build of relay-lite took 233.
 BUILD_SECONDS = 60 * 60
 #: Seconds a proven copy has to answer once it is up.
@@ -81,6 +85,10 @@ class BuildRefused(RuntimeError):
 
 class BuildFailed(RuntimeError):
     """The build ran and stopped: the message ends with its last lines."""
+
+
+class DiskLow(BuildFailed):
+    """A build was stopped because the computer's disk fell below :data:`MIN_FREE` while it ran."""
 
 
 @dataclass
@@ -156,20 +164,26 @@ async def guard_disk(data_dir: Path) -> int:
     free = free_bytes(data_dir)
     if free >= MIN_FREE:
         return free
-    kept: list[tuple[str, int]] = []
-    with contextlib.suppress(LaunchError, OSError, ValueError):
-        kept = await own_images()
     said = (
         f"Only {gigabytes(free)} is free on this computer's disk, and a build needs at least "
         f"{gigabytes(MIN_FREE)}. "
     )
+    raise BuildRefused(said + await what_to_remove())
+
+
+async def what_to_remove() -> str:
+    """The next step when the disk is short: evalution's own images to remove, largest first, or
+    that it built nothing and the space has to come from elsewhere."""
+    kept: list[tuple[str, int]] = []
+    with contextlib.suppress(LaunchError, OSError, ValueError):
+        kept = await own_images()
     if kept:
         listed = ", ".join(f"{n} ({gigabytes(b)})" for n, b in kept[:5])
-        said += f"Remove versions evalution built ({listed}) from the Test environment page"
-        said += ", or free space elsewhere."
-    else:
-        said += "Evalution has built nothing to remove: free space elsewhere, then try again."
-    raise BuildRefused(said)
+        return (
+            f"Remove versions evalution built ({listed}) from the Test environment page, or "
+            "free space elsewhere."
+        )
+    return "Evalution has built nothing to remove: free space elsewhere, then try again."
 
 
 # Building
@@ -212,9 +226,16 @@ async def stream(
     env: dict[str, str] | None = None,
     secrets: list[str] | None = None,
     limit: float = BUILD_SECONDS,
+    watch: Path | None = None,
 ) -> tuple[int, list[str]]:
     """Run *args* (never a shell), telling *said* each line as it comes, scrubbed of *secrets*;
-    its exit code and its last lines. *env* is laid over this process's environment."""
+    its exit code and its last lines. *env* is laid over this process's environment.
+
+    With *watch* (a folder on the disk a build fills), the computer's free space is checked every
+    :data:`DISK_EVERY` seconds while it runs; below :data:`MIN_FREE` the process is stopped.
+
+    :raises DiskLow: It was stopped for the disk, saying how much was left and what to remove.
+    """
     process = await asyncio.create_subprocess_exec(
         *args,
         cwd=cwd,
@@ -225,6 +246,8 @@ async def stream(
     )
     assert process.stdout is not None
     last: list[str] = []
+    low: list[int] = []
+    watcher = asyncio.create_task(_watch_disk(watch, process, low)) if watch else None
     try:
         async with asyncio.timeout(limit):
             while raw := await process.stdout.readline():
@@ -232,16 +255,41 @@ async def stream(
                 if line.strip():
                     last = [*last[-29:], line]
                     said(line)
-            return await process.wait(), last
+            code = await process.wait()
     except TimeoutError:
         last.append(f"stopped: it took longer than {limit / 60:.0f} min")
         return -1, last
     finally:
+        if watcher is not None:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
         if process.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             with contextlib.suppress(Exception):
                 await asyncio.shield(process.wait())
+    if low:
+        said(f"stopped: only {gigabytes(low[0])} left free")
+        raise DiskLow(
+            f"Stopped the build: only {gigabytes(low[0])} was left free on this computer's disk, "
+            f"and evalution stops a build below {gigabytes(MIN_FREE)}, so the disk can't fill. "
+            + await what_to_remove()
+        )
+    return code, last
+
+
+async def _watch_disk(folder: Path, process: asyncio.subprocess.Process, low: list[int]) -> None:
+    """Stop *process* once the disk *folder* is on has under :data:`MIN_FREE` free, keeping what
+    was left in *low*."""
+    while process.returncode is None:
+        await asyncio.sleep(DISK_EVERY)
+        free = free_bytes(folder)
+        if free < MIN_FREE:
+            low.append(free)
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            return
 
 
 async def _resolved(
@@ -344,7 +392,12 @@ async def _compose_build(
             )
     said(f"$ docker compose build {' '.join(recipe.services)}  ({', '.join(names.values())})")
     code, last = await stream(
-        [*args, "build", *recipe.services], said, env=env, secrets=secrets, cwd=source
+        [*args, "build", *recipe.services],
+        said,
+        env=env,
+        secrets=secrets,
+        cwd=source,
+        watch=data_dir,
     )
     if code != 0:
         raise BuildFailed("The build stopped:\n" + "\n".join(last[-12:]))
@@ -360,7 +413,7 @@ async def _setup(recipe: BuildRecipe, source: Path, said: Said) -> None:
         if tool is None:
             raise BuildFailed(f"{step.run[0] if step.run else 'setup'} isn't installed here")
         said(f"$ {' '.join(step.run)}  (in {step.cwd})")
-        code, last = await stream([tool, *step.run[1:]], said, cwd=cwd)
+        code, last = await stream([tool, *step.run[1:]], said, cwd=cwd, watch=source)
         if code != 0:
             raise BuildFailed(f"{' '.join(step.run)} stopped:\n" + "\n".join(last[-12:]))
 

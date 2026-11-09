@@ -227,7 +227,7 @@ class Docker:
             return 0, "", ""
         return 0, "", ""
 
-    async def stream(self, args, said, *, cwd=None, env=None, secrets=None, limit=0):
+    async def stream(self, args, said, *, cwd=None, env=None, secrets=None, limit=0, watch=None):
         self.builds.append((list(args), env, cwd))
         said("#1 [engine] building")
         if self.build_code:
