@@ -895,6 +895,79 @@ async def test_a_file_left_unsummarized_is_tried_again_then_named(tmp_path) -> N
     assert failed["app.py"]["why"] == "left out of the answer"
 
 
+async def test_a_learn_cut_off_partway_keeps_what_it_read_and_reads_only_the_rest(
+    tmp_path, monkeypatch
+) -> None:
+    """A big app's reading outlasted the chat's limit, was cut, and started over on "go on": what
+    a batch summarized is kept as it finishes, so the next learn asks only for the rest."""
+    agent, _repo, _sent, _script = _learning(tmp_path)
+    targets, code = agent.targets, agent.targets.code("bot")
+    assert code is not None
+    paths = sorted(p for p in APP if p.endswith((".py", ".ts")))[:3]
+    monkeypatch.setattr(filememory, "BATCH_CHARS", 1)  # a batch a file
+    monkeypatch.setattr(filememory, "PARALLEL", 1)  # one at a time, in order
+    asked: list[list[str]] = []
+
+    def summarized(body: str) -> str:
+        named = re.findall(r"\[Data: (\S+)\. Material", body)
+        asked.append(named)
+        return json.dumps({"files": [{"path": n, "summary": f"{n} does a thing"} for n in named]})
+
+    async def cut_after_one(_instructions: str, body: str) -> str:
+        if asked:
+            raise asyncio.CancelledError  # the learn's time ran out here
+        return summarized(body)
+
+    with pytest.raises(asyncio.CancelledError):
+        await filememory.index(targets, "bot", code, cut_after_one, paths)
+    kept = filememory.load(targets, "bot")["summaries"]
+    assert list(kept) == paths[:1], "the batch that finished is kept"
+
+    asked.clear()
+
+    async def answers(_instructions: str, body: str) -> str:
+        return summarized(body)
+
+    assert await filememory.index(targets, "bot", code, answers, paths) == 2
+    assert [n for batch in asked for n in batch] == paths[1:], "only what was left is read"
+    assert sorted(filememory.load(targets, "bot")["summaries"]) == paths
+
+
+def test_a_learn_reads_at_most_its_cap_best_first(tmp_path, monkeypatch) -> None:
+    agent, _repo, _sent, _script = _learning(tmp_path)
+    cmap = codemap.build(agent.targets, "bot", agent.targets.code("bot")).map
+    every = slicing.choose(cmap, {})
+    assert len(every) > 2
+    monkeypatch.setattr(slicing, "MAX_FILES", 2)
+    assert slicing.choose(cmap, {}) == every[:2]
+
+
+async def test_a_learns_reading_has_its_own_time_not_the_chats(tmp_path, monkeypatch) -> None:
+    """The chat's 20 minutes start after the learn's reading: a reading longer than them isn't
+    cut; a reading past its own limit says what it kept."""
+    agent, _repo, _sent, script = _learning(tmp_path, summarize=0.4)
+    begin = learn.begin
+
+    async def slow_begin(*args, **kwargs):
+        await asyncio.sleep(0.3)
+        return await begin(*args, **kwargs)
+
+    monkeypatch.setattr(learn, "begin", slow_begin)
+    monkeypatch.setattr(agent_module, "MAX_SECONDS", 0.1)
+    monkeypatch.setattr(agent_module, "LEARN_SECONDS", 30)
+    sid = (await agent.create("bot", "main"))["id"]
+    script += ["Nothing to save."]
+    shown = await _learn(agent, sid)
+    said = [m["text"] for m in shown["messages"] if m["role"] == "agent"]
+    assert not any("I stopped" in t for t in said), said
+
+    monkeypatch.setattr(agent_module, "LEARN_SECONDS", 0.1)
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    assert shown["messages"][-1]["text"].startswith("I stopped reading the code after")
+    assert "What I read is kept: say go on to read the rest." in shown["messages"][-1]["text"]
+
+
 async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:
     agent, _repo, sent, script = _learning(tmp_path, "openai")
     opened = await agent.create("bot", "main")

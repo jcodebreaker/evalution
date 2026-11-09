@@ -78,6 +78,10 @@ FAILED_STEPS = 20
 FAILED_CHARS = 2_000
 #: How long one admin message may keep it working.
 MAX_SECONDS = 20 * 60
+#: How long a learn's own work (the code map and reading the files) may take, apart from the 20
+#: minutes the chat gets after it: a big app's reading outlasted the chat's limit, was cut, and
+#: started over on "go on". What it read is kept as it goes, so going on picks up from there.
+LEARN_SECONDS = 60 * 60
 #: The same call this many times in a row is a loop: the last isn't run.
 SAME_CALL_TIMES = 3
 #: Activity lines the page gets: what the agent did last, newest at the end.
@@ -501,6 +505,7 @@ class Agent:
         last_call, same = None, 0
         output = ""
         limit = asyncio.timeout(MAX_SECONDS)
+        learning = False
         try:
             if not self.llm:
                 say(session, "agent", "No model is set up yet: choose one in Settings, Model.")
@@ -533,7 +538,12 @@ class Agent:
                         "light" if wanted == "light" and self.llm.model_id("light") else "strong"
                     )
                     _doing(session, "Reading the code")
+                    clock = asyncio.get_running_loop()
+                    limit.reschedule(clock.time() + LEARN_SECONDS)
+                    learning = True
                     begun = await learn.begin(self.targets, turn, ask, chat, (area_key, "strong"))
+                    learning = False
+                    limit.reschedule(clock.time() + MAX_SECONDS)
                     usage.note(begun.stats)
                     usage.areas = begun.areas
                     for area, steps_kept in begun.failed:
@@ -611,7 +621,15 @@ class Agent:
             session["status"] = "stopped"
             raise
         except Exception as exc:
-            if limit.expired():
+            if limit.expired() and learning:
+                minutes = round(LEARN_SECONDS / 60)
+                say(
+                    session,
+                    "agent",
+                    f"I stopped reading the code after {minutes} minutes. What I read is kept: "
+                    "say go on to read the rest.",
+                )
+            elif limit.expired():
                 minutes = round(MAX_SECONDS / 60)
                 say(session, "agent", f"I stopped after {minutes} minutes. Say go on.")
             else:

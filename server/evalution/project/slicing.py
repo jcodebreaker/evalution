@@ -19,6 +19,9 @@ from evalution.project.codemap import CodeMap
 
 #: Files the slice always holds of the most used, whatever they define.
 TOP_RANKED = 10
+#: The most files a learn reads, best first: a big app's slice was 760, longer than a learn
+#: could read. What's left out is still in the code map, and read when the writer asks for it.
+MAX_FILES = 300
 #: Months of history the churn counts.
 CHURN_MONTHS = 6
 _ENTRY = re.compile(r"^(main|app|server|index|agent|agents|graph|cli|__main__)\.", re.I)
@@ -40,7 +43,8 @@ def does(cmap: CodeMap, path: str) -> bool:
 
 def choose(cmap: CodeMap, churn: Mapping[str, int], cap: float | None = None) -> list[str]:
     """The files of the slice, best first: those that shape behaviour and the
-    :data:`TOP_RANKED` most used; at most ``ceil(cap × files)`` when *cap* is given."""
+    :data:`TOP_RANKED` most used; at most ``ceil(cap × files)`` when *cap* is given, and never
+    more than :data:`MAX_FILES`."""
     files = sorted(cmap.files)
     ranked = cmap.ranked_files()
     position = {p: n for n, p in enumerate(ranked)}
@@ -56,4 +60,4 @@ def choose(cmap: CodeMap, churn: Mapping[str, int], cap: float | None = None) ->
     chosen.sort(key=lambda p: (-score(p), p))
     if cap is not None:
         chosen = chosen[: max(1, math.ceil(cap * len(files)))]
-    return chosen
+    return chosen[:MAX_FILES]
