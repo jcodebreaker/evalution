@@ -8,15 +8,24 @@ smallest is folded into its neighbour. Every step depends on the paths alone, ne
 files hold, so an edit never moves a file to another area and the same files give the same areas,
 with the same ids, learn after learn: an area whose files did not move is not learned again. What
 an area's agent is given is held to :data:`AREA_CHARS` (:mod:`evalution.writer.areas`).
+
+What an area weighs (ADR 0012) is what the app is built from in it and what real use touched
+there: its skeleton entries (:mod:`evalution.project.skeleton`) and their trace hits
+(:func:`weight`). Its key (:func:`key`) is what its section was learned from: its files'
+fingerprints and its hits in :data:`BANDS`, so a few more calls of the same tool don't move it.
 """
 
 from __future__ import annotations
 
+import bisect
 import hashlib
+import json
 import re
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+
+from evalution.project.skeleton import Entry
 
 #: How many areas a learn is split into, at least and at most, and how much one may hold.
 MIN_AREAS = 6
@@ -25,6 +34,8 @@ AREA_FILES = 25
 AREA_CHARS = 40_000
 #: The area of the files at the top of the code folder.
 ROOT = "root"
+#: Where trace hits are cut into bands for an area's key: 0, 1-9, 10-99, 100 and more.
+BANDS = (1, 10, 100)
 
 
 @dataclass(frozen=True)
@@ -142,3 +153,35 @@ def _fold_helpers(areas: list[Group], shaping: set[str]) -> list[Group]:
         ]
         i = first
     return out
+
+
+# What an area weighs, and what its section was learned from
+
+
+def entries_of(area: Area, entries: Iterable[Entry]) -> list[Entry]:
+    """The skeleton entries at a file of *area*, in the skeleton's order."""
+    files = set(area.files)
+    return [e for e in entries if e.path in files]
+
+
+def weight(entries: Sequence[Entry], uses: Mapping[str, int]) -> int:
+    """An area's weight: its skeleton *entries* (its prompts, tools, state, agents, model calls,
+    routes and entry points) and how often real use touched them (*uses*: entry id -> count)."""
+    return len(entries) + sum(int(uses.get(e.id) or 0) for e in entries)
+
+
+def band(uses: int) -> int:
+    """Which of :data:`BANDS` a count of uses falls in: 0 for none."""
+    return bisect.bisect_right(BANDS, uses)
+
+
+def key(
+    area: Area, prints: Mapping[str, str], entries: Sequence[Entry], uses: Mapping[str, int]
+) -> str:
+    """What *area*'s section is learned from: its files' fingerprints (*prints*) and its entries'
+    trace hits in bands. The same key: the section still holds, and no model is asked."""
+    body = {
+        "files": {p: prints.get(p) for p in area.files},
+        "hits": sorted((e.id, band(int(uses.get(e.id) or 0))) for e in entries),
+    }
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]

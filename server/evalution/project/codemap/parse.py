@@ -73,6 +73,13 @@ def _parser(suffix: str) -> tree_sitter.Parser | None:
     return tree_sitter.Parser(tree_sitter.Language(language())) if language else None
 
 
+def parses(path: str) -> bool:
+    """Whether the file at *path* is read by a grammar (code, Markdown, YAML, JSON), not only
+    by the line-pattern fallback: what a learn reads in bulk when it matters is the rest."""
+    suffix = PurePosixPath(path).suffix.lower()
+    return _parser(suffix) is not None or suffix in (".md", ".mdx", ".yaml", ".yml", ".json")
+
+
 def parse(path: str, text: str) -> dict[str, list]:
     """``{"defs": [...], "refs": [...]}`` of the file at *path* holding *text*."""
     suffix = PurePosixPath(path).suffix.lower()

@@ -14,6 +14,7 @@ import { ClaimText } from "./ClaimText";
 import { DiagramView } from "./Diagram";
 import { LastChanges } from "./LastChanges";
 import { LastLearn } from "./LastLearn";
+import type { LearnAreaFn } from "./LearnArea";
 import { Learning } from "./Learning";
 import { NodeCheck } from "./NodeCheck";
 import { Paths } from "./Paths";
@@ -45,6 +46,7 @@ export function AppView({
   target,
   agent,
   onLearn,
+  onLearnArea,
   onAdd,
   onSaved,
   onRemoved,
@@ -53,6 +55,8 @@ export function AppView({
   /** The test writer's thread, while it may be learning this app. */
   agent: AgentSession | null;
   onLearn: () => void;
+  /** "Learn this area", for an area a learn listed and didn't learn. */
+  onLearnArea?: LearnAreaFn;
   onAdd: (starters: string[]) => Promise<void>;
   onSaved: () => Promise<unknown>;
   onRemoved: () => void;
@@ -136,9 +140,9 @@ export function AppView({
     );
   }
   const activity = working ? (
-    <Learning session={working ? agent : null} />
+    <Learning session={working ? agent : null} onLearnArea={onLearnArea} />
   ) : (
-    <LastLearn session={agent?.target === target ? agent : null} />
+    <LastLearn session={agent?.target === target ? agent : null} onLearnArea={onLearnArea} />
   );
   // Before the writer learns anything, the server sends only the card, at version 0.
   if (shown.version === 0) {

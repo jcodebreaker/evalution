@@ -166,6 +166,9 @@ class CodeConfig:
     summarize: float | None = None
     #: The model a learn's areas are understood with: ``strong`` (``None``) or ``light``.
     area_model: str | None = None
+    #: Areas a learn understands at once; ``None``: the default (8). The provider's rate limit
+    #: is the ceiling.
+    area_parallel: int | None = None
 
 
 @dataclass(frozen=True)
@@ -382,10 +385,18 @@ def target_config(
         area_model = c.get("area_model")
         if area_model not in (None, "strong", "light"):
             raise ConfigError(f"{where}.code.area_model: strong or light")
+        area_parallel = c.get("area_parallel")
+        if area_parallel is not None and (
+            isinstance(area_parallel, bool)
+            or not isinstance(area_parallel, int)
+            or not 1 <= area_parallel <= 32
+        ):
+            raise ConfigError(f"{where}.code.area_parallel: a whole number from 1 to 32")
         code = CodeConfig(
             path=(root / _str(c, "path", f"{where}.code")).resolve(),
             summarize=float(summarize) if summarize is not None else None,
             area_model=area_model,
+            area_parallel=area_parallel,
             **globs,
         )
     parallel = block.get("max_parallel", 1)

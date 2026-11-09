@@ -1617,10 +1617,15 @@ export const AgentMessageSchema = z.object({
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
+/** One area of a learn as it goes: `listed` weighs nothing (no prompt, tool, state or trace hit)
+ * and isn't learned unless asked; `kept` is current, learned before. `weight`: its skeleton
+ * entries and trace hits; `steps`: the calls its agent may make, which grow with its weight. */
 export const LearnAreaSchema = z.object({
   id: z.string(),
   files: z.number(),
-  state: z.enum(["waiting", "running", "learned", "failed", "kept"]),
+  state: z.enum(["waiting", "running", "learned", "failed", "kept", "listed"]),
+  weight: z.number().optional(),
+  steps: z.number().optional(),
   calls: z.number().default(0),
   tokens: z.number().default(0),
   now: z.string().default(""),
@@ -1629,10 +1634,13 @@ export const LearnAreaSchema = z.object({
 });
 export type LearnArea = z.infer<typeof LearnAreaSchema>;
 
+/** A learn's progress: the code map, the skeleton (its entries), the fallback's reading of files
+ * no grammar reads (`read`), the areas, the overview. */
 export const LearnProgressSchema = z.object({
   at: z.number(),
-  stage: z.enum(["map", "read", "areas", "overview", "saving"]),
+  stage: z.enum(["map", "skeleton", "read", "areas", "overview", "saving"]),
   files: z.number().optional(),
+  skeleton: z.number().optional(),
   read: z.number().optional(),
   read_done: z.number().optional(),
   map_seconds: z.number().optional(),
@@ -1640,6 +1648,17 @@ export const LearnProgressSchema = z.object({
   areas: z.array(LearnAreaSchema).default([]),
 });
 export type LearnProgress = z.infer<typeof LearnProgressSchema>;
+
+/** An area as "Learn this area" found it: `current` was learned from what it is now (when:
+ * `learned_at`), and nothing was spent unless asked again anyway. */
+export const AreaStateSchema = z.object({
+  id: z.string(),
+  state: z.enum(["current", "moved", "due", "listed"]),
+  weight: z.number().default(0),
+  files: z.number().default(0),
+  learned_at: z.number().nullable().default(null),
+});
+export type AreaState = z.infer<typeof AreaStateSchema>;
 
 /** One stage of a learn (code map, read, modules, areas, overview, other): its seconds, and the
  * model calls, tokens and characters made while it ran. */
@@ -1678,6 +1697,13 @@ export const AgentSessionSchema = z.object({
   usage: z.array(TurnUsageSchema).default([]),
 });
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
+
+/** What "Learn this area" answered: the area as it stood, and the session when a learn started. */
+export const AreaLearnSchema = z.object({
+  area: AreaStateSchema,
+  session: AgentSessionSchema.nullable().default(null),
+});
+export type AreaLearn = z.infer<typeof AreaLearnSchema>;
 
 /** The app's earlier chats, latest first. */
 export const AgentChatSchema = z.object({ id: z.string(), asked: z.string(), at: z.number() });

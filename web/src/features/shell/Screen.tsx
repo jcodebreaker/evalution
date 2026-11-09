@@ -124,6 +124,16 @@ export function Screen({
         target={target}
         agent={agent.session}
         onLearn={learnAgain}
+        onLearnArea={async (area, force) => {
+          const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
+          const answer = await api.learnArea(target, area, {
+            session: agent.session?.target === target ? open : undefined,
+            set: set ?? undefined,
+            force,
+          });
+          if (answer.session) agent.adopt(answer.session);
+          return answer.area;
+        }}
         onAdd={async (starters) => {
           const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
           const session = await api.plan(target, starters, {

@@ -132,6 +132,15 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
             if area_model not in ("strong", "light"):
                 raise TargetError("code.area_model: strong or light")
             block["code"]["area_model"] = area_model
+        area_parallel = code.get("area_parallel")
+        if area_parallel is not None:
+            if (
+                isinstance(area_parallel, bool)
+                or not isinstance(area_parallel, int)
+                or not 1 <= area_parallel <= 32
+            ):
+                raise TargetError("code.area_parallel: a whole number from 1 to 32")
+            block["code"]["area_parallel"] = area_parallel
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}

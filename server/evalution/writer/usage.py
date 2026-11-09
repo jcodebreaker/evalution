@@ -13,10 +13,11 @@ from evalution.llm import Reply
 
 #: Turns kept on a session, newest last.
 TURNS_KEPT = 20
-#: A learn's stages, in the order they are shown: the code map (no model), Read (the slice's file
-#: summaries), the folder and app summaries, the areas, the overview, and the rest (checking
-#: whether anything moved, the traces, the docs' summary, the merge and its save).
-STAGES = ("code map", "read", "modules", "areas", "overview", "other")
+#: A learn's stages, in the order they are shown: the code map and the skeleton (no model), Read
+#: (file summaries: only the fallback's, for files no grammar reads), the folder and app summaries
+#: (none since ADR 0012; kept so older learns still show), the areas, the overview, and the rest
+#: (checking whether anything moved, the traces, the docs' summary, the merge and its save).
+STAGES = ("code map", "skeleton", "read", "modules", "areas", "overview", "other")
 #: What a stage counts.
 STAGE_COUNTS = ("calls", "tokens_in", "tokens_out", "chars_in", "chars_out")
 
@@ -56,14 +57,21 @@ class TurnUsage:
     map_refs: int = 0
     map_chars: int = 0
     patch_chars: int = 0
-    #: How many files the light model was asked to read (the slice, or a patch's due ones), and
-    #: how many facts the code map read off the code with no model.
+    #: How many files the light model was asked to read (only the fallback's since ADR 0012:
+    #: files no grammar reads, in an area about to be learned), and how many facts the code map
+    #: read off the code with no model.
     slice_files: int = 0
     static_facts: int = 0
-    #: A learn's areas: how many the code was split into and how many were understood again, and
-    #: the overview's calls.
+    #: A learn's skeleton: its entries, and the trace hits matched to them.
+    skeleton_entries: int = 0
+    skeleton_hits: int = 0
+    #: A learn's areas: how many the code was split into, how many were understood again, how
+    #: many were listed and not learned (no weight), the names no section said, and the
+    #: overview's calls.
     areas_total: int = 0
     areas_run: int = 0
+    areas_listed: int = 0
+    uncovered: int = 0
     overview_calls: int = 0
     #: The tools called, in order.
     tools: list[str] = field(default_factory=list)

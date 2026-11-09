@@ -228,6 +228,9 @@ class Agent:
         self.tools = Tools(runs, self._save)
         self._live: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        #: The sessions whose learn is getting to its areas: one asked for an area meanwhile
+        #: learns it before its overview.
+        self._learning: set[str] = set()
         self._lock = asyncio.Lock()
         #: Told of each tool call a session's loop makes, by session id: what follows a session
         #: on the page without its chat (:mod:`evalution.writer.pagelearn`).
@@ -301,6 +304,27 @@ class Agent:
         session = await self._session(session_id)
         said = f"{text}\n\n(This is about run {run}.)" if run else text
         await self._ask(session, text, said, learn=learn)
+        return public(session)
+
+    async def learn_area(self, session_id: str, area: str, force: bool = False) -> dict[str, Any]:
+        """The page's "Learn this area": a learn of *area* alone, even when it weighs nothing;
+        *force*: even when what it was learned from has not moved ("Learn it again anyway"). A
+        learn going in the session learns it before its overview.
+
+        :raises LookupError: No such session.
+        :raises RuntimeError: The session is busy with something else.
+        """
+        session = await self._session(session_id)
+        if self.working(session_id):
+            progress = session.get("learn")
+            if session_id not in self._learning or not isinstance(progress, dict):
+                raise RuntimeError("The test writer is busy. Try again when it's done.")
+            progress.setdefault("asked", []).append({"id": area, "force": force})
+            await self._save(session)
+            return public(session)
+        session["learn_ask"] = {"area": area, "force": force}
+        said = f"Learn the area {area}{' again' if force else ''}."
+        await self._ask(session, said, said, learn=True)
         return public(session)
 
     async def approve(self, session_id: str, plan_id: str) -> dict[str, Any]:
@@ -493,6 +517,7 @@ class Agent:
         # A learn starts from its brief alone, never from the thread's earlier turns (an earlier
         # learn's brief among them): the thread only gets what was asked and said, at the end.
         history = [{"role": "user", "content": asked}] if learn_asked else thread
+        area_ask = session.pop("learn_ask", None) if learn_asked else None
         if learn_asked:
             session.pop("code_seen", None)
             session.pop("learn", None)
@@ -541,9 +566,20 @@ class Agent:
                     clock = asyncio.get_running_loop()
                     limit.reschedule(clock.time() + LEARN_SECONDS)
                     learning = True
-                    begun = await learn.begin(
-                        self.targets, turn, ask, chat, (area_key, "strong"), usage.stage
-                    )
+                    self._learning.add(session["id"])
+                    try:
+                        begun = await learn.begin(
+                            self.targets,
+                            turn,
+                            ask,
+                            chat,
+                            (area_key, "strong"),
+                            usage.stage,
+                            asked=(area_ask["area"],) if area_ask else (),
+                            force=bool(area_ask and area_ask.get("force")),
+                        )
+                    finally:
+                        self._learning.discard(session["id"])
                     learning = False
                     limit.reschedule(clock.time() + MAX_SECONDS)
                     usage.note(begun.stats)
@@ -628,8 +664,8 @@ class Agent:
                 say(
                     session,
                     "agent",
-                    f"I stopped reading the code after {minutes} minutes. What I read is kept: "
-                    "say go on to read the rest.",
+                    f"I stopped learning after {minutes} minutes. The areas I finished are kept: "
+                    "say go on to learn the rest.",
                 )
             elif limit.expired():
                 minutes = round(MAX_SECONDS / 60)

@@ -618,7 +618,9 @@ def learn_report(config: Config, args: argparse.Namespace) -> int:
     at = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(found.get("at") or 0)))
     print(
         f"evalution: the last learn of {args.report}, {at}: {found.get('seconds', 0):,.0f} s, "
-        f"{found.get('calls', 0):,} model calls, {found.get('slice_files', 0):,} files read"
+        f"{found.get('calls', 0):,} model calls, {found.get('areas_run', 0):,} of "
+        f"{found.get('areas_total', 0):,} areas learned, {found.get('slice_files', 0):,} files "
+        "read in bulk"
     )
     print(f"  {'stage':<10}" + "".join(f"{c.replace('_', ' '):>12}" for c in _STAGE_COLUMNS))
     for stage in found["stages"]:

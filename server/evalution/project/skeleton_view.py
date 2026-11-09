@@ -12,10 +12,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from evalution.code import Code
 from evalution.project import codemap
+from evalution.project.codemap import CodeMap
 from evalution.project.profile import read_doc, write_doc
 from evalution.project.skeleton import Entry, Skeleton, fingerprint_of, match, skeleton
 from evalution.targets import Targets
@@ -38,14 +40,23 @@ TRACE_SECONDS = 8.0
 def current(targets: Targets, name: str, code: Code) -> Skeleton:
     """*name*'s skeleton now: the one kept when no watched file moved since, else made again
     from the code map (itself parsed again only where files moved) and kept."""
-    prints = code.hashes()
+    return of_map(targets, name, None, code, code.hashes())
+
+
+def of_map(
+    targets: Targets, name: str, cmap: CodeMap | None, code: Code, prints: Mapping[str, str]
+) -> Skeleton:
+    """*name*'s skeleton for the watched files' fingerprints *prints*: the one kept for them,
+    else made from *cmap* (built when ``None``), a file read again only when it moved, and
+    kept. A learn gives the map it just built."""
     key = fingerprint_of(prints)
     body = read_doc(targets, name, DOC)
     kept = Skeleton.of_dict(body)
     if kept is not None and isinstance(body, dict) and body.get("for") == key:
         return kept
-    made = codemap.build(targets, name, code)
-    found = skeleton(made.map, code.read, kept)
+    if cmap is None:
+        cmap = codemap.build(targets, name, code).map
+    found = skeleton(cmap, code.read, kept)
     write_doc(targets, name, DOC, {**found.as_dict(), "for": key})
     return found
 

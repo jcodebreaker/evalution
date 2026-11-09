@@ -56,6 +56,8 @@ Tests: on the made-up app, every prompt, tool and store it has is in the skeleto
 
 ### Phase 2: areas start at once, weighted, saved as they finish
 
+> Built 2026-11-09: no Read or module summaries on the normal path (the fallback for files no grammar reads stays), areas weighed and keyed, heaviest first, eight at once (`code.area_parallel`), budgets from weight, each section kept as it lands, zero-weight areas listed with "Learn this area" (`POST /v1/targets/{t}/areas/{area}/learn`). The page still shows the sections when the learn is saved, not as they land: that is phase 4.
+
 1. `learn.begin` skips `filememory.index` and `modules.index` on the normal path; the slice becomes the area order.
 2. Area weight and budget (decision 3); `PARALLEL` from a setting, default 8; `STEPS` and `BUDGET` scaled by weight.
 3. The brief (decision 4); notes kept as agents read.

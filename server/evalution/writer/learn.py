@@ -1,26 +1,31 @@
-"""A learn (the page's "Learn" and "Learn again"), orchestrated: the code read with no model, split
-into areas, each understood by an agent with a small context of its own, the sections merged with
-no model, and one short call for the overview.
+"""A learn (the page's "Learn" and "Learn again"), orchestrated (ADR 0012): the code read with no
+model into a map and the app's skeleton, split into areas, each understood by an agent with a
+small context of its own, the heaviest first, each section kept as it lands, and one short call
+for the overview.
 
 1. Whether anything moved, said for free when it can be: the traces by the drift check, which
    reads them on its own schedule (:mod:`evalution.project.drift`), the code by the commit and a
    clean tree the last learn saw, else by the file hashes. Learned before and nothing moved: no
    model call and no trace read.
-2. Otherwise the recent sessions are read once, and the code map is brought up to date, a file
-   parsed again only when it moved (:mod:`evalution.project.codemap`). After a small change
-   (:data:`PATCH_FILES`, :data:`PATCH_SHARE`) the light model reads a changed file again only
-   when it is in the slice and its facts or definitions' lines moved; otherwise the slice is
-   chosen again (:mod:`evalution.project.slicing`) and read where it moved, and the folders and
-   the app are summarized bottom up where they moved (:mod:`evalution.project.modules`).
+2. Otherwise the recent sessions are read once, the code map is brought up to date, a file
+   parsed again only when it moved (:mod:`evalution.project.codemap`), and so is the skeleton
+   (:mod:`evalution.project.skeleton`), real use matched to it. Nothing is read in bulk: a file
+   is read by an area's agent when it needs it. The light model summarizes files only as a
+   fallback, for those no grammar reads in an area about to be learned.
 3. The files are split into areas (:mod:`evalution.project.areas`), the same files giving the
-   same areas. An area whose files did not move keeps its section; each other is understood by
-   its own agent (:mod:`evalution.writer.areas`), :data:`PARALLEL` at a time. One that fails is
-   tried again, then in two halves; one that still fails is named in the reply and never stops
-   the others.
+   same areas. An area weighs its skeleton entries and their trace hits; its key is its files'
+   fingerprints and its hits in bands. An area whose key did not move keeps its section, with no
+   model call; one with no weight that was never learned is listed, not learned, until asked for
+   (:func:`area_state`, the page's "Learn this area"); each other is understood by its own agent
+   (:mod:`evalution.writer.areas`), heaviest first, then in the slice's order
+   (:mod:`evalution.project.slicing`), :data:`PARALLEL` at a time, its steps and tokens growing
+   with its weight. Each section is kept as it lands, so a learn cut short keeps what it finished
+   and the next does only the rest. One that fails is tried again, then in two halves; one that
+   still fails is named in the reply and never stops the others.
 4. The sections are merged with no model, their ids namespaced by area, and one bounded call
    writes the overview (the one line, what the app is, how its areas connect, what to test
-   first), again only when a section moved. The merge is checked and saved like any
-   understanding (:mod:`evalution.writer.saving`), Details assembled by the engine.
+   first), again only when a section or the skeleton's names moved. The merge is checked and
+   saved like any understanding (:mod:`evalution.writer.saving`), Details assembled by the engine.
 
 A target with no code folder is learned from its traces by the writer itself.
 """
@@ -34,14 +39,23 @@ import logging
 import math
 import re
 import time
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from evalution.llm import cut, fenced, json_answer
-from evalution.project import areas, codemap, drift, filememory, modules, slicing, understanding
+from evalution.project import (
+    areas,
+    codemap,
+    drift,
+    filememory,
+    modules,
+    skeleton_view,
+    slicing,
+    understanding,
+)
 from evalution.project.codemap import CodeMap, Definition
-from evalution.project.profile import FINGERPRINT_DOC, read_doc
+from evalution.project.skeleton import Entry, Skeleton, match
 from evalution.targets import Targets
 from evalution.traces.profile import render
 from evalution.writer import areas as area_agents
@@ -55,11 +69,14 @@ TRACES_ONLY = """\
 This app has no code folder: learn it from its traces below. Write the understanding with \
 write_understanding, in one call."""
 
-#: A change of at most this many files, or this share of the watched ones, is small.
-PATCH_FILES = 5
-PATCH_SHARE = 0.10
-#: Areas understood at once.
-PARALLEL = 3
+#: Areas understood at once, unless the target's ``code.area_parallel`` says otherwise.
+PARALLEL = 8
+#: What the overview's brief may hold of the skeleton.
+SKELETON_CHARS = 8_000
+#: The names no section said that the reply shows.
+NAMED_SHOWN = 8
+#: Why an area is listed and not learned.
+LISTED = "nothing in it the app uses"
 #: The overview's calls and output, and what its brief may hold of the areas' sections.
 OVERVIEW_TOKENS = 4_096
 OVERVIEW_STEPS = 2
@@ -158,25 +175,12 @@ class Begun:
     failed: list[tuple[str, list[dict[str, Any]]]] = field(default_factory=list)
 
 
-def _trace_changes(baseline: object, taken: dict) -> list[dict] | None:
-    """What moved in the traces since *baseline*; ``None`` with no baseline to compare with."""
-    if not isinstance(baseline, dict):
-        return None
-    return [c for c in drift.compare(baseline, taken) if c["kind"] != "code_changed"]
-
-
 def _free_quiet(targets: Targets, name: str) -> bool:
     """Whether the traces are quiet by what is already known, with no session read: the drift
     check, which watches them on its own schedule (before runs, daily), counted no trace change
     since the understanding was saved."""
     changes = drift.read(targets, name).get("changes") or []
     return not [c for c in changes if c["kind"] != "code_changed"]
-
-
-def _small(moved: filememory.Changes, files: int) -> bool:
-    """Few enough files moved that the slice and the modules are left as they are."""
-    count = len(moved.changed) + len(moved.added) + len(moved.removed)
-    return not moved.first and 0 < count <= max(PATCH_FILES, PATCH_SHARE * files)
 
 
 def _by_module(cmap: CodeMap, paths: Iterable[str]) -> list[str]:
@@ -265,19 +269,113 @@ def _halves(area: areas.Area) -> list[areas.Area]:
     ]
 
 
+@dataclass(frozen=True)
+class Planned:
+    """An area as a learn finds it: its skeleton *entries*, its *weight* (those and their trace
+    hits), its *key* (what a section of it is learned from), its place in the slice (*rank*), and
+    its *state*: ``current`` (its section was learned from this key), ``moved`` (learned from
+    another), ``due`` (weighted, never learned) or ``listed`` (no weight, never learned)."""
+
+    area: areas.Area
+    entries: tuple[Entry, ...]
+    weight: int
+    key: str
+    rank: int
+    state: str
+    learned_at: float | None = None
+    #: Its place in the partition (folder order), which the merged sections follow.
+    index: int = 0
+
+
+def _stored_key(
+    entry: Mapping[str, Any], prints: Mapping[str, str], area: areas.Area, key: str
+) -> str | None:
+    """The key a stored section was learned from; one kept before keys were (its files alone) is
+    taken as this *key* while its files hold, so an upgrade learns nothing again."""
+    if entry.get("key"):
+        return entry["key"]
+    return key if entry.get("files") == {p: prints.get(p) for p in area.files} else None
+
+
+def plan(
+    cmap: CodeMap,
+    memory: Mapping[str, Any],
+    found: Skeleton,
+    uses: Mapping[str, int],
+    prints: Mapping[str, str],
+    order: Sequence[str] = (),
+) -> list[Planned]:
+    """The areas of *cmap*'s code (prose is none: :func:`_prose`), heaviest first, then by the
+    best place one of their files has in *order* (the slice), then by id. No model."""
+    coded = [p for p in cmap.files if not _prose(cmap, p)]
+    sizes = _sizes(cmap, memory)
+    shaping = {p for p in coded if slicing.does(cmap, p)}
+    parts = areas.partition({p: sizes[p] for p in coded}, shaping)
+    place = {p: n for n, p in enumerate(order)}
+    stored = memory.get("areas") or {}
+    out = []
+    for index, area in enumerate(parts):
+        mine = tuple(areas.entries_of(area, found.entries))
+        weight = areas.weight(mine, uses)
+        key = areas.key(area, prints, mine, uses)
+        entry = stored.get(area.id) or {}
+        learned = bool(entry.get("sections"))
+        if learned and _stored_key(entry, prints, area, key) == key:
+            state = "current"
+        elif learned:
+            state = "moved"
+        else:
+            state = "due" if weight else "listed"
+        rank = min((place.get(p, len(place)) for p in area.files), default=len(place))
+        at = entry.get("learned_at")
+        when = float(at) if learned and at else None
+        out.append(Planned(area, mine, weight, key, rank, state, when, index))
+    out.sort(key=lambda p: (-p.weight, p.rank, p.area.id))
+    return out
+
+
+async def area_state(targets: Targets, name: str, area_id: str) -> dict[str, Any]:
+    """Area *area_id* of *name* as it stands, with no model: ``state`` (:class:`Planned`), its
+    weight, files and when it was learned. What "Learn this area" asks first.
+
+    :raises LookupError: No code folder, or no such area.
+    """
+    code = targets.code(name)
+    if code is None:
+        raise LookupError(f"{name} has no code folder")
+    prints = await asyncio.to_thread(code.hashes)
+    cmap = (await asyncio.to_thread(codemap.build, targets, name, code)).map
+    found = await asyncio.to_thread(skeleton_view.of_map, targets, name, cmap, code, prints)
+    hits = match(found, await skeleton_view.uses(targets, name))
+    memory = await asyncio.to_thread(filememory.load, targets, name)
+    planned = next(
+        (p for p in plan(cmap, memory, found, hits.uses, prints) if p.area.id == area_id), None
+    )
+    if planned is None:
+        raise LookupError(f"no area {area_id}")
+    return {
+        "id": area_id,
+        "state": planned.state,
+        "weight": planned.weight,
+        "files": len(planned.area.files),
+        "learned_at": planned.learned_at,
+    }
+
+
 async def _understand(
     area: areas.Area,
     ctx: area_agents.Context,
     before: Mapping[str, Any] | None,
     gate: Any,
     shown: dict[str, Any] | None = None,
+    budget: area_agents.Budget | None = None,
 ) -> tuple[list[area_agents.Run], list[area_agents.Run]]:
-    """*area* understood: once, again on failure, then in two halves, while its budget lasts
+    """*area* understood: once, again on failure, then in two halves, while its *budget* lasts
     (:class:`area_agents.Budget`, shared by all of them). ``(every run made, those whose sections
     make the area)``: one whole, or the halves that were learned. *shown*: the area's entry in
     the learn's progress."""
     shown = shown if shown is not None else {}
-    budget = area_agents.Budget()
+    budget = budget or area_agents.Budget()
     begun = time.monotonic()
     runs: list[area_agents.Run] = []
     kept: list[area_agents.Run] = []
@@ -365,6 +463,7 @@ def _overview_brief(
     cmap: CodeMap,
     before: Any,
     docs: str = "",
+    skeleton: str = "",
 ) -> str:
     lines = []
     for section in sections:
@@ -374,9 +473,10 @@ def _overview_brief(
     limits = "\n".join(f"{d.path}:{d.line} {d.sig}" for d in key_limits(cmap))
     folders = "\n".join(f"{f}/: {s}" for f, s in modules.summaries(kept).items())
     parts = [
-        fenced("the app", modules.app_summary(kept) or "(not summarized)"),
-        fenced("its modules", folders or "(none)"),
+        *([fenced("the app", app)] if (app := modules.app_summary(kept)) else []),
+        *([fenced("its modules", folders)] if folders else []),
         *([fenced("what its docs say", docs)] if docs else []),
+        *([fenced("its skeleton, and what real use touched", skeleton)] if skeleton else []),
         fenced("its key limits", limits or "(none)"),
         fenced("the areas' sections", cut("\n".join(lines), SECTIONS_CHARS)),
         fenced("the nodes", "\n".join(shown) or "(none)"),
@@ -447,16 +547,93 @@ async def begin(
     chat: area_agents.Chat,
     keys: tuple[str, str],
     stage: Callable[[str], None] | None = None,
+    asked: Sequence[str] = (),
+    force: bool = False,
 ) -> Begun:
-    """*ask*: the light model, for the summaries; *chat*: a counted model call, for the areas and
-    the overview; *keys*: the models of the areas and of the overview; *stage*: told as each of
-    the learn's stages starts (``code map``, ``read``, ``modules``, ``areas``, ``overview``,
-    ``other``), so its calls are measured by stage."""
+    """*ask*: the light model, for the docs' summary and the fallback's file summaries; *chat*: a
+    counted model call, for the areas and the overview; *keys*: the models of the areas and of
+    the overview; *stage*: told as each of the learn's stages starts (``code map``, ``skeleton``,
+    ``read`` (the fallback only), ``areas``, ``overview``, ``other``), so its calls are measured
+    by stage. *asked*: the areas to learn, and only them, whatever their weight (the page's
+    "Learn this area"); *force*: even when what they were learned from has not moved."""
     clock = _Clock()
     try:
-        return await _begin(targets, turn, ask, chat, keys, clock, stage or (lambda _name: None))
+        return await _begin(
+            targets,
+            turn,
+            ask,
+            chat,
+            keys,
+            clock,
+            stage or (lambda _name: None),
+            tuple(asked),
+            force,
+        )
     finally:
         _logger.info("learn %s: %s", turn.session["target"], ", ".join(clock.steps))
+
+
+def _asked_meanwhile(
+    shown: Mapping[str, Any], by_id: Mapping[str, Planned], ran: Sequence[Planned]
+) -> list[Planned]:
+    """The areas asked for on the page while a learn went (``asked`` in its progress: ``{id,
+    force}``) that it has not learned yet: one current only when forced."""
+    out: list[Planned] = []
+    for item in shown.get("asked") or []:
+        p = by_id.get(str(item.get("id")))
+        if p is None or p in ran or p in out:
+            continue
+        if p.state != "current" or item.get("force"):
+            out.append(p)
+    return out
+
+
+def _when(at: float | None) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(at)) if at else "before"
+
+
+def _keep_area(
+    targets: Targets,
+    name: str,
+    planned: Planned,
+    runs: list[area_agents.Run],
+    prints: Mapping[str, str],
+) -> None:
+    """Keep an area's section the moment it lands, under the key it was learned from: a learn
+    cut after it keeps it, and the next one learns it again only when that key moves."""
+    named = [_namespaced(r) for r in runs]
+    entry = {
+        "files": {p: prints.get(p) for p in planned.area.files},
+        "key": planned.key,
+        "weight": planned.weight,
+        "learned_at": time.time(),
+        "sections": [section for section, _ in named],
+        "nodes": [n for _, nodes in named for n in nodes],
+    }
+    with targets.guards.knowledge:
+        memory = filememory.load(targets, name)
+        kept = {**(memory.get("areas") or {}), planned.area.id: entry}
+        filememory.save(targets, name, {**memory, "areas": kept})
+
+
+def _mark_incomplete(targets: Targets, name: str) -> None:
+    """Areas are about to be learned: until the learn is saved, the next one is never "nothing
+    changed"."""
+    with targets.guards.knowledge:
+        memory = filememory.load(targets, name)
+        filememory.save(targets, name, {**memory, "incomplete": True})
+
+
+def _skeleton_brief(found: Skeleton, uses: Mapping[str, int]) -> str:
+    """The skeleton as the overview reads it: each entry's kind, name and file, and how often real
+    use touched it, the most used first."""
+    entries = sorted(found.entries, key=lambda e: -int(uses.get(e.id) or 0))
+    lines = [
+        f"{e.kind} {e.name} ({e.path}:{e.line})"
+        + (f": used {uses[e.id]} times lately" if uses.get(e.id) else "")
+        for e in entries
+    ]
+    return cut("\n".join(lines), SKELETON_CHARS)
 
 
 async def _begin(
@@ -467,6 +644,8 @@ async def _begin(
     keys: tuple[str, str],
     clock: _Clock,
     stage: Callable[[str], None],
+    asked: tuple[str, ...],
+    force: bool,
 ) -> Begun:
     stage("other")
     name = str(turn.session["target"])
@@ -479,9 +658,15 @@ async def _begin(
     # clean tree, else by the hashes. Reading the traces costs seconds, so only a learn does it.
     clock("documents")
     # A learn that left an area or the overview unwritten is never "nothing changed": the next
-    # one tries them again.
+    # one tries them again. An area asked for is learned whatever moved.
     complete = not memory.get("incomplete")
-    if before is not None and code is not None and complete and _free_quiet(targets, name):
+    if (
+        not asked
+        and before is not None
+        and code is not None
+        and complete
+        and _free_quiet(targets, name)
+    ):
         unmoved = await asyncio.to_thread(filememory.unmoved, memory, code)
         clock("commit and tree")
         if unmoved:
@@ -490,10 +675,9 @@ async def _begin(
         clock("hashes")
         if not filememory.changes(memory, hashed):
             return nothing
-    shown = turn.session["learn"] = {"at": time.time(), "stage": "map", "areas": []}
+    shown = turn.session["learn"] = {"at": time.time(), "stage": "map", "areas": [], "asked": []}
     found, taken = await turn.take(targets)
     clock("traces and code state")
-    traces = _trace_changes(read_doc(targets, name, FINGERPRINT_DOC), taken)
     if code is None:
         parts = [TRACES_ONLY]
         if before:
@@ -501,7 +685,6 @@ async def _begin(
         return Begun(text="\n\n".join([*parts, fenced("the trace digest", render(found))]))
 
     files = taken["code"]["files"]
-    moved = filememory.changes(memory, files)
     stage("code map")
     made = await asyncio.to_thread(codemap.build, targets, name, code)
     turn.map = cmap = made.map
@@ -513,28 +696,47 @@ async def _begin(
         "static_facts": sum(len(cmap.facts(p)) for p in cmap.files),
     }
     clock("code map")
-    stage("read")
-    shown |= {"stage": "read", "files": len(files), "map_seconds": round(made.seconds, 1)}
-    if before is not None and not traces and _small(moved, len(files)):
-        # The light model reads a changed file again only when it is in the slice and what it
-        # offers moved (its facts, its definitions' lines); never another file.
-        sliced = set(memory.get("slice") or ())
-        due = [p for p in [*moved.changed, *moved.added] if p in sliced & made.reshaped]
-        if due:
-            await filememory.index(targets, name, code, ask, due, shown)
-        stats["slice_files"] = len(due)
-    else:
-        conf = targets.conf(name).code
-        churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
-        chosen = slicing.choose(cmap, churn, conf.summarize if conf else None)
-        await asyncio.to_thread(filememory.keep_slice, targets, name, chosen)
-        await filememory.index(targets, name, code, ask, chosen, shown)
-        stats["slice_files"] = len(chosen)
-        clock("slice")
-        stage("modules")
-        await modules.index(targets, name, cmap, ask)
-        clock("modules")
+    # The skeleton, with no model, and real use matched to it: what weighs the areas.
+    stage("skeleton")
+    shown |= {"stage": "skeleton", "files": len(files), "map_seconds": round(made.seconds, 1)}
+    skeleton = await asyncio.to_thread(skeleton_view.of_map, targets, name, cmap, code, files)
+    hits = match(skeleton, found)
+    conf = targets.conf(name).code
+    churn = await asyncio.to_thread(code.churn, slicing.CHURN_MONTHS)
+    order = slicing.choose(cmap, churn, conf.summarize if conf else None)
     kept = filememory.load(targets, name)
+    planned = plan(cmap, kept, skeleton, hits.uses, files, order)
+    by_id = {p.area.id: p for p in planned}
+    stats |= {
+        "skeleton_entries": len(skeleton.entries),
+        "skeleton_hits": sum(hits.uses.values()),
+    }
+    shown["skeleton"] = len(skeleton.entries)
+    clock("skeleton")
+    if asked:
+        if missing := [a for a in asked if a not in by_id]:
+            return Begun(done=f"There is no area {missing[0]} now.", stats=stats)
+        due = [p for p in planned if p.area.id in asked and (force or p.state != "current")]
+        if not due:
+            said = "; ".join(f"{a} is current, learned {_when(by_id[a].learned_at)}" for a in asked)
+            return Begun(done=f"{said}. Nothing to learn again.", stats=stats)
+    elif not any(p.weight for p in planned):
+        # Nothing in the skeleton (a language the code map reads thinly): every area is
+        # learned, as it was before areas were weighed.
+        due = [p for p in planned if p.state != "current"]
+    else:
+        due = [p for p in planned if p.state in ("moved", "due")]
+    listed = [p for p in planned if p.state == "listed" and p not in due]
+
+    # The fallback: a file no grammar reads, in an area about to be learned, is read in bulk.
+    unparsed = [path for p in due for path in p.area.files if not codemap.parses(path)]
+    if unread := filememory.unsummarized(kept, files, unparsed):
+        stage("read")
+        shown["stage"] = "read"
+        await filememory.index(targets, name, code, ask, unread, shown)
+        stats["slice_files"] = len(unread)
+        kept = filememory.load(targets, name)
+        clock("read")
 
     async def check(doc: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
         return await saving.check(targets, name, doc, found, cmap)
@@ -542,62 +744,77 @@ async def _begin(
     async def note(path: str, fingerprint: str, said: list[str]) -> int:
         return len(await asyncio.to_thread(filememory.note, targets, name, path, fingerprint, said))
 
-    ctx = area_agents.Context(code, cmap, kept, chat, keys[0], check, note)
+    ctx = area_agents.Context(
+        code, cmap, kept, chat, keys[0], check, note, skeleton.entries, hits.uses
+    )
     # Prose (docs, ADRs, notes) is no area: its facts stay in Details, and one light call sums it
     # up for the overview.
-    coded = [p for p in cmap.files if not _prose(cmap, p)]
-    sizes = _sizes(cmap, kept)
-    shaping = {p for p in coded if slicing.does(cmap, p)}
-    parts = areas.partition({p: sizes[p] for p in coded}, shaping)
     stage("other")
     docs_said = await _docs(targets, name, cmap, kept, ask)
     clock("docs")
     stored = kept.get("areas") or {}
-    due_areas = [
-        a for a in parts if (stored.get(a.id) or {}).get("files") != {p: files[p] for p in a.files}
-    ]
-    stats |= {"areas_total": len(parts), "areas_run": len(due_areas)}
-    gate = asyncio.Semaphore(PARALLEL)
-    due_ids = {a.id for a in due_areas}
+    parallel = (conf.area_parallel if conf else None) or PARALLEL
+    gate = asyncio.Semaphore(parallel)
+    due_ids = {p.area.id for p in due}
     entries = {
-        a.id: {
-            "id": a.id,
-            "files": len(a.files),
-            "state": "waiting" if a.id in due_ids else "kept",
+        p.area.id: {
+            "id": p.area.id,
+            "files": len(p.area.files),
+            "weight": p.weight,
+            "steps": area_agents.allowance(p.weight)[0],
+            "state": "waiting"
+            if p.area.id in due_ids
+            else "listed"
+            if p.state == "listed"
+            else "kept",
             "calls": 0,
             "tokens": 0,
             "now": "",
         }
-        for a in parts
+        for p in planned
     }
-    shown |= {"stage": "areas", "parallel": PARALLEL, "areas": list(entries.values())}
+    stats |= {"areas_total": len(planned), "areas_run": len(due), "areas_listed": len(listed)}
+    shown |= {"stage": "areas", "parallel": parallel, "areas": list(entries.values())}
 
-    def previous(area: areas.Area) -> dict[str, Any] | None:
-        sections = (stored.get(area.id) or {}).get("sections")
-        return {"sections": sections} if sections else None
+    def previous(p: Planned) -> dict[str, Any] | None:
+        entry = stored.get(p.area.id) or {}
+        if not entry.get("sections"):
+            return None
+        return {"sections": entry["sections"], "files": entry.get("files") or {}}
+
+    async def one(p: Planned) -> tuple[list[area_agents.Run], list[area_agents.Run]]:
+        budget = area_agents.Budget.of(p.weight)
+        runs, kept_runs = await _understand(
+            p.area, ctx, previous(p), gate, entries[p.area.id], budget
+        )
+        if kept_runs:
+            await asyncio.to_thread(_keep_area, targets, name, p, kept_runs, files)
+        return runs, kept_runs
 
     stage("areas")
-    done = await asyncio.gather(
-        *(_understand(a, ctx, previous(a), gate, entries[a.id]) for a in due_areas)
-    )
+    if due:
+        await asyncio.to_thread(_mark_incomplete, targets, name)
+    # Heaviest first: the gate lets them in in the order they ask.
+    ran = list(due)
+    done = list(await asyncio.gather(*(one(p) for p in due)))
+    # Asked for on the page while this learn went: learned before the overview.
+    while extra := _asked_meanwhile(shown, by_id, ran):
+        for p in extra:
+            entries[p.area.id]["state"] = "waiting"
+        ran += extra
+        done += await asyncio.gather(*(one(p) for p in extra))
     clock("areas")
     usage = [r.usage() for runs, _ in done for r in runs]
     failed = [(r.area, r.transcript) for runs, _ in done for r in runs if r.outcome != "learned"]
-    learned = dict(stored)
     not_learned = []
-    for area, (runs, kept_runs) in zip(due_areas, done, strict=True):
+    for p, (runs, kept_runs) in zip(ran, done, strict=True):
         if not kept_runs:
-            not_learned.append(f"{area.id} ({runs[-1].outcome})")
-            continue
-        if len(kept_runs) < len(runs) - 2:
-            not_learned.append(f"part of {area.id} ({runs[-1].outcome})")
-        named = [_namespaced(r) for r in kept_runs]
-        learned[area.id] = {
-            "files": {p: files[p] for p in area.files},
-            "sections": [section for section, _ in named],
-            "nodes": [n for _, nodes in named for n in nodes],
-        }
-    learned = {a.id: learned[a.id] for a in parts if a.id in learned}
+            not_learned.append(f"{p.area.id} ({runs[-1].outcome})")
+        elif len(kept_runs) < len(runs) - 2:
+            not_learned.append(f"part of {p.area.id} ({runs[-1].outcome})")
+    stored = filememory.load(targets, name).get("areas") or {}
+    in_order = sorted(planned, key=lambda p: p.index)
+    learned = {p.area.id: stored[p.area.id] for p in in_order if p.area.id in stored}
     sections = [s for entry in learned.values() for s in entry["sections"]]
     nodes = [n for entry in learned.values() for n in entry["nodes"]]
     if not sections:
@@ -605,9 +822,21 @@ async def _begin(
         return Begun(
             done=f"I couldn't learn this app: {said}.", stats=stats, areas=usage, failed=failed
         )
+    # The coverage guard: every prompt, tool, agent, route and store of a learned area is named
+    # by some section.
+    said_all = json.dumps([sections, nodes]).lower()
+    uncovered = [
+        n
+        for p in in_order
+        if p.area.id in learned
+        for n in area_agents.names(p.area, ctx)
+        if n.split()[-1].lower() not in said_all
+    ]
+    stats["uncovered"] = len(uncovered)
 
     stage("overview")
-    made_of = _hash([sections, nodes])
+    named = sorted({(e.kind, e.name, e.path) for e in skeleton.entries})
+    made_of = _hash([sections, nodes, named])
     old = kept.get("overview") or {}
     # An overview from before it had a summary is written again.
     usable = old.get("of") == made_of and (old.get("doc") or {}).get("summary")
@@ -616,7 +845,15 @@ async def _begin(
     written_now = None
     if overview is None:
         shown["stage"] = "overview"
-        brief = _overview_brief(kept, sections, nodes, cmap, old.get("doc"), docs_said)
+        brief = _overview_brief(
+            kept,
+            sections,
+            nodes,
+            cmap,
+            old.get("doc"),
+            docs_said,
+            _skeleton_brief(skeleton, hits.uses),
+        )
         written_now, stats["overview_calls"] = await _overview(chat, keys[1], brief, check, nodes)
         overview = written_now or old.get("doc")
     # Kept as made of these sections only when written: a fallback is tried again next time.
@@ -647,6 +884,8 @@ async def _begin(
     shown["stage"] = "saving"
     await saving.keep(targets, name, written, (found, taken), cmap, _by_module(cmap, cmap.files))
     turn.understood = True
+    # Weighted areas an asked-for learn left alone are still to learn.
+    left = [p for p in planned if p.state in ("moved", "due") and p not in ran]
     with targets.guards.knowledge:
         memory = filememory.load(targets, name)
         filememory.save(
@@ -655,8 +894,9 @@ async def _begin(
             {
                 **memory,
                 "areas": learned,
+                "listed": [p.area.id for p in listed if p not in ran],
                 "overview": kept_overview,
-                "incomplete": bool(not_learned or not kept_overview),
+                "incomplete": bool(not_learned or not kept_overview or left),
             },
         )
     reply = f"I've learned {name}. Check what I understood."
@@ -664,4 +904,9 @@ async def _begin(
         not_learned.append("the overview")
     if not_learned:
         reply += " Not learned: " + "; ".join(not_learned) + "."
+    if listed := [p for p in listed if p not in ran]:
+        reply += f" Listed, not learned ({LISTED}): " + ", ".join(p.area.id for p in listed) + "."
+    if uncovered := list(dict.fromkeys(uncovered)):
+        more = f" and {len(uncovered) - NAMED_SHOWN} more" if len(uncovered) > NAMED_SHOWN else ""
+        reply += " Named in no section: " + ", ".join(uncovered[:NAMED_SHOWN]) + more + "."
     return Begun(done=reply, stats=stats, areas=usage, failed=failed)

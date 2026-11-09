@@ -21,6 +21,7 @@ import {
   AgentChatSchema,
   AgentSessionSchema,
   ApiTokenSchema,
+  AreaLearnSchema,
   BenchmarksSchema,
   BuildSchema,
   CaseFileViewSchema,
@@ -460,6 +461,19 @@ export const api = {
   /** Brings what it knows up to date now: one light model call. */
   updateKnowledge: (target: string) =>
     post(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/update`),
+  /** "Learn this area": one area learned, even one listed as weighing nothing; an area that
+   * hasn't moved says it's current and spends nothing unless `force` ("Learn it again anyway").
+   * `session`: the test writer's to learn in, else a new one on `set`. */
+  learnArea: (
+    target: string,
+    area: string,
+    { session, set, force }: { session?: string; set?: string; force?: boolean },
+  ) =>
+    post(one(AreaLearnSchema), `/v1/targets/${enc(target)}/areas/${enc(area)}/learn`, {
+      session,
+      set,
+      force: Boolean(force),
+    }),
   undoKnowledge: (target: string) =>
     post(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/undo`),
   sawKnowledge: (target: string) =>
