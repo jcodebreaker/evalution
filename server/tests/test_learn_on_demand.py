@@ -661,7 +661,7 @@ async def test_a_section_that_leaves_names_out_gets_one_more_step_naming_them(tm
     assert "greet_people" in said and "/chat" in said and "SYSTEM_PROMPT" in said
 
 
-async def test_the_follow_up_is_never_repeated_and_never_past_the_budget(
+async def test_the_follow_up_is_never_repeated_and_asked_alone_past_the_budget(
     tmp_path, monkeypatch
 ) -> None:
     # Told, it still names nothing: asked once, then reported as before.
@@ -672,7 +672,8 @@ async def test_the_follow_up_is_never_repeated_and_never_past_the_budget(
     assert shown["messages"][-1]["text"].endswith("Named in no section: MemoryStore.")
     assert shown["usage"][-1]["follow_ups"] == 1
 
-    # No step left, or no tokens for one more like the last: no follow-up.
+    # No step left, or no tokens for one more like the last: one small call of its own, carrying
+    # the names left out and nothing of the area's reading, answered with write_section alone.
     real = area_agents.allowance
     for allowance in ((1, 10**6), (4, 200)):
         monkeypatch.setattr(area_agents, "allowance", lambda _w, given=allowance: given)
@@ -681,7 +682,37 @@ async def test_the_follow_up_is_never_repeated_and_never_past_the_budget(
         )
         sid = (await agent.create("bot", "main"))["id"]
         shown = await _learn(agent, sid)
-        assert len([b for b in sent["areas"] if "The area lib:" in json.dumps(b)]) == 1
-        assert shown["usage"][-1]["follow_ups"] == 0
-        assert shown["messages"][-1]["text"].endswith("Named in no section: MemoryStore.")
+        bodies = [b for b in sent["areas"] if "The area lib:" in json.dumps(b)]
+        assert len(bodies) == 2
+        first, alone = bodies
+        assert len(alone["messages"]) == 1 and "names none of these" in json.dumps(alone)
+        said = json.dumps(alone["messages"])
+        assert "what the skeleton says of them" in said and "MemoryStore" in said
+        assert "its part of the app's skeleton" in json.dumps(first["messages"])
+        assert "its part of the app's skeleton" not in said
+        assert [t["name"] for t in alone["tools"]] == ["write_section"]
+        assert shown["usage"][-1]["follow_ups"] == 1
+        assert "Named in no section" not in shown["messages"][-1]["text"]
     monkeypatch.setattr(area_agents, "allowance", real)
+
+
+def test_a_section_titled_by_its_id_is_titled_by_what_it_covers() -> None:
+    Area = areas.Area
+    piece = Area(
+        "tools.1",
+        ("tools",),
+        ("tools/a.py",),
+        0,
+        (),
+        "tools",
+        "part 1 of 2: 20 tools in tools/a.py",
+    )
+    covered = "tools/, part 1 of 2: 20 tools in tools/a.py"
+    for given in ("tools.1", "TOOLS.1", "tools", " ", ""):
+        assert area_agents._titled(piece, given) == covered
+    assert area_agents._titled(piece, "The OS tools") == "The OS tools"
+    half = Area("tools.1~2", piece.folders, piece.files, 0, (), "tools", piece.label)
+    assert area_agents._titled(half, "tools.1") == covered
+    lib = Area("lib", ("lib",), ("lib/a.py",), 0)
+    assert area_agents._titled(lib, "") == area_agents._titled(lib, "LIB") == "lib/"
+    assert area_agents._titled(Area("top", ("",), ("a.py",), 0), "top") == "the top folder"

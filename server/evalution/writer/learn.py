@@ -702,8 +702,9 @@ def _title(p: Planned, stored: Mapping[str, Any]) -> str:
     sections = (stored.get(p.area.id) or {}).get("sections") or []
     if sections and sections[0].get("title"):
         return str(sections[0]["title"])
-    where = ", ".join(f"{f}/" if f else "the top folder" for f in p.area.folders) or p.area.id
-    return f"{where}, {p.area.label}" if p.area.label else where
+    if p.area.of:
+        return area_agents.piece_title(p.area)
+    return ", ".join(f"{f}/" if f else "the top folder" for f in p.area.folders) or p.area.id
 
 
 def _basis(sessions: int, areas_learned: int | None = None) -> str:

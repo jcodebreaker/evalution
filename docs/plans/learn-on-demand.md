@@ -123,6 +123,13 @@ Run phase 0's measures again. Keep the change only if, on the big app: the skele
 - **It costs more, for what it covers.** It made 70% more calls and read 70% more tokens, all in areas: the tools that were skipped are now read.
 - **Seen:** the agent titled one piece's section with its id instead of what it covers, so the brief's request alone isn't enough.
 
+**Both followed up (2026-11-09).**
+
+- **Names left out are always asked once.** Each step resends the whole conversation, so a piece that read many files makes its biggest call last. The budget then had no room for the follow-up step. Now, when no step or budget is left, the names go in one small call of their own: just the skeleton's lines for those names, answered with `write_section` only (`_say_missing`, at most 6,000 characters of names). It is made even past the area's budget, because its size doesn't depend on what the area read.
+- **A section titled by its id** (`tools.1`, `engine-tools`) is titled by what the area covers: its folders and, for a piece, its label.
+
+Run again on the same app, cold: 129 s, 40 calls (areas 35, 609k / 51k tokens). **Every tool covered (97 of 97); the guard reports none uncovered** (it reported 6 before). Four areas were asked for 17 names they had left out. The skeleton names no section says are four prompt files and `_discovery_cache`, which the guard doesn't check, and this time both model calls. The piece that came back titled by its id showed by what it covers. A whole area did the same in this run; the rule was widened to every area after it, so that is tested but not yet seen on a real learn.
+
 ## Testing
 
 - Unit: skeleton extraction per language the code map parses; trace matching; weights and budgets; per-area save and resume.

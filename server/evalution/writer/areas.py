@@ -10,8 +10,10 @@ a :class:`Budget` of tokens its retries share, both growing with the area's weig
 (:func:`allowance`). What it writes is checked like any save before it is taken. The prompts,
 tools, agents, routes and state of its part of the skeleton are named up front, so no call goes
 on reminding it, and a section may come in parts, each within the output limit. Once written,
-a section that leaves some of them unnamed gets one more step, told which (:data:`FOLLOW_UP`),
-when the budget covers it; never a second. The orchestrator
+a section that leaves some of them unnamed gets one more step, told which (:data:`FOLLOW_UP`):
+in its own conversation when a step and the budget remain, else in one small call of its own that
+carries only those names (:func:`_say_missing`), so a long read never leaves them unasked; never
+a second. The orchestrator
 (:mod:`evalution.writer.learn`) runs several at a time, heaviest first, retries one that fails
 while its budget lasts, and keeps each section as it lands.
 """
@@ -397,7 +399,7 @@ async def _handle(
         nodes = args.get("nodes") if isinstance(args.get("nodes"), list) else []
         section = {
             "id": understanding.AREA_PREFIX + namespace(area.id),
-            "title": cut(str(args.get("title") or area.id), 120),
+            "title": cut(_titled(area, str(args.get("title") or "")), 120),
             "claims": [
                 {
                     **c,
@@ -457,6 +459,23 @@ def unnamed(area: Area, ctx: Context, said: Any) -> list[str]:
     return [n for n in names(area, ctx) if n.split()[-1].lower() not in text]
 
 
+def piece_title(area: Area) -> str:
+    """What an area covers, as a title: its folders, and a piece's label."""
+    where = ", ".join(f"{f}/" if f else "the top folder" for f in area.folders) or area.of
+    return f"{where}, {area.label}" if area.label else where
+
+
+def _titled(area: Area, title: str) -> str:
+    """*title* as the agent gave it, unless it is no more than the area's id (an agent titles its
+    section ``tools.1`` or ``engine-tools``): then what the area covers, its folders and, for a
+    piece, its label."""
+    title = title.strip()
+    ids = {area.id, area.id.split("~")[0], area.of} - {""}
+    if title and title.lower() not in {i.lower() for i in ids}:
+        return title
+    return piece_title(area) or area.id
+
+
 #: The one more step a section that left names out is given.
 FOLLOW_UP = """\
 Your section names none of these of this area: {names}. Add a claim for each with ONE \
@@ -474,6 +493,50 @@ def _follow_up(area: Area, ctx: Context, run: Run, budget: Budget, step: int) ->
         return None
     run.followed = missing
     return FOLLOW_UP.format(names=", ".join(missing))
+
+
+#: What the one call of :func:`_say_missing` may carry of the names it asks for.
+MISSING_CHARS = 6_000
+
+
+async def _say_missing(area: Area, ctx: Context, run: Run, budget: Budget) -> None:
+    """The names *run*'s section left out, asked for in one small call of their own when there was
+    no step or budget left to ask in its conversation: the skeleton's lines for them alone, and
+    only ``write_section`` to answer with. Its size is bounded by :data:`MISSING_CHARS` and
+    :data:`TOKENS`, not by what the area spent before, so it is made even past the budget."""
+    missing = unnamed(area, ctx, [run.section, run.nodes])
+    if not missing or run.section is None:
+        return
+    run.followed = missing
+    wanted = set(missing)
+    mine = [e for e in _skeleton_of(area, ctx) if e.name in wanted]
+    files = sorted({e.path for e in mine})
+    lines = "\n".join(_entry_line(e, ctx.uses) for e in mine)
+    asked = "\n\n".join(
+        [
+            f"The area {area.id}: {', '.join(f or '(top folder)' for f in area.folders)}. "
+            f"Its section, titled {run.section['title']!r}, is written.",
+            fenced(
+                "its files",
+                "\n".join(f"{p} ({sum(e.path == p for e in mine)} names)" for p in files),
+            ),
+            fenced("what the skeleton says of them", cut(lines, MISSING_CHARS)),
+            FOLLOW_UP.format(names=", ".join(missing)),
+        ]
+    )
+    tools = [t for t in TOOLS if t["name"] == "write_section"]
+    reply = await ctx.chat(
+        ctx.key, INSTRUCTIONS, [{"role": "user", "content": asked}], tools, TOKENS
+    )
+    run.calls += 1
+    run.tokens_in += reply.tokens_in
+    run.tokens_out += reply.tokens_out
+    budget.spend(reply)
+    if reply.cut:
+        return
+    for call in reply.tool_calls:
+        if call["name"] == "write_section":
+            await _handle(area, ctx, run, call, set())
 
 
 def _take(run: Run, part: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
@@ -578,6 +641,8 @@ async def run_area(
                     }
                     continue
                 break
+        if run.section is not None and run.section["claims"] and not run.followed:
+            await _say_missing(area, ctx, run, budget)
         if run.section is not None and run.section["claims"]:
             run.outcome = "learned"
         elif run.outcome == "running":
