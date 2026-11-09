@@ -33,6 +33,12 @@ Measured on one big app (2026-11-09): Map 199 s; Read reached 392 of 760 files i
 5. **Saved per area.** Each area's section is checked and saved as it finishes (today: merged at the end). The page reads them as they land. A learn's progress is the list of areas done.
 6. **A first overview early.** As soon as the skeleton and trace hits exist, one bounded call writes a first-pass overview from them alone, marked as such; the final overview replaces it.
 7. **Bulk reading stays as a fallback only:** for a file the code map can't parse (no grammar), when it is in a weighted area.
+8. **Never learn the same code twice.** Everything learned is kept under the fingerprints of what it was learned from, and reused while they hold:
+   - the skeleton and the code map, by each file's fingerprint (parsed again only when a file moved, as the map is today);
+   - what an agent learned of a file (`note`), by that file's fingerprint;
+   - an area's section, by the fingerprints of its files and its trace hits' counts rounded into bands, so a few more calls of the same tool don't relearn it;
+   - the overview, by its sections' and the skeleton's hashes.
+   A learn with nothing moved makes no model call (as today); a learn after a change relearns only the areas whose files or trace bands moved, and those agents start from their previous section and the notes still current, reading only the files that moved. "Learn this area" on an area that hasn't moved says it's current and shows when it was learned, with "Learn it again anyway" as the deliberate way to spend.
 
 ## Phases
 
