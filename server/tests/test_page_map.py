@@ -136,9 +136,7 @@ def test_headers_with_placeholders_sign_in_and_need_no_accounts() -> None:
 def test_relay_lite_as_it_really_is_reads() -> None:
     """Its stored secret is named by path, and its conversation is an unnamed ``main``."""
     raw = yaml.safe_load(HEADERS)
-    raw["sign_in"]["headers"]["X-Atrium-Proxy-Secret"] = (
-        "{secret:targets/relay-lite/proxy_secret}"
-    )
+    raw["sign_in"]["headers"]["X-Atrium-Proxy-Secret"] = "{secret:targets/relay-lite/proxy_secret}"
     raw["replies"] = {"in": {"role": "main"}}
     page = PageMap.model_validate(raw)
     assert page.replies.in_.role == "main" and page.replies.in_.name is None
