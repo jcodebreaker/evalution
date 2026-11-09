@@ -87,11 +87,11 @@ export function RunView({
         ) : (
           <>
             <div className="flex flex-col gap-1">
-              <h2 className="m-0 text-[26px] leading-[1.15] font-semibold tracking-[-0.5px]">
+              <h2 className="m-0 text-[28px] leading-[1.15] font-semibold tracking-[-0.5px]">
                 {run.totals.passed} of {count(run.totals.cases, "test")} pass
               </h2>
               {failingCount || flakyCount || run.totals.unjudged || run.totals.passed_model_only ? (
-                <p className="m-0 text-[13px] text-ink-2">
+                <p className="m-0 text-[14px] text-ink-2">
                   {[
                     failingCount ? `${failingCount} fail every try` : null,
                     flakyCount ? `${flakyCount} fail some tries` : null,
@@ -107,7 +107,7 @@ export function RunView({
                 </p>
               ) : null}
               {run.plays === "page_only" ? (
-                <p className="m-0 text-[13px] text-ink-2" data-testid="page-only-run">
+                <p className="m-0 text-[14px] text-ink-2" data-testid="page-only-run">
                   {PAGE_ONLY_RUN}
                 </p>
               ) : null}

@@ -16,7 +16,7 @@ function Row({ check }: { check: CheckRow }) {
   const kind = checkKindWord(check.kind);
   const tags = [kind, check.guide ? "guide" : null].filter(Boolean).join(" · ");
   return (
-    <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-1.5 text-[12.5px]">
+    <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-1.5 text-[13px]">
       <span
         role="img"
         aria-label={checkWord({
@@ -97,15 +97,15 @@ export function HowDecided({ explain, doubts = [] }: { explain: Explain; doubts?
               </ul>
             ) : null}
             {model.unjudged ? (
-              <p className="m-0 text-[12.5px] text-ink-2">{`${model.unjudged} couldn't be judged`}</p>
+              <p className="m-0 text-[13px] text-ink-2">{`${model.unjudged} couldn't be judged`}</p>
             ) : null}
             {doubts.map((doubt) => (
-              <p key={doubt.line} className="m-0 text-[12.5px] text-warning">
+              <p key={doubt.line} className="m-0 text-[13px] text-warning">
                 {`Line ${doubt.line}: you disagreed ${doubt.disagreed} of ${doubt.labelled} times`}
               </p>
             ))}
             {model.cut ? (
-              <p className="m-0 text-[12.5px] text-ink-2">
+              <p className="m-0 text-[13px] text-ink-2">
                 {`It wasn't shown ${model.cut.toLocaleString()} characters of the evidence`}
               </p>
             ) : null}

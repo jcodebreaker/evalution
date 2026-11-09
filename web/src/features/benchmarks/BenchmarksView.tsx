@@ -217,14 +217,14 @@ export function BenchmarksView({
                   <span className="flex h-6 items-center gap-2">
                     <span className="text-[14px] font-semibold">{entry.label}</span>
                     {latest?.report.accuracy != null ? (
-                      <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+                      <span className="ms-auto text-[21px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
                         {share(latest.report.accuracy)}
                       </span>
                     ) : null}
                   </span>
-                  <span className="text-[12.5px] text-ink-2">{entry.about}</span>
+                  <span className="text-[13px] text-ink-2">{entry.about}</span>
                 </button>
-                <div className="flex min-h-7 items-center gap-2 text-[12px] text-ink-2 tabular-nums">
+                <div className="flex min-h-7 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
                   {mine ? (
                     <span className="font-medium text-tint">
                       Running, {played(mine)} of {mine.questions.length} questions done
@@ -354,21 +354,21 @@ function HowItRuns({ dataset }: { dataset: Dataset }) {
     <section className="group-card flex flex-col gap-4 p-4">
       <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2">
         <div>
-          <dt className="text-[12px] text-ink-2">Questions</dt>
-          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.questions}</dd>
+          <dt className="text-[12.5px] text-ink-2">Questions</dt>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.questions}</dd>
         </div>
         <div>
-          <dt className="text-[12px] text-ink-2">Messages each</dt>
-          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.messages}</dd>
+          <dt className="text-[12.5px] text-ink-2">Messages each</dt>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.messages}</dd>
         </div>
       </dl>
       <ol className="m-0 grid list-none grid-cols-4 gap-3 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">
         {steps.map(([title, detail], index) => (
           <li key={title} className="flex min-w-0 flex-col gap-1 border-t border-separator pt-2.5">
-            <span className="text-[13px] font-medium">
+            <span className="text-[14px] font-medium">
               {index + 1}. {title}
             </span>
-            <span className="text-[12.5px] text-ink-2">{detail}</span>
+            <span className="text-[13px] text-ink-2">{detail}</span>
           </li>
         ))}
       </ol>
@@ -412,7 +412,7 @@ function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string
             key={starter}
             type="button"
             onClick={() => send(starter)}
-            className="rounded-full px-2.5 py-1 text-[12px] text-ink-2 ring-1 ring-separator hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
+            className="rounded-full px-2.5 py-1 text-[12.5px] text-ink-2 ring-1 ring-separator hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
           >
             {starter}
           </button>
@@ -467,7 +467,7 @@ function RunResult({
                     aria-pressed={filter === key}
                     onClick={() => setFilter(key)}
                     className={cn(
-                      "rounded-full px-3 py-1 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring",
+                      "rounded-full px-3 py-1 text-[13px] focus-visible:outline-2 focus-visible:outline-ring",
                       filter === key
                         ? "bg-selection-strong font-semibold text-tint"
                         : "text-ink-2 hover:bg-selection",
@@ -700,7 +700,7 @@ function QuestionTable({ rows, onOpen }: { rows: Question[]; onOpen: (id: string
   const hasTrace = rows.some((question) => question.verdict !== "not_run");
   return (
     <Group>
-      <table className="w-full table-fixed border-collapse text-[13px]">
+      <table className="w-full table-fixed border-collapse text-[14px]">
         <thead>
           <tr className="bg-head text-start text-[10.5px] tracking-[0.06em] text-ink-3 uppercase">
             <th scope="col" className="px-3 py-2 text-start font-medium">
@@ -793,7 +793,7 @@ function QuestionRow({
               <span className="max-md:line-clamp-2 md:block md:truncate" title={question.question}>
                 {question.question}
               </span>
-              <span className="mt-0.5 block text-[12px] text-ink-2 md:hidden">
+              <span className="mt-0.5 block text-[12.5px] text-ink-2 md:hidden">
                 <Status question={question} />
               </span>
             </span>
@@ -885,7 +885,7 @@ function shortened(text: string): string {
 function Said({ label, text }: { label: string; text: string }) {
   return (
     <div>
-      <dt className="text-[12px] font-semibold text-ink-2">{label}</dt>
+      <dt className="text-[12.5px] font-semibold text-ink-2">{label}</dt>
       <dd className="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</dd>
     </div>
   );
@@ -912,7 +912,7 @@ function RunList({
             aria-current={run.run === selected.run ? "true" : undefined}
             onClick={() => onPick(run.run)}
             className={cn(
-              "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2 text-start text-[13px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+              "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2 text-start text-[14px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
               run.run === selected.run && "bg-selection-strong",
             )}
           >
@@ -927,7 +927,7 @@ function RunList({
             <span className="min-w-0 text-ink-2">{benchmarkName(run.set)}</span>
             {run.status === "running" ? <span className="text-ink-2">Running</span> : null}
             {didntFinish(run) ? <span className="text-ink-3">Didn't finish</span> : null}
-            <span className="ms-auto text-[12px] text-ink-3 tabular-nums">
+            <span className="ms-auto text-[12.5px] text-ink-3 tabular-nums">
               {run.started_at ? when(run.started_at) : null}
             </span>
           </button>

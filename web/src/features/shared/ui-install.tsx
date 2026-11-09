@@ -129,7 +129,7 @@ export function InstallPieces({
   const byHand = pieces.filter((piece) => piece.command !== null);
   if (installed) {
     return (
-      <div className={cn("flex min-w-0 flex-col gap-2 text-[12.5px]", className)}>
+      <div className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}>
         <InstallProgress job={job} />
         <p className="m-0 flex items-center gap-1.5 text-success" data-testid="ui-installed">
           <Check className="size-3.5" aria-hidden />
@@ -140,7 +140,7 @@ export function InstallPieces({
   }
   if (!data?.can_install && !running) {
     return (
-      <div className={cn("flex min-w-0 flex-col gap-2 text-[12.5px]", className)}>
+      <div className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}>
         {data?.why_not_install ? <p className="m-0 text-ink-2">{data.why_not_install}</p> : null}
         {byHand.map((piece) => (
           <ByHand key={piece.part} piece={piece} />
@@ -149,7 +149,7 @@ export function InstallPieces({
     );
   }
   return (
-    <div className={cn("flex min-w-0 flex-col gap-2 text-[12.5px]", className)}>
+    <div className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           size="sm"
@@ -196,21 +196,21 @@ export function UiTestingStatus() {
   }, [read]);
   if (!shown) {
     return (
-      <span className="pt-1.5 text-[13px] text-ink-3">
+      <span className="pt-1.5 text-[14px] text-ink-3">
         {failed ? "Couldn't read what UI testing has here." : "…"}
       </span>
     );
   }
   if (shown.ready && shown.job?.state !== "running") {
     return (
-      <span className="flex items-center gap-1.5 pt-1.5 text-[13px]" data-testid="ui-testing-ready">
+      <span className="flex items-center gap-1.5 pt-1.5 text-[14px]" data-testid="ui-testing-ready">
         <Check className="size-3.5 text-success" aria-label="Ready" />
         Ready: Playwright, a browser, and ffmpeg for video.
       </span>
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-2 pt-1.5 text-[12.5px]">
+    <div className="flex min-w-0 flex-col gap-2 pt-1.5 text-[13px]">
       {shown.missing.map((piece) => (
         <p key={piece.part} className="m-0 max-w-[68ch]">
           {piece.said}

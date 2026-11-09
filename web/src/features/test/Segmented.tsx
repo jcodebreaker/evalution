@@ -20,7 +20,7 @@ export function Segmented({
       disabled={disabled}
       onClick={() => onChange(mode)}
       className={cn(
-        "h-7 rounded-[7px] px-3 text-[13px] font-medium text-ink-2 focus-visible:outline-2 focus-visible:outline-ring disabled:text-ink-3",
+        "h-7 rounded-[7px] px-3 text-[14px] font-medium text-ink-2 focus-visible:outline-2 focus-visible:outline-ring disabled:text-ink-3",
         value === mode && "bg-group text-foreground ring-[0.5px] ring-separator",
       )}
     >

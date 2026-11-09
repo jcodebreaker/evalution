@@ -31,7 +31,7 @@ export function PlanDetails({
     setUndoing(false);
   };
   return (
-    <div className="flex flex-col gap-3 text-[13px]" data-testid="plan-details">
+    <div className="flex flex-col gap-3 text-[14px]" data-testid="plan-details">
       <p className="m-0">{planStatusWords(isolation)}</p>
       {plan?.stores.length ? (
         <Group>
@@ -46,7 +46,7 @@ export function PlanDetails({
                   {store.locator}
                 </span>
               </div>
-              <span className="text-[12.5px] text-ink-2">
+              <span className="text-[13px] text-ink-2">
                 {storeHow(store)}
                 {store.seen ? "" : " · not seen in use"}
               </span>
@@ -64,14 +64,14 @@ export function PlanDetails({
             {plan.leaks.map((leak) => (
               <li key={leak} className="flex items-start gap-2">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
-                <span className="min-w-0 font-mono text-[12px] break-all">{leak}</span>
+                <span className="min-w-0 font-mono text-[12.5px] break-all">{leak}</span>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
       {isolation.evidence ? (
-        <p className="m-0 text-[12.5px] text-ink-3">
+        <p className="m-0 text-[13px] text-ink-3">
           The code named {isolation.evidence.candidates} possible places; the app used{" "}
           {isolation.evidence.touched} when watched.
         </p>
@@ -91,7 +91,7 @@ export function PlanDetails({
           Undo the last plan
         </Button>
       ) : null}
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
     </div>
   );
 }

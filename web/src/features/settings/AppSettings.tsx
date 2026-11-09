@@ -41,7 +41,7 @@ export function AppSettings({ target }: { target: string }) {
     : [];
   return (
     <div className="flex flex-col gap-2">
-      <h2 className="m-0 px-1 text-[13px] font-semibold">{target}</h2>
+      <h2 className="m-0 px-1 text-[14px] font-semibold">{target}</h2>
       <Group>
         <Row label="Update what it knows" group>
           <span className="flex flex-wrap gap-0.5 self-start rounded-lg bg-selection p-0.5">
@@ -53,7 +53,7 @@ export function AppSettings({ target }: { target: string }) {
                 aria-pressed={mode === entry.value}
                 onClick={() => void act(() => api.updates.set(target, entry.value), reloadUpdates)}
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
+                  "h-7 rounded-md px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
                   mode === entry.value
                     ? "bg-background font-medium shadow-sm"
                     : "text-ink-2 hover:text-foreground",
@@ -67,7 +67,7 @@ export function AppSettings({ target }: { target: string }) {
         {hosted ? null : (
           <Row label="Git hooks">
             {found && !found.available ? (
-              <span className="pt-1.5 text-[13px] text-ink-2">Not available: {found.reason}</span>
+              <span className="pt-1.5 text-[14px] text-ink-2">Not available: {found.reason}</span>
             ) : (
               <input
                 type="checkbox"
@@ -84,7 +84,7 @@ export function AppSettings({ target }: { target: string }) {
               />
             )}
             {left.map(([hook, why]) => (
-              <span key={hook} className="text-[12px] text-ink-3">
+              <span key={hook} className="text-[12.5px] text-ink-3">
                 {hook} {why}
               </span>
             ))}
@@ -97,7 +97,7 @@ export function AppSettings({ target }: { target: string }) {
           </Row>
         )}
       </Group>
-      {error ? <p className="m-0 px-1 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 px-1 text-[13px] text-destructive">{error}</p> : null}
     </div>
   );
 }

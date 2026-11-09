@@ -12,8 +12,8 @@ export type Card = Understanding["card"];
 function Figure({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
     <div className="min-w-0 border-separator px-4 py-3 not-first:sm:border-s max-sm:[&:nth-child(n+3)]:border-t max-sm:[&:nth-child(even)]:border-s">
-      <b className="block text-[20px] font-bold tracking-[-0.4px] tabular-nums">{value}</b>
-      <small className="block text-[12px] text-ink-2">{label}</small>
+      <b className="block text-[21px] font-bold tracking-[-0.4px] tabular-nums">{value}</b>
+      <small className="block text-[12.5px] text-ink-2">{label}</small>
       {sub ? (
         <i className="mt-0.5 block truncate text-[11.5px] text-ink-3 not-italic">{sub}</i>
       ) : null}
@@ -75,7 +75,7 @@ export function ProjectCard({
           {status ? (
             <span
               className={cn(
-                "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-[12px] font-medium",
+                "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-[12.5px] font-medium",
                 status.tone,
               )}
             >
@@ -83,7 +83,7 @@ export function ProjectCard({
             </span>
           ) : null}
         </div>
-        {copied ? <span className="pt-1 text-[12px] text-ink-3">{copied}</span> : null}
+        {copied ? <span className="pt-1 text-[12.5px] text-ink-3">{copied}</span> : null}
         <MoreMenu
           label="More"
           actions={[{ label: "Copy card", onClick: () => void copyCard() }]}
@@ -95,7 +95,7 @@ export function ProjectCard({
           {card.stack.map((entry) => (
             <span
               key={entry}
-              className="rounded-[7px] bg-bubble px-2.5 py-0.5 text-[12px] text-ink-2"
+              className="rounded-[7px] bg-bubble px-2.5 py-0.5 text-[12.5px] text-ink-2"
             >
               {entry}
             </span>

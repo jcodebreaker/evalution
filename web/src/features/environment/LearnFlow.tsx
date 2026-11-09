@@ -25,7 +25,7 @@ export function useLearnPoll(reach: PageReach | null, read: () => unknown) {
 /** A page map in plain words: each entry, and where it is on the page. */
 export function MapWords({ kept }: { kept: KeptPageMap }) {
   if (kept.error) {
-    return <p className="m-0 text-[12.5px] text-destructive">The map doesn't read: {kept.error}</p>;
+    return <p className="m-0 text-[13px] text-destructive">The map doesn't read: {kept.error}</p>;
   }
   return (
     <Group>
@@ -130,7 +130,7 @@ export function ProposedMap({
           {working ? <Spinner /> : <Check />}
           Approve
         </Button>
-        <span className="min-w-0 flex-1 text-[12px] text-ink-3">
+        <span className="min-w-0 flex-1 text-[12.5px] text-ink-3">
           {reach.writable
             ? reach.managed
               ? "From the next run, tests reach it through its page."
@@ -138,7 +138,7 @@ export function ProposedMap({
             : `${target}'s page: block in evalution.yaml wins: change the map there, or take the block out to use this one.`}
         </span>
       </div>
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -169,7 +169,7 @@ export function LearnSteps({
       ) : null}
       <Checklist steps={learn.steps} />
       {learn.state === "failed" && learn.error ? (
-        <p className="m-0 max-w-[68ch] text-[12.5px] text-warning">
+        <p className="m-0 max-w-[68ch] text-[13px] text-warning">
           {learn.error} The whole conversation is kept among the agent's chats.
         </p>
       ) : null}

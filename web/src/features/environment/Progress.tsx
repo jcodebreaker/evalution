@@ -8,7 +8,7 @@ export type ProgressState = "done" | "now" | "waiting";
 export function Progress({ steps }: { steps: readonly { label: string; state: ProgressState }[] }) {
   return (
     <ol
-      className="m-0 flex list-none flex-wrap items-center gap-2.5 p-0 text-[13px] font-medium"
+      className="m-0 flex list-none flex-wrap items-center gap-2.5 p-0 text-[14px] font-medium"
       aria-label="Getting started"
     >
       {steps.map((step, index) => (
@@ -27,7 +27,7 @@ export function Progress({ steps }: { steps: readonly { label: string; state: Pr
           >
             <span
               className={cn(
-                "grid size-[22px] place-items-center rounded-full text-[12px]",
+                "grid size-[22px] place-items-center rounded-full text-[12.5px]",
                 step.state === "done" && "bg-up text-success",
                 step.state === "now" && "bg-tint text-white",
                 step.state === "waiting" && "bg-muted text-ink-3",

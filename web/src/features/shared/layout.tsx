@@ -15,8 +15,8 @@ export function Toolbar({ children }: { children: ReactNode }) {
 export function ToolbarTitle({ title, sub }: { title: ReactNode; sub?: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <h1 className="m-0 truncate text-[20px] font-semibold tracking-[-0.02em]">{title}</h1>
-      {sub ? <span className="truncate text-[12px] text-ink-2">{sub}</span> : null}
+      <h1 className="m-0 truncate text-[21px] font-semibold tracking-[-0.02em]">{title}</h1>
+      {sub ? <span className="truncate text-[12.5px] text-ink-2">{sub}</span> : null}
     </div>
   );
 }

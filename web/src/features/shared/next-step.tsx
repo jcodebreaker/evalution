@@ -34,7 +34,7 @@ export function MissingPieceNote({
   const open = useOpenEnvironment();
   return (
     <div
-      className={cn("flex min-w-0 flex-col gap-2 text-[12.5px]", className)}
+      className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}
       data-testid="missing-piece"
     >
       <p className="m-0 max-w-[68ch]">{piece.said}</p>
@@ -103,7 +103,7 @@ export function BrokenMapNote({
 }) {
   return (
     <section
-      className="flex flex-wrap items-start gap-3 rounded-[14px] bg-bubble px-4 py-3.5 text-[13px]"
+      className="flex flex-wrap items-start gap-3 rounded-[14px] bg-bubble px-4 py-3.5 text-[14px]"
       aria-label="The page map no longer matches the page"
       data-testid="broken-map"
     >

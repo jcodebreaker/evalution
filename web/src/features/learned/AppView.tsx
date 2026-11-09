@@ -196,7 +196,7 @@ export function AppView({
             <div key={section.id} className={SECTION}>
               <SectionHeading>{section.title}</SectionHeading>
               {section.note ? (
-                <div className="mx-[18px] mt-1.5 mb-1 flex items-start gap-2.5 rounded-[10px] bg-warning/10 px-3 py-2.5 text-[13px]">
+                <div className="mx-[18px] mt-1.5 mb-1 flex items-start gap-2.5 rounded-[10px] bg-warning/10 px-3 py-2.5 text-[14px]">
                   <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
                   <span>{section.note}</span>
                 </div>
@@ -214,7 +214,7 @@ export function AppView({
                 <button
                   type="button"
                   onClick={() => setAll((open) => new Set(open).add(section.id))}
-                  className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[12.5px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                  className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   Show {section.claims.length - shownClaims(section.claims, false).length} more
                 </button>
@@ -230,7 +230,7 @@ export function AppView({
           ) : null}
         </Group>
 
-        {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+        {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
         {shown.starters.length ? (
           <Suggested understanding={shown} onSteer={steer} onAdd={onAdd} />
         ) : null}

@@ -32,7 +32,7 @@ export function Trend({ trend }: { trend: Health["trend"] }) {
     <div className={cn(CARD, "flex flex-col gap-2.5")}>
       <div className="flex items-baseline gap-2">
         <h2 className="m-0 text-[17px] font-bold">Over the last {trend.length} runs</h2>
-        <span className="ms-auto text-[12px] text-ink-2">tests passing</span>
+        <span className="ms-auto text-[12.5px] text-ink-2">tests passing</span>
       </div>
       <svg
         role="img"

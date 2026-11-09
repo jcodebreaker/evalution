@@ -88,7 +88,7 @@ export function ScoreBar({ value, pass }: { value: number | null; pass: number }
   if (value === null) return <span className="text-ink-3">—</span>;
   const low = value < pass;
   return (
-    <div className="flex min-w-0 items-center gap-2 text-[12px]">
+    <div className="flex min-w-0 items-center gap-2 text-[12.5px]">
       <span className={cn("w-[30px] text-end tabular-nums", low && "text-destructive")}>
         {score(value)}
       </span>

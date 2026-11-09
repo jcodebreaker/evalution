@@ -21,13 +21,13 @@ export function Checklist({ steps }: { steps: readonly IsolationStep[] }) {
             <Mark state={step.state} />
             <span className="min-w-0">{step.label}</span>
             {step.seconds !== null && step.state !== "waiting" ? (
-              <span className="ms-auto text-[12px] text-ink-3 tabular-nums">
+              <span className="ms-auto text-[12.5px] text-ink-3 tabular-nums">
                 {stepTime(step.seconds)}
               </span>
             ) : null}
           </div>
           {step.state === "failed" && step.detail ? (
-            <p className="m-0 ps-7 text-[12.5px] text-warning">{step.detail}</p>
+            <p className="m-0 ps-7 text-[13px] text-warning">{step.detail}</p>
           ) : null}
         </li>
       ))}

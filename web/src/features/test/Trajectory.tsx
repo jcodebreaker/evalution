@@ -28,7 +28,7 @@ function Lane({
           {index ? <ArrowRight className="size-3 text-ink-3" aria-hidden /> : null}
           <span
             className={cn(
-              "inline-flex h-7 items-center rounded-lg px-2.5 text-[12.5px]",
+              "inline-flex h-7 items-center rounded-lg px-2.5 text-[13px]",
               NODE[step.status],
               index === marked && "outline-2 outline-offset-1 outline-foreground",
             )}
@@ -54,7 +54,7 @@ function Lane({
 /** Each expected call beside the call made, in the shown try. */
 function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
   return (
-    <div className="group-card grid grid-cols-2 text-[12.5px] max-md:grid-cols-1">
+    <div className="group-card grid grid-cols-2 text-[13px] max-md:grid-cols-1">
       <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-3 uppercase max-md:hidden">
         Expected
       </h4>
@@ -71,7 +71,7 @@ function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
             <Call label="What it did" text={row.actual} />
             <p
               className={cn(
-                "m-0 px-3.5 pb-2 -mt-1 text-[12px]",
+                "m-0 px-3.5 pb-2 -mt-1 text-[12.5px]",
                 row.status === "matched" || row.status === "extra" || row.status === "automatic"
                   ? "text-ink-3"
                   : "text-destructive",
@@ -90,7 +90,7 @@ function Call({ label, text }: { label: string; text: string | null }) {
   return (
     <div className="min-w-0 px-3.5 py-2">
       <span className="block text-[11px] text-ink-3 md:hidden">{label}</span>
-      <code className="font-mono text-[12px] break-words">{text ?? "—"}</code>
+      <code className="font-mono text-[12.5px] break-words">{text ?? "—"}</code>
     </div>
   );
 }
@@ -127,7 +127,7 @@ export function Trajectory({
     <section className="flex flex-col gap-2">
       <SectionHead title="Trajectory" sub="what it should do vs what it did" />
       <div className="group-card grid grid-cols-[72px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-3.5">
-        <span className="text-[12px] font-semibold text-ink-3">Expected</span>
+        <span className="text-[12.5px] font-semibold text-ink-3">Expected</span>
         <Lane
           steps={trajectory.expected.map((label) => ({
             label,
@@ -138,7 +138,7 @@ export function Trajectory({
           <span key={lane.n} className="contents">
             <span
               className={cn(
-                "text-[12px] font-semibold",
+                "text-[12.5px] font-semibold",
                 lane.n === shown.try ? "text-foreground" : "text-ink-3",
               )}
             >
@@ -156,7 +156,7 @@ export function Trajectory({
         ))}
       </div>
       {diverged ? (
-        <p className="m-0 px-1 text-[12px] text-ink-3">
+        <p className="m-0 px-1 text-[12.5px] text-ink-3">
           <button
             type="button"
             className="underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
@@ -169,7 +169,7 @@ export function Trajectory({
         </p>
       ) : null}
       {lanes.some((lane) => lane.steps.some((step) => step.status === "automatic")) ? (
-        <p className="m-0 px-1 text-[12px] text-ink-3">Automatic: ran by itself, not scored</p>
+        <p className="m-0 px-1 text-[12.5px] text-ink-3">Automatic: ran by itself, not scored</p>
       ) : null}
       {shown.tool_rows.length ? <ToolRows rows={shown.tool_rows} try_={shown.try} /> : null}
     </section>

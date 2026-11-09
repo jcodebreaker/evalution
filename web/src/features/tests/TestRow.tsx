@@ -41,21 +41,21 @@ export function TestRow({
             <PlaysChip plays={row.plays} />
             {row.stale ? <StaleChip reason={row.stale} /> : null}
             {row.different ? (
-              <span className="shrink-0 text-[12px] text-ink-3">Different route</span>
+              <span className="shrink-0 text-[12.5px] text-ink-3">Different route</span>
             ) : null}
             {row.originally ? (
-              <span className="shrink-0 text-[12px] text-ink-3">
+              <span className="shrink-0 text-[12.5px] text-ink-3">
                 {originallyWord(row.originally)}
               </span>
             ) : null}
           </span>
           {line ? (
-            <span title={line} className="truncate text-[12px] text-ink-3">
+            <span title={line} className="truncate text-[12.5px] text-ink-3">
               {line}
             </span>
           ) : null}
         </span>
-        <span className="shrink-0 pt-px text-[12px] text-ink-3 tabular-nums">
+        <span className="shrink-0 pt-px text-[12.5px] text-ink-3 tabular-nums">
           {row.last_at ? when(row.last_at) : row.verdict === null ? "Not run" : null}
         </span>
       </button>

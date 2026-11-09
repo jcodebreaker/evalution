@@ -55,7 +55,7 @@ function BlockCard({ block, animate }: { block: ShownBlock; animate: boolean }) 
         className={cn(
           "relative grid size-9 shrink-0 place-items-center",
           person
-            ? "rounded-full bg-up text-[13px] font-bold text-success"
+            ? "rounded-full bg-up text-[14px] font-bold text-success"
             : "rounded-[10px] bg-selection-strong text-tint",
         )}
       >
@@ -69,7 +69,7 @@ function BlockCard({ block, animate }: { block: ShownBlock; animate: boolean }) 
       </span>
       <span className="flex min-w-0 flex-col">
         <b className="truncate font-semibold">{block.title}</b>
-        <span className="truncate text-[12px] text-ink-3">{block.sub}</span>
+        <span className="truncate text-[12.5px] text-ink-3">{block.sub}</span>
       </span>
       <Check
         className={cn(
@@ -149,7 +149,7 @@ export function CopyPicture({
           data-testid="test-copy"
           data-tone={tone}
         >
-          <div className="mb-2.5 font-mono text-[12px] text-ink-3">{copyName(target)}</div>
+          <div className="mb-2.5 font-mono text-[12.5px] text-ink-3">{copyName(target)}</div>
           {blocks.length ? (
             <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5 p-0">
               {blocks.map((block) => (
@@ -157,7 +157,7 @@ export function CopyPicture({
               ))}
             </ul>
           ) : (
-            <p className="m-auto text-[12.5px] text-ink-3">{empty}</p>
+            <p className="m-auto text-[13px] text-ink-3">{empty}</p>
           )}
           {tone === "ready" ? (
             <div className="mt-2.5 flex items-center justify-end gap-1.5 font-semibold text-success">

@@ -29,7 +29,7 @@ export function PageShown({ page, n }: { page: StepPage; n: number }) {
           />
         </button>
       ) : null}
-      <div className="flex min-w-0 flex-col gap-0.5 text-[12.5px]">
+      <div className="flex min-w-0 flex-col gap-0.5 text-[13px]">
         <span
           className={cn(
             "font-semibold break-words",
@@ -106,7 +106,7 @@ export function PageNotes({ page }: { page: TryPage }) {
             {lines.map((line, index) => (
               <li
                 key={index}
-                className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-baseline gap-2 border-separator px-3.5 py-2 text-[12.5px] not-first:border-t"
+                className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-baseline gap-2 border-separator px-3.5 py-2 text-[13px] not-first:border-t"
               >
                 <span
                   className={cn(
@@ -116,7 +116,7 @@ export function PageNotes({ page }: { page: TryPage }) {
                 >
                   {line.tone === "error" ? "Error" : "Warning"}
                 </span>
-                <code className="font-mono text-[12px] break-words whitespace-pre-wrap">
+                <code className="font-mono text-[12.5px] break-words whitespace-pre-wrap">
                   {line.text}
                 </code>
                 <span className="text-[11.5px] text-ink-3 tabular-nums">
@@ -126,7 +126,7 @@ export function PageNotes({ page }: { page: TryPage }) {
             ))}
           </ul>
           {page.left_out ? (
-            <p className="m-0 mt-1.5 text-[12px] text-ink-3">
+            <p className="m-0 mt-1.5 text-[12.5px] text-ink-3">
               {count(page.left_out, "more line")} not kept.
             </p>
           ) : null}
@@ -146,7 +146,7 @@ export function PageNotes({ page }: { page: TryPage }) {
       ) : null}
       {page.video_fix ? <MissingPieceNote piece={page.video_fix} /> : null}
       {notes.map((note) => (
-        <p key={note} className="m-0 text-[12.5px] text-ink-2">
+        <p key={note} className="m-0 text-[13px] text-ink-2">
           {note}
         </p>
       ))}

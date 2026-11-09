@@ -33,7 +33,7 @@ export function Details({
     .sort((a, b) => b.started_at - a.started_at);
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-2 px-1 text-[12.5px] text-ink-3">
         {run.prompt ? <span>prompt {run.prompt}</span> : null}
         {others.length ? (
           <>

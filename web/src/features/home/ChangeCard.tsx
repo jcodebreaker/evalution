@@ -48,7 +48,7 @@ export function ChangeCard({
         <h2 className="m-0 text-[17px] font-bold" title={summary || undefined}>
           Code changed since the last run: {areas.length ? areas.join(", ") : count(files, "file")}
         </h2>
-        <p className="m-0 text-[13px] text-ink-2">
+        <p className="m-0 text-[14px] text-ink-2">
           {tests.length ? `${count(tests.length, "test")} affected` : null}
           {tests.length && uncovered.length ? " · " : null}
           {uncovered.length ? (

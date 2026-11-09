@@ -59,7 +59,7 @@ export function Output({ shown }: { shown: Compare }) {
             <p className="m-0 text-[13.5px] text-ink-2 whitespace-pre-wrap">{output.reference}</p>
           ) : null}
           {output.must.length ? (
-            <ul className="m-0 mt-1 flex list-disc flex-col gap-0.5 ps-4 text-[13px] text-ink-2">
+            <ul className="m-0 mt-1 flex list-disc flex-col gap-0.5 ps-4 text-[14px] text-ink-2">
               {output.must.map((line) => (
                 <li key={line}>{line}</li>
               ))}

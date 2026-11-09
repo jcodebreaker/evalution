@@ -65,7 +65,7 @@ export function ProofControl({
                   if (proof[part] !== keep) onChange(part, keep);
                 }}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60",
+                  "rounded-md px-2.5 py-1 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60",
                   proof[part] === keep ? "bg-group text-foreground shadow-sm" : "text-ink-2",
                 )}
               >
@@ -73,7 +73,7 @@ export function ProofControl({
               </button>
             ))}
           </fieldset>
-          {aside ? <span className="text-[12px] text-ink-3">{aside(part)}</span> : null}
+          {aside ? <span className="text-[12.5px] text-ink-3">{aside(part)}</span> : null}
         </div>
       ))}
     </div>

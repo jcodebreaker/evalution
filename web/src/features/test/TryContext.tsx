@@ -68,7 +68,7 @@ function CallBar({
 }) {
   const sum = call.sections.reduce((total, section) => total + section.tokens, 0) || 1;
   return (
-    <div className="flex flex-col gap-1.5 text-[12px]">
+    <div className="flex flex-col gap-1.5 text-[12.5px]">
       <div className="flex min-w-0 items-baseline gap-2">
         <span className="shrink-0 font-medium">Call {call.n}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-3">
@@ -122,7 +122,7 @@ function Steps({ steps }: { steps: readonly TrajectoryStep[] }) {
   return (
     <div className="flex flex-col gap-1">
       <h5 className="m-0 text-[11px] font-semibold text-ink-3">Steps</h5>
-      <ol className="m-0 flex list-none flex-col p-0 text-[12px]">
+      <ol className="m-0 flex list-none flex-col p-0 text-[12.5px]">
         {steps.map((step, index) => (
           <li
             key={index}

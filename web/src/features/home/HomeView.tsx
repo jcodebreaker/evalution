@@ -78,11 +78,11 @@ export function HomeView({
       <div className="mx-auto flex max-w-[1180px] flex-col gap-[22px] px-[clamp(16px,3vw,40px)] pt-7 pb-12">
         <header className="flex flex-wrap items-end gap-3.5">
           <div className="min-w-60 flex-1">
-            <p className="m-0 text-[13px] text-ink-2">
+            <p className="m-0 text-[14px] text-ink-2">
               {today}
               {lastRunAt ? ` · last run ${ago(lastRunAt)}` : ""}
             </p>
-            <h1 className="m-0 mt-1 text-[22px] leading-tight font-semibold tracking-[-0.02em]">
+            <h1 className="m-0 mt-1 text-[24px] leading-tight font-semibold tracking-[-0.02em]">
               How {scope.target} is doing
             </h1>
           </div>
@@ -98,7 +98,7 @@ export function HomeView({
                   aria-pressed={period === id}
                   onClick={() => setPeriod(id)}
                   className={cn(
-                    "h-[30px] rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
+                    "h-[30px] rounded-full px-3.5 text-[14px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
                     period === id ? "bg-group text-foreground shadow-sm" : "text-ink-2",
                   )}
                 >

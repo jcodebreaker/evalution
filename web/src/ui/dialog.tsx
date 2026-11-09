@@ -33,7 +33,7 @@ export function ConfirmDialog({
           <div className="flex flex-col gap-1 text-center">
             <Alert.Title className="m-0 text-[14px] font-semibold">{title}</Alert.Title>
             {description ? (
-              <Alert.Description className="m-0 text-[12.5px] text-ink-2 tabular-nums">
+              <Alert.Description className="m-0 text-[13px] text-ink-2 tabular-nums">
                 {description}
               </Alert.Description>
             ) : null}
@@ -70,7 +70,7 @@ export function PictureDialog({
         <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-32px)] w-[min(1100px,calc(100vw-32px))] -translate-1/2 flex-col gap-3 rounded-xl bg-window p-4 shadow-[0_0_0_0.5px_var(--separator),0_24px_60px_-12px_rgba(0,0,0,0.35)] transition-[opacity,scale] duration-150 outline-none data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
           <div className="flex items-center gap-2">
             <Dialog.Title className="m-0 flex-1 text-[14px] font-semibold">{title}</Dialog.Title>
-            <Dialog.Close className="h-7 rounded-md px-2.5 text-[12.5px] text-ink-2 hover:bg-selection hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+            <Dialog.Close className="h-7 rounded-md px-2.5 text-[13px] text-ink-2 hover:bg-selection hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
               Close
             </Dialog.Close>
           </div>

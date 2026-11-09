@@ -33,7 +33,7 @@ export function WhatWentWrong({
       setBusy(false);
     };
     return (
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
         <span>{error ?? run.analysis_error}</span>
         <TextLink disabled={busy} onClick={() => void retry()}>
           Try again
@@ -62,12 +62,12 @@ export function WhatWentWrong({
                   </span>
                 }
               >
-                <p className="m-0 ps-5 text-[12.5px] leading-[1.45] text-ink-2">
+                <p className="m-0 ps-5 text-[13px] leading-[1.45] text-ink-2">
                   {pattern.detail.text}
                 </p>
               </Fold>
               {pattern.cases.length ? (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 ps-5 text-[12.5px]">
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 ps-5 text-[13px]">
                   {pattern.cases.map((name) => {
                     const row = byId.get(name) ?? byName.get(name);
                     return row ? (

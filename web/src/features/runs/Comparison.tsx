@@ -49,7 +49,7 @@ export function Comparison({
   if (load.status !== "ready" || load.data.run !== run.run) return null;
   if (!load.data.base) {
     return (
-      <p className="m-0 text-[13px] text-ink-2">No earlier run of this test set to compare with.</p>
+      <p className="m-0 text-[14px] text-ink-2">No earlier run of this test set to compare with.</p>
     );
   }
   const found = load.data;
@@ -70,12 +70,12 @@ export function Comparison({
     <section className="flex flex-col gap-3 rounded-[14px] bg-group p-4 ring-1 ring-separator">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h3 className="m-0 min-w-0 flex-1 text-[17px] font-bold text-balance">{found.headline}</h3>
-        <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
+        <label className="flex items-center gap-1.5 text-[14px] text-ink-2">
           Compared with
           <select
             value={base}
             onChange={(event) => setPicked({ run: run.run, base: event.target.value })}
-            className="rounded-md bg-bubble px-1.5 py-1 text-[13px] text-foreground"
+            className="rounded-md bg-bubble px-1.5 py-1 text-[14px] text-foreground"
           >
             {others.some((other) => other.run === base) ? null : (
               <option value={base}>{label(base)}</option>
@@ -89,7 +89,7 @@ export function Comparison({
         </label>
       </div>
       {found.changed.length ? (
-        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-[13px] text-ink-2">
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-[14px] text-ink-2">
           {found.changed.map((row) => (
             <li key={row.what} className="min-w-0 break-words">
               {`${row.what}: ${row.before} → ${row.now}`}
@@ -97,7 +97,7 @@ export function Comparison({
           ))}
         </ul>
       ) : (
-        <p className="m-0 text-[13px] text-ink-2">Nothing recorded about the setup changed.</p>
+        <p className="m-0 text-[14px] text-ink-2">Nothing recorded about the setup changed.</p>
       )}
       {moved.length ? (
         <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[14px]">
@@ -114,24 +114,24 @@ export function Comparison({
                 {WORDS[test.change] ?? test.change}
               </span>
               <TextLink onClick={() => onTest(test.case)}>{test.name}</TextLink>
-              <span className="text-[13px] text-ink-2">
+              <span className="text-[14px] text-ink-2">
                 {`${tries(test.before)} → ${tries(test.now)}`}
               </span>
               {test.caveats.length ? (
-                <span className="text-[12.5px] text-ink-3">{test.caveats.join(", ")}</span>
+                <span className="text-[13px] text-ink-3">{test.caveats.join(", ")}</span>
               ) : null}
             </li>
           ))}
         </ul>
       ) : null}
       {same ? (
-        <p className="m-0 text-[13px] text-ink-2">
+        <p className="m-0 text-[14px] text-ink-2">
           {same === 1 ? "1 test didn't change." : `${same} tests didn't change.`}
         </p>
       ) : null}
       {found.could_be_chance ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p className="m-0 min-w-0 flex-1 text-[13px] text-ink-2">
+          <p className="m-0 min-w-0 flex-1 text-[14px] text-ink-2">
             This few tries could be the agent varying.
           </p>
           <Button

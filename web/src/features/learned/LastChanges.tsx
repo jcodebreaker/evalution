@@ -14,7 +14,7 @@ export function LastChanges({
   if (!changes.length && !canUndo) return null;
   return (
     <Fold title={`What changed · ${changes.length}`}>
-      <ul className="m-0 flex list-none flex-col gap-2 p-0 px-1 text-[13px]">
+      <ul className="m-0 flex list-none flex-col gap-2 p-0 px-1 text-[14px]">
         {changes.map((change, index) => (
           <li key={index} className="flex flex-col gap-0.5">
             {change.before ? <s className="text-ink-3">{change.before}</s> : null}

@@ -72,7 +72,7 @@ export function Composer({
         )}
         {kind ? (
           <div className="flex flex-col">
-            <span className="pb-1 text-[13px] font-medium">{kind.title}</span>
+            <span className="pb-1 text-[14px] font-medium">{kind.title}</span>
             {kind.asks.map((ask) => (
               <Row key={ask.name} label={ask.label}>
                 <Input
@@ -126,7 +126,7 @@ export function Composer({
             From a real conversation
           </Button>
           {error ? (
-            <p className="m-0 min-w-0 flex-1 text-[12px] text-destructive">{error}</p>
+            <p className="m-0 min-w-0 flex-1 text-[12.5px] text-destructive">{error}</p>
           ) : null}
           <Button
             className="ms-auto"

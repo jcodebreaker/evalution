@@ -19,7 +19,7 @@ export function KnowledgeLine({
   return (
     <>
       {last ? (
-        <p className="m-0 text-[13px] text-ink-2">
+        <p className="m-0 text-[14px] text-ink-2">
           {last.changed
             ? `It updated what it knows from ${last.commit}: ${count(last.changed, "claim")} changed`
             : `It checked what it knows against ${last.commit}`}

@@ -143,10 +143,10 @@ export function TargetFields({
               </div>
             </Row>
             <Row label="Body" hint="{message} and {session} are filled in">
-              <Textarea {...field("body")} spellCheck={false} className="font-mono text-[12px]" />
+              <Textarea {...field("body")} spellCheck={false} className="font-mono text-[12.5px]" />
             </Row>
             <Row label="Reply" hint="Where the answer is, like $.reply">
-              <Input {...field("reply")} className="font-mono text-[12px]" />
+              <Input {...field("reply")} className="font-mono text-[12.5px]" />
             </Row>
             <Row label="Done">
               <Select
@@ -169,7 +169,7 @@ export function TargetFields({
                   <Input {...field("poll")} type="url" required />
                 </Row>
                 <Row label="Until">
-                  <Input {...field("until")} required className="font-mono text-[12px]" />
+                  <Input {...field("until")} required className="font-mono text-[12.5px]" />
                 </Row>
               </>
             ) : null}
@@ -213,7 +213,7 @@ export function TargetFields({
               <CopyField value={endpoint} label="Traces endpoint" />
             </Row>
           ) : null}
-          <label className="flex items-center gap-2.5 px-3.5 py-2.5 text-[13px]">
+          <label className="flex items-center gap-2.5 px-3.5 py-2.5 text-[14px]">
             <input
               type="checkbox"
               checked={form.ownPhoenix}
@@ -250,16 +250,16 @@ export function TargetFields({
           </Row>
           {form.codePath ? (
             <Row label="Ignore">
-              <Input {...field("ignore")} className="font-mono text-[12px]" />
+              <Input {...field("ignore")} className="font-mono text-[12.5px]" />
             </Row>
           ) : null}
         </Group>
       </section>
 
-      {leavesKey ? <p className="m-0 text-[12.5px] text-ink-2">{KEY_LEFT_BEHIND}</p> : null}
+      {leavesKey ? <p className="m-0 text-[13px] text-ink-2">{KEY_LEFT_BEHIND}</p> : null}
       {checker.check ? <CheckResult check={checker.check} /> : null}
       {checker.error || error ? (
-        <p className="m-0 text-[12.5px] text-destructive">{checker.error ?? error}</p>
+        <p className="m-0 text-[13px] text-destructive">{checker.error ?? error}</p>
       ) : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {extra}

@@ -45,7 +45,7 @@ export function IsolationLines({ estimate, app }: { estimate: Estimate; app: str
     });
   }
   return (
-    <div className="flex flex-col items-center gap-1 text-center text-[12.5px]">
+    <div className="flex flex-col items-center gap-1 text-center text-[13px]">
       {lines.map((line) => (
         <p key={line.text} className={cn("m-0", line.warn ? "text-warning" : "text-ink-2")}>
           {line.text}
@@ -62,7 +62,7 @@ export function PlaysLines({ estimate }: { estimate: Estimate }) {
   if (!estimate.plays.length) return null;
   return (
     <div
-      className="flex flex-col items-center gap-1 text-center text-[12.5px]"
+      className="flex flex-col items-center gap-1 text-center text-[13px]"
       data-testid="run-plays"
     >
       {estimate.plays.map((line) => (
@@ -174,14 +174,14 @@ export function RunConfirm({
       {estimate ? <PlaysLines estimate={estimate} /> : null}
       {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
       {estimate?.refused.map((item) => (
-        <p key={item.case} className="m-0 text-center text-[12.5px] text-warning">
+        <p key={item.case} className="m-0 text-center text-[13px] text-warning">
           {`Left out: ${item.case}, because ${item.why}`}
         </p>
       ))}
       {missing ? (
         <MissingPieceNote piece={missing} onLeave={onClose} />
       ) : error ? (
-        <p className="m-0 text-center text-[12.5px] text-destructive">{error}</p>
+        <p className="m-0 text-center text-[13px] text-destructive">{error}</p>
       ) : null}
     </ConfirmDialog>
   );

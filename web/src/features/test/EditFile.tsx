@@ -82,7 +82,7 @@ export function EditFile({
       footer={
         <>
           {error ? (
-            <p className="m-0 me-auto min-w-0 self-center text-[12.5px] whitespace-pre-wrap text-destructive">
+            <p className="m-0 me-auto min-w-0 self-center text-[13px] whitespace-pre-wrap text-destructive">
               {error}
             </p>
           ) : null}
@@ -105,7 +105,7 @@ export function EditFile({
         }}
         spellCheck={false}
         aria-label="Test file"
-        className="min-h-0 flex-1 font-mono text-[12px] leading-[1.55]"
+        className="min-h-0 flex-1 font-mono text-[12.5px] leading-[1.55]"
       />
     </Sheet>
   );

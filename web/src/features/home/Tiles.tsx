@@ -53,14 +53,14 @@ export function Tiles({ health }: { health: Health }) {
     <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-3">
       {tiles.map((tile) => (
         <div key={tile.label} className="flex flex-col gap-1 glass rounded-xl p-4">
-          <span className="text-[13px] text-ink-2">{tile.label}</span>
-          <span className="font-display text-[30px] leading-tight font-semibold tracking-[-0.03em] tabular-nums">
+          <span className="text-[14px] text-ink-2">{tile.label}</span>
+          <span className="font-display text-[32px] leading-tight font-semibold tracking-[-0.03em] tabular-nums">
             {tile.value}
           </span>
           {tile.note ? (
             <span
               className={cn(
-                "text-[12.5px] font-semibold",
+                "text-[13px] font-semibold",
                 tile.tone === "good"
                   ? "text-tint"
                   : tile.tone === "bad"

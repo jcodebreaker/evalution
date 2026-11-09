@@ -87,7 +87,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
 
   return (
     <section
-      className={cn("flex flex-col gap-3 text-[13px]", className)}
+      className={cn("flex flex-col gap-3 text-[14px]", className)}
       aria-label="UI testing"
       data-testid="ui-offer"
     >
@@ -125,11 +125,11 @@ export function UiOffer({ target, className }: { target: string; className?: str
             copy, keeping a screenshot of every message and a video when a try fails.
           </p>
           {offer?.can_learn ? (
-            <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{oneMessage(target)}</p>
+            <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{oneMessage(target)}</p>
           ) : missing && installFirst ? (
             <MissingPieceNote piece={missing} onInstalled={() => void read()} />
           ) : offer?.why_not ? (
-            <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{offer.why_not}</p>
+            <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{offer.why_not}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-3">
             {offer?.can_learn || (open && !installFirst) ? (
@@ -142,7 +142,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
               Not now
             </Button>
           </div>
-          <details className="text-[12.5px] text-ink-2" data-testid="ui-demo">
+          <details className="text-[13px] text-ink-2" data-testid="ui-demo">
             <summary className="cursor-pointer select-none">Try the demo first</summary>
             <div className="mt-2 flex max-w-[68ch] flex-col gap-2">
               <p className="m-0">
@@ -155,7 +155,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
           </details>
         </>
       )}
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
     </section>
   );
 }

@@ -66,7 +66,7 @@ export function Check({
         role="img"
         aria-label={actual ? checkWord(actual) : label}
         className={cn(
-          "grid size-[22px] place-items-center rounded-[7px] text-[12px] font-bold",
+          "grid size-[22px] place-items-center rounded-[7px] text-[12.5px] font-bold",
           mark[1],
         )}
       >
@@ -75,7 +75,7 @@ export function Check({
       <div className="min-w-0">
         <p className="m-0 text-[13.5px]">{item.text}</p>
         {item.detail && !actual ? (
-          <small className="mt-px block text-[12px] text-ink-3">{item.detail}</small>
+          <small className="mt-px block text-[12.5px] text-ink-3">{item.detail}</small>
         ) : null}
         {actual ? <Outcome actual={actual} names={names} onSpan={onSpan} /> : null}
         {answerable ? <Agree agreement={answerable} onPress={press} /> : null}

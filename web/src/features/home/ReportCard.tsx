@@ -40,7 +40,7 @@ export function ReportCard({
   };
   return (
     <section className={cn(CARD, "flex flex-col gap-4")}>
-      <h2 className="m-0 text-[20px] font-semibold tracking-[-0.015em] text-balance">
+      <h2 className="m-0 text-[21px] font-semibold tracking-[-0.015em] text-balance">
         {headline(facts)}
       </h2>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-6">
@@ -156,7 +156,7 @@ function Item({
         {text}
       </span>
       {long || onWhy || shownNotes.length ? (
-        <span className="flex flex-wrap items-baseline gap-x-2.5 text-[12px] text-ink-3">
+        <span className="flex flex-wrap items-baseline gap-x-2.5 text-[12.5px] text-ink-3">
           {shownNotes.map((note) => (
             <span key={note}>{note}</span>
           ))}
@@ -176,7 +176,7 @@ function ReportList({ title, children }: { title: string; children: ReactNode[] 
   if (!children.length) return null;
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <h3 className="m-0 text-[12px] font-semibold text-ink-3">{title}</h3>
+      <h3 className="m-0 text-[12.5px] font-semibold text-ink-3">{title}</h3>
       <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[14px]">{children}</ul>
     </div>
   );

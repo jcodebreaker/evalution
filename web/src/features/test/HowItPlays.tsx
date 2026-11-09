@@ -50,7 +50,7 @@ export function HowItPlays({
   };
 
   return (
-    <section className="flex flex-col gap-2.5 text-[13px]" data-testid="how-it-plays">
+    <section className="flex flex-col gap-2.5 text-[14px]" data-testid="how-it-plays">
       <p className="m-0 text-ink-2">{playsWords(plays)}</p>
       {plays !== "api" && shown ? (
         <ProofControl
@@ -62,7 +62,7 @@ export function HowItPlays({
               <>
                 This test's own ·{" "}
                 <TextLink
-                  className="text-[12px]"
+                  className="text-[12.5px]"
                   disabled={saving}
                   onClick={() => void save(part, null)}
                 >
@@ -75,7 +75,7 @@ export function HowItPlays({
           }
         />
       ) : null}
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
     </section>
   );
 }

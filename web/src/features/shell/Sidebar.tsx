@@ -90,13 +90,13 @@ export function Sidebar({
             label="App"
             value={
               <span className="flex min-w-0 items-center gap-2.5">
-                <span className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-selection-strong text-[12px] font-bold text-tint">
+                <span className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-selection-strong text-[12.5px] font-bold text-tint">
                   {target.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="flex min-w-0 flex-col text-start">
                   <span className="truncate font-semibold">{target}</span>
                   {card?.one_line ? (
-                    <span className="truncate text-[12px] font-normal text-ink-2">
+                    <span className="truncate text-[12.5px] font-normal text-ink-2">
                       {card.one_line}
                     </span>
                   ) : null}
@@ -127,7 +127,7 @@ export function Sidebar({
               value={setName}
               options={sets.map((entry) => ({ value: entry.set, label: entry.name }))}
               onPick={onSet}
-              className="self-start text-[12px] font-medium text-ink-2"
+              className="self-start text-[12.5px] font-medium text-ink-2"
             />
           ) : null}
         </div>
@@ -150,7 +150,7 @@ export function Sidebar({
             onClick={onGoing}
             aria-current={place.run === going.run ? "page" : undefined}
             className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 ps-9 pe-2 text-start text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto max-md:ps-2",
+              "flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 ps-9 pe-2 text-start text-[13px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto max-md:ps-2",
               place.run === going.run ? "bg-selection-strong text-tint" : "hover:bg-selection",
             )}
           >
@@ -206,7 +206,7 @@ function NavItem({
       aria-current={selected ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-start text-[13px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto",
+        "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-start text-[14px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto",
         selected ? "bg-muted font-medium text-ink" : "text-ink-2 hover:bg-selection",
       )}
     >

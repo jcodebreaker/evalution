@@ -82,7 +82,7 @@ function Choice({
         aria-hidden
       />
       {label}
-      <span className="ms-auto truncate text-[12px] text-ink-3">{aside}</span>
+      <span className="ms-auto truncate text-[12.5px] text-ink-3">{aside}</span>
     </label>
   );
 }
@@ -160,7 +160,7 @@ export function SetupPanel({
     >
       <h2 className="m-0 flex items-baseline justify-between gap-2 text-[14px] font-semibold">
         Test setup
-        <span className="text-[12px] font-normal text-ink-3">you can change this</span>
+        <span className="text-[12.5px] font-normal text-ink-3">you can change this</span>
       </h2>
 
       <Section title="Test person">
@@ -178,9 +178,9 @@ export function SetupPanel({
                 <b className="truncate font-semibold">
                   {(named && setup.person.name) || "Test person"}
                 </b>
-                {meta ? <span className="truncate text-[12px] text-ink-3">{meta}</span> : null}
+                {meta ? <span className="truncate text-[12.5px] text-ink-3">{meta}</span> : null}
                 {named ? null : (
-                  <span className="truncate text-[12px] text-ink-3">
+                  <span className="truncate text-[12.5px] text-ink-3">
                     {target} names its own test person
                   </span>
                 )}
@@ -201,7 +201,7 @@ export function SetupPanel({
             </div>
             {editing ? (
               <form
-                className="mt-2 flex flex-col gap-2 text-[12px] text-ink-2"
+                className="mt-2 flex flex-col gap-2 text-[12.5px] text-ink-2"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void savePerson();
@@ -277,7 +277,7 @@ export function SetupPanel({
             ) : null}
           </>
         ) : (
-          <p className="m-0 text-[12.5px] text-ink-2">This app picks its own test person</p>
+          <p className="m-0 text-[13px] text-ink-2">This app picks its own test person</p>
         )}
       </Section>
 
@@ -395,7 +395,7 @@ export function SetupPanel({
 
       <Section title="Left alone">
         <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-bubble px-2 py-1 text-[12px] text-ink-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-bubble px-2 py-1 text-[12.5px] text-ink-2">
             <Activity className="size-3.5" aria-hidden />
             Traces · kept as evidence
           </span>
@@ -403,12 +403,12 @@ export function SetupPanel({
       </Section>
 
       {setup.needs_check ? (
-        <p className="m-0 mt-3.5 flex items-center gap-2 rounded-[10px] bg-warning/10 px-2.5 py-2 text-[12px] text-warning">
+        <p className="m-0 mt-3.5 flex items-center gap-2 rounded-[10px] bg-warning/10 px-2.5 py-2 text-[12.5px] text-warning">
           <CircleAlert className="size-4 shrink-0" aria-hidden />
           Changed. It's checked again before the next run.
         </p>
       ) : null}
-      {error ? <p className="m-0 mt-2.5 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 mt-2.5 text-[13px] text-destructive">{error}</p> : null}
     </aside>
   );
 }

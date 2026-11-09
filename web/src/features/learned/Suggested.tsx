@@ -55,21 +55,21 @@ export function Suggested({
             <div className="min-w-0">
               <p className="m-0 font-medium text-[14px]">{entry.title}</p>
               {entry.what ? (
-                <small className="mt-0.5 block text-[12.5px] text-ink-2">{entry.what}</small>
+                <small className="mt-0.5 block text-[13px] text-ink-2">{entry.what}</small>
               ) : null}
               {why && !entry.exists ? (
                 <div className="mt-[3px] text-[11.5px] text-ink-3">{why}</div>
               ) : null}
             </div>
             {entry.exists ? (
-              <span className="text-[12.5px] whitespace-nowrap text-ink-3">Added</span>
+              <span className="text-[13px] whitespace-nowrap text-ink-3">Added</span>
             ) : null}
           </label>
         );
       })}
       {starters.some((entry) => !entry.exists) ? (
         <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-separator px-[18px] py-3">
-          {error ? <span className="me-auto text-[12px] text-destructive">{error}</span> : null}
+          {error ? <span className="me-auto text-[12.5px] text-destructive">{error}</span> : null}
           <Button disabled={!picked.length || busy} onClick={() => void add()}>
             {picked.length ? `Add ${count(picked.length, "test")}` : "Pick a test"}
           </Button>

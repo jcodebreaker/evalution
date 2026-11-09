@@ -169,7 +169,7 @@ export function Glance({
   return (
     <>
       <div className="flex flex-col gap-0.5 px-1">
-        <p className="m-0 flex flex-wrap gap-x-2 text-[13px] text-ink-2">
+        <p className="m-0 flex flex-wrap gap-x-2 text-[14px] text-ink-2">
           {benchmarkName(run.set)}
           {run.started_at ? <span className="text-ink-3">{when(run.started_at)}</span> : null}
           {didntFinish ? <span className="font-semibold text-warning">Didn't finish</span> : null}
@@ -203,7 +203,7 @@ export function Glance({
                   open === card.key && "ring-1 ring-chart",
                 )}
               >
-                <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-ink-2">
+                <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-ink-2">
                   <span className="grid size-6 shrink-0 place-items-center rounded-md border border-separator">
                     <Icon className="size-3.5 text-ink-2" aria-hidden />
                   </span>
@@ -229,7 +229,7 @@ export function Glance({
                     </span>
                   ) : null}
                 </span>
-                <span className="text-[12px] text-ink-3 tabular-nums">{card.note}</span>
+                <span className="text-[12.5px] text-ink-3 tabular-nums">{card.note}</span>
               </button>
             );
           })}
@@ -239,11 +239,11 @@ export function Glance({
         <div className="glass flex flex-col gap-1.5 rounded-xl px-5 py-3.5">
           <pre
             title={how.who}
-            className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+            className="m-0 font-mono text-[14px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
           >
             {how.lines}
           </pre>
-          <div className="flex flex-wrap gap-x-3 text-[12px]">
+          <div className="flex flex-wrap gap-x-3 text-[12.5px]">
             {report.task_average === null || open === "average" ? null : (
               <TextLink onClick={() => pick("average")}>
                 Task average {share(report.task_average)}
@@ -303,7 +303,7 @@ function Progress({
         <span
           className={cn(
             "font-display font-semibold tabular-nums",
-            big ? "text-[34px] leading-tight tracking-[-0.03em]" : "text-[15px]",
+            big ? "text-[36px] leading-tight tracking-[-0.03em]" : "text-[15px]",
           )}
         >
           {done} of {total} questions
@@ -328,8 +328,8 @@ function Progress({
       >
         <div className="h-full rounded-full bg-chart" style={{ width: `${part * 100}%` }} />
       </div>
-      {step ? <p className="m-0 truncate text-[12.5px] text-ink-2 tabular-nums">{step}</p> : null}
-      {failed ? <p className="m-0 text-[13px] text-destructive">{failed}</p> : null}
+      {step ? <p className="m-0 truncate text-[13px] text-ink-2 tabular-nums">{step}</p> : null}
+      {failed ? <p className="m-0 text-[14px] text-destructive">{failed}</p> : null}
     </div>
   );
 }
@@ -350,7 +350,7 @@ function Usage({ run }: { run: Run }) {
   ].filter(Boolean);
   if (!parts.length) return null;
   return (
-    <p className="m-0 text-[12px] text-ink-3 tabular-nums [overflow-wrap:anywhere]">
+    <p className="m-0 text-[12.5px] text-ink-3 tabular-nums [overflow-wrap:anywhere]">
       {parts.join(" · ")}
     </p>
   );

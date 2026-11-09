@@ -141,7 +141,7 @@ export function ModelForm({
         void save();
       }}
     >
-      {fixed ? <p className="m-0 text-[13px] text-ink-2">Set in evalution.yaml.</p> : null}
+      {fixed ? <p className="m-0 text-[14px] text-ink-2">Set in evalution.yaml.</p> : null}
       <Group>
         <Row label="Provider" group>
           <span className="flex flex-wrap gap-0.5 self-start rounded-lg bg-selection p-0.5">
@@ -156,7 +156,7 @@ export function ModelForm({
                   setTest(null);
                 }}
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
+                  "h-7 rounded-md px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
                   provider === entry.value
                     ? "bg-background font-medium shadow-sm"
                     : "text-ink-2 hover:text-foreground",
@@ -223,17 +223,17 @@ export function ModelForm({
         </Row>
       </Group>
       {models.status === "error" && canList && !fixed ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{listError} Type their names, or fix it.</p>
+        <p className="m-0 text-[13px] text-ink-2">{listError} Type their names, or fix it.</p>
       ) : null}
-      {note ? <p className="m-0 text-[12.5px] text-ink-2">{note}</p> : null}
+      {note ? <p className="m-0 text-[13px] text-ink-2">{note}</p> : null}
       {!account && stored && moved && !key.trim() ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{KEY_LEFT_BEHIND}</p>
+        <p className="m-0 text-[13px] text-ink-2">{KEY_LEFT_BEHIND}</p>
       ) : outcome ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{outcome}</p>
+        <p className="m-0 text-[13px] text-ink-2">{outcome}</p>
       ) : null}
 
       {test ? <TestResult test={test} /> : null}
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           variant="secondary"

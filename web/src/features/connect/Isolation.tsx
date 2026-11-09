@@ -32,7 +32,7 @@ export function Isolation({
     }
   };
   return (
-    <div className="flex flex-col gap-4 text-[13px]">
+    <div className="flex flex-col gap-4 text-[14px]">
       <EnvironmentLine target={target.name} />
       <div className="flex flex-col gap-2">
         {target.isolation_note ? <p className="m-0 text-ink-2">{target.isolation_note}</p> : null}
@@ -54,13 +54,13 @@ export function Isolation({
                   Every test starts with no earlier {kind}
                 </span>
                 {promised ? null : (
-                  <span className="ms-auto text-[12px] text-ink-3">Not promised</span>
+                  <span className="ms-auto text-[12.5px] text-ink-3">Not promised</span>
                 )}
               </label>
             );
           })}
         </Group>
-        {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+        {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
       </div>
     </div>
   );

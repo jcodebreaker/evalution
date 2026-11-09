@@ -23,7 +23,7 @@ export function ModelPicker({
         disabled={disabled}
         required
         aria-label={label}
-        className="font-mono text-[12px]"
+        className="font-mono text-[12.5px]"
       />
     );
   }

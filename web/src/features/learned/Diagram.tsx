@@ -205,7 +205,7 @@ export function DiagramView({
                   x={x + 12}
                   y={y + 19}
                   className={cn(
-                    "text-[12.5px] font-medium",
+                    "text-[13px] font-medium",
                     main ? "fill-primary-foreground" : "fill-foreground",
                     wrong && "line-through",
                   )}
@@ -232,7 +232,7 @@ export function DiagramView({
         <button
           type="button"
           onClick={() => setAll((now) => !now)}
-          className="mt-1 rounded-md px-1 py-0.5 text-[12.5px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           {all ? "Show fewer" : `Show ${hidden} more never seen in use`}
         </button>

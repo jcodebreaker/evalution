@@ -66,14 +66,14 @@ export function VerdictBanner({
         TONE[shown.outcome][0],
       )}
     >
-      <span className={cn("text-[20px]", TONE[shown.outcome][1])}>{TONE[shown.outcome][2]}</span>
+      <span className={cn("text-[21px]", TONE[shown.outcome][1])}>{TONE[shown.outcome][2]}</span>
       <div className="flex min-w-0 flex-1 flex-col">
         <b className="text-[15px]">
           {layered?.headline
             ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
             : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}${shown.passed && pageOnly ? `, ${PAGE_ONLY}` : ""}`}
         </b>
-        <small className="text-[12.5px] text-ink-2">
+        <small className="text-[13px] text-ink-2">
           {[
             layered?.line ?? null,
             shown.passed ? null : shown.reason,
@@ -96,7 +96,7 @@ export function VerdictBanner({
                 key={pill.layer}
                 title={pill.label}
                 className={cn(
-                  "rounded-full bg-group px-2 py-0.5 text-[12px] font-medium ring-[0.5px] ring-separator",
+                  "rounded-full bg-group px-2 py-0.5 text-[12.5px] font-medium ring-[0.5px] ring-separator",
                   PILL[pill.state],
                 )}
               >
@@ -116,7 +116,7 @@ export function VerdictBanner({
               aria-pressed={entry.n === shown.try}
               onClick={() => onTry(entry.n)}
               className={cn(
-                "flex h-7 items-center gap-1.5 rounded-[7px] bg-group px-2.5 text-[12.5px] ring-[0.5px] ring-separator focus-visible:outline-2 focus-visible:outline-ring",
+                "flex h-7 items-center gap-1.5 rounded-[7px] bg-group px-2.5 text-[13px] ring-[0.5px] ring-separator focus-visible:outline-2 focus-visible:outline-ring",
                 entry.n === shown.try && "ring-2 ring-tint",
               )}
             >

@@ -32,7 +32,7 @@ export function Picker<T extends string>({
       <Menu.Trigger
         aria-label={label}
         className={cn(
-          "flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[13px] font-semibold hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-selection",
+          "flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[14px] font-semibold hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-selection",
           className,
         )}
       >
@@ -41,10 +41,10 @@ export function Picker<T extends string>({
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={4} align="start" className="z-50 outline-none">
-          <Menu.Popup className="min-w-44 rounded-lg bg-popover p-1 text-[13px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
+          <Menu.Popup className="min-w-44 rounded-lg bg-popover p-1 text-[14px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
             {header ? (
               <>
-                <div className="truncate px-2 pt-1 pb-1.5 text-[12px] text-ink-3">{header}</div>
+                <div className="truncate px-2 pt-1 pb-1.5 text-[12.5px] text-ink-3">{header}</div>
                 <Menu.Separator className="mx-1 my-1 h-px bg-separator" />
               </>
             ) : null}
@@ -90,7 +90,7 @@ export function MoreMenu({
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={4} align="end" className="z-50 outline-none">
-          <Menu.Popup className="min-w-40 rounded-lg bg-popover p-1 text-[13px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
+          <Menu.Popup className="min-w-40 rounded-lg bg-popover p-1 text-[14px] text-popover-foreground shadow-lg ring-1 ring-separator outline-none">
             {actions.map((action, index) => (
               <Menu.Item key={index} onClick={action.onClick} className={ITEM}>
                 {action.label}

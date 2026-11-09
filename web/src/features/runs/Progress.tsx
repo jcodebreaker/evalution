@@ -40,7 +40,7 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
             <LoadingState label="Looking at what went wrong…" />
           ) : (
             <>
-              <span className="text-[26px] leading-[1.15] font-semibold tracking-[-0.5px] tabular-nums">
+              <span className="text-[28px] leading-[1.15] font-semibold tracking-[-0.5px] tabular-nums">
                 {progressText(run)}
               </span>
               <span
@@ -70,15 +70,15 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
                 key={`${entry.row.case}:${entry.n}`}
                 type="button"
                 onClick={() => onTest(entry.row.case)}
-                className="flex w-full items-center gap-2.5 border-separator px-3.5 py-2 text-start text-[13px] not-first:border-t hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                className="flex w-full items-center gap-2.5 border-separator px-3.5 py-2 text-start text-[14px] not-first:border-t hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
               >
                 <VerdictGlyph verdict={GLYPH[entry.outcome]} />
                 <span className="shrink-0 truncate max-md:max-w-[45%]">{entry.row.name}</span>
-                <span className="shrink-0 text-[12px] text-ink-3">try {entry.n}</span>
+                <span className="shrink-0 text-[12.5px] text-ink-3">try {entry.n}</span>
                 {entry.reason ? (
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate text-[12.5px]",
+                      "min-w-0 flex-1 truncate text-[13px]",
                       entry.outcome === "failed" ? "text-destructive" : "text-ink-2",
                     )}
                   >

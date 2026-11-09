@@ -20,7 +20,7 @@ export function Attention({
     <div className={cn(CARD, "flex flex-col gap-1")}>
       <div className="mb-2 flex items-center gap-2">
         <h2 className="m-0 text-[17px] font-bold">Needs your attention</h2>
-        <span className="rounded-full bg-warning/12 px-2 py-0.5 text-[12px] font-bold text-warning">
+        <span className="rounded-full bg-warning/12 px-2 py-0.5 text-[12.5px] font-bold text-warning">
           {items.length}
         </span>
       </div>
@@ -40,10 +40,10 @@ export function Attention({
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="text-[14px] font-semibold">{item.title}</span>
             {item.detail ? (
-              <span className="text-[13px] leading-[1.45] text-ink-2">{item.detail}</span>
+              <span className="text-[14px] leading-[1.45] text-ink-2">{item.detail}</span>
             ) : null}
           </span>
-          <span className="text-[13px] font-semibold whitespace-nowrap text-tint">
+          <span className="text-[14px] font-semibold whitespace-nowrap text-tint">
             {ACTION[item.action]}
           </span>
         </button>

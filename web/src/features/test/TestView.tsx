@@ -155,14 +155,14 @@ export function TestView({
         </Toolbar>
         <Page>
           <div className="flex flex-col gap-2">
-            <h1 className="m-0 text-[22px] leading-tight font-semibold tracking-[-0.4px]">
+            <h1 className="m-0 text-[24px] leading-tight font-semibold tracking-[-0.4px]">
               {test.name}
             </h1>
             {test.about ? (
               <p className="m-0 max-w-[62ch] text-[13.5px] text-ink-2">{test.about}</p>
             ) : null}
             {limits.length || stale ? (
-              <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-2">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
                 {limits.length ? <span>{limits.join(" · ")}</span> : null}
                 {stale ? <StaleChip reason={stale} /> : null}
               </div>
@@ -191,7 +191,7 @@ export function TestView({
             />
           ) : null}
           {view === "result" && shown?.trace_note ? (
-            <p className="m-0 text-[12.5px] text-warning">{shown.trace_note}</p>
+            <p className="m-0 text-[13px] text-warning">{shown.trace_note}</p>
           ) : null}
           {view === "result" && ready(finding) ? (
             <FindingNote finding={ready(finding) as Finding} onSpan={setFocus} />
@@ -218,7 +218,7 @@ export function TestView({
               }
             />
           ) : plan.status === "loading" ? (
-            <p className="m-0 shimmer text-[13px]">Reading the test…</p>
+            <p className="m-0 shimmer text-[14px]">Reading the test…</p>
           ) : (
             <Centered>Couldn't read what this test checks.</Centered>
           )}

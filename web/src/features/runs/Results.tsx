@@ -49,7 +49,7 @@ export function Results({
                 <span className="truncate">{row.name}</span>
                 {shown ? (
                   <span
-                    className={cn("truncate text-[12px]", failing ? "text-ink-2" : "text-ink-3")}
+                    className={cn("truncate text-[12.5px]", failing ? "text-ink-2" : "text-ink-3")}
                   >
                     {shown}
                   </span>

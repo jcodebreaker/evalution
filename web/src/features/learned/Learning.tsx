@@ -94,7 +94,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
                 current && "bg-tint/5",
               )}
             >
-              <span className="flex items-center gap-2 text-[13px] font-semibold">
+              <span className="flex items-center gap-2 text-[14px] font-semibold">
                 <span
                   aria-hidden
                   className={cn(
@@ -118,7 +118,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
 
       {areas.length ? null : (
         <div className="flex flex-col gap-2 px-4 py-3">
-          <p className="m-0 flex items-center gap-2.5 text-[12.5px] text-ink-2">
+          <p className="m-0 flex items-center gap-2.5 text-[13px] text-ink-2">
             <Spinner />
             {progress.stage === "map"
               ? "Mapping the code"
@@ -141,7 +141,7 @@ function Areas({ progress, now }: { progress: LearnProgress; now: number }) {
       )}
       <div
         hidden={!areas.length}
-        className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12px] text-ink-2"
+        className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12.5px] text-ink-2"
       >
         <span className="font-semibold text-foreground">
           {due.length} of {areas.length} areas
@@ -196,7 +196,7 @@ function AreaRow({ area, now }: { area: LearnArea; now: number }) {
         <span aria-hidden className={cn("size-2 shrink-0 rounded-full", look.dot)} />
         <span className="flex min-w-0 flex-col">
           <span
-            className={cn("truncate font-mono text-[12.5px] font-medium", quiet && "text-ink-3")}
+            className={cn("truncate font-mono text-[13px] font-medium", quiet && "text-ink-3")}
             title={area.id}
           >
             {area.id}

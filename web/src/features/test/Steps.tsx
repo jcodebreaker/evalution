@@ -18,7 +18,7 @@ import { StepBody } from "./StepBody";
 /** What a try started from, under its "Before" step. */
 function BeforeNote({ words }: { words: BeforeWords }) {
   return (
-    <div className="mt-1 flex flex-col gap-0.5 text-[12.5px]" data-testid="before-isolation">
+    <div className="mt-1 flex flex-col gap-0.5 text-[13px]" data-testid="before-isolation">
       {words.line ? (
         <p className={cn("m-0", words.clean ? "font-semibold text-success" : "text-ink-2")}>
           {words.line}

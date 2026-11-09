@@ -14,7 +14,7 @@ export function Working({ session }: { session: AgentSession }) {
     <div className="flex flex-col gap-1.5">
       <LoadingState label={activity.at(-1)?.text ?? "Working…"} />
       {activity.length > 1 ? (
-        <ol className="m-0 flex list-none flex-col gap-0.5 p-0 ps-[22px] text-[12px] text-ink-3">
+        <ol className="m-0 flex list-none flex-col gap-0.5 p-0 ps-[22px] text-[12.5px] text-ink-3">
           {activity
             .slice(-6, -1)
             .reverse()

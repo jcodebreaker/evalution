@@ -15,7 +15,7 @@ export function Outcome({
   onSpan?: (span: string) => void;
 }) {
   return (
-    <div className="mt-1 text-[12.5px] text-ink-2">
+    <div className="mt-1 text-[13px] text-ink-2">
       <span
         className={cn(
           "font-semibold",

@@ -39,7 +39,7 @@ function PastChats({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto p-2">
       {chats.status === "ready" && !chats.data.length ? (
-        <p className="m-0 p-2 text-[13px] text-ink-2">No past chats yet.</p>
+        <p className="m-0 p-2 text-[14px] text-ink-2">No past chats yet.</p>
       ) : null}
       {chats.status === "ready"
         ? chats.data.map((chat) => (
@@ -53,7 +53,7 @@ function PastChats({
                 chat.id === current && "bg-selection-strong",
               )}
             >
-              <span className="truncate text-[13px]">{chat.asked.replace(ABOUT_RUN, "")}</span>
+              <span className="truncate text-[14px]">{chat.asked.replace(ABOUT_RUN, "")}</span>
               <span className="text-[11.5px] text-ink-3">{ago(chat.at)}</span>
             </button>
           ))
@@ -189,7 +189,7 @@ export function WriterPanel({
                   key={starter}
                   type="button"
                   onClick={() => void send(starter)}
-                  className="rounded-lg border border-separator bg-group px-3 py-2 text-start text-[13px] text-ink-2 hover:border-input hover:text-ink focus-visible:outline-2 focus-visible:outline-ring"
+                  className="rounded-lg border border-separator bg-group px-3 py-2 text-start text-[14px] text-ink-2 hover:border-input hover:text-ink focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   {starter}
                 </button>
@@ -249,7 +249,7 @@ export function WriterPanel({
           </Button>
         </div>
         {error || approval.error || swap.error ? (
-          <p className="m-0 pt-2 text-[12px] text-destructive">
+          <p className="m-0 pt-2 text-[12.5px] text-destructive">
             {error ?? approval.error ?? swap.error}
           </p>
         ) : null}

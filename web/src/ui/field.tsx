@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { cn } from "../lib/cn";
 
 const FIELD =
-  "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-[13px] outline-none transition-colors placeholder:text-ink-3 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-50";
+  "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-[14px] outline-none transition-colors placeholder:text-ink-3 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-50";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input className={cn(FIELD, "h-8", className)} {...props} />;

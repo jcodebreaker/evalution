@@ -13,7 +13,7 @@ export function CopyField({ value, label }: { value: string; label: string }) {
         value={value}
         aria-label={label}
         onFocus={(event) => event.target.select()}
-        className="font-mono text-[12px]"
+        className="font-mono text-[12.5px]"
       />
       <Button
         variant="secondary"

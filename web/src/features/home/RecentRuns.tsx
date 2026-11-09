@@ -22,7 +22,7 @@ export function RecentRuns({
       <div className="mb-2 flex items-baseline gap-2">
         <h2 className="m-0 text-[17px] font-bold">Recent runs</h2>
         <TextLink
-          className="ms-auto text-[13px] font-semibold text-tint no-underline"
+          className="ms-auto text-[14px] font-semibold text-tint no-underline"
           onClick={onRuns}
         >
           All runs
@@ -41,7 +41,7 @@ export function RecentRuns({
               <span className="truncate text-[14px] font-semibold">
                 {runLabel(run.run)} · {count(run.results.length, "test")}
               </span>
-              <span className="text-[12.5px] text-ink-2">{when(run.at)}</span>
+              <span className="text-[13px] text-ink-2">{when(run.at)}</span>
             </span>
             <span className="flex max-w-40 flex-wrap gap-[3px]" aria-hidden>
               {run.results.map((verdict, at) => (

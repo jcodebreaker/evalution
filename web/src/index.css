@@ -103,9 +103,9 @@
 }
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -164,15 +164,18 @@
     background: var(--window);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 1.45;
-    letter-spacing: -0.006em;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
+    font-optical-sizing: auto;
+    /* Inter's single-storey a and open digits read calmer at small sizes. */
+    font-feature-settings: "cv11", "ss03";
   }
   h1,
   h2 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
   button {
     cursor: default;

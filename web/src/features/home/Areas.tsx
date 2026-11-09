@@ -17,7 +17,7 @@ export function Areas({ areas }: { areas: Health["areas"] }) {
     <div className={cn(CARD, "flex flex-col gap-4")}>
       <div className="flex items-baseline gap-2">
         <h2 className="m-0 text-[17px] font-bold">What it's good at</h2>
-        <span className="ms-auto text-[12px] text-ink-2">share of tests passing</span>
+        <span className="ms-auto text-[12.5px] text-ink-2">share of tests passing</span>
       </div>
       {areas.map((area) => {
         const level = LEVEL[area.level];
@@ -25,7 +25,7 @@ export function Areas({ areas }: { areas: Health["areas"] }) {
           <div key={area.name} className="flex flex-col gap-1.5">
             <div className="flex items-baseline gap-2">
               <span className="text-[14px] font-semibold">{area.name}</span>
-              <span className={cn("rounded-full px-[7px] py-px text-[12px] font-bold", level.tag)}>
+              <span className={cn("rounded-full px-[7px] py-px text-[12.5px] font-bold", level.tag)}>
                 {level.word}
               </span>
               <span className="ms-auto font-semibold text-ink-2 tabular-nums">{area.pct}%</span>

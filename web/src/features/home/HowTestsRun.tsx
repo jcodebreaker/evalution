@@ -38,7 +38,7 @@ export function HowTestsRun({
   if (!isolation) return null;
   const proven = isolation.status === "proven";
   const links = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
       {proven ? (
         <span>
           Proven
@@ -52,7 +52,7 @@ export function HowTestsRun({
   );
   return (
     <section
-      className={cn(CARD, "flex flex-col gap-3 text-[13px]")}
+      className={cn(CARD, "flex flex-col gap-3 text-[14px]")}
       aria-label="How tests run"
       data-testid="how-tests-run"
     >
@@ -87,7 +87,7 @@ function Body({ target, card, onStarted }: { target: string; card: Card; onStart
           onStarted={onStarted}
         />
       </div>
-      <p className="m-0 text-[12px] text-ink-3">
+      <p className="m-0 text-[12.5px] text-ink-3">
         {card.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}
       </p>
     </div>
@@ -160,10 +160,10 @@ function Body({ target, card, onStarted }: { target: string; card: Card; onStart
 function Listed({ title, items, mono }: { title: string; items: string[]; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[12.5px] font-medium text-ink-2">{title}</span>
+      <span className="text-[13px] font-medium text-ink-2">{title}</span>
       <ul className="m-0 flex flex-col gap-0.5 ps-4">
         {items.map((item) => (
-          <li key={item} className={cn(mono && "font-mono text-[12px] break-all")}>
+          <li key={item} className={cn(mono && "font-mono text-[12.5px] break-all")}>
             {item}
           </li>
         ))}
@@ -180,7 +180,7 @@ function Following({ target }: { target: string }): ReactNode {
   return (
     <div className="flex flex-col gap-2">
       <Checklist steps={job.steps} />
-      {job.error ? <p className="m-0 text-[12.5px] text-destructive">{job.error}</p> : null}
+      {job.error ? <p className="m-0 text-[13px] text-destructive">{job.error}</p> : null}
     </div>
   );
 }

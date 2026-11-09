@@ -159,7 +159,7 @@ export function TestEnvironment({
 
   if (!data) {
     return failed ? (
-      <p className="m-0 text-[13px] text-ink-2">Couldn't load the test environment.</p>
+      <p className="m-0 text-[14px] text-ink-2">Couldn't load the test environment.</p>
     ) : (
       <Skeleton className="h-72 rounded-[14px]" />
     );
@@ -229,7 +229,7 @@ export function TestEnvironment({
 
   const settled = now !== "running" && now !== "broke";
   return (
-    <div className="flex min-w-0 flex-col gap-4 text-[13px]" data-testid="test-environment">
+    <div className="flex min-w-0 flex-col gap-4 text-[14px]" data-testid="test-environment">
       <div className="flex flex-col gap-1">
         {mode === "setup" ? (
           <h3 className="m-0 text-[18px] font-semibold tracking-[-0.02em]">
@@ -276,17 +276,17 @@ export function TestEnvironment({
             <div className="border-t border-separator px-5 py-3.5 max-md:px-4">
               <Checklist steps={steps} />
               {now === "broke" && job?.error ? (
-                <p className="m-0 mt-2 text-[12.5px] text-warning">{job.error}</p>
+                <p className="m-0 mt-2 text-[13px] text-warning">{job.error}</p>
               ) : null}
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-3 border-t border-separator px-5 py-3 max-md:px-4">
             <HowIsolationLink />
-            <span className="min-w-0 flex-1 text-[12px] text-ink-3">{hint}</span>
+            <span className="min-w-0 flex-1 text-[12.5px] text-ink-3">{hint}</span>
             {action}
           </div>
           {error ? (
-            <p className="m-0 px-5 pb-3 text-[12.5px] text-destructive max-md:px-4">{error}</p>
+            <p className="m-0 px-5 pb-3 text-[13px] text-destructive max-md:px-4">{error}</p>
           ) : null}
         </section>
         {setup ? (

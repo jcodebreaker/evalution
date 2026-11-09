@@ -11,7 +11,7 @@ export function NodeCheck({ node }: { node: DiagramNode }) {
           <span className="font-normal text-ink-2"> (not seen in real use yet)</span>
         )}
       </b>
-      {node.sub ? <span className="block text-[12.5px] text-ink-2">{node.sub}</span> : null}
+      {node.sub ? <span className="block text-[13px] text-ink-2">{node.sub}</span> : null}
       <EvidenceLine evidence={node.evidence} />
       <CodeMark item={node} />
     </div>

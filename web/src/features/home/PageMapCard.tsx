@@ -33,7 +33,7 @@ export function PageMapCard({
   const broken = page.status === "broken";
   return (
     <section
-      className={cn(CARD, "flex flex-col gap-3 text-[13px]")}
+      className={cn(CARD, "flex flex-col gap-3 text-[14px]")}
       aria-label={`How tests reach ${target}`}
       data-testid="page-map-card"
     >
@@ -66,7 +66,7 @@ export function PageMapCard({
           Re-learn the page
         </Button>
         {open ? (
-          <TextLink className="text-[12.5px]" onClick={open}>
+          <TextLink className="text-[13px]" onClick={open}>
             Details
           </TextLink>
         ) : null}

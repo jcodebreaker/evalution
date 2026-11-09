@@ -182,7 +182,7 @@ export function ConnectView({
               void start(path);
             }}
           >
-            <label htmlFor="folder" className="text-[13px] font-medium">
+            <label htmlFor="folder" className="text-[14px] font-medium">
               Address or project folder
             </label>
             <div className="flex gap-2">
@@ -240,7 +240,7 @@ export function ConnectView({
                 ]}
               />
               {made && modelChosen && !busy ? (
-                <TextLink className="w-fit text-[13px]" onClick={onLearned}>
+                <TextLink className="w-fit text-[14px]" onClick={onLearned}>
                   What it learned
                 </TextLink>
               ) : null}
@@ -253,7 +253,7 @@ export function ConnectView({
                   }}
                 >
                   {job.questions.map((question) => (
-                    <div key={question.key} className="flex flex-col gap-1.5 text-[13px]">
+                    <div key={question.key} className="flex flex-col gap-1.5 text-[14px]">
                       <label htmlFor={`question-${question.key}`}>{question.text}</label>
                       <Input
                         id={`question-${question.key}`}
@@ -292,10 +292,10 @@ export function ConnectView({
             </Group>
           ) : null}
 
-          {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+          {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
 
           {made ? (
-            <p className="m-0 text-[13px] text-ink-2">Connected as {made.adapter_label}.</p>
+            <p className="m-0 text-[14px] text-ink-2">Connected as {made.adapter_label}.</p>
           ) : null}
 
           <Fold title="Details">

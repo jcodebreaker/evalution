@@ -64,7 +64,7 @@ export function WriterReply({
   return (
     <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
       {message.read?.length ? (
-        <details className="group text-[12px] text-ink-3">
+        <details className="group text-[12.5px] text-ink-3">
           <summary className="flex cursor-default list-none items-center gap-1.5 hover:text-ink-2 [&::-webkit-details-marker]:hidden">
             <ChevronRight
               className="size-3.5 transition-transform group-open:rotate-90"
@@ -101,19 +101,19 @@ export function WriterReply({
               </span>
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{step.title}</span>
-                {step.note ? <p className="m-0 text-[12px] text-ink-2">{step.note}</p> : null}
+                {step.note ? <p className="m-0 text-[12.5px] text-ink-2">{step.note}</p> : null}
               </div>
             </div>
           ))}
           {plan.timeout ? (
-            <p className="m-0 border-t border-separator px-3.5 py-2.5 text-[12px] text-ink-2">
+            <p className="m-0 border-t border-separator px-3.5 py-2.5 text-[12.5px] text-ink-2">
               Time limit {plan.timeout.seconds} s: {plan.timeout.from}
             </p>
           ) : null}
           {plan.flags?.map((flag) => (
             <p
               key={flag}
-              className="m-0 flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[13px]"
+              className="m-0 flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[14px]"
             >
               <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0">{flag}</span>
@@ -122,7 +122,7 @@ export function WriterReply({
           {plan.weak_lines?.map(({ line, why, use }) => (
             <div
               key={line}
-              className="flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[13px]"
+              className="flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[14px]"
             >
               <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
               <div className="min-w-0 flex-1">
@@ -130,7 +130,7 @@ export function WriterReply({
                   {line} <span className="text-ink-3">· {WHY[why]}</span>
                 </p>
                 {use ? (
-                  <p className="m-0 flex items-start gap-1 text-[12px] text-ink-2">
+                  <p className="m-0 flex items-start gap-1 text-[12.5px] text-ink-2">
                     <ArrowRight className="mt-1 size-3 shrink-0" aria-hidden />
                     <span className="min-w-0">{suggested(use)}</span>
                   </p>
@@ -149,7 +149,7 @@ export function WriterReply({
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
-            <span className="text-[13px] text-ink-2 tabular-nums">
+            <span className="text-[14px] text-ink-2 tabular-nums">
               {count(plan.tries, "try", "tries")}
             </span>
             {latest && plan.id ? (
@@ -201,7 +201,7 @@ export function WriterReply({
               {review.findings.map((finding, index) => (
                 <div
                   key={index}
-                  className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-[13px] not-first:border-t"
+                  className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-[14px] not-first:border-t"
                 >
                   <div className="flex items-start gap-2">
                     <Markdown text={finding.text} className="flex-1" />
@@ -209,14 +209,14 @@ export function WriterReply({
                   </div>
                   {finding.case ? (
                     <TextLink
-                      className="w-fit text-[12px]"
+                      className="w-fit text-[12.5px]"
                       onClick={() => onTest(finding.case ?? "", run)}
                     >
                       {testName(finding.case)}
                     </TextLink>
                   ) : null}
                   {finding.evidence?.length ? (
-                    <Fold title="Evidence" className="text-[12px]">
+                    <Fold title="Evidence" className="text-[12.5px]">
                       <ul className="m-0 flex list-none flex-col gap-0.5 p-0 font-mono text-[11.5px] text-ink-2">
                         {finding.evidence.map((line, at) => (
                           <li key={at}>{line}</li>
@@ -229,7 +229,7 @@ export function WriterReply({
             </Group>
           ) : null}
           {review.proposal ? (
-            <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13px]">
+            <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[14px]">
               <Markdown text={review.proposal} className="flex-1 basis-[200px]" />
               {latest ? (
                 <Button size="sm" onClick={() => onReply("Do it")}>
@@ -285,7 +285,7 @@ function PageMapProposal({
   const evidence = new Map(proposal.evidence.map((row) => [row.entry, source(row)]));
   return (
     <Group data-testid="page-map-proposal">
-      <p className="m-0 px-3.5 pt-2.5 text-[12px] text-ink-2">
+      <p className="m-0 px-3.5 pt-2.5 text-[12.5px] text-ink-2">
         How tests would reach {proposal.target || "the app"}'s page
       </p>
       <ul className="m-0 flex list-none flex-col p-0">
@@ -294,7 +294,7 @@ function PageMapProposal({
           return (
             <li
               key={row.what}
-              className="flex flex-col border-separator px-3.5 py-2 text-[13px] not-first:border-t"
+              className="flex flex-col border-separator px-3.5 py-2 text-[14px] not-first:border-t"
             >
               <span>
                 <span className="text-ink-2">{row.what}:</span> {row.where}
@@ -305,7 +305,7 @@ function PageMapProposal({
         })}
       </ul>
       <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
-        <span className="text-[13px] text-ink-2">
+        <span className="text-[14px] text-ink-2">
           {proposal.status === "draft"
             ? "Trying it sends one message to evalution's copy"
             : (PROPOSAL_STATUS[proposal.status] ?? proposal.status)}
@@ -334,18 +334,18 @@ function IsolationProposal({
 }) {
   return (
     <Group>
-      <p className="m-0 px-3.5 pt-2.5 text-[12px] text-ink-2">
+      <p className="m-0 px-3.5 pt-2.5 text-[12.5px] text-ink-2">
         Changes to the isolation plan, from {proposal.from}
       </p>
       <ul className="m-0 flex list-none flex-col p-0">
         {proposal.changes.map((change, index) => (
-          <li key={index} className="border-separator px-3.5 py-2 text-[13px] not-first:border-t">
+          <li key={index} className="border-separator px-3.5 py-2 text-[14px] not-first:border-t">
             {change}
           </li>
         ))}
       </ul>
       <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
-        <span className="text-[13px] text-ink-2">
+        <span className="text-[14px] text-ink-2">
           {PROPOSAL_STATUS[proposal.status] ?? proposal.status}
         </span>
         {latest && proposal.status === "draft" ? (

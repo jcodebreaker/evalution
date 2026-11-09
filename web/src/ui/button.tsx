@@ -14,7 +14,7 @@ const VARIANT = {
 const SIZE = {
   default: "h-8 gap-1.5 px-3 [&_svg:not([class*='size-'])]:size-3.5",
   lg: "h-10 gap-2 rounded-[10px] px-4 text-[14px] [&_svg:not([class*='size-'])]:size-3.5",
-  sm: "h-7 gap-1 rounded-md px-2.5 text-[12.5px] [&_svg:not([class*='size-'])]:size-3.5",
+  sm: "h-7 gap-1 rounded-md px-2.5 text-[13px] [&_svg:not([class*='size-'])]:size-3.5",
   xs: "h-6 gap-1 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
   icon: "size-8",
   "icon-sm": "size-7 rounded-md",
@@ -31,7 +31,7 @@ export function buttonClass(
   size: keyof typeof SIZE = "default",
 ) {
   return cn(
-    "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-[13px] font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-3 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+    "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-[14px] font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-3 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
     VARIANT[variant],
     SIZE[size],
   );

@@ -26,7 +26,7 @@ export function RunRow({
         <Outcome entry={entry} />
         <span className="truncate text-ink-3">{label}</span>
       </span>
-      <span className="flex items-center gap-4 text-[12px] text-ink-2 tabular-nums">
+      <span className="flex items-center gap-4 text-[12.5px] text-ink-2 tabular-nums">
         {test.tries ? <span>{`${test.passed} of ${test.tries} tries`}</span> : null}
         <span className="text-ink-3">{when(run.started_at)}</span>
       </span>
