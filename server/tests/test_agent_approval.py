@@ -448,21 +448,31 @@ def _area_answer(body: dict, fail: frozenset, odd: Mapping[str, str]) -> Any:
     """An area's agent: its section names the area and cites its first file, with a node of its
     own. An area in *fail* never writes; one *odd* says ``cut`` writes a first answer cut at the
     output limit, ``parts`` writes its section in two parts, ``quiet`` names nothing it was asked
-    to cover."""
+    to cover, ``forgets`` leaves its last two names out and adds them when told, ``stubborn``
+    names nothing even when told."""
     first = body["messages"][0]["content"]
     first = first if isinstance(first, str) else first[-1]["text"]
     area = re.search(r"The area (\S+):", first)[1]
     if area.split("~")[0] in fail:
         return "I can't tell."
-    if len(body["messages"]) > 1 and odd.get(area) not in ("cut", "cut-many"):
-        return "Done."
     files = first.split("[Data: its files", 1)[1].split("\n", 1)[1]
     path = re.search(r"^(\S+) \(", files, re.M)[1]
     evidence = [{"kind": "code", "ref": path}]
+    told = re.search(r"names none of these of this area: (.*?)\. Add", json.dumps(body["messages"]))
+    if told and odd.get(area) in ("forgets", "stubborn"):
+        # Told what its section left out (area_agents.FOLLOW_UP): it adds them, or doesn't.
+        added = told[1] if odd[area] == "forgets" else "nothing more"
+        claim = {"id": "more", "text": f"{area} also has {added}.", "evidence": evidence}
+        return ("write_section", {"title": f"The {area} area", "claims": [claim]})
+    if len(body["messages"]) > 1 and odd.get(area) not in ("cut", "cut-many"):
+        return "Done."
     # It names what it was asked to cover, as a model does.
     cover = re.search(r"\[Data: its prompts, [^\]]*\]\n(.*?)\n\[End of data\]", first, re.S)
-    quiet = odd.get(area) == "quiet"  # it names none of them
-    said = f"{area} works" + (f": {cover[1]}." if cover and not quiet else ".")
+    quiet = odd.get(area) in ("quiet", "stubborn")  # it names none of them
+    named = cover[1] if cover else ""
+    if odd.get(area) == "forgets":
+        named = ", ".join(named.split(", ")[:-2])
+    said = f"{area} works" + (f": {named}." if named and not quiet else ".")
     # Shapes a model reaches for (a path for a ref, a bare path, a name for a title, a near
     # kind): taken as what was meant.
     section = {

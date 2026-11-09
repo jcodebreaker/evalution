@@ -495,3 +495,193 @@ def test_an_understanding_from_before_progress_reads_as_no_learn(tmp_path) -> No
         body = client.get("/v1/targets/bot/understanding").json()
         assert body["progress"]["state"] == "stopped"
         assert [a["state"] for a in body["progress"]["areas"]] == ["due", "done"]
+
+
+# A heavy area, learned in pieces (Phase 5's run: one area of 48 tools named only in agents'
+# settings ran out of its budget before it wrote anything).
+
+#: Sixty tools the agents' settings list, in one file, beside a few code files.
+TEAM = "tools:\n" + "".join(f"  - tool_{n:02}\n" for n in range(1, 61))
+HEAVY = {
+    "agents/team.yaml": TEAM,
+    "agents/router.py": "@tool\ndef route_call(x):\n    return x\n",
+    "agents/handoff.py": "@tool\ndef hand_off(x):\n    return x\n",
+}
+
+
+def _tools(path: str, count: int, first: int = 1) -> list[Entry]:
+    return [Entry("tool", f"tool_{n:02}", path, n + 1) for n in range(first, first + count)]
+
+
+def test_a_heavy_area_splits_by_folder_then_file_then_entries_the_same_way_twice() -> None:
+    files = (
+        "agents/handoff.py",
+        "agents/readme_helpers.py",
+        "agents/settings/team.yaml",
+        "agents/tools/a.py",
+        "agents/tools/b.py",
+    )
+    area = areas.Area("agents", ("agents",), files, 500)
+    found = [
+        Entry("tool", "hand_off", "agents/handoff.py", 1),
+        *_tools("agents/settings/team.yaml", 60),
+        *[Entry("tool", f"a_{n}", "agents/tools/a.py", n) for n in range(1, 11)],
+        *[Entry("tool", f"b_{n}", "agents/tools/b.py", n) for n in range(1, 21)],
+        Entry("tool", "elsewhere", "lib/x.py", 1),
+    ]
+    piece, ceiling = area_agents.FULL_WEIGHT, area_agents.SPLIT_WEIGHT
+    assert ceiling == 36 and piece == 24
+    pieces = areas.split(area, found, piece, ceiling, {p: 100 for p in files})
+    assert areas.split(area, found, piece, ceiling, {p: 100 for p in files}) == pieces
+    shape = [(p.id, p.files, len(areas.entries_of(p, found))) for p in pieces]
+    assert shape == [
+        # The top folder (a file with no entry in it) and, packed after it while it fits, the
+        # first file of a folder of 30, which is over a piece and so goes by its files.
+        ("agents.1", ("agents/handoff.py", "agents/readme_helpers.py", "agents/tools/a.py"), 11),
+        # One file of 60 tools: by its entries, in three near-equal pieces of it alone.
+        ("agents.2", ("agents/settings/team.yaml",), 20),
+        ("agents.3", ("agents/settings/team.yaml",), 20),
+        ("agents.4", ("agents/settings/team.yaml",), 20),
+        ("agents.5", ("agents/tools/b.py",), 20),
+    ]
+    assert all(p.of == "agents" and p.size == 100 * len(p.files) for p in pieces)
+    assert (
+        pieces[1].label == "part 2 of 5: 20 tools in agents/settings/team.yaml (tool_01 to tool_20)"
+    )
+    assert pieces[0].label == "part 1 of 5: 11 tools in 3 files (hand_off to a_10)"
+    # Every entry of the area in one piece, none twice; each within a full budget.
+    held = [e.id for p in pieces for e in areas.entries_of(p, found)]
+    assert sorted(held) == sorted(e.id for e in areas.entries_of(area, found))
+    assert all(areas.weight(areas.entries_of(p, found), {}) <= piece for p in pieces)
+    # Up to the ceiling it is learned whole.
+    light = [e for e in found if e.path != "agents/settings/team.yaml"]
+    assert len(areas.entries_of(area, light)) == 31 <= ceiling
+    assert areas.split(area, light, piece, ceiling) == [area]
+
+
+async def test_a_heavy_area_is_learned_in_pieces_each_within_its_budget_and_kept_apart(
+    tmp_path, monkeypatch
+) -> None:
+    started, budgets = _order(monkeypatch)
+    agent, repo, sent, _script = _learning(tmp_path, extra=HEAVY)
+    targets = agent.targets
+    sid = (await agent.create("bot", "main"))["id"]
+    seen: list[dict] = []
+    real = area_agents.run_area
+
+    async def run(area, ctx, before, budget=None, shown=None):
+        seen.append(understanding.progress(targets, "bot"))
+        return await real(area, ctx, before, budget, shown)
+
+    monkeypatch.setattr(area_agents, "run_area", run)
+    shown = await _learn(agent, sid)
+    weights = {a["id"]: a["weight"] for a in shown["learn"]["areas"]}
+    # agents: the 60 tools of its settings in three pieces, and the rest of it in one.
+    assert weights == {
+        "agents.2": 20,
+        "agents.3": 20,
+        "agents.4": 20,
+        "agents.1": 5,
+        "root": 4,
+        "lib": 1,
+        "web": 0,
+    }
+    assert started == ["agents.2", "agents.3", "agents.4", "agents.1", "root", "lib"]
+    assert budgets == [area_agents.allowance(weights[a]) for a in started]
+    usage = shown["usage"][-1]
+    for run_of in usage["areas"]:
+        steps, tokens = area_agents.allowance(weights[run_of["area"]])
+        assert run_of["outcome"] == "learned" and run_of["calls"] <= steps
+        assert run_of["tokens_in"] + run_of["tokens_out"] <= tokens
+    assert usage["uncovered"] == 0 and usage["areas_total"] == 7
+    # Each piece is told it is one, and given its own names only.
+    told = _first_text(next(b for b in sent["areas"] if "The area agents.3:" in json.dumps(b)))
+    assert "It is a piece of the area agents, part 3 of 4: 20 tools in agents/team.yaml" in told
+    assert "tool_21" in told and "tool_40" in told
+    assert "tool_20" not in told and "tool_41" not in told and "route_call" not in told
+    # The page shows each piece as an area, titled by what it covers until it is learned.
+    titles = {a["id"]: a["title"] for a in seen[0]["areas"]}
+    assert (
+        titles["agents.2"]
+        == "agents/, part 2 of 4: 20 tools in agents/team.yaml (tool_01 to tool_20)"
+    )
+    assert titles["root"] == "the top folder"
+    assert _states(seen[0])["agents.2"] == "learning" and _states(seen[0])["agents.3"] == "due"
+    progress = understanding.progress(targets, "bot")
+    assert progress["state"] == "done"
+    assert _states(progress) == {a: "done" for a in started} | {"web": "listed"}
+    assert {a["id"]: a["title"] for a in progress["areas"]}["agents.3"] == "The agents.3 area"
+    # Their sections merged like any other's, ids under each piece.
+    sections = [s["id"] for s in understanding.load(targets, "bot")["sections"]]
+    for n in (1, 2, 3, 4):
+        assert f"{understanding.AREA_PREFIX}agents.{n}" in sections
+
+    # The same app splits the same way: nothing is learned again.
+    started.clear()
+    shown = await _learn(agent, sid)
+    assert shown["messages"][-1]["text"].startswith("Nothing changed since") and not started
+    # One piece's file moved: that piece alone is learned again.
+    (repo / "agents/router.py").write_text(HEAVY["agents/router.py"] + "\nLIMIT = 3\n")
+    _git(repo, "commit", "-qam", "router")
+    assert (await learn.area_state(targets, "bot", "agents.1"))["state"] == "moved"
+    assert (await learn.area_state(targets, "bot", "agents.2"))["state"] == "current"
+    shown = await _learn(agent, sid)
+    assert started == ["agents.1"] and _area_runs(shown) == ["agents.1"]
+
+
+def _calls_of(shown: dict, area: str) -> list[dict]:
+    return [a for a in shown["usage"][-1]["areas"] if a["area"] == area]
+
+
+async def test_a_section_that_leaves_names_out_gets_one_more_step_naming_them(tmp_path) -> None:
+    agent, _repo, sent, _script = _learning(tmp_path, odd={"root": "forgets"})
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    root = [b for b in sent["areas"] if "The area root:" in json.dumps(b)]
+    assert len(root) == 2, "one more step, once"
+    asked = json.dumps(root[1]["messages"][-1])
+    assert "Your section names none of these of this area: greet_people, POST /chat." in asked
+    assert "SYSTEM_PROMPT" not in asked.split("Your section names")[1]
+    # Both ended covered: nothing is reported, and the section names them.
+    usage = shown["usage"][-1]
+    assert usage["uncovered"] == 0 and usage["follow_ups"] == 1
+    assert (
+        _calls_of(shown, "root")[0]["calls"] == 2 and _calls_of(shown, "root")[0]["follow_up"] == 2
+    )
+    assert all(a["follow_up"] == 0 for a in usage["areas"] if a["area"] != "root")
+    assert "Named in no section" not in shown["messages"][-1]["text"]
+    stages = {s["stage"]: s["calls"] for s in usage["stages"]}
+    assert stages["areas"] == len(sent["areas"]) == 4
+    section = next(
+        s
+        for s in understanding.load(agent.targets, "bot")["sections"]
+        if s["id"] == f"{understanding.AREA_PREFIX}root"
+    )
+    said = json.dumps(section)
+    assert "greet_people" in said and "/chat" in said and "SYSTEM_PROMPT" in said
+
+
+async def test_the_follow_up_is_never_repeated_and_never_past_the_budget(
+    tmp_path, monkeypatch
+) -> None:
+    # Told, it still names nothing: asked once, then reported as before.
+    agent, _repo, sent, _script = _learning(tmp_path / "a", odd={"lib": "stubborn"})
+    sid = (await agent.create("bot", "main"))["id"]
+    shown = await _learn(agent, sid)
+    assert len([b for b in sent["areas"] if "The area lib:" in json.dumps(b)]) == 2
+    assert shown["messages"][-1]["text"].endswith("Named in no section: MemoryStore.")
+    assert shown["usage"][-1]["follow_ups"] == 1
+
+    # No step left, or no tokens for one more like the last: no follow-up.
+    real = area_agents.allowance
+    for allowance in ((1, 10**6), (4, 200)):
+        monkeypatch.setattr(area_agents, "allowance", lambda _w, given=allowance: given)
+        agent, _repo, sent, _script = _learning(
+            tmp_path / str(allowance[0]), odd={"lib": "forgets"}
+        )
+        sid = (await agent.create("bot", "main"))["id"]
+        shown = await _learn(agent, sid)
+        assert len([b for b in sent["areas"] if "The area lib:" in json.dumps(b)]) == 1
+        assert shown["usage"][-1]["follow_ups"] == 0
+        assert shown["messages"][-1]["text"].endswith("Named in no section: MemoryStore.")
+    monkeypatch.setattr(area_agents, "allowance", real)

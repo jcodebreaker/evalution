@@ -95,6 +95,17 @@ Run phase 0's measures again. Keep the change only if, on the big app: the skele
   1. One heavy area (48 tools named only in agent settings) ran out of its budget and wasn't learned. A heavy area should be split, or given its budget by its entries rather than capped at `MAX_BUDGET`.
   2. Four prompts were named in no section (reported, not asked again). The coverage guard should give the area that holds them one more step to say them.
 
+**Both gaps fixed (2026-11-09).**
+
+1. **A heavy area is learned in pieces.** An area of more than 36 skeleton entries (`SPLIT_WEIGHT`, one and a half `FULL_WEIGHT`) is split by `project/areas.py` `split`:
+   - its folders are kept whole while they fit in 24 entries, then its files, packed in path order;
+   - a file holding more than 24 alone (a settings file listing many agents' tools) is cut by its entries, in skeleton order, into nearly equal pieces.
+
+   Each piece (`<area>.<n>`) has its own key, budget, section and progress row, and runs in parallel with the rest. Pieces are counted by entries alone, never by real use, so the same app splits the same way every learn and a piece whose files didn't move isn't learned again. Before it is learned, the page names a piece by what it covers: "agents/, part 2 of 4: 20 tools in agents/team.yaml (tool_01 to tool_20)".
+2. **One more step for names left out.** Once an area's section is written, its own prompts, tools, state, agents and routes that it names nowhere are listed back to its agent in one more step (`FOLLOW_UP`). This happens once, and only if a step and the budget remain. Whatever is still missing is reported as before; `follow_ups` counts it in usage.
+
+   The names an area is told and checked against went from 20 to 36. Before, an area past 20 had the rest neither said to it nor checked.
+
 ## Testing
 
 - Unit: skeleton extraction per language the code map parses; trace matching; weights and budgets; per-area save and resume.

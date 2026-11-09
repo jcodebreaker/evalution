@@ -75,13 +75,15 @@ class TurnUsage:
     #: A learn's skeleton: its entries, and the trace hits matched to them.
     skeleton_entries: int = 0
     skeleton_hits: int = 0
-    #: A learn's areas: how many the code was split into, how many were understood again, how
-    #: many were listed and not learned (no weight), the names no section said, and the
-    #: overview's calls: the first one's (from the skeleton, early) and the final one's.
+    #: A learn's areas: how many the code was split into (a heavy one's pieces each counted), how
+    #: many were understood again, how many were listed and not learned (no weight), the names
+    #: no section said, the areas given one more step for the names their section left out, and
+    #: the overview's calls: the first one's (from the skeleton, early) and the final one's.
     areas_total: int = 0
     areas_run: int = 0
     areas_listed: int = 0
     uncovered: int = 0
+    follow_ups: int = 0
     first_overview_calls: int = 0
     overview_calls: int = 0
     #: The tools called, in order.

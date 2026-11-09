@@ -14,14 +14,16 @@ for the overview.
    fallback, for those no grammar reads in an area about to be learned.
 3. The files are split into areas (:mod:`evalution.project.areas`), the same files giving the
    same areas. An area weighs its skeleton entries and their trace hits; its key is its files'
-   fingerprints and its hits in bands. An area whose key did not move keeps its section, with no
-   model call; one with no weight that was never learned is listed, not learned, until asked for
-   (:func:`area_state`, the page's "Learn this area"); each other is understood by its own agent
-   (:mod:`evalution.writer.areas`), heaviest first, then in the slice's order
-   (:mod:`evalution.project.slicing`), :data:`PARALLEL` at a time, its steps and tokens growing
-   with its weight. Each section is kept as it lands, so a learn cut short keeps what it finished
-   and the next does only the rest. One that fails is tried again, then in two halves; one that
-   still fails is named in the reply and never stops the others.
+   fingerprints and its hits in bands. An area of more entries than one agent covers
+   (:data:`area_agents.SPLIT_WEIGHT`) is learned in pieces (:func:`areas.split`), each an area of
+   its own here: its key, budget, section and place in the progress. An area whose key did not
+   move keeps its section, with no model call; one with no weight that was never learned is
+   listed, not learned, until asked for (:func:`area_state`, the page's "Learn this area"); each
+   other is understood by its own agent (:mod:`evalution.writer.areas`), heaviest first, then in
+   the slice's order (:mod:`evalution.project.slicing`), :data:`PARALLEL` at a time, its steps
+   and tokens growing with its weight. Each section is kept as it lands, so a learn cut short
+   keeps what it finished and the next does only the rest. One that fails is tried again, then
+   in two halves; one that still fails is named in the reply and never stops the others.
 4. Before the areas, when there is no overview yet or most of the weighted areas are to learn,
    one bounded call writes a first overview from the skeleton, its trace hits and the list of
    areas alone, saved at once and marked a first pass. The understanding is saved again as each
@@ -286,11 +288,18 @@ def _namespaced(run: area_agents.Run) -> tuple[dict[str, Any], list[dict[str, An
 
 
 def _halves(area: areas.Area) -> list[areas.Area]:
-    middle = math.ceil(len(area.files) / 2)
+    """*area* in two: by its files, or, a piece of one file, by the entries it is held to."""
+    if len(area.files) > 1:
+        middle = math.ceil(len(area.files) / 2)
+        halves = [(area.files[:middle], area.entries), (area.files[middle:], area.entries)]
+    elif len(area.entries) > 1:
+        middle = math.ceil(len(area.entries) / 2)
+        halves = [(area.files, area.entries[:middle]), (area.files, area.entries[middle:])]
+    else:
+        return []
     return [
-        areas.Area(f"{area.id}~{n}", area.folders, files, 0)
-        for n, files in ((1, area.files[:middle]), (2, area.files[middle:]))
-        if files
+        areas.Area(f"{area.id}~{n}", area.folders, files, 0, held, area.of, area.label)
+        for n, (files, held) in enumerate(halves, 1)
     ]
 
 
@@ -330,12 +339,19 @@ def plan(
     prints: Mapping[str, str],
     order: Sequence[str] = (),
 ) -> list[Planned]:
-    """The areas of *cmap*'s code (prose is none: :func:`_prose`), heaviest first, then by the
-    best place one of their files has in *order* (the slice), then by id. No model."""
+    """The areas of *cmap*'s code (prose is none: :func:`_prose`), a heavy one in its pieces
+    (:func:`areas.split`), heaviest first, then by the best place one of their files has in
+    *order* (the slice), then by id. No model."""
     coded = [p for p in cmap.files if not _prose(cmap, p)]
     sizes = _sizes(cmap, memory)
     shaping = {p for p in coded if slicing.does(cmap, p)}
-    parts = areas.partition({p: sizes[p] for p in coded}, shaping)
+    parts = [
+        piece
+        for area in areas.partition({p: sizes[p] for p in coded}, shaping)
+        for piece in areas.split(
+            area, found.entries, area_agents.FULL_WEIGHT, area_agents.SPLIT_WEIGHT, sizes
+        )
+    ]
     place = {p: n for n, p in enumerate(order)}
     stored = memory.get("areas") or {}
     out = []
@@ -424,7 +440,7 @@ async def _understand(
             kept = runs[-1:]
             break
     else:
-        for half in _halves(area) if len(area.files) > 1 else []:
+        for half in _halves(area):
             if budget.out():
                 break
             if (await one(half, None)).outcome == "learned":
@@ -681,11 +697,13 @@ def _skeleton_brief(found: Skeleton, uses: Mapping[str, int]) -> str:
 
 
 def _title(p: Planned, stored: Mapping[str, Any]) -> str:
-    """An area as the page names it: its section's title once learned, else its folders."""
+    """An area as the page names it: its section's title once learned, else its folders, and
+    for a piece what it covers."""
     sections = (stored.get(p.area.id) or {}).get("sections") or []
     if sections and sections[0].get("title"):
         return str(sections[0]["title"])
-    return ", ".join(f"{f}/" if f else "the top folder" for f in p.area.folders) or p.area.id
+    where = ", ".join(f"{f}/" if f else "the top folder" for f in p.area.folders) or p.area.id
+    return f"{where}, {p.area.label}" if p.area.label else where
 
 
 def _basis(sessions: int, areas_learned: int | None = None) -> str:
@@ -877,6 +895,12 @@ async def _begin(
     }
     shown["skeleton"] = len(skeleton.entries)
     clock("skeleton")
+    # An area asked for by a name it had before it was split: its pieces.
+    asked = tuple(
+        piece
+        for a in asked
+        for piece in ([a] if a in by_id else [p.area.id for p in planned if p.area.of == a] or [a])
+    )
     if asked:
         if missing := [a for a in asked if a not in by_id]:
             return Begun(done=f"There is no area {missing[0]} now.", stats=stats)
@@ -1093,6 +1117,7 @@ async def _begin(
             if n.split()[-1].lower() not in said_all
         ]
         stats["uncovered"] = len(uncovered)
+        stats["follow_ups"] = sum(1 for runs, _ in done for r in runs if r.followed)
 
         stage("overview")
         made_of = _hash([sections, nodes, named])

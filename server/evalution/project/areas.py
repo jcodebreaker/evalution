@@ -13,6 +13,12 @@ What an area weighs (ADR 0012) is what the app is built from in it and what real
 there: its skeleton entries (:mod:`evalution.project.skeleton`) and their trace hits
 (:func:`weight`). Its key (:func:`key`) is what its section was learned from: its files'
 fingerprints and its hits in :data:`BANDS`, so a few more calls of the same tool don't move it.
+
+An area of more entries than one agent can cover is learned in pieces (:func:`split`): its
+folders first, then its files, and a file that holds too many alone (the tools many agents' settings
+list) by its entries. The pieces depend on the paths and the entries alone, never on real use, so
+the same app splits the same way learn after learn and a piece whose files did not move is not
+learned again.
 """
 
 from __future__ import annotations
@@ -20,12 +26,14 @@ from __future__ import annotations
 import bisect
 import hashlib
 import json
+import math
 import re
+from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from evalution.project.skeleton import Entry
+from evalution.project.skeleton import KINDS, Entry
 
 #: How many areas a learn is split into, at least and at most, and how much one may hold.
 MIN_AREAS = 6
@@ -41,12 +49,18 @@ BANDS = (1, 10, 100)
 @dataclass(frozen=True)
 class Area:
     """*id*: a short slug, stable while its files are; *folders*: the folders it stands for;
-    *size*: how much its agent has to read of it."""
+    *size*: how much its agent has to read of it. A piece of a heavy area (:func:`split`) says
+    which area it is a piece *of*, what it covers (*label*), and, when it shares a file with
+    other pieces, the skeleton *entries* it is held to (their ids; none: every entry at its
+    files)."""
 
     id: str
     folders: tuple[str, ...]
     files: tuple[str, ...]
     size: int
+    entries: tuple[str, ...] = ()
+    of: str = ""
+    label: str = ""
 
 
 def _folder(path: str, depth: int) -> str:
@@ -159,9 +173,11 @@ def _fold_helpers(areas: list[Group], shaping: set[str]) -> list[Group]:
 
 
 def entries_of(area: Area, entries: Iterable[Entry]) -> list[Entry]:
-    """The skeleton entries at a file of *area*, in the skeleton's order."""
+    """The skeleton entries at a file of *area* (only those it is held to, for a piece that
+    shares a file), in the skeleton's order."""
     files = set(area.files)
-    return [e for e in entries if e.path in files]
+    held = set(area.entries)
+    return [e for e in entries if e.path in files and (not held or e.id in held)]
 
 
 def weight(entries: Sequence[Entry], uses: Mapping[str, int]) -> int:
@@ -185,3 +201,106 @@ def key(
         "hits": sorted((e.id, band(int(uses.get(e.id) or 0))) for e in entries),
     }
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+
+
+# A heavy area, in pieces
+
+#: A piece in the making: its files, the entry ids it is held to (none: all of its files'), and
+#: how many entries it has.
+_Unit = tuple[tuple[str, ...], tuple[str, ...], int]
+
+
+def split(
+    area: Area,
+    entries: Sequence[Entry],
+    piece: int,
+    ceiling: int,
+    sizes: Mapping[str, int] | None = None,
+) -> list[Area]:
+    """*area* as it is learned: itself while it holds at most *ceiling* skeleton *entries*, else
+    in pieces of at most *piece* entries each. Its folders are kept whole while they fit, then
+    its files, packed in path order; a file of more than *piece* entries alone (the tools many
+    agents' settings list) is cut by its entries, in the skeleton's order, into nearly equal
+    pieces of that file alone. Files with no entry go with the piece before them (the first,
+    after). Real use plays no part, so a busier tool never moves a piece; each is
+    ``<area>.<n>``, in the order of its first file. *sizes*: each file's size, which only says
+    a piece's."""
+    mine = entries_of(area, entries)
+    if len(mine) <= ceiling:
+        return [area]
+    count = Counter(e.path for e in mine)
+    folders: dict[str, list[str]] = {}
+    for path in area.files:
+        folders.setdefault(_folder(path, len(PurePosixPath(path).parts)), []).append(path)
+
+    units: list[_Unit] = []
+    for folder in sorted(folders):
+        files = folders[folder]
+        weight = sum(count[p] for p in files)
+        if weight <= piece:
+            units.append((tuple(files), (), weight))
+            continue
+        for path in files:
+            if count[path] <= piece:
+                units.append(((path,), (), count[path]))
+                continue
+            ids = [e.id for e in mine if e.path == path]
+            cuts = math.ceil(len(ids) / piece)
+            for n in range(cuts):
+                part = ids[n * len(ids) // cuts : (n + 1) * len(ids) // cuts]
+                units.append(((path,), tuple(part), len(part)))
+
+    # A file's cut pieces stand alone; the rest are packed in order, past them.
+    pieces: list[list[_Unit]] = [[u] for u in units if u[1]]
+    packed: list[list[_Unit]] = []
+    for unit in (u for u in units if not u[1]):
+        if packed and (unit[2] == 0 or sum(u[2] for u in packed[-1]) + unit[2] <= piece):
+            packed[-1].append(unit)
+        else:
+            packed.append([unit])
+    if packed and not any(u[2] for u in packed[0]) and (len(packed) > 1 or pieces):
+        # Files with no entry ahead of any that have some: with the next piece.
+        (packed[1] if len(packed) > 1 else pieces[0])[:0] = packed.pop(0)
+    pieces = sorted(pieces + packed, key=lambda units_of: min(p for u in units_of for p in u[0]))
+
+    sizes = sizes or {}
+    out = []
+    for n, units_of in enumerate(pieces, 1):
+        files = tuple(sorted({p for u in units_of for p in u[0]}))
+        held = tuple(i for u in units_of for i in u[1])
+        shape = Area(area.id, area.folders, files, 0, held)
+        covered = entries_of(shape, mine)
+        out.append(
+            Area(
+                f"{area.id}.{n}",
+                tuple(sorted({_folder(p, len(PurePosixPath(p).parts)) for p in files})),
+                files,
+                sum(int(sizes.get(p) or 0) for p in files),
+                held,
+                area.id,
+                f"part {n} of {len(pieces)}: {_covers(covered, files)}",
+            )
+        )
+    return out
+
+
+#: Skeleton kinds as a piece's label says them.
+_SAID = {"entry": "entry point", "model": "model call", "state": "store"}
+
+
+def _covers(entries: Sequence[Entry], files: Sequence[str]) -> str:
+    """What a piece covers, in a few words: ``20 tools, 1 prompt in agents/team.yaml (search to
+    write_file)``."""
+    count = Counter(e.kind for e in entries)
+    kinds = []
+    for kind in (*KINDS, *sorted(set(count) - set(KINDS))):
+        if count[kind]:
+            word = _SAID.get(kind, kind)
+            kinds.append(f"{count[kind]} {word if count[kind] == 1 else word + 's'}")
+    said = ", ".join(kinds) or "no entry"
+    said += f" in {files[0]}" if len(files) == 1 else f" in {len(files)} files"
+    if len(entries) > 1:
+        said += f" ({entries[0].name} to {entries[-1].name})"
+    elif entries:
+        said += f" ({entries[0].name})"
+    return said

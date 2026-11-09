@@ -9,7 +9,9 @@ next brief. It is bounded every way: a number of calls of at most :data:`TOKENS`
 a :class:`Budget` of tokens its retries share, both growing with the area's weight from a floor
 (:func:`allowance`). What it writes is checked like any save before it is taken. The prompts,
 tools, agents, routes and state of its part of the skeleton are named up front, so no call goes
-on reminding it, and a section may come in parts, each within the output limit. The orchestrator
+on reminding it, and a section may come in parts, each within the output limit. Once written,
+a section that leaves some of them unnamed gets one more step, told which (:data:`FOLLOW_UP`),
+when the budget covers it; never a second. The orchestrator
 (:mod:`evalution.writer.learn`) runs several at a time, heaviest first, retries one that fails
 while its budget lasts, and keeps each section as it lands.
 """
@@ -27,7 +29,7 @@ from typing import Any
 from evalution.code import Code, CodeError
 from evalution.llm import Reply, cut, fenced
 from evalution.project import filememory, understanding
-from evalution.project.areas import AREA_CHARS, Area
+from evalution.project.areas import AREA_CHARS, Area, entries_of
 from evalution.project.codemap import CodeMap
 from evalution.project.skeleton import Entry
 
@@ -42,6 +44,10 @@ BUDGET = 60_000
 MAX_BUDGET = 200_000
 #: The weight (skeleton entries and trace hits) at which an area gets the most.
 FULL_WEIGHT = 24
+#: An area of more skeleton entries than this is learned in pieces of about :data:`FULL_WEIGHT`
+#: entries each (:func:`evalution.project.areas.split`), each with a budget of its own: past it,
+#: one agent runs out before it has said them all.
+SPLIT_WEIGHT = FULL_WEIGHT * 3 // 2
 #: What the brief may hold of the area's part of the skeleton, and of one prompt's text.
 SKELETON_CHARS = 12_000
 ENTRY_TEXT_CHARS = 300
@@ -55,8 +61,8 @@ NODE_TOOLS = 20
 KEPT_CHARS = 8_000
 #: How much of one file read_code gives an area's agent.
 READ_CHARS = 16_000
-#: The section's names said back at most.
-NAMES_SENT = 20
+#: The section's names said back at most: every one of an area that isn't split.
+NAMES_SENT = SPLIT_WEIGHT
 
 #: ``(key, system, messages, tools, max_tokens) -> reply``: one model call, counted.
 Chat = Callable[..., Awaitable[Reply]]
@@ -182,6 +188,8 @@ class Run:
     tokens_out: int = 0
     seconds: float = 0.0
     transcript: list[dict[str, Any]] = field(default_factory=list)
+    #: The names its section left out that it was told of in one more step (:data:`FOLLOW_UP`).
+    followed: list[str] = field(default_factory=list)
 
     def usage(self) -> dict[str, Any]:
         return {
@@ -191,6 +199,7 @@ class Run:
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
             "seconds": round(self.seconds, 2),
+            "follow_up": len(self.followed),
         }
 
 
@@ -282,6 +291,11 @@ def brief(area: Area, ctx: Context, before: Mapping[str, Any] | None) -> str:
         line += "".join(f"\n  - {f['text']} (line {f['line']})" for f in facts)
         cards.append(line)
     parts = [f"The area {area.id}: {', '.join(f or '(top folder)' for f in area.folders)}."]
+    if area.of:
+        parts[0] += (
+            f" It is a piece of the area {area.of}, {area.label}; the other pieces are learned "
+            "apart. Write only of what is below, and title the section by what this piece covers."
+        )
     if mine := _skeleton_of(area, ctx):
         shown = "\n".join(_entry_line(e, ctx.uses) for e in mine)
         parts.append(fenced("its part of the app's skeleton", cut(shown, SKELETON_CHARS)))
@@ -306,9 +320,8 @@ def brief(area: Area, ctx: Context, before: Mapping[str, Any] | None) -> str:
 
 
 def _skeleton_of(area: Area, ctx: Context) -> list[Entry]:
-    """The area's skeleton entries, what real use touched most first."""
-    files = set(area.files)
-    mine = [e for e in ctx.entries if e.path in files]
+    """The area's skeleton entries (a piece's own), what real use touched most first."""
+    mine = entries_of(area, ctx.entries)
     return sorted(mine, key=lambda e: -int(ctx.uses.get(e.id) or 0))
 
 
@@ -437,6 +450,32 @@ def names(area: Area, ctx: Context) -> list[str]:
     return list(dict.fromkeys(names))[:NAMES_SENT]
 
 
+def unnamed(area: Area, ctx: Context, said: Any) -> list[str]:
+    """Of the area's :func:`names`, those *said* (its section and nodes) names nowhere: a name is
+    said when its last word is, in any case, as the learn's coverage guard reads it."""
+    text = json.dumps(said).lower()
+    return [n for n in names(area, ctx) if n.split()[-1].lower() not in text]
+
+
+#: The one more step a section that left names out is given.
+FOLLOW_UP = """\
+Your section names none of these of this area: {names}. Add a claim for each with ONE \
+write_section call (the same title, new ids, each citing the file it is in), or, for one that \
+is not what the skeleton says, a claim saying why. This is asked once."""
+
+
+def _follow_up(area: Area, ctx: Context, run: Run, budget: Budget, step: int) -> str | None:
+    """What to ask the agent in one more step, once its section is written: the names it left
+    out, when there are some, it was not asked before, and a step and its budget remain."""
+    if run.followed or step + 1 >= budget.steps or budget.out():
+        return None
+    missing = unnamed(area, ctx, [run.section, run.nodes])
+    if not missing:
+        return None
+    run.followed = missing
+    return FOLLOW_UP.format(names=", ".join(missing))
+
+
 def _take(run: Run, part: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
     """A part of the section laid over what was taken: same ids replace, the rest are added."""
 
@@ -485,7 +524,7 @@ async def run_area(
     read: set[str] = set()
     per_part = PART_CLAIMS
     try:
-        for _ in range(budget.steps):
+        for step in range(budget.steps):
             if budget.out():
                 run.outcome = "out of budget"
                 break
@@ -516,10 +555,13 @@ async def run_area(
                 messages.append({"role": "tool", "tool_call_id": last["id"], "content": said})
                 continue
             if not reply.tool_calls:
-                if run.section is not None:
-                    break
-                messages.append({"role": "user", "content": "Write the section now."})
-                continue
+                if run.section is None:
+                    messages.append({"role": "user", "content": "Write the section now."})
+                    continue
+                if ask := _follow_up(area, ctx, run, budget, step):
+                    messages.append({"role": "user", "content": ask})
+                    continue
+                break
             more = False
             for call in reply.tool_calls:
                 said = await _handle(area, ctx, run, call, read)
@@ -528,6 +570,13 @@ async def run_area(
                 more = (more or bool(call["arguments"].get("more"))) if taken else more
             saved = any(c["name"] == "write_section" for c in reply.tool_calls)
             if run.section is not None and saved and not more:
+                if ask := _follow_up(area, ctx, run, budget, step):
+                    # Said with the last result, so the turns still alternate.
+                    messages[-1] = {
+                        **messages[-1],
+                        "content": f"{messages[-1]['content']}\n\n{ask}",
+                    }
+                    continue
                 break
         if run.section is not None and run.section["claims"]:
             run.outcome = "learned"
