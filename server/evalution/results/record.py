@@ -19,7 +19,7 @@ from evalution.core.rules import (
     verdict_note,
 )
 
-SCHEMA = 3
+SCHEMA = 4
 #: Where a run played: ``hosted``, by a hosted server against an app on the internet, or ``local``,
 #: on someone's computer or in CI (``evalution run``, uploaded or not). Runs of one app in two
 #: places aren't one series: the app, its data and its network differ.

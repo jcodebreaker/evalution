@@ -831,6 +831,16 @@
    "tokens": 158004,
    "tools": 1.0,
    "unjudged": 0
+  },
+  "version": {
+   "branch": null,
+   "commit": null,
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -950,6 +960,16 @@
    "tokens": 158004,
    "tools": 1.0,
    "unjudged": 0
+  },
+  "version": {
+   "branch": null,
+   "commit": null,
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

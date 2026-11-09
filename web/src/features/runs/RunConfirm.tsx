@@ -14,6 +14,7 @@ import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { PlaysChip } from "../shared/marks";
 import { MissingPieceNote } from "../shared/next-step";
 import { ProofControl } from "../shared/ProofControl";
+import { CodeLines } from "./Version";
 
 /** "How this works": the Test environment screen, or the explainer where the page can't move. */
 function HowItWorks() {
@@ -300,6 +301,9 @@ export function RunConfirm({
       {estimate ? <PlaysLines estimate={estimate} app={name} /> : null}
       {page ? <RunProof app={name} onChanged={() => setRound((n) => n + 1)} /> : null}
       {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
+      {estimate?.version ? (
+        <CodeLines version={estimate.version} className="items-center text-center" />
+      ) : null}
       {estimate?.refused.map((item) => (
         <p key={item.case} className="m-0 text-center text-[13px] text-warning">
           {`Left out: ${item.case}, because ${item.why}`}

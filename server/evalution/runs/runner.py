@@ -32,7 +32,7 @@ import logging
 import secrets
 import time
 from collections.abc import Coroutine, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -65,6 +65,7 @@ from evalution.core.rules import (
     current,
     judgement,
 )
+from evalution.core.version import Checkout, described, unstarted
 from evalution.isolation.setup import setup_for
 from evalution.judging import labels
 from evalution.judging.checks import code_checks
@@ -399,6 +400,34 @@ class Runs:
             ),
         }
 
+    def _checkout(self, target: str) -> Checkout:
+        """The target's code folder as it stands; nothing when it has none, or it doesn't read."""
+        code = self.targets.code(target)
+        try:
+            return code.checkout() if code is not None else Checkout()
+        except OSError:
+            return Checkout()
+
+    async def preview(self, target: str) -> dict[str, Any]:
+        """What a run of *target* would play, said before it starts (ADR 0011): the version, and
+        whether the images on this computer look like it. Read-only: nothing is started, and a
+        part that can't be read is left unvouched rather than refused."""
+        checkout = await asyncio.to_thread(self._checkout, target)
+        try:
+            found = await asyncio.to_thread(
+                isolated.footing, self.targets.config, target, self._declared(target)
+            )
+            said = await isolated.preview(self.targets.config, target, found, checkout)
+        except Exception as exc:  # what the Run dialog says, never a reason not to run
+            _logger.warning("evals: what %s would play not read: %s", target, exc)
+            said = replace(
+                unstarted(checkout), why_unverified="evalution couldn't tell what would play"
+            )
+        return {
+            **{k: v for k, v in said.as_dict().items() if k != "played"},
+            "said": described(said.as_dict(), now=True),
+        }
+
     def _declared(self, target: str) -> Capabilities:
         """What *target*'s adapter declares, before any plan is laid over it."""
         return self.targets.adapter(target).capabilities
@@ -480,6 +509,9 @@ class Runs:
             # The code it played on: the last commit, and the hash of every source file's hash.
             "commit": None,
             "code": None,
+            # The version it played and whether evalution can vouch for it (ADR 0011), set once
+            # it knows what it plays on: evalution's copy, or the app as it runs.
+            "version": None,
             "pass_marks": dict(eval_set.pass_marks),
             "set_version": eval_set.version,
             "case_versions": {c.case: c.version for c in cases},
@@ -812,6 +844,7 @@ class Runs:
             await self.recover()
             await self.store.save(doc)
             doc.update(await asyncio.to_thread(impact.record_run, self.targets, name))
+            checkout = await asyncio.to_thread(self._checkout, name)
             await drift.check_quietly(self.targets, name)
             found = drift.read(self.targets, name)
             for case in cases:
@@ -821,7 +854,10 @@ class Runs:
             slots = min(self.targets.conf(name).max_parallel, len(cases)) if parallel else 1
             footing = await self._footing(doc, name, target)
             doc["isolation"] = footing.run_label()
-            if footing.managed:
+            if not footing.managed:
+                # The app as it runs: whatever it was started from.
+                doc["version"] = unstarted(checkout).as_dict()
+            else:
                 doc["current"] = {
                     "case": "",
                     "name": "Starting evalution's copy of the app",
@@ -837,6 +873,9 @@ class Runs:
                 await copies.start(slots)
                 # How long starting the copies took: the Run dialog's rough figure next time.
                 doc["copy_start_seconds"] = round(time.monotonic() - began, 1)
+                # What the copies play: their images, or the working tree.
+                version = await isolated.played(copies, checkout, doc.get("code"))
+                doc["version"] = version.as_dict()
                 doc["isolation"] = footing.run_label(copies.person)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
                 await self._check_page_map(doc, name, on.get(0))

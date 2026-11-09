@@ -11,6 +11,7 @@ import { Comparison } from "./Comparison";
 import { Details } from "./Details";
 import { Progress } from "./Progress";
 import { Results } from "./Results";
+import { CodeLines } from "./Version";
 import { WhatWentWrong } from "./WhatWentWrong";
 
 /**
@@ -83,7 +84,10 @@ export function RunView({
 
       <Page>
         {isLive ? (
-          <Progress run={run} onTest={onTest} />
+          <>
+            <CodeLines version={run.version} />
+            <Progress run={run} onTest={onTest} />
+          </>
         ) : (
           <>
             <div className="flex flex-col gap-1">
@@ -111,6 +115,7 @@ export function RunView({
                   {PAGE_ONLY_RUN}
                 </p>
               ) : null}
+              <CodeLines version={run.version} className="mt-1" />
             </div>
 
             <Comparison

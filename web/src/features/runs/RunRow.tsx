@@ -3,6 +3,7 @@ import type { RunSummary, RunTest } from "../../lib/schema";
 import { originallyWord, unjudgedWords, verdictLine } from "../../lib/verdict";
 import { Spinner } from "../../ui/loading";
 import { VerdictGlyph } from "../shared/marks";
+import { VersionChip } from "./Version";
 
 export type Entry = { run: RunSummary; test: RunTest };
 
@@ -27,6 +28,7 @@ export function RunRow({
         <span className="truncate text-ink-3">{label}</span>
       </span>
       <span className="flex items-center gap-4 text-[12.5px] text-ink-2 tabular-nums">
+        <VersionChip version={run.version} />
         {test.tries ? <span>{`${test.passed} of ${test.tries} tries`}</span> : null}
         <span className="text-ink-3">{when(run.started_at)}</span>
       </span>

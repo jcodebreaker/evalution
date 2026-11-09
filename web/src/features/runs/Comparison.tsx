@@ -121,6 +121,11 @@ export function Comparison({
           Same setup as that run: no recorded change in model, code, prompt or grader.
         </p>
       )}
+      {found.code ? (
+        <p className="m-0 text-[14px] text-ink-2" data-testid="code-played">
+          {`${found.code}.`}
+        </p>
+      ) : null}
       {moved.length ? (
         <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[14px]">
           {moved.map((test) => (

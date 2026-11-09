@@ -415,6 +415,11 @@ async def test_a_run_plays_its_tries_and_stops_when_it_must(
     await runs.wait()
     run = runs.load(made["run"])
     assert (run["status"], target.asked) == (status, asked)
+    # Played on the app as it runs: evalution can't say what code that was (ADR 0011).
+    assert run["version"]["played"] is None and run["version"]["verified"] is None
+    assert run["version"]["why_unverified"] == "the app as it's running; evalution didn't start it"
+    preview = await runs.preview("bot")
+    assert preview["said"] == "what's on disk now" and preview["verified"] is None
     played = [c for c in run["cases"].values() if c["tries"]]
     assert all(c["planned"] == len(c["tries"]) for c in played), "planned ends at what it played"
     if status == "failed":

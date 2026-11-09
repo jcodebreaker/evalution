@@ -20,7 +20,7 @@ from evalution.isolation.launch import LaunchError
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
 from evalution.isolation.setup import Setup, SetupStore
 from evalution.results.migrate import upcast
-from evalution.results.record import isolation_of
+from evalution.results.record import SCHEMA, isolation_of
 from evalution.runs import isolated
 
 MEMORY_FILE = "app-data/memory.json"
@@ -189,7 +189,7 @@ def test_an_older_run_reads_as_not_isolated() -> None:
         "cases": {"a": {"tries": [{"n": 1}]}},
     }
     read = upcast(old)
-    assert read["schema"] == 3 and "isolation" not in old
+    assert read["schema"] == SCHEMA and "isolation" not in old
     assert read["isolation"] == {"how": "none", "plan_version": None, "person": None}
     assert read["cases"]["a"]["tries"][0]["isolation"] == {
         "how": "none",

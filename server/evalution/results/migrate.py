@@ -14,6 +14,9 @@ reads as ``local``, with no name.
 
 Schema 2 didn't say how tries were kept apart: no run then played on a copy evalution put back, so
 the run and each try read as ``isolation: {"how": "none", ...}``.
+
+Schema 3 didn't say what played (ADR 0011): its ``version`` reads as "what was on disk", with the
+commit it recorded, and nothing vouched for (:func:`~evalution.core.version.not_recorded`).
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ from evalution.core.judgement import (
     WhyUnjudged,
 )
 from evalution.core.rules import judgement, line_outcome, rubric_outcome, tools_bind
+from evalution.core.version import not_recorded
 from evalution.results.record import SCHEMA, environment, isolation, run_isolation
 from evalution.results.views import totals
 
@@ -434,6 +438,10 @@ def _two_to_three(old: Mapping[str, Any]) -> dict[str, Any]:
     return {**old, "schema": 3, "isolation": run_isolation(), "cases": cases}
 
 
+def _three_to_four(old: Mapping[str, Any]) -> dict[str, Any]:
+    return {**old, "schema": 4, "version": not_recorded(old.get("commit"))}
+
+
 def upcast(doc: dict[str, Any]) -> dict[str, Any]:
     """*doc* as today's schema: the same object when it already is."""
     schema = int(doc.get("schema") or 0)
@@ -441,4 +449,5 @@ def upcast(doc: dict[str, Any]) -> dict[str, Any]:
         return doc
     found = _zero_to_one(doc) if schema < 1 else doc
     found = _one_to_two(found) if schema < 2 else found
-    return _two_to_three(found)
+    found = _two_to_three(found) if schema < 3 else found
+    return _three_to_four(found)

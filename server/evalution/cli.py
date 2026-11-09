@@ -83,6 +83,7 @@ from evalution.benchmarks import planning
 from evalution.code import CodeError
 from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
+from evalution.core.version import described
 from evalution.demo import ui as demo_ui
 from evalution.isolation import containers as store_boxes
 from evalution.isolation import discover as store_scan
@@ -217,6 +218,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         print(
             f"evalution: {estimate['cases']} case(s), {tries} tries, {estimate['chats']} messages"
         )
+        _print_version(await runs.preview(args.target))
         refused = estimate["refused"]
         for test in refused:
             print(f"evalution: left out {test['case']}: {test['why']}", file=sys.stderr)
@@ -234,6 +236,8 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         except (KeyboardInterrupt, asyncio.CancelledError):
             await runs.stop(started["run"])
         doc = runs.load(started["run"]) or {}
+        if doc.get("version"):
+            _print_version({**doc["version"], "said": described(doc["version"])})
         others = runs.all(args.target, args.set)
         found = detail(doc, others, None)
         print(table(found))
@@ -363,10 +367,19 @@ def accept(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_version(version: dict[str, Any]) -> None:
+    """The code a run plays or played, and why evalution can't vouch for it when it can't."""
+    print(f"evalution: code: {version['said']}")
+    if version.get("verified") is False:
+        print(f"evalution: warning: {version['why_unverified']}", file=sys.stderr)
+
+
 def _print_comparison(said: dict[str, Any]) -> None:
     print(f"{said['headline']} ({said['run']} against {said['base']})")
     for row in said["changed"]:
         print(f"  {row['what']}: {row['before']} -> {row['now']}")
+    if said.get("code"):
+        print(f"  {said['code']}")
     for test in said["tests"]:
         was, now = test["before"], test["now"]
         counts = f"{_tries(was)} -> {_tries(now)}"

@@ -12,6 +12,7 @@ from typing import Any
 
 from evalution.core.judgement import Change, WhyUnjudged
 from evalution.core.rules import change_of, could_be_chance
+from evalution.core.version import same_played
 from evalution.results.record import (
     agent_models,
     environment_of,
@@ -25,8 +26,15 @@ SHORT_COMMIT = 7
 
 
 def _setup(run: Mapping[str, Any]) -> tuple[Any, ...]:
-    """What makes two runs of an app different setups."""
-    return (run.get("target"), agent_models(run), run.get("commit"), run.get("prompt"))
+    """What makes two runs of an app different setups, besides their code (:func:`same_code`)."""
+    return (run.get("target"), agent_models(run), run.get("prompt"))
+
+
+def same_code(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    """Whether two runs played the same code: by what played, when both kept it (ADR 0011);
+    else by the commit each recorded."""
+    same = same_played(a.get("version"), b.get("version"))
+    return same if same is not None else a.get("commit") == b.get("commit")
 
 
 def default_base(run: Mapping[str, Any], others: Sequence[Mapping[str, Any]]) -> str | None:
@@ -43,13 +51,44 @@ def default_base(run: Mapping[str, Any], others: Sequence[Mapping[str, Any]]) ->
         and any(c.get("tries") for c in r["cases"].values())
     ]
     earlier.sort(key=lambda r: -float(r["started_at"]))
-    other = next((r for r in earlier if _setup(r) != _setup(run)), None)
+    other = next((r for r in earlier if _setup(r) != _setup(run) or not same_code(r, run)), None)
     found = other or (earlier[0] if earlier else None)
     return found["run"] if found else None
 
 
 def _short(commit: Any) -> str:
     return str(commit)[:SHORT_COMMIT] if commit else "not recorded"
+
+
+def _label(run: Mapping[str, Any]) -> str:
+    """The run's code, as a chip says it: "page-testing @ e535c4d", or its commit alone."""
+    branch = (run.get("version") or {}).get("branch")
+    commit = _short(run.get("commit"))
+    return f"{branch} @ {commit}" if branch and run.get("commit") else commit
+
+
+_PLAYED = {"images": "images", "tree": "files"}
+
+
+def code_said(run: Mapping[str, Any], base: Mapping[str, Any]) -> tuple[bool, str | None]:
+    """Whether the code changed between *base* and *run*, and a line when what played says
+    otherwise than the commits do: the same images under two commits are the same code, other
+    images under one commit aren't."""
+    same = same_played(base.get("version"), run.get("version"))
+    was, now = base.get("commit"), run.get("commit")
+    moved = bool(was and now and was != now)
+    kind = _PLAYED.get(((run.get("version") or {}).get("played") or {}).get("kind"), "code")
+    if same is None:
+        return moved, None
+    if same and moved:
+        return False, (
+            f"Same code played: the same {kind} ran in both, "
+            f"though the checkout moved from {_short(was)} to {_short(now)}"
+        )
+    if not same and not moved:
+        tail = f", though both runs were of {_short(now)}" if now and was else ""
+        return True, f"Different code played: other {kind} ran{tail}"
+    return not same, None
 
 
 def _changed(run: Mapping[str, Any], base: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -62,8 +101,8 @@ def _changed(run: Mapping[str, Any], base: Mapping[str, Any]) -> list[dict[str, 
 
     differs("App", base.get("target"), run.get("target"))
     differs("Model", ", ".join(agent_models(base)), ", ".join(agent_models(run)))
-    if base.get("commit") and run.get("commit"):
-        differs("Code", _short(base["commit"]), _short(run["commit"]))
+    if code_said(run, base)[0]:
+        rows.append({"what": "Code", "before": _label(base), "now": _label(run)})
     differs("System prompt", base.get("prompt"), run.get("prompt"))
     differs("Rules", base.get("rules"), run.get("rules"))
     differs("Grader", judge_model(base), judge_model(run))
@@ -155,6 +194,8 @@ def comparison(run: Mapping[str, Any], base: Mapping[str, Any]) -> dict[str, Any
         "headline": _headline(worse, better, len(judged)),
         "could_be_chance": bool(moved) and all(t["chance"] for t in moved),
         "changed": _changed(run, base),
+        # When what played says otherwise than the commits (ADR 0011), in a line.
+        "code": code_said(run, base)[1],
         "tests": sorted(tests, key=lambda t: _ORDER.get(t["change"], len(_ORDER))),
         "seconds": {"before": b.get("median_seconds"), "now": a.get("median_seconds")},
         "tokens": {"before": b.get("tokens"), "now": a.get("tokens")},

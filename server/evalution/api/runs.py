@@ -122,6 +122,8 @@ def runs_router() -> APIRouter:
                 targets, name, found.get("isolation") or {}, runs.all(name)
             )
         )
+        # The code it will play, and whether the images here look like it (ADR 0011).
+        found["version"] = await runs.preview(name)
         return found
 
     @router.post("/evals/runs", status_code=202)

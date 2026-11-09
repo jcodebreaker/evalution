@@ -725,6 +725,21 @@ export const EnvironmentSchema = z.object({
 });
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
+/** The code a run played (ADR 0011): its branch and commit, whether uncommitted changes were in
+ * it, and whether evalution can vouch that this is what played; older servers don't say. */
+export const VersionSchema = z.object({
+  ref: z.string().default("disk"),
+  branch: z.string().nullable().default(null),
+  commit: z.string().nullable().default(null),
+  dirty: z.boolean().nullable().default(null),
+  /** `false`: what played may not be this code, and `why_unverified` says why. `null`: can't tell. */
+  verified: z.boolean().nullable().default(null),
+  why_unverified: z.string().nullable().default(null),
+  /** In words: "what was on disk: page-testing @ e535c4d, with uncommitted changes". */
+  said: z.string().default(""),
+});
+export type Version = z.infer<typeof VersionSchema>;
+
 export const RunSummarySchema = z.object({
   run: z.string(),
   target: z.string().nullable().default(null),
@@ -747,6 +762,8 @@ export const RunSummarySchema = z.object({
   tests: z.array(RunTestSchema).default([]),
   /** How its tries were isolated; older runs don't say. */
   isolation: RunIsolationSchema.nullish(),
+  /** The code it played; `null` before it knew, or from an older server. */
+  version: VersionSchema.nullable().catch(null).default(null),
   /** How it reached the app: its API, its page beside it, or its page alone; older runs don't
    * say. */
   plays: z.enum(["api", "page", "page_only"]).nullable().catch(null).default(null),
@@ -1109,6 +1126,8 @@ export const ComparisonSchema = z.object({
   headline: z.string().default(""),
   could_be_chance: z.boolean().default(false),
   changed: z.array(z.object({ what: z.string(), before: z.string(), now: z.string() })).default([]),
+  /** When what played says otherwise than the commits: "Same code played: …". */
+  code: z.string().nullable().default(null),
   tests: z
     .array(
       z.object({
@@ -1276,6 +1295,8 @@ export const EstimateSchema = z.object({
     .default([]),
   /** What a new session leaves behind here, in one sentence. */
   isolation_note: z.string().nullable().default(null),
+  /** The code it will play, and whether the images here look like it; older servers don't say. */
+  version: VersionSchema.nullish(),
   /** How its tries will be kept apart, the plan's status and rough timings; older servers don't say. */
   isolation: RunIsolationSchema.extend({
     status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none").default("none"),

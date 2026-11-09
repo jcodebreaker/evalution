@@ -38,6 +38,7 @@ import httpx
 
 from evalution.adapters.base import NOT_APP_PORTS
 from evalution.core import net
+from evalution.core.version import Image
 
 #: Every project evalution starts is named like this, and it removes no other.
 PREFIX = "eval-"
@@ -392,6 +393,20 @@ def _created(value: str) -> float:
     return datetime.fromisoformat(stamp).timestamp()
 
 
+async def _image(ref: str) -> tuple[str, float] | None:
+    """An image's id and when it was built; ``None`` when it isn't on this computer."""
+    code, out, _ = await _run(
+        _docker(), "image", "inspect", "--format", "{{.Id}}\t{{.Created}}", ref
+    )
+    image, _, created = out.strip().partition("\t")
+    if code != 0 or not image:
+        return None
+    try:
+        return image, _created(created)
+    except ValueError:
+        return None
+
+
 async def extras(copy: Copy | str, since: float | None = None) -> list[Extra]:
     """Containers outside the copy's compose project that may be the copy's: named or labelled
     after it, or in no compose project and created since it started (*since*, else its start;
@@ -446,6 +461,10 @@ async def down(copy: Copy | str) -> list[Extra]:
     if stray:
         await _run(docker, "volume", "rm", *stray)
     return left
+
+
+#: What ``docker inspect`` says of a container: its service, its image's name and its image's id.
+_RUNS = '{{index .Config.Labels "com.docker.compose.service"}}\t{{.Config.Image}}\t{{.Image}}'
 
 
 class ComposeCopy:
@@ -514,6 +533,44 @@ class ComposeCopy:
                 missing.append(image)
         unnamed = [n for n, s in config.get("services", {}).items() if "image" not in s]
         return missing + [f"{n} (built, with no image name)" for n in unnamed]
+
+    async def _every(self) -> dict:
+        """The compose config under every profile: an image the app's files build only to start
+        it themselves (a host image its engine runs per person) is under one. The usual config
+        when this compose can't say every profile."""
+        code, out, _ = await _run(*self._compose(), "--profile", "*", "config", "--format", "json",
+                                  secrets=self._secrets, env=self.env)  # fmt: skip
+        return json.loads(out) if code == 0 else await self._config()
+
+    async def images(self) -> list[Image]:
+        """What this copy plays, each service's image with its id and when it was built
+        (:mod:`evalution.core.version`). Started: the images its containers run, and those the
+        app's files build that none of them runs (the app may start them itself). Not started: the
+        images it would start from, as they are on this computer now. An image that isn't on this
+        computer is left out. Read-only: nothing is started or pulled."""
+        services = (await self._every()).get("services") or {}
+        built = {n: s["image"] for n, s in services.items() if s.get("build") and s.get("image")}
+        # ``service -> (image name, what to inspect)``: by id once a container runs it, so what
+        # is read is what runs, even if its name was built over since.
+        named: dict[str, tuple[str, str]] = {}
+        if self.copy is not None and self.copy.containers:
+            _, out, _ = await _run(_docker(), "inspect", "--format", _RUNS, *self.copy.containers)
+            for line in out.splitlines():
+                service, name, image = [*line.split("\t"), "", ""][:3]
+                if service and image:
+                    named[service] = (name, image)
+        else:
+            for n, s in services.items():
+                if s.get("image") and not s.get("profiles"):
+                    named[n] = (s["image"], s["image"])
+        for service, name in built.items():
+            named.setdefault(service, (name, name))
+        found: list[Image] = []
+        for service, (name, ref) in sorted(named.items()):
+            seen = await _image(ref)
+            if seen is not None:
+                found.append(Image(service, name, seen[0], seen[1], service in built))
+        return found
 
     async def start(self) -> Copy:
         """Start the copy and wait until its services are healthy. Raises :class:`LaunchError`

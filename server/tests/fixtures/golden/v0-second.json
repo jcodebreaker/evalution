@@ -1905,6 +1905,16 @@
     "tokens": 158004,
     "tools": 1.0,
     "unjudged": 0
+   },
+   "version": {
+    "branch": null,
+    "commit": null,
+    "dirty": null,
+    "played": null,
+    "ref": "disk",
+    "said": "what was on disk",
+    "verified": null,
+    "why_unverified": "not recorded: run before evalution kept what played"
    }
   },
   "case_ids": [
@@ -2111,6 +2121,16 @@
    "tokens": 588468,
    "tools": 0.666,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "aa603b5d862cfe4816fe2e944efb477592b791b0",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: aa603b5",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -2294,6 +2314,16 @@
    "tokens": 588468,
    "tools": 0.666,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "aa603b5d862cfe4816fe2e944efb477592b791b0",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: aa603b5",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

@@ -32,7 +32,7 @@ import re
 import shutil
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,7 @@ from evalution.adapters import infos
 from evalution.adapters.base import Capabilities, Isolation, Target, TargetGone
 from evalution.config import Config, ConfigError
 from evalution.core.case import CLEAN_KINDS
+from evalution.core.version import Checkout, Version, on_images, on_tree, unstarted
 from evalution.isolation.drivers import Driver, PostgresStore
 from evalution.isolation.drivers.base import DockerError, Refused
 from evalution.isolation.isolate import (
@@ -499,6 +500,37 @@ class Copies:
             await self.intake.close()
             self.intake = None
         return left
+
+
+async def _version(copy: Copy, checkout: Checkout, code: str | None) -> Version:
+    """What *copy* plays, or would: a process copy runs the working tree, a compose copy its
+    images (:func:`~evalution.isolation.launch.ComposeCopy.images`)."""
+    if not isinstance(copy, ComposeCopy):
+        return on_tree(checkout, code)
+    try:
+        return on_images(checkout, await copy.images())
+    except (LaunchError, OSError, ValueError) as exc:
+        _logger.warning("evals: images of %s not read: %s", copy.project, exc)
+        found = on_images(checkout, [])
+        return replace(
+            found, verified=None, why_unverified=f"evalution couldn't read the copy's images: {exc}"
+        )
+
+
+async def played(copies: Copies, checkout: Checkout, code: str | None) -> Version:
+    """What a run on *copies* plays: slot 0's copy, since every slot starts from the same."""
+    return await _version(copies.slots[0].copy, checkout, code)
+
+
+async def preview(config: Config, target: str, found: Footing, checkout: Checkout) -> Version:
+    """What a run would play, before it starts, from what is on this computer now: nothing is
+    started. On the person's own app, nothing evalution can vouch for."""
+    if not found.managed:
+        return unstarted(checkout)
+    assert found.plan is not None
+    folder = config.data_dir / "isolation" / target / "work"
+    copy = copy_of(plan_spec(config, target, found.plan), target, 0, folder)
+    return await _version(copy, checkout, None)
 
 
 async def _digests(drivers: Sequence[Driver]) -> dict[str, str]:

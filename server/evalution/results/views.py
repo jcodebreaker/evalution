@@ -24,6 +24,7 @@ from evalution.core.rules import (
     label_of,
     layers,
 )
+from evalution.core.version import described
 from evalution.results.record import (
     environment_of,
     isolation_of,
@@ -240,6 +241,11 @@ def _run_test(run: Mapping[str, Any], stem: str, entry: Mapping[str, Any]) -> di
     }
 
 
+def _version(run: Mapping[str, Any]) -> dict[str, Any] | None:
+    found = run.get("version")
+    return {**found, "said": described(found)} if found else None
+
+
 def summary(run: Mapping[str, Any]) -> dict[str, Any]:
     """The ``RunSummary`` of *run*."""
     return {
@@ -251,6 +257,8 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "environment": dict(zip(("where", "name"), environment_of(run), strict=True)),
         # How its tries were kept apart (ADR 0009): on a copy put back by a proven plan, or not.
         "isolation": isolation_of(run, run=True),
+        # The code it played (ADR 0011), with the line that says it; ``None`` before it knew.
+        "version": _version(run),
         # How it reached the app: ``api``, ``page`` (its API with its page beside it) or
         # ``page_only`` (its page alone, every reply what the page showed); a run stored before
         # this was kept says nothing, and reads as it did.

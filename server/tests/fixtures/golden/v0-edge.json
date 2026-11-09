@@ -3262,6 +3262,16 @@
    "tokens": 927976,
    "tools": 0.639,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: d9aafd9",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -3608,6 +3618,16 @@
    "tokens": 927976,
    "tools": 0.639,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: d9aafd9",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

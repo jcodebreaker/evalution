@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from evalution.config import CodeConfig
+from evalution.core.version import Checkout
 
 READ_CAP = 64_000
 LIST_CAP = 500
@@ -283,14 +284,47 @@ class Code:
         found = self._git("rev-parse", "HEAD")
         return found.strip() if found else None
 
-    def clean(self) -> bool:
-        """Whether no watched file differs from the last commit, untracked ones included; ``False``
-        when this is not a checkout."""
+    def _uncommitted(self) -> list[str] | None:
+        """Watched files that differ from the last commit, untracked ones included; ``None`` when
+        this is not a checkout."""
         changed = self._git("diff", "--relative", "HEAD", "--name-only", "-z", "--")
         new = self._git("ls-files", "-z", "--others", "--exclude-standard")
         if changed is None or new is None:
-            return False
-        return not any(self.allowed(n) for n in (changed + new).split("\0") if n)
+            return None
+        return sorted({n for n in (changed + new).split("\0") if n and self.allowed(n)})
+
+    def clean(self) -> bool:
+        """Whether no watched file differs from the last commit, untracked ones included; ``False``
+        when this is not a checkout."""
+        return self._uncommitted() == []
+
+    def branch(self) -> str | None:
+        """The branch checked out; ``None`` when none is (a detached ``HEAD``) or no checkout."""
+        found = self._git("rev-parse", "--abbrev-ref", "HEAD")
+        name = found.strip() if found else ""
+        return name if name and name != "HEAD" else None
+
+    def checkout(self) -> Checkout:
+        """The folder as it stands, for what a run played (:mod:`evalution.core.version`): its
+        branch, last commit and when it was made, and when a watched file last changed since."""
+        commit = self.commit()
+        if commit is None:
+            return Checkout()
+        when = (self._git("log", "-1", "--format=%ct", "HEAD") or "").strip()
+        changed = self._uncommitted()
+        times = []
+        for rel in changed or []:
+            try:
+                times.append((self.root / rel).stat().st_mtime)
+            except OSError:
+                continue  # removed: nothing says when
+        return Checkout(
+            branch=self.branch(),
+            commit=commit,
+            committed_at=float(when) if when.isdigit() else None,
+            dirty=None if changed is None else bool(changed),
+            changed_at=max(times, default=None),
+        )
 
     def churn(self, months: int) -> dict[str, int]:
         """How many commits of the last *months* touched each watched file; nothing when this is
