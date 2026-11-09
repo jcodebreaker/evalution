@@ -67,18 +67,24 @@ You need Python 3.12+, [uv](https://docs.astral.sh/uv/) and Node.
 
 ```sh
 ./install.sh                                  # installs, builds the page, and checks what a first run needs
+                                              # (with the browser UI testing uses; EVALUTION_NO_BROWSER=1 to skip it)
 uv run --project server evalution serve       # or: evalution service install, to keep it running from login on
 ```
 
 `evalution doctor` says what's missing and what to do about it, at any time and for free.
+
+To see tests played through an app's own page, in a minute and for free: `uv run --project server evalution demo ui` ([UI testing in five minutes](docs/ui-testing.md)).
+
+To see a branch tested against `main` before its pull request, also in a minute and for free: `uv run --project server evalution demo versions` ([Test a version before its pull request](docs/versions.md)).
 
 Open **http://127.0.0.1:8080**, then:
 
 1. **Choose a model** under Settings: Claude, OpenAI or any OpenAI-compatible server, with a strong model for writing and grading and a cheap one for generated messages. *Test model* sends one tiny message to each.
 2. **Type your app's address or project folder** and press Connect. evalution works out how to reach your app and shows any lines needed to send its traces.
 3. **Send one test message** to see the reply and traces come back. If its settings misread your app, the model can correct them from what your app answered, and you choose whether to use them.
-4. **Ask for a test** in the box, or pick a kind (exact answer, tool use, background work, memory, bad input, attack) or one the app suggests. **Variations** on a test offers new ones with other wording, another person asking, or a flawed input. You see its plan, time limit and anything this app can't serve before it's added.
-5. **Press Run.** You confirm it first.
+4. **Find and prove isolation** (or `evalution isolate --target <name>`): evalution starts its own copy of your app, sees where it keeps what it remembers, and proves a plan that resets each place between tries. It sends two messages to that copy, never to your app.
+5. **Ask for a test** in the box, or pick a kind (exact answer, tool use, background work, memory, bad input, attack) or one the app suggests. **Variations** on a test offers new ones with other wording, another person asking, or a flawed input. You see its plan, time limit and anything this app can't serve before it's added.
+6. **Press Run.** You confirm it first.
 
 There is no login: evalution only answers on the computer it runs on.
 
@@ -406,7 +412,7 @@ git pull
 uv run --project server evalution upgrade     # with Docker, see "With Docker": stop the service, then docker compose run
 ```
 
-`install.sh` is safe to run again: it pulls nothing and never overwrites `evalution.yaml`. Old runs read fine without the last step, which only rewrites them for good.
+`install.sh` is safe to run again: it pulls no code and never overwrites `evalution.yaml`. It also installs what UI testing needs (Playwright, its Chromium and ffmpeg, about 150 MB once); `EVALUTION_NO_BROWSER=1 ./install.sh` leaves it out, and `evalution doctor` says what's missing. In Docker, `docker build --target page` is the image with it. Old runs read fine without the last step, which only rewrites them for good.
 
 `evalution upgrade` first copies `data/`, `sets/`, `targets/` and your settings to `backups/<time>/`. Then it rewrites stored runs as today's shape, says which it changed, checks every run still reads and says what it said, and prints the exact command that undoes it all. It refuses while a run is going, and exits non-zero if anything didn't check out.
 
@@ -460,7 +466,10 @@ These are the things to keep in mind when reading a result. Most are on the list
 - **Reports can be wrong.** What passed and failed comes from the checks. The causes are a model's reading, marked as its own: code checks that what it cites exists and what it quotes occurs, not that it read them right. Check the evidence before acting on one.
 - **A pass can rest on what an earlier try left behind.** Before a try's first message, an adapter that declares `probe` (LangGraph and Letta do) reads what the test's `*_contains` state checks will read, and one that already holds leaves the try unjudged: "started with leftover state". On any other, a reset that leaves memory behind can still hide a write that never happened.
 - **A check can't see past its adapter.** One that reads the wrong place without knowing it reports what it found. With traces, evalution catches an empty reply or a wait for an answer already given; without them, only the deadline and the one-turn check before a first run can. And a turn that calls no AI at all, or clocks over a second apart, reads as partial traces: a false *Couldn't judge*, not a false result.
-- **Isolation depends on the adapter.** The HTTP adapter only starts a new session id, so what carries over depends on your app. LangGraph clears its store namespace, not memory kept elsewhere. `fresh` is passed to the adapter and isn't verified.
+- **Without a proven plan, isolation depends on the adapter.** `evalution isolate --target <name>` (or *Find and prove isolation* in Connect) finds where your app keeps what it remembers on evalution's own copy of it, writes a plan to reset each place and proves it with two messages to that copy. A proven plan decides what a try starts clean of, and each result says how it was isolated: *Isolated (proven plan v3)*, *Identity only* or *Not isolated*. A commit that changes a file the plan rests on marks it out of date, on Home and in Connect, until it's proven again.
+- **On a copy, the HTTP adapter moves only routes on the target's own address.** A route that starts with `{url}`, or is written in full on the target's `url` (same scheme, host and port), plays on evalution's copy. One on any other address, or written in full on a target with no `url` (as Connect proposes them today), can't be moved exactly, so a run on a proven plan is refused, naming it, rather than sending tries to your app. Give the target its `url`, or start the route with `{url}`.
+- **For a target with no proven plan,** the HTTP adapter only starts a new session id, so what carries over depends on your app; LangGraph clears its store namespace, not memory kept elsewhere; and `fresh` is passed to the adapter and isn't verified.
+- **Some stores can't be reset.** Hosted memory is at best identity only, and an app's own memory is cleared only by starting it again. Finding isolation needs Docker for a compose app, and `lsof` on this computer.
 - **The library tests are new.** The four with a check the code decides catch their seeded bug; the other six rest on a model's verdict, and how often that catches one isn't measured.
 - **The pipeline is exercised on a scripted agent, not yet proven on a real one.** See [what that shows](docs/proof.md).
 - Three tries spot flakiness; they don't measure a rare failure, since tries that agree stop there. Raise `tries` (up to 20) for what matters most.
@@ -479,7 +488,7 @@ cd web && npx tsc --noEmit -p . && npm run build   # page
 
 CI (`.github/workflows/ci.yml`) runs these on every push and pull request, and audits the dependencies of both.
 
-Design and behaviour: [architecture](docs/architecture.md) · [case format](docs/case-format.md) · [how often the judge is right](docs/accuracy.md) · decisions: [own project](docs/adr/0001-evals-are-their-own-project.md), [stateful first](docs/adr/0002-lead-with-stateful-assistants.md), [watch everything](docs/adr/0003-watch-everything-interpret-with-the-model.md), [traces behind one interface](docs/adr/0004-traces-behind-one-interface.md), [keeping what it knows current](docs/adr/0005-keep-what-it-knows-current.md), [package layout](docs/adr/0006-package-layout.md), [the judgement model](docs/adr/0007-the-judgement-model.md) · [how a result is decided](docs/judging.md) · [writing an adapter](docs/adapters.md).
+Design and behaviour: [architecture](docs/architecture.md) · [case format](docs/case-format.md) · [how often the judge is right](docs/accuracy.md) · decisions: [own project](docs/adr/0001-evals-are-their-own-project.md), [stateful first](docs/adr/0002-lead-with-stateful-assistants.md), [watch everything](docs/adr/0003-watch-everything-interpret-with-the-model.md), [traces behind one interface](docs/adr/0004-traces-behind-one-interface.md), [keeping what it knows current](docs/adr/0005-keep-what-it-knows-current.md), [package layout](docs/adr/0006-package-layout.md), [the judgement model](docs/adr/0007-the-judgement-model.md), [isolation found and proven](docs/adr/0009-isolation-is-found-and-proven.md) (proposed; [plan](docs/plans/isolation.md)), [the page as a second observation](docs/adr/0010-the-page-is-a-second-observation.md) (proposed; [plan](docs/plans/page-testing.md)) · [how a result is decided](docs/judging.md) · [writing an adapter](docs/adapters.md).
 
 ### Licence
 

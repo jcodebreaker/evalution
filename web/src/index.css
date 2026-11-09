@@ -8,38 +8,38 @@
 :root {
   color-scheme: light;
   --background: #ffffff;
-  --foreground: #14162b;
+  --foreground: #1a1c2e;
   --card: #ffffff;
-  --card-foreground: #14162b;
+  --card-foreground: #1a1c2e;
   --popover: #ffffff;
-  --popover-foreground: #14162b;
-  --primary: #14162b;
+  --popover-foreground: #1a1c2e;
+  --primary: #1a1c2e;
   --primary-foreground: #ffffff;
-  --secondary: #f1f2f6;
-  --secondary-foreground: #14162b;
-  --muted: #eff0f5;
-  --muted-foreground: #5c6178;
-  --destructive: #c1301f;
+  --secondary: #f2f3f6;
+  --secondary-foreground: #1a1c2e;
+  --muted: #f2f3f6;
+  --muted-foreground: #5b5f73;
+  --destructive: #c4372a;
   --destructive-foreground: #ffffff;
-  --border: #e7e8ef;
-  --input: #e1e3eb;
+  --border: #e6e7ec;
+  --input: #d9dbe3;
   --ring: rgba(85, 70, 216, 0.5);
-  --success: #0d8f80;
-  --warning: #a65a00;
+  --success: #1b8a72;
+  --warning: #b26b00;
   --overlay: rgba(17, 18, 22, 0.32);
   --scrollbar: #d0d4dd;
-  --window: #f6f7f9;
-  --content: #f6f7f9;
+  --window: #f8f9fb;
+  --content: #f8f9fb;
   --glass: #ffffff;
-  --glass-line: #e7e8ef;
+  --glass-line: #e6e7ec;
   --group: #ffffff;
-  --separator: #e9eaf0;
-  --selection-strong: rgba(85, 70, 216, 0.09);
+  --separator: #e6e7ec;
+  --selection-strong: #efedfd;
   --tint: #5546d8;
-  --ink: #14162b;
-  --ink-2: #5c6178;
-  --ink-3: #6a6f85;
-  --bubble: #f1f2f6;
+  --ink: #1a1c2e;
+  --ink-2: #5b5f73;
+  --ink-3: #74788a;
+  --bubble: #f2f3f6;
   --selection: rgba(20, 22, 43, 0.04);
   --mid: #747990;
   --radius: 0.75rem;
@@ -50,8 +50,22 @@
   --chart-5: #7fe3d6;
   --chart-soft: #eceef3;
   --head: #f6f7f9;
-  --up: #d9f5f0;
-  --down: #fde8e6;
+  --up: #e3f4ee;
+  --down: #fbe9e6;
+  /* The redesign (docs/mockups/design-studio.html): outcome colours mean only an outcome; the
+     purple is the one primary action, what's selected, and links. */
+  --tint-soft: #efedfd;
+  --tint-soft-2: #e0dcfb;
+  --tint-ink: #4a3cc4;
+  --pass: #1b8a72;
+  --pass-soft: #e3f4ee;
+  --fail: #c4372a;
+  --fail-soft: #fbe9e6;
+  --unjudged: #c98a14;
+  --unjudged-soft: #fbf1dc;
+  --sunk: #f2f3f6;
+  --sunk-2: #ebecf1;
+  --rule-strong: #d9dbe3;
 }
 
 :root[data-theme="dark"] {
@@ -100,12 +114,24 @@
   --head: #20232f;
   --up: #123c37;
   --down: #47211d;
+  --tint-soft: #272b45;
+  --tint-soft-2: #343a5e;
+  --tint-ink: #b3bcff;
+  --pass: #2dd4bf;
+  --pass-soft: #123c37;
+  --fail: #ff8577;
+  --fail-soft: #47211d;
+  --unjudged: #f0b65a;
+  --unjudged-soft: #3a2a14;
+  --sunk: #20232f;
+  --sunk-2: #2a2e3b;
+  --rule-strong: rgba(255, 255, 255, 0.18);
 }
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -149,6 +175,18 @@
   --color-chart-soft: var(--chart-soft);
   --color-up: var(--up);
   --color-down: var(--down);
+  --color-tint-soft: var(--tint-soft);
+  --color-tint-soft-2: var(--tint-soft-2);
+  --color-tint-ink: var(--tint-ink);
+  --color-pass: var(--pass);
+  --color-pass-soft: var(--pass-soft);
+  --color-fail: var(--fail);
+  --color-fail-soft: var(--fail-soft);
+  --color-unjudged: var(--unjudged);
+  --color-unjudged-soft: var(--unjudged-soft);
+  --color-sunk: var(--sunk);
+  --color-sunk-2: var(--sunk-2);
+  --color-rule-strong: var(--rule-strong);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
 }
@@ -164,15 +202,15 @@
     background: var(--window);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 1.45;
-    letter-spacing: -0.006em;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
   h1,
   h2 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
   button {
     cursor: default;
@@ -200,9 +238,36 @@
   }
 }
 
+/* A block of the test copy, coming in as the agent makes it. */
+.block-in {
+  animation: block-in 0.45s ease-out both;
+}
+@keyframes block-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* The mark planted in a store while the copy is proven, before it's found gone. */
+.marker-pulse {
+  animation: marker-pulse 1.2s ease-in-out infinite;
+}
+@keyframes marker-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(1.4);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
-  .shimmer {
+  .shimmer,
+  .block-in,
+  .marker-pulse {
     transition: none;
     animation: none;
   }

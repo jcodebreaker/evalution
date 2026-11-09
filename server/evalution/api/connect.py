@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from evalution.adapters import adapter_info, broken, infos
+from evalution.adapters.page import LABEL as PAGE_ONLY_LABEL
 from evalution.api.deps import (
     Current,
     busy,
@@ -23,9 +24,11 @@ from evalution.api.deps import (
     target_name,
 )
 from evalution.api.workspaces import Workspace
+from evalution.config import ConfigError, TargetConfig
 from evalution.connect import connect, discover, probe
 from evalution.core.case import SLUG
 from evalution.project.profile import connection, update_connection
+from evalution.runs.page.map import described, page_map_of, page_only
 from evalution.targets import Targets
 
 
@@ -49,12 +52,28 @@ def _managed(targets: Targets, name: str) -> str:
     return name
 
 
+def _page(conf: TargetConfig) -> dict[str, Any] | None:
+    """How a target plays through its page (ADR 0010), in plain words; ``None`` when it plays
+    through its API. Read only here: the map is learned and approved on the Test environment page
+    (:mod:`evalution.connect.page`), or written by hand in the target's ``page:`` block."""
+    only = page_only(conf)
+    try:
+        found = page_map_of(conf)
+    except ConfigError as exc:
+        return {"map": [], "error": str(exc), "only": only}
+    if found is None:
+        return None
+    return {"map": described(found, only=only), "error": None, "only": only}
+
+
 def _view(targets: Targets, name: str) -> dict[str, Any]:
     conf = targets.conf(name)
     info = adapter_info(conf.adapter)
+    label = info.label if info else PAGE_ONLY_LABEL if page_only(conf) else conf.adapter
     return {
         **connect.view(conf, name in targets.config.managed),
-        "adapter_label": info.label if info else conf.adapter,
+        "adapter_label": label,
+        "page": _page(conf),
         #: Why its adapter doesn't load, when it doesn't: none of its runs can start.
         "adapter_error": broken().get(conf.adapter),
         "adapter_change": connection(targets, name).get("adapter_change"),
@@ -224,6 +243,9 @@ def connect_router() -> APIRouter:
                 stored = connect.stored_keys(targets.config.keys, name)
                 moved = connect.moved_secrets(targets.conf(name), body, stored)
                 block, changes = _parse(targets, name, body, stored - moved)
+                # The page map and its test accounts aren't edited in the form: they stay.
+                kept = targets.conf(name).options
+                block.update({k: kept[k] for k in ("page", "page_accounts") if k in kept})
                 dropped = connect.left_behind(name, moved, changes)
                 changes = {**connect.forgotten(name, moved), **changes}
                 was = targets.conf(name).adapter

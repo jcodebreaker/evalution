@@ -6,7 +6,7 @@ const shown = (value: unknown) =>
 /** What a save changes in what a test checks, and what that means for its results. */
 export function MeaningChanges({ changes }: { changes: MeaningChange[] }) {
   return (
-    <div className="flex flex-col gap-2 text-[13px]">
+    <div className="flex flex-col gap-2 text-[14px]">
       <p className="m-0 font-medium">
         This changes what the test checks. Earlier results won't be comparable.
       </p>

@@ -1,15 +1,4 @@
-import {
-  ArrowDown,
-  ArrowUp,
-  ChartPie,
-  ChevronRight,
-  Eye,
-  Layers,
-  ListFilter,
-  Sparkles,
-  Timer,
-  TrendingUp,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -96,19 +85,19 @@ function didntFinish(run: Run): boolean {
 
 function outcome(question: Question): { word: string; tone: string } {
   if (question.verdict === "pass") {
-    return { word: question.unanswerable ? "Said it didn't know" : "Right", tone: "text-success" };
+    return { word: question.unanswerable ? "Said it didn't know" : "Right", tone: "text-pass" };
   }
   if (question.verdict === "fail" || question.verdict === "flaky") {
-    if (question.unanswerable) return { word: "Made it up", tone: "text-destructive" };
+    if (question.unanswerable) return { word: "Made it up", tone: "text-fail" };
     if (question.memory?.reached) return { word: "Had it, answered wrong", tone: "text-warning" };
     if (question.memory?.written === false) {
-      return { word: "Never saved", tone: "text-destructive" };
+      return { word: "Never saved", tone: "text-fail" };
     }
     if (question.memory?.committed === false) {
       return { word: "Not committed", tone: "text-warning" };
     }
     if (question.memory?.committed) return { word: "Saved, not used", tone: "text-warning" };
-    return { word: "Wrong", tone: "text-destructive" };
+    return { word: "Wrong", tone: "text-fail" };
   }
   if (question.verdict === "unjudged")
     return {
@@ -187,132 +176,126 @@ export function BenchmarksView({
   // With no run yet there's nothing to tab between: only the way to run it.
   const shownTab: Tab = active ? tab : "setup";
   return (
-    <>
+    <Page wide>
       <Toolbar>
         <ToolbarTitle title="Benchmarks" />
       </Toolbar>
-      <Page wide>
-        <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-          {DATASETS.map((entry) => {
-            const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
-            const latest = own.find((other) => other.report.judged > 0);
-            const mine = own.find((other) => other.status === "running");
-            return (
-              <div
-                key={entry.key}
-                className={cn(
-                  "group-card flex min-w-0 flex-col gap-2 p-3.5",
-                  shownDataset === entry.key && "border-chart! ring-1 ring-chart",
-                )}
+      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+        {DATASETS.map((entry) => {
+          const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
+          const latest = own.find((other) => other.report.judged > 0);
+          const mine = own.find((other) => other.status === "running");
+          return (
+            <div
+              key={entry.key}
+              className={cn(
+                "group-card flex min-w-0 flex-col gap-2 p-3.5",
+                shownDataset === entry.key && "border-chart! ring-1 ring-chart",
+              )}
+            >
+              <button
+                type="button"
+                aria-pressed={shownDataset === entry.key}
+                onClick={() => {
+                  setDataset(entry.key);
+                  onPick("");
+                }}
+                className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-tint"
               >
-                <button
-                  type="button"
-                  aria-pressed={shownDataset === entry.key}
-                  onClick={() => {
-                    setDataset(entry.key);
-                    onPick("");
-                  }}
-                  className="flex min-w-0 flex-col gap-1 text-start focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  <span className="flex h-6 items-center gap-2">
-                    <span className="text-[14px] font-semibold">{entry.label}</span>
-                    {latest?.report.accuracy != null ? (
-                      <span className="ms-auto text-[20px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
-                        {share(latest.report.accuracy)}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="text-[12.5px] text-ink-2">{entry.about}</span>
-                </button>
-                <div className="flex min-h-7 items-center gap-2 text-[12px] text-ink-2 tabular-nums">
-                  {mine ? (
-                    <span className="font-medium text-tint">
-                      Running, {played(mine)} of {mine.questions.length} questions done
-                    </span>
-                  ) : going ? (
-                    <span>Can run when the current one ends</span>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void runDataset(entry.key)}
-                    >
-                      Run
-                    </Button>
-                  )}
-                  {latest?.report.judged ? (
-                    <span className="ms-auto">
-                      {latest.report.right} of {latest.report.judged} right
+                <span className="flex h-6 items-center gap-2">
+                  <span className="text-[14px] font-semibold">{entry.label}</span>
+                  {latest?.report.accuracy != null ? (
+                    <span className="ms-auto text-[21px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
+                      {share(latest.report.accuracy)}
                     </span>
                   ) : null}
-                </div>
+                </span>
+                <span className="text-[13px] text-ink-2">{entry.about}</span>
+              </button>
+              <div className="flex min-h-7 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
+                {mine ? (
+                  <span className="font-medium text-tint">
+                    Running, {played(mine)} of {mine.questions.length} questions done
+                  </span>
+                ) : going ? (
+                  <span>Can run when the current one ends</span>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={() => void runDataset(entry.key)}>
+                    Run
+                  </Button>
+                )}
+                {latest?.report.judged ? (
+                  <span className="ms-auto">
+                    {latest.report.right} of {latest.report.judged} right
+                  </span>
+                ) : null}
               </div>
+            </div>
+          );
+        })}
+      </div>
+      {active ? (
+        <div
+          role="tablist"
+          aria-label="This dataset"
+          className="flex flex-wrap gap-1 border-b border-separator"
+        >
+          {TABS.map(([key, label]) => {
+            const many =
+              key === "questions"
+                ? active
+                  ? played(active)
+                  : 0
+                : key === "runs"
+                  ? listed.length
+                  : 0;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={shownTab === key}
+                onClick={() => setTab(key)}
+                className={cn(
+                  "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-tint",
+                  shownTab === key
+                    ? "border-tint text-foreground"
+                    : "border-transparent text-ink-2 hover:text-foreground",
+                )}
+              >
+                {label}
+                {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
+              </button>
             );
           })}
         </div>
-        {active ? (
-          <div
-            role="tablist"
-            aria-label="This dataset"
-            className="flex flex-wrap gap-1 border-b border-separator"
-          >
-            {TABS.map(([key, label]) => {
-              const many =
-                key === "questions"
-                  ? active
-                    ? played(active)
-                    : 0
-                  : key === "runs"
-                    ? listed.length
-                    : 0;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={shownTab === key}
-                  onClick={() => setTab(key)}
-                  className={cn(
-                    "-mb-px border-b-2 px-3 py-2 text-[13.5px] font-medium focus-visible:outline-2 focus-visible:outline-ring",
-                    shownTab === key
-                      ? "border-tint text-foreground"
-                      : "border-transparent text-ink-2 hover:text-foreground",
-                  )}
-                >
-                  {label}
-                  {many ? <span className="ms-1.5 text-ink-3 tabular-nums">{many}</span> : null}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-        {active && played(active) > 0 && shownTab !== "setup" ? (
-          <AskTraces run={active} onAsk={onAsk} />
-        ) : null}
-        {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
-        {shownTab === "runs" && active ? (
-          <RunList
-            runs={inDataset}
-            selected={active}
-            onPick={(id) => {
-              onPick(id);
-              setTab("overview");
-            }}
-          />
-        ) : null}
-        {active && (shownTab === "overview" || shownTab === "questions") ? (
-          <RunResult
-            key={active.run}
-            run={active}
-            runs={inDataset}
-            tab={shownTab}
-            onPick={onPick}
-            onTry={onTry}
-            onStopped={reload}
-          />
-        ) : null}
-      </Page>
-    </>
+      ) : null}
+      {active && played(active) > 0 && shownTab !== "setup" ? (
+        <AskTraces run={active} onAsk={onAsk} />
+      ) : null}
+      {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
+      {shownTab === "runs" && active ? (
+        <RunList
+          runs={inDataset}
+          selected={active}
+          onPick={(id) => {
+            onPick(id);
+            setTab("overview");
+          }}
+        />
+      ) : null}
+      {active && (shownTab === "overview" || shownTab === "questions") ? (
+        <RunResult
+          key={active.run}
+          run={active}
+          runs={inDataset}
+          tab={shownTab}
+          onPick={onPick}
+          onTry={onTry}
+          onStopped={reload}
+        />
+      ) : null}
+    </Page>
   );
 }
 
@@ -354,21 +337,21 @@ function HowItRuns({ dataset }: { dataset: Dataset }) {
     <section className="group-card flex flex-col gap-4 p-4">
       <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2">
         <div>
-          <dt className="text-[12px] text-ink-2">Questions</dt>
-          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.questions}</dd>
+          <dt className="text-[12.5px] text-ink-2">Questions</dt>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.questions}</dd>
         </div>
         <div>
-          <dt className="text-[12px] text-ink-2">Messages each</dt>
-          <dd className="m-0 text-[20px] font-semibold tabular-nums">{setup.messages}</dd>
+          <dt className="text-[12.5px] text-ink-2">Messages each</dt>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.messages}</dd>
         </div>
       </dl>
       <ol className="m-0 grid list-none grid-cols-4 gap-3 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">
         {steps.map(([title, detail], index) => (
           <li key={title} className="flex min-w-0 flex-col gap-1 border-t border-separator pt-2.5">
-            <span className="text-[13px] font-medium">
+            <span className="text-[14px] font-medium">
               {index + 1}. {title}
             </span>
-            <span className="text-[12.5px] text-ink-2">{detail}</span>
+            <span className="text-[13px] text-ink-2">{detail}</span>
           </li>
         ))}
       </ol>
@@ -392,8 +375,7 @@ function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string
       }}
       className="group-card flex flex-col gap-2.5 p-3"
     >
-      <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-2.5 py-1.5 focus-within:border-chart focus-within:ring-1 focus-within:ring-chart">
-        <Sparkles className="size-4 shrink-0 text-tint" aria-hidden />
+      <div className="flex items-center gap-2 rounded-[6px] border border-rule-strong bg-group py-1 ps-2.5 pe-1 focus-within:border-tint focus-within:ring-3 focus-within:ring-tint-soft-2">
         <input
           id="ask-traces"
           value={text}
@@ -412,7 +394,7 @@ function AskTraces({ run, onAsk }: { run: Run; onAsk: (text: string, run: string
             key={starter}
             type="button"
             onClick={() => send(starter)}
-            className="rounded-full px-2.5 py-1 text-[12px] text-ink-2 ring-1 ring-separator hover:bg-selection focus-visible:outline-2 focus-visible:outline-ring"
+            className="inline-flex h-6 items-center rounded-full border border-separator bg-group px-2 text-[12px] text-ink-2 hover:bg-sunk focus-visible:outline-2 focus-visible:outline-tint"
           >
             {starter}
           </button>
@@ -467,10 +449,10 @@ function RunResult({
                     aria-pressed={filter === key}
                     onClick={() => setFilter(key)}
                     className={cn(
-                      "rounded-full px-3 py-1 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring",
+                      "rounded-full px-3 py-1 text-[13px] focus-visible:outline-2 focus-visible:outline-tint",
                       filter === key
-                        ? "bg-selection-strong font-semibold text-tint"
-                        : "text-ink-2 hover:bg-selection",
+                        ? "bg-tint-soft font-semibold text-tint"
+                        : "text-ink-2 hover:bg-sunk",
                     )}
                   >
                     {label} <span className="tabular-nums opacity-70">{many}</span>
@@ -485,7 +467,7 @@ function RunResult({
       {tab === "overview" && anyPlayed ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,400px),1fr))] gap-3">
           {trend.length > 1 ? (
-            <ChartPanel icon={TrendingUp} title="Answer accuracy by run" unit="% right">
+            <ChartPanel title="Answer accuracy by run" unit="% right">
               <LineChart
                 name="Answer accuracy by run"
                 onPick={onPick}
@@ -505,7 +487,7 @@ function RunResult({
             </ChartPanel>
           ) : null}
           {memory.measured ? (
-            <ChartPanel icon={ListFilter} title="How far facts got" unit="% of questions">
+            <ChartPanel title="How far facts got" unit="% of questions">
               <FlowChart
                 steps={[
                   { name: "Told", value: memory.measured, of: memory.measured },
@@ -520,7 +502,7 @@ function RunResult({
             </ChartPanel>
           ) : null}
           {kinds.length ? (
-            <ChartPanel icon={Layers} title="By kind of question" unit="% right">
+            <ChartPanel title="By kind of question" unit="% right">
               <BarChart
                 head="Kind"
                 rows={kinds
@@ -535,7 +517,6 @@ function RunResult({
           ) : null}
           {timed.length > 1 ? (
             <ChartPanel
-              icon={Timer}
               title="Time per question"
               unit={
                 run.totals?.median_seconds
@@ -556,7 +537,6 @@ function RunResult({
           ) : null}
           {prompted.length ? (
             <ChartPanel
-              icon={Eye}
               title="What the model could still see"
               unit="prompt size per model call, tokens"
             >
@@ -570,7 +550,7 @@ function RunResult({
             </ChartPanel>
           ) : null}
           {report.judged ? (
-            <ChartPanel icon={ChartPie} title="Results" unit={`${report.judged} judged`}>
+            <ChartPanel title="Results" unit={`${report.judged} judged`}>
               <Outcomes
                 headline={share(report.accuracy)}
                 parts={[
@@ -667,7 +647,7 @@ function Head({
       <button
         type="button"
         onClick={() => onSort(sort)}
-        className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
       >
         {label}
         {by === sort ? <Arrow className="size-3" aria-hidden /> : null}
@@ -700,9 +680,9 @@ function QuestionTable({ rows, onOpen }: { rows: Question[]; onOpen: (id: string
   const hasTrace = rows.some((question) => question.verdict !== "not_run");
   return (
     <Group>
-      <table className="w-full table-fixed border-collapse text-[13px]">
+      <table className="w-full table-fixed border-collapse text-[14px]">
         <thead>
-          <tr className="bg-head text-start text-[10.5px] tracking-[0.06em] text-ink-3 uppercase">
+          <tr className="bg-head text-start text-[12px] font-medium text-ink-3">
             <th scope="col" className="px-3 py-2 text-start font-medium">
               Question
             </th>
@@ -774,13 +754,13 @@ function QuestionRow({
   ].filter(Boolean);
   return (
     <>
-      <tr className="border-t border-separator align-top hover:bg-selection">
+      <tr className="border-t border-separator align-top hover:bg-sunk">
         <td className="min-w-0 px-3 py-2">
           <button
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
-            className="flex w-full min-w-0 items-start gap-1.5 rounded text-start focus-visible:outline-2 focus-visible:outline-ring"
+            className="flex w-full min-w-0 items-start gap-1.5 rounded text-start focus-visible:outline-2 focus-visible:outline-tint"
           >
             <ChevronRight
               className={cn(
@@ -793,7 +773,7 @@ function QuestionRow({
               <span className="max-md:line-clamp-2 md:block md:truncate" title={question.question}>
                 {question.question}
               </span>
-              <span className="mt-0.5 block text-[12px] text-ink-2 md:hidden">
+              <span className="mt-0.5 block text-[12.5px] text-ink-2 md:hidden">
                 <Status question={question} />
               </span>
             </span>
@@ -819,7 +799,7 @@ function QuestionRow({
               <button
                 type="button"
                 onClick={onOpen}
-                className="rounded font-semibold text-tint hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                className="rounded font-semibold text-tint hover:underline focus-visible:outline-2 focus-visible:outline-tint"
               >
                 View
               </button>
@@ -885,7 +865,7 @@ function shortened(text: string): string {
 function Said({ label, text }: { label: string; text: string }) {
   return (
     <div>
-      <dt className="text-[12px] font-semibold text-ink-2">{label}</dt>
+      <dt className="text-[12.5px] font-semibold text-ink-2">{label}</dt>
       <dd className="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</dd>
     </div>
   );
@@ -912,8 +892,8 @@ function RunList({
             aria-current={run.run === selected.run ? "true" : undefined}
             onClick={() => onPick(run.run)}
             className={cn(
-              "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2 text-start text-[13px] first:border-t-0 hover:bg-selection focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-              run.run === selected.run && "bg-selection-strong",
+              "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-separator px-4 py-2 text-start text-[14px] first:border-t-0 hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint",
+              run.run === selected.run && "bg-tint-soft",
             )}
           >
             {run.report.accuracy === null ? null : (
@@ -927,7 +907,7 @@ function RunList({
             <span className="min-w-0 text-ink-2">{benchmarkName(run.set)}</span>
             {run.status === "running" ? <span className="text-ink-2">Running</span> : null}
             {didntFinish(run) ? <span className="text-ink-3">Didn't finish</span> : null}
-            <span className="ms-auto text-[12px] text-ink-3 tabular-nums">
+            <span className="ms-auto text-[12.5px] text-ink-3 tabular-nums">
               {run.started_at ? when(run.started_at) : null}
             </span>
           </button>

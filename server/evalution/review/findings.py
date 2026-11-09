@@ -247,8 +247,9 @@ def try_input(
     tries: Sequence[Mapping[str, Any]],
     index: EvidenceIndex = NO_EVIDENCE,
 ) -> str:
-    """The material for one failed try: the case, the steps, the spans, the rubric results,
-    the reply, the error, the other tries' outcomes and what can be cited, each fenced as data."""
+    """The material for one failed try: the case, the steps, the spans, the checks that didn't
+    pass (the page's among them, ADR 0010), the rubric results, the reply, the error, the other
+    tries' outcomes and what can be cited, each fenced as data."""
     turns = "\n".join(
         f"Person: {cut(t['message'], 2_000)}" if t.get("message") else NEW_CONVERSATION
         for t in entry["turns"]
@@ -258,6 +259,11 @@ def try_input(
         f"{_line_word(r)}: {r.get('line')}: {line_reason(r)}" for r in attempt.get("rubric") or []
     )
     others = ", ".join(f"try {t['n']} {_outcome(t).value}" for t in tries if t["n"] != attempt["n"])
+    missed = "\n".join(
+        f"{c.outcome.value}: {c.kind.value} ({c.role.value}, by {c.decided_by.value}): {c.why}"
+        for c in (current(attempt).checks if attempt.get("judgements") else ())
+        if c.outcome is not Outcome.PASSED
+    )
     outcome = (
         f"try {attempt['n']}: steps score {attempt['tools']}, reply score "
         f"{attempt['reply']}, {attempt['seconds']} s, limits broken: "
@@ -274,6 +280,7 @@ def try_input(
             fenced("the expected tool calls", json.dumps(entry.get("expected") or {})),
             fenced("the rubric", "\n".join(entry.get("reply_rubric") or []) or "(no rubric)"),
             fenced("the outcome", outcome),
+            fenced("the checks that didn't pass", missed or "(every check passed)"),
             fenced("the steps", _steps(attempt.get("steps") or []) or "(no steps)"),
             fenced("the spans", cut(_spans(attempt.get("timeline") or []), 8_000) or "(none)"),
             fenced("the rubric results", rubric or "(not graded)"),

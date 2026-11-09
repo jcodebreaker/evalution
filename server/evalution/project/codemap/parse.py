@@ -30,7 +30,7 @@ import tree_sitter_python
 import tree_sitter_typescript
 
 #: Bumped when what a parse gives changes, so cached maps are made again.
-VERSION = 3
+VERSION = 4
 SIG_CHARS = 160
 REFS_PER_FILE = 3_000
 #: A string this long, held in a module-level name, is taken for a prompt whatever its name.
@@ -71,6 +71,13 @@ def _parser(suffix: str) -> tree_sitter.Parser | None:
         ".go": tree_sitter_go.language,
     }.get(suffix)
     return tree_sitter.Parser(tree_sitter.Language(language())) if language else None
+
+
+def parses(path: str) -> bool:
+    """Whether the file at *path* is read by a grammar (code, Markdown, YAML, JSON), not only
+    by the line-pattern fallback: what a learn reads in bulk when it matters is the rest."""
+    suffix = PurePosixPath(path).suffix.lower()
+    return _parser(suffix) is not None or suffix in (".md", ".mdx", ".yaml", ".yml", ".json")
 
 
 def parse(path: str, text: str) -> dict[str, list]:

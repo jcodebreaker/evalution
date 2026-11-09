@@ -34,6 +34,17 @@ _ENV = (
     re.compile(r"""os\.(?:Getenv|LookupEnv)\(\s*"([A-Z][A-Z0-9_]*)"\s*\)()"""),
 )
 _KEY_VALUE = re.compile(r"""^([A-Za-z_][\w.-]*)\s*[:=]\s*(.+?)\s*$""")
+#: Settings that say nothing a test could check: a file's own name, version and description.
+_PLAIN_KEYS = {"name", "description", "version", "spec_version", "title", "id", "$schema"}
+#: The head of a YAML block (``>-``, ``|``): its value is on the lines below.
+_BLOCK = re.compile(r"^[|>][-+]?\d*$")
+
+
+def _telling(key: str, value: str) -> bool:
+    """Whether a setting is worth a fact: not a plain key, not the head of a block."""
+    return key.rsplit(".", 1)[-1].lower() not in _PLAIN_KEYS and not _BLOCK.match(value.strip())
+
+
 _SECTION = re.compile(r"^\[([^\]]+)\]\s*$")
 
 
@@ -79,6 +90,7 @@ def _settings(path: str, text: str) -> list[dict[str, Any]]:
         return [
             _fact("config", f"{k} = {json.dumps(v)[:VALUE_CHARS]}", [k], _line_of(lines, k))
             for k, v in scalars.items()
+            if _telling(k, json.dumps(v))
         ]
     found = []
     section = ""
@@ -89,8 +101,10 @@ def _settings(path: str, text: str) -> list[dict[str, Any]]:
         if line[:1] in (" ", "\t", "#", "-"):
             continue
         match = _KEY_VALUE.match(line)
-        if match and match[2] not in ("{", "[", "|", ">") and len(match[2]) <= VALUE_CHARS:
+        if match and match[2] not in ("{", "[") and len(match[2]) <= VALUE_CHARS:
             key = section + match[1]
+            if not _telling(key, match[2]):
+                continue
             found.append(_fact("config", f"{key} = {match[2]}", [key], n))
     return found
 

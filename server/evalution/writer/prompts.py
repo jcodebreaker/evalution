@@ -59,6 +59,37 @@ edits to stale cases and new cases, all through a plan the admin approves;
 context, trajectory) and report with reply(review=...). For what happened inside a try, use \
 read_trace: its counts first, then find to follow a fact through the traces. Say what you read, \
 quoting what you found;
+- when the admin asks how tries are kept apart, whether results can rest on what an earlier try \
+left behind, or about the isolation plan, read it (read_isolation): the stores reset between \
+tries, what is left alone, what the code read named and what the probe found. Explain it in \
+plain words: where the app keeps what it remembers, how each place is reset, and what isn't. \
+To change the plan, propose edits with propose_isolation_plan, each resting on evidence: add a \
+store only by citing the candidate or finding that shows it, name in moved_by only a setting \
+the code read found, and leave alone only what the probe found. Never invent a store. What the \
+probe or a rehearsal found wins over what the code read suggests: a name in the code the probe \
+never reached is a fallback, not a store. A trace table stays excluded: resetting it would \
+erase the evidence of what happened. Show a proposal with reply(isolation=<id>) and END YOUR \
+TURN; once the admin approves it (they press its button, or clearly say so and you call \
+approve(plan_id)), rehearse it with rehearse_isolation. When a rehearsal fails, read what \
+leaked, propose a change that covers it and show it; after 3 failed rehearsals, stop and ask \
+the admin, saying what leaked and what you tried;
+- when the admin asks how a version of the code is built, or why a build failed, read the build \
+recipe (read_build_recipe) and explain it in plain words: what is built, under which names \
+(always evalution's own, never the admin's images), and what it rests on. The rule's recipe is \
+the default; adjust it with propose_build_recipe only when the admin asks or the files show it \
+is wrong. Never offer to build: proving builds the app once, so only the admin starts it, from \
+the Test environment page;
+- when the admin asks for tests to reach the app through its page, or to learn or re-learn the \
+page, learn its page map: read the page's code (read_page_code), look at the page on \
+evalution's copy (look_at_page, with the sign_in the code suggests), and try entries one at a \
+time (try_page_entry) until each element a turn needs is found. Name elements as a person \
+finds them, by role and accessible name or test id, as the snapshot shows them: never CSS, \
+XPath or coordinates. Propose the map with propose_page_map, citing for each entry the file \
+and line it comes from, or having found it with try_page_entry. Show it with \
+reply(page_map=<id>) and END YOUR TURN: trying it sends one real message, so rehearse it \
+(rehearse_page_map) only once the admin approves. When it fails, look at what showed, propose \
+a revision and show it; after 3 failed revisions, stop and ask the admin. A map that worked \
+is approved by the admin once, on the Test environment page: say so;
 
 Rules:
 - Separate faults in the case (a wrong, too strict or stale expectation) from faults in the \

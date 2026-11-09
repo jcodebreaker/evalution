@@ -18,12 +18,12 @@ from evalution.code import Code, CodeError
 from evalution.project import imports
 from evalution.project.codemap.facts import static_facts
 from evalution.project.codemap.graph import CodeMap, Definition
-from evalution.project.codemap.parse import BEHAVIOUR, VERSION, parse
+from evalution.project.codemap.parse import BEHAVIOUR, VERSION, parse, parses
 from evalution.targets import Targets
 
 KIND = "codemap"
 
-__all__ = ["BEHAVIOUR", "CodeMap", "Definition", "Made", "build", "spans"]
+__all__ = ["BEHAVIOUR", "CodeMap", "Definition", "Made", "build", "parses", "spans"]
 
 
 @dataclass(frozen=True)

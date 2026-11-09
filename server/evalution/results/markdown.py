@@ -50,4 +50,6 @@ def comparison_markdown(
     if said["changed"]:
         lines += ["", "**Setup**"]
         lines += [f"- {row['what']}: {row['before']} → {row['now']}" for row in said["changed"]]
+    if said.get("code"):
+        lines += ["", said["code"]]
     return "\n".join(lines) + "\n"

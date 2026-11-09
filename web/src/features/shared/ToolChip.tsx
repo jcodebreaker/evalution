@@ -1,16 +1,15 @@
-import { Ban, Plus, Zap } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
 
 export type ChipTone = "plain" | "expected" | "never" | "wrong" | "missing" | "extra";
 
 const CHIP_TONE: Record<ChipTone, string> = {
-  plain: "bg-bubble",
-  expected: "ring-1 ring-inset ring-separator",
+  plain: "bg-sunk",
+  expected: "bg-group ring-1 ring-inset ring-separator",
   never: "text-ink-3 line-through ring-1 ring-inset ring-separator",
-  wrong: "bg-bubble ring-[1.5px] ring-inset ring-destructive",
-  missing: "border-[1.5px] border-dashed border-destructive text-destructive",
-  extra: "bg-bubble",
+  wrong: "bg-fail-soft text-fail ring-1 ring-inset ring-fail/40",
+  missing: "border border-dashed border-fail text-fail",
+  extra: "bg-sunk",
 };
 
 /** A tool call as a chip, marked against what was expected. */
@@ -28,28 +27,39 @@ export function ToolChip({
   /** A call to a tool the test says never to call. */
   banned?: boolean;
 } & Omit<ComponentProps<"button">, "children">) {
-  const Icon = banned ? Ban : tone === "never" ? null : tone === "extra" ? Plus : Zap;
-  const markIcon = tone === "wrong" || tone === "missing" ? "text-destructive" : "text-ink-3";
+  // No icons: a call the test didn't expect carries a "+", a banned one is red and says so.
   const content = (
     <>
-      {Icon ? <Icon className={cn("size-[11px] shrink-0", markIcon)} aria-hidden /> : null}
+      {tone === "extra" && !banned ? (
+        <span aria-hidden className="text-ink-3">
+          +
+        </span>
+      ) : null}
       <span className="truncate">{label}</span>
     </>
   );
   const classes = cn(
-    "inline-flex h-6 max-w-full items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 font-mono text-[11.5px]",
+    "inline-flex h-6 max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2.5 font-mono text-[11.5px]",
     CHIP_TONE[tone],
-    selected && "ring-2 ring-inset ring-primary",
+    banned && "bg-fail-soft text-fail ring-1 ring-inset ring-fail/40",
+    selected && "ring-2 ring-inset ring-tint",
     className,
   );
-  if (!props.onClick) return <span className={classes}>{content}</span>;
+  const title = banned ? `${label}: the test says never to call it` : undefined;
+  if (!props.onClick)
+    return (
+      <span className={classes} title={title}>
+        {content}
+      </span>
+    );
   return (
     <button
       type="button"
       className={cn(
         classes,
-        "hover:brightness-95 focus-visible:outline-2 focus-visible:outline-ring",
+        "hover:brightness-95 focus-visible:outline-2 focus-visible:outline-tint",
       )}
+      title={title}
       {...props}
     >
       {content}

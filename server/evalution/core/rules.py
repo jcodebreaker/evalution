@@ -5,6 +5,7 @@ checked. Pure functions over the types of :mod:`evalution.core.judgement`: no mo
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable, Mapping, Sequence, Set
 from math import comb
 from typing import Any
@@ -32,11 +33,19 @@ from evalution.core.judgement import (
 #: Raised whenever a rule below changes what a stored try would read as.
 #: How unlikely a move must be, by chance alone, before it's called a real one.
 CHANCE = 0.05
-RULES_VERSION = 2
+#: 3: a try played through the page gets the page's checks (ADR 0010).
+RULES_VERSION = 3
 #: Code checks that show the outcome itself. Binding steps count too (:func:`basis_of`).
 _OUTCOME_CHECKS = frozenset(
     {CheckKind.STATE, CheckKind.CONTEXT, CheckKind.REPLY_TEXT, CheckKind.TOOL_RESULT}
 )
+#: Which checks speak for each layer of a try (ADR 0010): what the app stored, what reached the
+#: model and what it answered, and what its page showed.
+_LAYERS = {
+    "stored": frozenset({CheckKind.STATE}),
+    "answered": frozenset({CheckKind.REPLY_TEXT, CheckKind.REPLY_LACKS, CheckKind.CONTEXT}),
+    "shown": frozenset({CheckKind.SHOWN, CheckKind.PAGE_HEALTH}),
+}
 
 NO_TRACES = "No traces arrived"
 TARGET_GONE = "The app's session went away mid-try"
@@ -46,6 +55,11 @@ SERVER_RESTARTED = "The server restarted during the run"
 LEFTOVER_STATE = "Started with leftover state"
 #: A failed run's ``failure``: the app was not there to play on, or something else stopped it.
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
+#: A failed run's ``failure`` when the page didn't have what its page map names (ADR 0010).
+PAGE_MAP_BROKEN = "page_map_broken"
+#: A failed run's ``failure`` when the version it was to play couldn't be checked out or built
+#: (ADR 0011): nothing played, which says nothing of the app.
+VERSION_NOT_BUILT = "version_not_built"
 
 
 #: Why a try couldn't be judged, as the one word a person reads.
@@ -58,6 +72,8 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.CREDENTIALS_REFUSED: Label.SETUP_BLOCKED,
     WhyUnjudged.APP_BUSY: Label.SETUP_BLOCKED,
     WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
+    WhyUnjudged.PAGE_MAP: Label.SETUP_BLOCKED,
+    WhyUnjudged.NO_REPLY: Label.MISSING_EVIDENCE,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.GRADER_UNRELIABLE: Label.GRADER_UNRELIABLE,
@@ -117,6 +133,40 @@ def basis_of(checks: Iterable[CheckResult]) -> Basis:
     ):
         return Basis.CHECKED
     return Basis.MODEL_ONLY if any(c.decided_by is Decider.MODEL for c in held) else Basis.NONE
+
+
+def layers(found: Judgement, *, health: bool = True) -> dict[str, str]:
+    """Which layer of a try held, from its check kinds, guides included (ADR 0010): ``stored``
+    (state checks), ``answered`` (the reply's words and context checks) and ``shown`` (the page's
+    checks). Each is ``fail`` when any of its checks failed, else ``unjudged`` when any couldn't be
+    judged, else ``pass``; ``absent`` when the try has none of them.
+
+    A try cut short in a turn (its ``turn`` or ``timeout`` check) is the answered layer's: the app
+    refused the message, never took it, failed or ran out of time on it. Not when the page showed
+    nothing (its evidence is on the page: the shown layer's), and not a page map that's off, which
+    is no layer of the app's.
+
+    ``health=False`` leaves the page's health out of ``shown``: what showed of the replies alone,
+    for a view that says the page's health apart."""
+    said = {Outcome.FAILED: "fail", Outcome.UNJUDGED: "unjudged", Outcome.PASSED: "pass"}
+    found_layers = {}
+    for layer, kinds in _LAYERS.items():
+        if not health:
+            kinds = kinds - {CheckKind.PAGE_HEALTH}
+        outcomes = {c.outcome for c in found.checks if c.kind in kinds or _layer_of(c) == layer}
+        found_layers[layer] = next((said[o] for o in said if o in outcomes), "absent")
+    return found_layers
+
+
+def _layer_of(check: CheckResult) -> str | None:
+    """The layer a try's ``turn`` or ``timeout`` check is (:func:`layers`); ``None`` for others."""
+    if check.kind not in (CheckKind.TURN, CheckKind.TIMEOUT):
+        return None
+    if check.unjudged is WhyUnjudged.PAGE_MAP:
+        return None
+    if any(ref.ref.startswith("page:") for ref in check.evidence):
+        return "shown"
+    return "answered"
 
 
 def route_of(traces_complete: bool, steps_held: bool) -> Route:
@@ -312,9 +362,38 @@ def first_reason(found: Judgement) -> str | None:
     musts = [c for c in found.checks if c.role is Role.MUST]
     for check in musts:
         if check.outcome is Outcome.FAILED:
-            return check.why
+            return (
+                page_health_words(check.why) if check.kind is CheckKind.PAGE_HEALTH else check.why
+            )
     unjudged = [c for c in musts if c.outcome is Outcome.UNJUDGED]
     return min(unjudged, key=_unjudged_rank).why if unjudged else "nothing decided this try"
+
+
+#: A failed ``page_health`` check's why (:mod:`evalution.judging.checks`): its console errors and
+#: its failed requests, each with the first.
+_CONSOLE_ERRORS = re.compile(r"(\d+) console error\(s\)")
+_FAILED_REQUESTS = re.compile(r"(\d+) failed request\(s\), first \S+ \S+: (\d+|no answer)\s*$")
+
+
+def page_health_words(why: str) -> str:
+    """A failed ``page_health`` check in plain words: whose the failure looks to be, without the
+    log line, which stays on the check and in the try's console and failed requests. A request the
+    app answered with a server error (5xx) is the app's; one it turned down (4xx) or that got no
+    answer is said as such; console errors alone are the page's own."""
+    requests = _FAILED_REQUESTS.search(why)
+    if requests:
+        n, status = int(requests.group(1)), requests.group(2)
+        more = f" (and {n - 1} more)" if n > 1 else ""
+        if status == "no answer":
+            return f"a request from the page to the app got no answer{more}"
+        if int(status) >= 500:
+            return f"the app answered a request from the page with an error, {status}{more}"
+        return f"the app turned down a request from the page, {status}{more}"
+    errors = _CONSOLE_ERRORS.search(why)
+    if errors:
+        n = int(errors.group(1))
+        return "the page logged an error" if n == 1 else f"the page logged {n} errors"
+    return why
 
 
 def _unjudged_rank(check: CheckResult) -> int:

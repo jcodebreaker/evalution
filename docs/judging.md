@@ -10,7 +10,7 @@ The arrows go one way. Nothing downstream changes an outcome: a model's reading 
 
 ## Who decides
 
-**Code:** whether the expected steps happened, `never`, limits, state and context checks, the reply's exact words (`reply.contains`, `reply.lacks`), what tools returned (`tools.results`), why something couldn't be judged, the verdict, what can be compared, regressions and counts.
+**Code:** whether the expected steps happened, `never`, limits, state and context checks, the reply's exact words (`reply.contains`, `reply.lacks`), what tools returned (`tools.results`), what the app's page showed (below), why something couldn't be judged, the verdict, what can be compared, regressions and counts.
 
 **A model:** rubric lines, the reference score, and, as its reading only, the cause, the fix and where it suspects the fault is (`app`, `test` or `unclear`). `flaky` and "the setup failed" aren't its to say: the code knows those.
 
@@ -56,6 +56,20 @@ A passing `never` or limit doesn't make a pass `checked`: not doing something wr
 
 Steps are a guide when the test has a state or context check or a rubric, so another route to a good result is noted, not failed. They bind when the test sets `strict`, an `exact` order or `"extras": false`, or has nothing else to decide it. A route is only called different on complete traces.
 
+## The page
+
+A target may play its tries through the app's own page as well as its API (ADR 0010). The API still sends and finishes each turn, and every check above reads its reply as before. The page is a second look at the same turn, and code decides what it showed:
+
+| Check | Kind | Passes when | Fails when |
+|---|---|---|---|
+| `shown:<turn>` | `shown` | The turn's reply appears among what the page's replies showed after it, both read without Markdown's marks, links' targets, list numbers and table bars, spacing and case aside | The reply never showed (the check quotes what showed instead), or something else did. Not judged, `no_reply`, when the turn ended in an error: there was no reply to show |
+| `shown:contains:<i>`, `shown:lacks:<i>` | `shown` | The test's `page.contains` words are in what showed of the last reply, and its `page.lacks` words aren't | Otherwise. A reply that never showed fails both, as an empty reply does. A try cut short has none |
+| `page_health` | `page_health` | No console error and no failed request to the copy over the whole try | Any: the first few are cited (`console:<n>`, `request:<n>`). A warning is kept and decides nothing |
+
+Each message turn with a reply gets a `shown` check, and every page try one `page_health`. They are guides, shown like steps that don't bind, unless the test sets `"page": {"decides": true}`. A try played through the API alone has none of them, whatever its test says. A `shown` pass doesn't make a pass `checked`: it shows the reply reached the person, not that it was right.
+
+A try's view says which **layer** held, from its check kinds, guides included: `stored` (state checks), `answered` (the reply's words and context checks) and `shown` (the page's). Each is `fail` when any of its checks failed, else `unjudged` when any couldn't be judged, else `pass`, or `absent` with none. "Remembered and answered, and the person never saw it" is stored `pass`, answered `pass`, shown `fail`.
+
 ## Why something couldn't be judged
 
 | Reason | What happened |
@@ -74,6 +88,8 @@ Steps are a guide when the test has a state or context check or a rubric, so ano
 | `blocked` | The app stopped to wait on something, an approval, say, and the test didn't expect it. A test that does sets `"blocked": true` on the turn: then not stopping fails the try. |
 | `never_started` | Out of time, with no sign of the agent working: the target has traces, and none arrived. It may have hung before any span ended. |
 | `grader_unreliable` | The grader passed a rubric line a person found it too often wrong on (below). |
+| `page_map` | Playing through the app's page, an element its page map names wasn't there (ADR 0010). The map is off, not the app or the adapter, and every try would meet the same: the run ends there. |
+| `no_reply` | A page check of a turn that ended in an error: there was no reply for the page to show. The turn's own check decides the try. |
 
 An app error is not on this list: the app did that, and the try failed. Failed work is the same, with the app's own reason when it gives one. An exception out of `send` isn't an app error: it is the adapter's, and reads as such, unless it is the session going away, the app not being there, or running out of time.
 
@@ -118,6 +134,7 @@ A failed check is never tried again, and neither is a try that got further. If t
 An adapter that doesn't read the app says nothing about the agent, so it mustn't read as if it did.
 
 - **Before the first run** on an adapter and its settings, one real turn (`evalution check --target <name>` does the same by hand). An adapter that fails twice in a row fails the run here, in seconds, before any test is played. It costs a message or two, and passes aren't repeated until the adapter's code or settings change. `check_adapters: false` turns it off. If the app simply isn't there, that's said as the app, not the adapter. No traces is a warning, not a failure: the run goes on, reply-only tests play and are judged, and what needs traces comes out as missing evidence.
+- **An app with a proven isolation plan** (`evalution isolate --target <name>`, ADR 0009) plays on evalution's own copy, one per slot (`eval-<target>-<slot>`). Before every try the copy's planned stores are put back and each one's hash is checked against the starting state; one that differs leaves the try unjudged, "reset didn't hold: <store>". Each try keeps `isolation: {how, plan_version, restore_seconds, checked, problem}` and the run `isolation: {how, plan_version}`; `how` is `proven`, `identity` (the adapter plays each try as a new person) or `none`. A plan whose evidence changed is rehearsed again before the run. With no proven plan the app plays as it is, or the run is refused when `isolation.require_proven` is on.
 - **An app that answers first and works on** needs a way to wait for the work: the HTTP adapter refuses `background: true` without `done.poll`.
 - **While a turn is out,** the traces are read every 15 seconds. If the agent answered and the adapter is still waiting `traces.stuck_seconds` later (120 by default, 0 for never), the turn is given up on. "Answered" is strict: a model call that said something and asked for no tool, in the turn's own tree (that of its first span, so not a title or a summary made on the side with a root of its own), holding the message it was sent when its request was captured, every tool its tree's calls asked for closed, with nothing after it and a closed turn around it, every span above it arrived. A model call with nothing above it shows no turn that ended, so it waits for the deadline, and running out of time is then the app's. In doubt, it waits.
 - **Past the deadline,** a turn is stopped 30 seconds later even if the adapter never comes back, with or without traces.
@@ -189,6 +206,8 @@ evalution doesn't track, estimate or show what model calls cost: a run's confirm
 
 Each try is kept in the database as an entry of its run's evidence: the whole transcript including generated messages, tool arguments and results, what each model call was sent and said, and every state check. An item over 64 KB keeps its head and tail, how much was left out, and a hash of the whole.
 
+A try played through the page also keeps what it showed (`page`): for each turn, what the page showed, when the reply appeared, what showed instead when it didn't, and its screenshot; the page's console errors and warnings and its failed requests to the copy (method, path without its query, status or no answer), the first 200 of each; the names of its screenshots and video, which are kept beside the run (`<data_dir>/files`) and deleted with it; why a video is missing; and whether the try was cut short. A try played through the API alone has no `page`.
+
 The grader reads it through one function with a budget of about 24,000 characters. State and check lines, the reference and the rubric are never cut. Other items keep their head and tail with a visible `[3,200 chars cut]`, and how much was cut is recorded on the check.
 
 ## Facts and its reading
@@ -220,8 +239,10 @@ Two results of a test compare only with the same test version, rules, judge mode
 
 A try keeps a list of judgements, only ever added to; the newest is current. Every view, the health page and the CLI read those, through one verdict function.
 
-`RULES_VERSION` goes up when a rule changes what a stored try would read as. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new model calls, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
+A run keeps the code it played (ADR 0011): `version: {ref, branch, commit, dirty, played, verified, why_unverified}`. `played` is what actually ran: a compose copy's images (each service's name, id and build time), a process copy's working-tree hash, or nothing for the person's own app as it runs. A compose copy plays whatever images are on the computer, so the run is `verified: false` when an image the app's files build is older than the last commit, or than an uncommitted change. Two runs that played the same images are the same code, whatever their commits say; other images under one commit aren't.
+
+`RULES_VERSION` goes up when a rule changes what a stored try would read as. It is 3 since a page try gets the page's checks. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new model calls, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
 
 ## Old runs
 
-Runs from before this are read as today's on load, and `evalution migrate` rewrites them (`evalution backup` first keeps a copy). Their `passed` stays as `legacy_passed`, and their judge is on record by key only, so they compare with nothing. Where today's rules read one differently it says so ("Originally failed; rules changed") with a marker on the trend. It never reads as an improvement.
+Runs from before this are read as today's on load, and `evalution migrate` rewrites them (`evalution backup` first keeps a copy). Their `passed` stays as `legacy_passed`, and their judge is on record by key only, so they compare with nothing. A run from before evalution kept what played (ADR 0011) reads its `version` as "what was on disk", with the commit it recorded and nothing vouched for. Where today's rules read one differently it says so ("Originally failed; rules changed") with a marker on the trend. It never reads as an improvement.

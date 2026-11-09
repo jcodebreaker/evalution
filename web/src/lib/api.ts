@@ -2,12 +2,16 @@ import type * as z from "zod";
 import { currentWorkspace } from "./router";
 import type {
   AgentSession,
+  Keep,
   Knowledge,
+  MissingPiece,
   ModelBody,
   PassMarks,
   Period,
+  Proof,
   Steer,
   TargetBody,
+  TestSetupChange,
   TokenScope,
   Understanding,
 } from "./schema";
@@ -17,39 +21,52 @@ import {
   AgentChatSchema,
   AgentSessionSchema,
   ApiTokenSchema,
+  AreaLearnSchema,
   BenchmarksSchema,
+  BuildSchema,
   CaseFileViewSchema,
   CaseRowSchema,
   CompareSchema,
   ComparisonSchema,
   DiscoverySchema,
   EstimateSchema,
+  FetchedBranchSchema,
   HealthSchema,
   HooksSchema,
   InviteSchema,
+  IsolationSchema,
   LibraryRowSchema,
   LineAgreementSchema,
   MemberSchema,
   MeSchema,
+  MissingPieceSchema,
   ModelKeySchema,
   ModelListSchema,
   ModelSettingsSchema,
   ModelTestSchema,
   NewTokenSchema,
+  PageOfferSchema,
+  PageReachSchema,
   ProbeSchema,
   RedraftSchema,
+  RemoteBranchesSchema,
   RunCaseSchema,
   RunDetailSchema,
   RunSummarySchema,
   SetSummarySchema,
+  SkeletonSchema,
   SourceSchema,
   TargetCheckSchema,
   TargetDetailSchema,
   TargetSchema,
   TestPlanSchema,
+  TestProofChangeSchema,
+  TestSetupSchema,
   TracesSchema,
+  UiTestingSchema,
   UnderstandingSchema,
   UpdatesSchema,
+  VersionsSchema,
   WorkspaceSchema,
 } from "./schema";
 
@@ -66,6 +83,13 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** What UI testing lacks, when that's why the server refused (ADR 0010); `null` otherwise. */
+export function missingOf(error: unknown): MissingPiece | null {
+  if (!(error instanceof ApiError) || !error.data || typeof error.data !== "object") return null;
+  const found = MissingPieceSchema.safeParse((error.data as { missing?: unknown }).missing);
+  return found.success ? found.data : null;
 }
 
 /** A failure in words a person may read, else `fallback`. */
@@ -125,7 +149,7 @@ async function call(
   const type = response.headers.get("content-type") ?? "";
   const data: unknown = type.includes("json") && text ? JSON.parse(text) : text;
   if (!response.ok) {
-    throw new ApiError(response.status, detailText(data));
+    throw new ApiError(response.status, detailText(data), data);
   }
   return data;
 }
@@ -261,6 +285,56 @@ export const api = {
   redraft: (name: string) => post(one(RedraftSchema), `/v1/targets/${enc(name)}/check/redraft`),
   setIsolation: (name: string, required: string[]) =>
     call("PUT", `/v1/targets/${enc(name)}/isolation`, { required }),
+  /** Its isolation plan, how far it is proven, and the job finding it when one is going. */
+  isolation: (name: string) => get(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation`),
+  /** Find and prove isolation on evalution's own copy of the app: two messages to that copy. */
+  runIsolation: (name: string) =>
+    post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
+  undoIsolation: (name: string) =>
+    post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/undo`),
+  /** How a version of its code is built into evalution's names, how far that's proven, and the
+   * job proving it. */
+  build: (name: string) => get(one(BuildSchema), `/v1/targets/${enc(name)}/builds`),
+  /** Propose the build recipe by rule from the app's files: builds nothing. */
+  proposeBuild: (name: string) => post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/propose`),
+  /** Prove it: builds what's on disk into evalution's names once, starts a copy, takes it down. */
+  proveBuild: (name: string) =>
+    post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/prove`, { confirm: true }),
+  undoBuild: (name: string) => post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/undo`),
+  /** Remove one built version: evalution's own images of it, then trim the Docker VM's disk. */
+  removeBuild: (name: string, tag: string) =>
+    post(one(BuildSchema), `/v1/targets/${enc(name)}/builds/remove`, { tag }),
+  /** How tests reach it: its API, or its page by a learned map, and the map waiting for approval. */
+  pageReach: (name: string) => get(one(PageReachSchema), `/v1/targets/${enc(name)}/page`),
+  /** What UI testing has on this computer, as `evalution doctor` reads it. */
+  uiTesting: () => get(one(UiTestingSchema), "/v1/settings/ui-testing"),
+  /** Install what UI testing lacks, on the server's computer, with its own fixed commands. */
+  installUiTesting: () => post(one(UiTestingSchema), "/v1/settings/ui-testing/install"),
+  /** Set up UI testing: the agent learns the page on evalution's copy, sending it one message. */
+  learnPage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/learn`, { confirm: true }),
+  /** Stop the agent learning the page. */
+  stopLearningPage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/learn/stop`),
+  /** Approve the map tried on evalution's copy: tests reach the app through its page from now. */
+  approvePage: (name: string) =>
+    post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/approve`),
+  /** Go back to the map before; with none, tests reach the app through its API again. */
+  undoPage: (name: string) => post(one(PageReachSchema), `/v1/targets/${enc(name)}/page/undo`),
+  /** What every try played through its page keeps; a part left out stays as it is. */
+  setPageProof: (name: string, proof: Partial<Proof>) =>
+    call("PUT", `/v1/targets/${enc(name)}/page/proof`, proof).then(one(PageReachSchema)),
+  /** Whether to offer UI testing: the code has a chat page, and nothing of it is set up. */
+  pageOffer: (name: string) => get(one(PageOfferSchema), `/v1/targets/${enc(name)}/page/offer`),
+  /** Not now: the offer isn't made again for this app. */
+  dismissPageOffer: (name: string) =>
+    post(one(PageOfferSchema), `/v1/targets/${enc(name)}/page/offer/dismiss`),
+  /** The test setup: the test person, what the copy starts with, how often it's put back. */
+  testSetup: (name: string) =>
+    get(one(TestSetupSchema), `/v1/targets/${enc(name)}/isolation/setup`),
+  /** Changes part of the test setup; the answer is all of it. Refused while it's being set up. */
+  changeTestSetup: (name: string, change: TestSetupChange) =>
+    call("PUT", `/v1/targets/${enc(name)}/isolation/setup`, change).then(one(TestSetupSchema)),
   benchmarks: (target: string) => get(one(BenchmarksSchema), `/v1/benchmarks${query({ target })}`),
   /** Work out how the benchmark plays on this app, and try it with a few real messages. */
   planBenchmark: (target: string) => post((data) => data, "/v1/benchmarks/plan", { target }),
@@ -290,6 +364,17 @@ export const api = {
     ),
   sources: (target: string) =>
     get(many(SourceSchema), `/v1/evals/sources${query({ target, limit: 20 })}`),
+  /** What this test's tries keep when played through the page; `null` follows the app's again. */
+  setTestProof: (
+    { target, set }: Scope,
+    id: string,
+    proof: Partial<Record<keyof Proof, Keep | null>>,
+  ) =>
+    call(
+      "PUT",
+      `/v1/evals/sets/${enc(set)}/cases/${enc(id)}/proof${query({ target })}`,
+      proof,
+    ).then(one(TestProofChangeSchema)),
   /** The test's file as written, to edit by hand. */
   file: ({ target, set }: Scope, id: string) =>
     raw("GET", `/v1/evals/sets/${enc(set)}/cases/${enc(id)}/file${query({ target })}`),
@@ -328,13 +413,31 @@ export const api = {
       one(LineAgreementSchema),
     );
   },
-  estimate: ({ target, set }: Scope, id?: string, cases?: readonly string[], tries?: number) =>
+  estimate: (
+    { target, set }: Scope,
+    id?: string,
+    cases?: readonly string[],
+    tries?: number,
+    ref?: string,
+  ) =>
     post(one(EstimateSchema), "/v1/evals/runs/estimate", {
       target,
       set,
       ...(id ? { case: id } : {}),
       ...(cases ? { cases } : {}),
       ...(tries ? { tries } : {}),
+      ...(ref && ref !== "disk" ? { ref } : {}),
+    }),
+  /** The app's repository: branches, remote-tracking branches, tags, what's checked out. */
+  versions: (target: string) => get(one(VersionsSchema), `/v1/targets/${enc(target)}/versions`),
+  /** A remote's branches as they are now (`git ls-remote`): nothing fetched. */
+  remoteBranches: (target: string) =>
+    get(one(RemoteBranchesSchema), `/v1/targets/${enc(target)}/versions/remote`),
+  /** Fetch a remote's branch into evalution's own refs, never the person's. */
+  fetchBranch: (target: string, remote: string, branch: string) =>
+    post(one(FetchedBranchSchema), `/v1/targets/${enc(target)}/versions/fetch`, {
+      remote,
+      branch,
     }),
   /** Starts the run an estimate described, graded with the set's pass marks. */
   start: (token: string) => post(one(RunSummarySchema), "/v1/evals/runs", { token }),
@@ -350,12 +453,27 @@ export const api = {
     get(one(HealthSchema), `/v1/targets/${enc(target)}/health${query({ period })}`),
   understanding: (target: string) =>
     get(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding`),
+  /** The app's skeleton from its code, with no model, and how often real use touched each part. */
+  skeleton: (target: string) => get(one(SkeletonSchema), `/v1/targets/${enc(target)}/skeleton`),
   /** Stores one steer; the answer is the understanding after it, when the server sends it. */
   steer: (target: string, steer: Steer): Promise<Understanding | null> =>
     post(maybe(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/steer`, steer),
   /** Brings what it knows up to date now: one light model call. */
   updateKnowledge: (target: string) =>
     post(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/update`),
+  /** "Learn this area": one area learned, even one listed as weighing nothing; an area that
+   * hasn't moved says it's current and spends nothing unless `force` ("Learn it again anyway").
+   * `session`: the test writer's to learn in, else a new one on `set`. */
+  learnArea: (
+    target: string,
+    area: string,
+    { session, set, force }: { session?: string; set?: string; force?: boolean },
+  ) =>
+    post(one(AreaLearnSchema), `/v1/targets/${enc(target)}/areas/${enc(area)}/learn`, {
+      session,
+      set,
+      force: Boolean(force),
+    }),
   undoKnowledge: (target: string) =>
     post(one(UnderstandingSchema), `/v1/targets/${enc(target)}/understanding/undo`),
   sawKnowledge: (target: string) =>

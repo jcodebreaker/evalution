@@ -10,20 +10,25 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from evalution.core.case import Case
-from evalution.core.judgement import Basis, Outcome, Route
+from evalution.core.judgement import Basis, CheckKind, Judgement, Outcome, Route
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
+    PAGE_MAP_BROKEN,
     SERVER_RESTARTED,
     TARGET_GONE,
+    VERSION_NOT_BUILT,
     called_of,
     comparable,
     current,
     first_reason,
     label_of,
+    layers,
 )
+from evalution.core.version import described
 from evalution.results.record import (
     environment_of,
+    isolation_of,
     judgements,
     key_of,
     noted,
@@ -90,7 +95,35 @@ def case_row(
         "last_run": last["run"] if last else None,
         "last_at": float(last["started_at"]) if last else None,
         "stale": entry.get("stale"),
+        # The layers of the try the test's page opens on (the first that didn't pass, else the
+        # first), and how that try played: through the app's page when it has the page's checks.
+        "layers": _row_layers(shown) if (shown := _shown_try(found)) else None,
+        "plays": _played(found, last),
     }
+
+
+def _row_layers(found: Judgement) -> dict[str, str]:
+    """A row's layers as the try's page says them: ``shown`` is what showed of the replies alone,
+    and ``page_health`` the page's own health (``absent`` when it wasn't checked), apart."""
+    said = {Outcome.FAILED: "fail", Outcome.UNJUDGED: "unjudged", Outcome.PASSED: "pass"}
+    health = next((c for c in found.checks if c.kind is CheckKind.PAGE_HEALTH), None)
+    return {
+        **layers(found, health=False),
+        "page_health": said[health.outcome] if health is not None else "absent",
+    }
+
+
+def _shown_try(found: Sequence[Judgement]) -> Judgement | None:
+    """The try a test's page opens on: the first that didn't pass, else the first."""
+    return next((j for j in found if j.outcome is not Outcome.PASSED), found[0] if found else None)
+
+
+def _played(found: Sequence[Judgement], run: Mapping[str, Any] | None) -> str:
+    """``page`` when a try has the page's checks (ADR 0010), or *run* played through the page;
+    else ``api``."""
+    if any(c.kind in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH) for j in found for c in j.checks):
+        return "page"
+    return "page" if run and run.get("plays") in ("page", "page_only") else "api"
 
 
 def _steps_scored(entry: Mapping[str, Any]) -> bool:
@@ -154,6 +187,7 @@ _SUMMARY_KEYS = (
     "scope",
     "error",
     "stop_reason",
+    "failure",
     "rules",
     "judge",
 )
@@ -167,6 +201,10 @@ def _why_not_played(run: Mapping[str, Any]) -> str | None:
         return "the server restarted"
     if run.get("failure") == ADAPTER_BROKEN:
         return "the adapter isn't reading the app"
+    if run.get("failure") == PAGE_MAP_BROKEN:
+        return "the page lacks what its page map names"
+    if run.get("failure") == VERSION_NOT_BUILT:
+        return "its version wasn't checked out or built"
     return "the app wasn't ready" if _app_not_ready(run) else "it stopped early"
 
 
@@ -207,6 +245,11 @@ def _run_test(run: Mapping[str, Any], stem: str, entry: Mapping[str, Any]) -> di
     }
 
 
+def _version(run: Mapping[str, Any]) -> dict[str, Any] | None:
+    found = run.get("version")
+    return {**found, "said": described(found)} if found else None
+
+
 def summary(run: Mapping[str, Any]) -> dict[str, Any]:
     """The ``RunSummary`` of *run*."""
     return {
@@ -216,6 +259,14 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "prompt": run.get("prompt") or "",
         "pass_marks": pass_marks(run),
         "environment": dict(zip(("where", "name"), environment_of(run), strict=True)),
+        # How its tries were kept apart (ADR 0009): on a copy put back by a proven plan, or not.
+        "isolation": isolation_of(run, run=True),
+        # The code it played (ADR 0011), with the line that says it; ``None`` before it knew.
+        "version": _version(run),
+        # How it reached the app: ``api``, ``page`` (its API with its page beside it) or
+        # ``page_only`` (its page alone, every reply what the page showed); a run stored before
+        # this was kept says nothing, and reads as it did.
+        **({"plays": run["plays"]} if run.get("plays") else {}),
         "case_ids": list(run["cases"]),
         "tests": [_run_test(run, k, c) for k, c in run["cases"].items()],
         "analyzing": bool(run.get("analyzing")),
@@ -327,6 +378,8 @@ def _judged(attempt: Mapping[str, Any]) -> dict[str, Any]:
         "route": found.route.value,
         "different_route": found.outcome is Outcome.PASSED and found.route is Route.DIFFERENT,
         "checks": [c.model_dump(mode="json") for c in found.checks],
+        # Which layer held: stored, answered, shown (ADR 0010).
+        "layers": layers(found),
     }
 
 
@@ -416,6 +469,7 @@ def case_detail(run: Mapping[str, Any], stem: str) -> dict[str, Any] | None:
             "retried": t.get("retried") or [],
             "context": t.get("context") or [],
             "trajectory": t.get("trajectory") or [],
+            "isolation": isolation_of(t),
             **_automatic_rows(t),
         }
         for t in entry["tries"]

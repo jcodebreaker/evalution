@@ -7,8 +7,11 @@ from evalution.adapters.base import Capabilities, Isolation
 from evalution.core.case import CONTEXT_CHECKS, Case
 
 
-def why_not(case: Case, capabilities: Capabilities, traced: bool) -> str | None:
-    """Why *case* can't run here, in plain words; ``None`` when it can."""
+def why_not(
+    case: Case, capabilities: Capabilities, traced: bool, *, page: bool = False
+) -> str | None:
+    """Why *case* can't run here, in plain words; ``None`` when it can. *page*: it plays through
+    the app's own page (ADR 0010)."""
     missing = [kind for kind in case.needs_clean if kind not in capabilities.starts_clean()]
     if missing:
         return (
@@ -24,6 +27,11 @@ def why_not(case: Case, capabilities: Capabilities, traced: bool) -> str | None:
             return "it starts a new conversation, and this app's adapter can't"
         if turn.expect_blocked and not capabilities.blocks:
             return "it expects the app to stop and wait, and this app's adapter can't tell"
+        if turn.fresh and page:
+            return (
+                "it needs a fresh start carried where the person can't see it, and a page has "
+                "nowhere to carry it"
+            )
         if turn.fresh and capabilities.isolation is Isolation.NONE:
             return "it needs a fresh start, and this app's adapter can't give one"
         for key in turn.state or {}:

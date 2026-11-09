@@ -36,6 +36,7 @@ from evalution.api.app import create_app
 from evalution.cli import main
 from evalution.config import TargetConfig, load, page_targets
 from evalution.core.case import CLEAN_KINDS
+from evalution.core.evidence import Failure
 from evalution.core.trace import Section
 from evalution.project.understanding.computed import stack
 from evalution.targets import Targets
@@ -72,6 +73,8 @@ def test_a_method_is_replaced_exactly_when_declared(target: Target) -> None:
     assert (type(target).state is not Target.state) == bool(declared.state_checks)
     assert (type(target).probe is not Target.probe) == declared.probe
     assert not declared.probe or declared.state_checks, "a probe reads state checks"
+    # Declared by what a target sets, like cancel: undeclared, it raises (see below).
+    assert not declared.watch or type(target).watch is not Target.watch
 
 
 async def test_files_and_stop_are_refused_exactly_when_not_declared(
@@ -111,6 +114,24 @@ async def test_cancel_is_answered_exactly_when_declared(target: Target, session:
     assert told.capabilities.cancel
     with pytest.raises(httpx.HTTPError):
         await told.cancel(session)
+
+
+async def test_watch_is_answered_exactly_when_declared(target: Target, session: Session) -> None:
+    if target.capabilities.watch:
+        assert type(target).watch is not Target.watch
+        turn = await target.watch(session, time.time(), deadline=time.time() + 5)
+        assert turn.error and turn.heard  # it went to the app, which had the page's message
+    else:
+        with pytest.raises(NotImplementedError):
+            await target.watch(session, time.time(), deadline=time.time() + 5)
+    # The http adapter declares it by what its target sets: a poll it waits on.
+    poll = {"poll": {"url": f"{APP}/state/{{session}}", "until": "$.done == true"}}
+    told = build(
+        TargetConfig("watches", "http", None, None, {"http": {**OPTIONS["http"], "done": poll}})
+    )
+    assert told.capabilities.watch
+    turn = await told.watch(session, time.time(), deadline=time.time() + 5)
+    assert turn.failure is Failure.UNREACHABLE and turn.heard
 
 
 def test_nothing_is_deleted_unless_the_target_asks(target: Target) -> None:
@@ -449,6 +470,27 @@ def test_declaring_what_isnt_there_shows_without_spending() -> None:
     assert "INFO" in steps.report.steps[1].detail
 
 
+def test_declaring_watch_without_the_method_shows() -> None:
+    class Claims(Target):
+        capabilities = Capabilities(Isolation.SESSION, "New id.", watch=True)
+        name = "claims"
+        open = Scripted.open
+        send = Scripted.send
+        close = Scripted.close
+
+    steps = contract._Sequence(Claims(), None, 1, 1, 1)
+    steps.shape(None)
+    assert steps.report.steps[0].status == "failed" and "watch" in steps.report.steps[0].detail
+
+    class Watches(Claims):
+        async def watch(self, session, since, *, deadline) -> Turn:
+            return Turn("OK", since, time.time())
+
+    steps = contract._Sequence(Watches(), None, 1, 1, 1)
+    steps.shape(None)
+    assert steps.report.steps[0].status == "ok"
+
+
 # A new adapter, and which versions an app must be
 
 
@@ -645,12 +687,13 @@ def _matrix() -> str:
     plain = [
         f.name
         for f in dataclasses.fields(Capabilities)
-        if f.name not in ("isolation", "isolation_note", "clean", "state_checks")
+        if f.name not in ("isolation", "isolation_note", "clean", "state_checks", "person")
     ]
     columns |= {f"`{name}`": (lambda c, n=name: _yes(getattr(c, n))) for name in plain}
     columns["State checks"] = lambda c: (
         ", ".join(f"`{key}`" for key in sorted(c.state_checks)) or "none"
     )
+    columns["Test person"] = lambda c: ", ".join(f"`{key}`" for key in sorted(c.person)) or "none"
     head = ["Adapter", *columns, "App versions"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for name, info in infos().items():

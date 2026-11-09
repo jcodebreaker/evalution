@@ -30,6 +30,16 @@ holds the two together.
   session itself went away. Anything else it
   raises is taken as the adapter's own fault. Not being reachable, refused credentials and
   :class:`TargetGone` end the run: nothing can be judged on an app that is not there.
+  ``Turn.reply`` is what judging reads. ``Turn.shown`` is what the app's own page showed for the
+  turn, set only by the page target, which plays above the adapters (ADR 0010); an adapter
+  leaves it ``None``.
+* ``watch(session, since, deadline=...)`` waits for the turn something else sent in this session at
+  ``since`` (a ``time.time()``): the app's own page, which typed and clicked Send (ADR 0010). It
+  returns exactly what ``send`` would have for that turn: when it is done (background work
+  included) or at ``deadline``, with ``Turn.reply``, ``Turn.error``, ``Turn.failure``,
+  ``Turn.ended_as`` and ``Turn.lost`` meaning what they do there. The message was sent, so a turn
+  that errors is ``Turn.heard``. An adapter that can wait on a session it didn't send to (one that
+  polls until done, say) declares ``watch``.
 * ``state(session, {key: value})`` is called once per key of an ``expect_state`` step after
   the turn before it (``context_contains`` / ``context_lacks`` are checked by evalution from
   the traces, never sent here). The adapter waits for background work itself. The keys it answers
@@ -52,6 +62,11 @@ holds the two together.
 * ``cancel(session)`` stops the work in flight, child work the adapter owns included. It is called
   when a run is stopped, when a turn is given up on or runs out of time, and for sessions an
   earlier server process left open. Failures are logged, never raised.
+* ``persona(person)`` says who the test person is (:class:`Person`): a name, a language, a time
+  zone, each empty for the adapter's own choice. It is called before a run opens its sessions, and
+  the person stays until it is called again; ``open`` plays as ``self.person``. The default keeps it
+  there; an adapter honors the fields its ``Capabilities.person`` names and ignores the rest, and
+  ``persona`` never raises for one it can't honor. A session keeps the person it opened as.
 * ``close`` ends the session and keeps what it left in the app, to look at. An adapter that removes
   anything there declares ``deletes``, off unless the target asks. ``cancel``, ``close`` and any
   cleanup touch only what this run's sessions made: a session's id, and the identity it plays as,
@@ -65,7 +80,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
@@ -81,6 +96,24 @@ from evalution.core.trace import Section
 NO_FILES, NO_STOP = "this target takes no files", "this target cannot stop a turn"
 
 
+#: What a :class:`Person` can say, as :attr:`Capabilities.person` names it.
+PERSON_FIELDS = ("name", "language", "timezone")
+
+
+@dataclass(frozen=True)
+class Person:
+    """Who the test person is. Empty fields are the adapter's own choice.
+
+    :param new_every_try: A new person for every try. ``False`` reuses one person across a run's
+        tries where the adapter can; it may still need a new session id per try.
+    """
+
+    name: str = ""
+    language: str = ""  # e.g. "English", or a BCP 47 tag; adapters map it
+    timezone: str = ""  # IANA, e.g. "Europe/Lisbon"
+    new_every_try: bool = True
+
+
 class Isolation(Enum):
     """What a new session leaves behind of earlier ones."""
 
@@ -89,6 +122,9 @@ class Isolation(Enum):
     SESSION = "session"
     #: A new user, who has nothing of anyone else's.
     IDENTITY = "identity"
+    #: Evalution puts the app's stores back itself, on its own copy of the app, by a plan it proved
+    #: (ADR 0009). What a try starts clean of is what that plan covers, not what the adapter says.
+    MANAGED = "managed"
 
 
 @dataclass(frozen=True)
@@ -106,6 +142,9 @@ class Capabilities:
     :param blocks: It can tell when the work is waiting on something (``TurnEnd.BLOCKED``), so a
         test may expect that.
     :param deletes: ``close`` removes what the session left in the app. Off, everything stays.
+    :param person: Which of :data:`PERSON_FIELDS` it honors when it opens a session as the test
+        person :meth:`Target.persona` set. None means it can't take a test person.
+    :param watch: It can wait for a turn something else sent in a session (:meth:`Target.watch`).
     """
 
     isolation: Isolation
@@ -122,6 +161,8 @@ class Capabilities:
     cancel: bool = False
     blocks: bool = False
     deletes: bool = False
+    person: frozenset[str] = frozenset()
+    watch: bool = False
     #: What a try starts clean of, where it isn't what ``isolation`` implies.
     clean: frozenset[str] | None = None
 
@@ -132,6 +173,13 @@ class Capabilities:
         if self.isolation is Isolation.IDENTITY:
             return frozenset(CLEAN_KINDS)
         return frozenset({"conversation"} if self.isolation is Isolation.SESSION else ())
+
+    def managed(self, covered: frozenset[str], note: str) -> Capabilities:
+        """These capabilities on evalution's own copy of the app, whose stores a proven plan puts
+        back before every try: a try starts clean of what the adapter promised and of what the
+        plan *covers* (some of ``conversation``, ``memory``, ``files``)."""
+        clean = self.starts_clean() | (covered & frozenset(CLEAN_KINDS))
+        return replace(self, isolation=Isolation.MANAGED, isolation_note=note, clean=clean)
 
     def names(self) -> list[str]:
         """The API's and the test writer's words for it, sorted."""
@@ -145,6 +193,7 @@ class Capabilities:
             "cancel": self.cancel,
             "blocks": self.blocks,
             "background": self.background,
+            "person": bool(self.person),
         }
         return sorted(name for name, has in named.items() if has)
 
@@ -188,6 +237,9 @@ class Turn:
     #: With ``error``: the connection broke while waiting, so nothing the app answered says it
     #: failed. Set by :func:`lost_connection`.
     lost: bool = False
+    #: What the app's own page showed for this turn: set only by the page target (ADR 0010).
+    #: Adapters leave it ``None``; judging reads ``reply``.
+    shown: str | None = None
 
 
 @dataclass
@@ -254,6 +306,13 @@ class Target(ABC):
 
     name: str
     capabilities: ClassVar[Capabilities]
+    #: Who ``open`` plays as, from :meth:`persona`; ``None`` is the adapter's own choice.
+    person: Person | None = None
+
+    def persona(self, person: Person) -> None:
+        """Play the sessions opened from now on as *person*. Fields it doesn't honor (not in
+        ``capabilities.person``) are ignored, never refused."""
+        self.person = person
 
     @abstractmethod
     async def open(self, run: str) -> Session: ...
@@ -279,6 +338,10 @@ class Target(ABC):
     async def fold_at(self, session: Session, tokens: int) -> None:  # noqa: B027
         """Have the app fold older turns from *tokens*. Optional: most can't, and then a test that
         asks is measured as never folding."""
+
+    async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
+        """The turn something else sent in *session* at *since*, as :meth:`send` returns it."""
+        raise NotImplementedError(f"{self.name} can't wait on a turn it didn't send")
 
     async def reset(self, session: Session) -> None:
         raise NotImplementedError(f"{self.name} can't reset a session")
@@ -424,6 +487,11 @@ def url_options(base: str, found: dict[str, Any], answers: dict[str, str]) -> di
     return {"url": base, **found}
 
 
+def url_on_copy(options: dict[str, Any], url: str) -> dict[str, Any]:
+    """*options* with ``url`` set to *url*: an adapter that reaches the app only by its ``url``."""
+    return {**options, "url": url}
+
+
 def _no_detection(folder: Folder) -> Detection | None:
     return None
 
@@ -456,6 +524,9 @@ class AdapterInfo:
     :param block: ``(options, secret -> its name)``: the target's block, without ``adapter``.
     :param page_options: Its options from a target's whole block.
     :param propose: ``(base, Job options, answers)``: its options for a target discovery proposes.
+    :param on_copy: ``(target's options, copy's url)``: the options that play on evalution's own
+        copy of the app at that address (ADR 0009). Raises ``ValueError``, in plain words naming
+        what would still reach the app as it is, when they can't be pointed there exactly.
     :param supports: The app's versions it was written for, like ``>=1.2,<2``. Its :attr:`check`
         compares the running app's: :func:`evalution.adapters.contract.version_part`.
     """
@@ -480,4 +551,5 @@ class AdapterInfo:
     block: Callable[[dict[str, Any], dict[str, str]], dict[str, Any]] = flat_block
     page_options: Callable[[dict[str, Any]], dict[str, Any]] = flat_options
     propose: Callable[[str, dict[str, Any], dict[str, str]], dict[str, Any]] = url_options
+    on_copy: Callable[[dict[str, Any], str], dict[str, Any]] = url_on_copy
     supports: str | None = None

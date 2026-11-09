@@ -71,6 +71,16 @@ export const TargetDetailSchema = z.object({
   /** From a save: stored secrets that stayed behind, since a host changed. */
   secrets_dropped: z.array(z.string()).default([]),
   managed: z.boolean().default(false),
+  /** How it plays through its own page (ADR 0010), its map in plain words; none: its API. */
+  page: z
+    .object({
+      map: z.array(z.object({ what: z.string(), where: z.string() })).default([]),
+      /** Why its `page:` block doesn't read. */
+      error: z.string().nullable().default(null),
+      /** Reached through its page alone (`adapter: page`): no API under it. */
+      only: z.boolean().default(false),
+    })
+    .nullish(),
 });
 export type TargetDetail = z.infer<typeof TargetDetailSchema>;
 
@@ -366,6 +376,405 @@ export const PassMarksSchema = z.object({
 });
 export type PassMarks = z.infer<typeof PassMarksSchema>;
 
+/** How a try was isolated: by a proven plan, by its own person only, or not at all. */
+export const IsolationHowSchema = z.enum(["proven", "identity", "none"]).catch("none");
+export type IsolationHow = z.infer<typeof IsolationHowSchema>;
+
+/** A place the app keeps things, as the page names it: "Conversations (Postgres database atrium)". */
+export const StoreWordsSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  /** Its own name: the database, the volume, the file. */
+  name: z.string(),
+  /** What it holds, in a person's words, when the probe showed it. */
+  holds: z.string().nullable().default(null),
+  /** The plan puts it back before each try. */
+  reset: z.boolean().default(true),
+});
+export type StoreWords = z.infer<typeof StoreWordsSchema>;
+
+/** How one try was isolated, and what was checked before it. Older runs don't say. */
+export const TryIsolationSchema = z.object({
+  how: IsolationHowSchema,
+  plan_version: z.number().nullable().default(null),
+  restore_seconds: z.number().nullable().default(null),
+  checked: z.array(z.string()).default([]),
+  /** What the check before or after the try found wrong, in words. */
+  problem: z.string().nullable().default(null),
+  /** The plan's stores, to name the ids in `checked`; older servers don't send them. */
+  stores: z.array(StoreWordsSchema).nullish(),
+});
+export type TryIsolation = z.infer<typeof TryIsolationSchema>;
+
+/** How a run's tries were isolated. */
+export const RunIsolationSchema = z.object({
+  how: IsolationHowSchema,
+  plan_version: z.number().nullable().default(null),
+});
+export type RunIsolation = z.infer<typeof RunIsolationSchema>;
+
+/** Older servers' step states, in the words the page uses now. */
+const OLD_STEP_STATES: Record<string, string> = { doing: "running", problem: "failed" };
+
+/**
+ * One step of setting up the test copy, in order: `find`, `copy`, `store:<id>`, `person`, `prove`.
+ * Older servers send `{key, text, state: doing|done|problem}`; it reads the same.
+ */
+export const IsolationStepSchema = z.preprocess(
+  (raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const step = raw as Record<string, unknown>;
+    const state = typeof step.state === "string" ? step.state : "";
+    return { ...step, label: step.label ?? step.text, state: OLD_STEP_STATES[state] ?? state };
+  },
+  z.object({
+    key: z.string(),
+    label: z.string().default(""),
+    state: z.enum(["waiting", "running", "done", "failed"]).catch("waiting"),
+    /** How long it took, or has taken so far. */
+    seconds: z.number().nullable().default(null),
+    /** What went wrong, when it failed. */
+    detail: z.string().nullable().default(null),
+  }),
+);
+export type IsolationStep = z.infer<typeof IsolationStepSchema>;
+
+/** Who each try talks as, what the copy starts with, and how often it is put back. */
+export const TestSetupSchema = z.object({
+  person: z
+    .object({
+      name: z.string().default(""),
+      language: z.string().nullable().default(null),
+      timezone: z.string().nullable().default(null),
+      new_every_try: z.boolean().default(true),
+    })
+    .prefault({}),
+  start: z
+    .object({
+      kind: z.enum(["empty", "seed"]).catch("empty"),
+      file: z.string().nullable().default(null),
+    })
+    .prefault({ kind: "empty" }),
+  /** Put back before every try, or before every test. */
+  reset: z.enum(["try", "test"]).catch("try"),
+  copies: z.number().int().default(1),
+  version: z.number().default(0),
+  /** What this app lets the page change: the person's fields, and starting from sample data. */
+  supports: z
+    .object({
+      person: z.array(z.string()).default([]),
+      seed: z.boolean().default(false),
+    })
+    .prefault({}),
+  /** Changed since it was proven: it's checked again before the next run. */
+  needs_check: z.boolean().default(false),
+});
+export type TestSetup = z.infer<typeof TestSetupSchema>;
+
+/** A change to part of the test setup, as PUT takes it. */
+export type TestSetupChange = {
+  person?: Partial<TestSetup["person"]>;
+  start?: Partial<TestSetup["start"]>;
+  reset?: TestSetup["reset"];
+  copies?: number;
+};
+
+/** A piece UI testing lacks here (ADR 0010), in one sentence, and what fixes it: a copy of the
+ * app (Set up testing makes one), or the command that installs Playwright, a browser or ffmpeg. */
+export const MissingPieceSchema = z.object({
+  part: z.enum(["copy", "playwright", "browser", "ffmpeg"]).catch("browser"),
+  said: z.string(),
+  command: z.string().nullable().default(null),
+});
+export type MissingPiece = z.infer<typeof MissingPieceSchema>;
+
+/** A job the page follows as it goes: its steps, each waiting, running, done or failed. */
+const LiveJobSchema = z.object({
+  state: z.enum(["running", "done", "failed"]).catch("failed"),
+  started: z.number().default(0),
+  ended: z.number().nullable().default(null),
+  steps: z.array(IsolationStepSchema).default([]),
+  error: z.string().nullable().default(null),
+});
+
+/** Installing what UI testing lacks on the server's computer: its steps and its last lines. */
+export const InstallJobSchema = LiveJobSchema.extend({
+  lines: z.array(z.string()).default([]),
+});
+export type InstallJob = z.infer<typeof InstallJobSchema>;
+
+/** What UI testing has on this computer: ready, or each piece it lacks, and whether the page can
+ * install them here (else `why_not_install` says how). */
+export const UiTestingSchema = z.object({
+  ready: z.boolean().default(false),
+  missing: z.array(MissingPieceSchema).default([]),
+  /** Each piece and whether it's here; older servers don't say. */
+  parts: z
+    .object({ playwright: z.boolean(), browser: z.boolean(), ffmpeg: z.boolean() })
+    .nullable()
+    .catch(null)
+    .default(null),
+  can_install: z.boolean().default(false),
+  why_not_install: z.string().nullable().default(null),
+  job: InstallJobSchema.nullable().catch(null).default(null),
+});
+export type UiTesting = z.infer<typeof UiTestingSchema>;
+
+/** One entry of a page map in plain words: what it is, and where on the page. */
+export const MapWordsSchema = z.object({ what: z.string(), where: z.string() });
+
+/** A page map kept for a target (ADR 0010): in use, or tried on evalution's copy and waiting for
+ * approval, with its rehearsal's screenshots. */
+export const KeptPageMapSchema = z.object({
+  status: z
+    .enum(["tried", "approved", "stale", "broken", "by_hand"])
+    .catch("approved")
+    .default("approved"),
+  map: z.array(MapWordsSchema).default([]),
+  /** Why the map doesn't read, when it doesn't. */
+  error: z.string().nullable().default(null),
+  report: z.string().default(""),
+  /** The rehearsal's screenshots, as URLs on this server. */
+  shots: z.array(z.string()).default([]),
+  /** The rehearsal's video, a URL on this server, when it kept one. */
+  video: z.string().nullable().default(null),
+  /** What the check before a run didn't find on the page. */
+  missing: z.array(z.string()).default([]),
+  /** The page as that check (or a try) found it, a screenshot URL on this server. */
+  missing_shot: z.string().nullable().default(null),
+  /** The files a commit changed under its evidence, when it's out of date. */
+  stale_files: z.array(z.string()).default([]),
+  updated: z.number().nullable().default(null),
+  by_hand: z.boolean().default(false),
+});
+export type KeptPageMap = z.infer<typeof KeptPageMapSchema>;
+
+/** How a test plays: through the app's API, its page (its API under it), or its page alone. */
+export const PlaysSchema = z.enum(["api", "page", "page_only"]).catch("api").default("api");
+
+/** When a try's screenshots or video are kept: every try, only one that fails, or never taken. */
+export const KeepSchema = z.enum(["always", "failed", "off"]);
+export type Keep = z.infer<typeof KeepSchema>;
+
+/** What a try played through the page keeps. */
+export const ProofSchema = z.object({ screenshots: KeepSchema, video: KeepSchema });
+export type Proof = z.infer<typeof ProofSchema>;
+
+/** A test's proof: the target's with the test's own (`own`) over it. */
+export const TestProofSchema = ProofSchema.extend({
+  own: z.object({ screenshots: KeepSchema.optional(), video: KeepSchema.optional() }).default({}),
+  target: ProofSchema,
+});
+export type TestProof = z.infer<typeof TestProofSchema>;
+
+/** A test's proof as saved. */
+export const TestProofChangeSchema = z.object({
+  plays: PlaysSchema,
+  proof: TestProofSchema.nullable().default(null),
+});
+
+/** Whether to offer UI testing for a target: its code has a chat page, and nothing about its
+ * page is set up, waiting or turned down. */
+export const PageOfferSchema = z.object({
+  target: z.string(),
+  offer: z.boolean().default(false),
+  /** Set up UI testing was pressed: the agent is learning the page, or its map waits for
+   * Approve, which the card shows in place of the offer. */
+  underway: z.boolean().default(false),
+  /** The file the chat page was found in. */
+  found_in: z.string().nullable().default(null),
+  dismissed: z.boolean().default(false),
+  /** The agent can learn the page now; else `why_not` says what comes first. */
+  can_learn: z.boolean().default(false),
+  why_not: z.string().nullable().default(null),
+  /** What UI testing lacks, when that's why not, with what fixes it. */
+  missing: MissingPieceSchema.nullable().catch(null).default(null),
+});
+export type PageOffer = z.infer<typeof PageOfferSchema>;
+
+/** The agent learning a target's page from Set up UI testing, as the page follows it. */
+export const PageLearnSchema = LiveJobSchema.extend({
+  /** The writer session doing it, kept among the app's chats. */
+  session: z.string().nullable().default(null),
+});
+export type PageLearn = z.infer<typeof PageLearnSchema>;
+
+/** How tests reach a target: through its API, or through its page by a map the test writer
+ * learned and a person approved once. */
+export const PageReachSchema = z.object({
+  target: z.string().default(""),
+  plays: PlaysSchema,
+  /** Connected from the page, so its page: block can be written here. */
+  managed: z.boolean().default(false),
+  /** Its map can be approved here: all but a target whose evalution.yaml block has a page: of
+   * its own (one set there gets its approved map stored beside the file). */
+  writable: z.boolean().default(false),
+  /** What a try played through the page keeps; none through the API. */
+  proof: ProofSchema.nullable().catch(null).default(null),
+  current: KeptPageMapSchema.nullable().default(null),
+  proposed: KeptPageMapSchema.nullable().default(null),
+  history: z
+    .array(z.object({ version: z.number(), status: z.string(), updated: z.number() }))
+    .default([]),
+  can_undo: z.boolean().default(false),
+  /** The page can be opened on evalution's copy; else `why_not` says why, in words. */
+  can_learn: z.boolean().default(false),
+  why_not: z.string().nullable().default(null),
+  /** What UI testing lacks, when that's why not, with what fixes it. */
+  missing: MissingPieceSchema.nullable().catch(null).default(null),
+  problem: z.string().nullable().default(null),
+  /** The agent learning the page from Set up UI testing, while it does and after. */
+  learn: PageLearnSchema.nullable().catch(null).default(null),
+});
+export type PageReach = z.infer<typeof PageReachSchema>;
+
+/** One thing a build recipe rests on: `path:line` in the app's folder, and what it says there. */
+export const BuildClaimSchema = z.object({ at: z.string(), says: z.string().default("") });
+
+/** How a version of the app's code is built into evalution's own names (ADR 0011): through the
+ * two variables its compose files name images with, an override evalution writes, or a process
+ * app's setup commands. */
+export const BuildRecipeSchema = z.object({
+  kind: z.enum(["compose_env", "compose_override", "process"]).catch("compose_override"),
+  /** The recipe in a sentence or two. */
+  words: z.string().default(""),
+  files: z.array(z.string()).default([]),
+  services: z.array(z.string()).default([]),
+  profiles: z.array(z.string()).default([]),
+  name_var: z.string().nullable().default(null),
+  tag_var: z.string().nullable().default(null),
+  /** Each built service's image under evalution's name, `<commit>` for the version's tag. */
+  images: z.record(z.string(), z.string()).default({}),
+  /** Each built service's image as the app's own files name it. */
+  yours: z.record(z.string(), z.string()).default({}),
+  setup: z.array(z.object({ run: z.array(z.string()), cwd: z.string().default(".") })).default([]),
+  evidence: z.array(BuildClaimSchema).default([]),
+  report: z.string().default(""),
+  /** `rule`, or `agent` when the test writer adjusted it. */
+  by: z.string().default("rule"),
+  why: z.string().default(""),
+  updated: z.number().nullable().default(null),
+});
+export type BuildRecipe = z.infer<typeof BuildRecipeSchema>;
+
+/** One version built into evalution's names: how long it took and the disk it took. */
+export const BuiltVersionSchema = z.object({
+  tag: z.string().default(""),
+  images: z.array(z.string()).default([]),
+  seconds: z.number().nullable().default(null),
+  disk_bytes: z.number().nullable().default(null),
+  image_bytes: z.number().nullable().default(null),
+  at: z.number().nullable().default(null),
+});
+export type BuiltVersion = z.infer<typeof BuiltVersionSchema>;
+
+/** Proving a recipe as it goes: its steps and the build's last lines. */
+export const BuildJobSchema = LiveJobSchema.extend({
+  lines: z.array(z.string()).default([]),
+});
+export type BuildJob = z.infer<typeof BuildJobSchema>;
+
+/** A target's build recipe as the Test environment page shows it. */
+export const BuildSchema = z.object({
+  target: z.string(),
+  status: z.enum(["none", "proposed", "proven", "stale", "failed"]).catch("none"),
+  version: z.number().nullable().default(null),
+  recipe: BuildRecipeSchema.nullable().default(null),
+  last_build: BuiltVersionSchema.nullable().catch(null).default(null),
+  built: z.array(BuiltVersionSchema).default([]),
+  /** The files it rests on that changed since it was proposed. */
+  stale_files: z.array(z.string()).default([]),
+  can_undo: z.boolean().default(false),
+  can_propose: z.boolean().default(false),
+  can_prove: z.boolean().default(false),
+  /** What proving costs, said before it starts: "builds relay-lite's code once: …". */
+  cost: z.string().default(""),
+  free_bytes: z.number().default(0),
+  min_free_bytes: z.number().default(5 * 1024 ** 3),
+  job: BuildJobSchema.nullable().catch(null).default(null),
+  problem: z.string().nullable().default(null),
+  /** What the last removal took away, and whether the Docker VM's disk was trimmed. */
+  removed: z
+    .object({
+      images: z.array(z.string()).default([]),
+      missing: z.array(z.string()).default([]),
+      trimmed: z.boolean().nullable().default(null),
+      note: z.string().default(""),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
+});
+export type Build = z.infer<typeof BuildSchema>;
+
+/** A target's isolation plan (ADR 0009): where the app keeps what it remembers, how each place
+ * is reset between tries, and how far that is proven. */
+export const IsolationSchema = z.object({
+  target: z.string(),
+  status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none"),
+  version: z.number().nullable().default(null),
+  plan: z
+    .object({
+      stores: z
+        .array(
+          z.object({
+            id: z.string(),
+            kind: z.string(),
+            locator: z.string(),
+            strategy: z.enum(["relocate", "snapshot", "identity", "none"]).catch("none"),
+            moved_by: z.array(z.string()).default([]),
+            keyed_by: z.string().nullable().default(null),
+            /** The probe saw the app use it. */
+            seen: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+      /** Found holding the probe and left alone: traces, kept as evidence. */
+      exclude: z.array(z.string()).default([]),
+      report: z.string().default(""),
+      /** Where the last rehearsal found the probe, or a write, the plan doesn't cover. */
+      leaks: z.array(z.string()).default([]),
+      updated: z.number().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** Files its evidence cites that a commit changed. */
+  stale_files: z.array(z.string()).default([]),
+  evidence: z
+    .object({
+      candidates: z.number(),
+      touched: z.number(),
+      found: z.array(z.string()).default([]),
+      watched: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .default(null),
+  history: z
+    .array(
+      z.object({
+        version: z.number(),
+        status: z.string(),
+        updated: z.number(),
+        stores: z.number(),
+      }),
+    )
+    .default([]),
+  can_undo: z.boolean().default(false),
+  can_run: z.boolean().default(false),
+  job: z
+    .object({
+      state: z.enum(["running", "done", "failed"]),
+      started: z.number(),
+      ended: z.number().nullable().default(null),
+      steps: z.array(IsolationStepSchema).default([]),
+      error: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  problem: z.string().nullable().default(null),
+});
+export type Isolation = z.infer<typeof IsolationSchema>;
+
 /** How one test of a run went. */
 export const RunTestSchema = z.object({
   case: z.string(),
@@ -395,13 +804,111 @@ export const EnvironmentSchema = z.object({
 });
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
+/** The code a run played (ADR 0011): its branch and commit, whether uncommitted changes were in
+ * it, and whether evalution can vouch that this is what played; older servers don't say. */
+export const VersionSchema = z.object({
+  ref: z.string().default("disk"),
+  branch: z.string().nullable().default(null),
+  commit: z.string().nullable().default(null),
+  dirty: z.boolean().nullable().default(null),
+  /** `false`: what played may not be this code, and `why_unverified` says why. `null`: can't tell. */
+  verified: z.boolean().nullable().default(null),
+  why_unverified: z.string().nullable().default(null),
+  /** In words: "what was on disk: page-testing @ e535c4d, with uncommitted changes", or a version
+   * evalution checked out and built: "feature-x @ a1b2c3d". */
+  said: z.string().default(""),
+  /** Before a run of a version other than the disk: what checking it out and building it costs,
+   * "Checks out feature-x @ a1b2c3d and builds it: about 4 min and up to 20 GB, once", or "Built
+   * already". */
+  cost: z.string().nullable().default(null),
+  /** What was said of a version beside it: the reset plan or page map made on another version,
+   * a compose file read from the person's checkout. */
+  notes: z.array(z.string()).default([]),
+  /** What actually played: on a compose copy each service's image (`kind: "images"`), on a
+   * process copy the working tree (`kind: "tree"`); `null` on the person's own app, or a run
+   * from before it was kept. */
+  played: z
+    .object({
+      kind: z.string(),
+      images: z
+        .array(
+          z.object({
+            service: z.string().default(""),
+            image: z.string(),
+            /** The app's own files build it, as against an image pulled from elsewhere. */
+            built: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
+});
+export type Version = z.infer<typeof VersionSchema>;
+
+/** A branch, remote branch or tag of the app's repository (ADR 0011). */
+export const VersionRefSchema = z.object({
+  name: z.string(),
+  ref: z.string(),
+  kind: z.enum(["local", "remote", "fetched", "tag"]).catch("local"),
+  commit: z.string(),
+  subject: z.string().default(""),
+  date: z.number().nullable().default(null),
+  checked_out: z.boolean().default(false),
+  worktree: z.boolean().default(false),
+});
+export type VersionRef = z.infer<typeof VersionRefSchema>;
+
+/** The app's repository: its refs, which branch is checked out, its remotes. */
+export const VersionsSchema = z.object({
+  target: z.string(),
+  remotes: z.array(z.string()).default([]),
+  checked_out: z
+    .object({ branch: z.string().nullable().default(null), commit: z.string().nullable() })
+    .nullable()
+    .default(null),
+  refs: z.array(VersionRefSchema).default([]),
+});
+export type Versions = z.infer<typeof VersionsSchema>;
+
+/** A remote's branches as `git ls-remote` lists them now: maybe not fetched here. */
+export const RemoteBranchesSchema = z.object({
+  remote: z.string(),
+  branches: z
+    .array(
+      z.object({
+        remote: z.string(),
+        name: z.string(),
+        ref: z.string(),
+        commit: z.string(),
+        fetched: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+});
+export type RemoteBranches = z.infer<typeof RemoteBranchesSchema>;
+
+/** A remote's branch fetched into evalution's own refs, and its commit. */
+export const FetchedBranchSchema = z.object({
+  remote: z.string(),
+  branch: z.string(),
+  commit: z.string(),
+});
+
 export const RunSummarySchema = z.object({
   run: z.string(),
   target: z.string().nullable().default(null),
   set: z.string(),
   started_at: z.number(),
+  /** When it ended; `null` while it goes, or from an older server. */
+  ended_at: z.number().nullable().catch(null).default(null),
   environment: EnvironmentSchema.default({ where: "local", name: null }),
   status: z.enum(["running", "done", "stopped", "failed"]),
+  /** Why a failed run stopped, as a kind (`version_not_built`, `app_not_ready`, ...) and in words;
+   * older servers don't say. */
+  failure: z.string().nullable().catch(null).default(null),
+  stop_reason: z.string().nullable().catch(null).default(null),
   /** The server restarted under it, which says nothing of the app. */
   interrupted: z.boolean().default(false),
   /** Short hash of the app's prompt, when the target knows one. */
@@ -415,6 +922,13 @@ export const RunSummarySchema = z.object({
   cases: z.array(z.string()).default([]),
   scope: z.enum(["all", "some"]).default("all"),
   tests: z.array(RunTestSchema).default([]),
+  /** How its tries were isolated; older runs don't say. */
+  isolation: RunIsolationSchema.nullish(),
+  /** The code it played; `null` before it knew, or from an older server. */
+  version: VersionSchema.nullable().catch(null).default(null),
+  /** How it reached the app: its API, its page beside it, or its page alone; older runs don't
+   * say. */
+  plays: z.enum(["api", "page", "page_only"]).nullable().catch(null).default(null),
   progress: z
     .object({
       done: z.number(),
@@ -481,6 +995,15 @@ export const CaseRowSchema = z.object({
   last_at: z.number().nullable().default(null),
   /** Why the test may be out of date with its target, from the target's drift. */
   stale: z.string().nullable().default(null),
+  /** How it plays: through the app's page, or its API. */
+  plays: z.enum(["api", "page"]).catch("api").default("api"),
+  /** Which layer held on the try its page opens on (the first that didn't pass); older servers
+   * don't say. */
+  layers: z
+    .lazy(() => LayersSchema)
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type CaseRow = z.infer<typeof CaseRowSchema>;
 
@@ -585,6 +1108,10 @@ export const CaseFileViewSchema = z.object({
       }),
     )
     .default([]),
+  /** How it plays: through the app's API, its page (its API under it), or its page alone. */
+  plays: PlaysSchema,
+  /** What a try played through the page keeps; none through the API (nothing to capture). */
+  proof: TestProofSchema.nullable().default(null),
 });
 export type CaseFileView = z.infer<typeof CaseFileViewSchema>;
 
@@ -616,6 +1143,28 @@ export const PlanItemSchema = z.object({
 });
 export type PlanItem = z.infer<typeof PlanItemSchema>;
 
+/** How a page check came out, decided by code from the page (ADR 0010). */
+const PageCheckSchema = z.object({ outcome: TryOutcomeSchema, why: z.string().default("") });
+
+/** What the app's page showed of one message, on a try played through it (ADR 0010). */
+export const StepPageSchema = z.object({
+  /** The page's text of the reply; `null`: it never showed. */
+  shown: z.string().nullable().default(null),
+  /** Seconds from the try's first message when it showed. */
+  shown_at: z.number().nullable().default(null),
+  /** What the page showed instead, when the reply didn't show. */
+  instead: z.string().default(""),
+  shot: z.string().nullable().default(null),
+  /** Where the screenshot is read; `null` when this server doesn't hold it. */
+  shot_url: z.string().nullable().default(null),
+  /** The `shown` check of this message. */
+  check: PageCheckSchema.nullable().default(null),
+  /** How far the page showed a reply it failed to show: its words that showed, and the reply's
+   * words from the first that didn't. */
+  part: z.object({ shown: z.string(), missing: z.string() }).nullable().catch(null).default(null),
+});
+export type StepPage = z.infer<typeof StepPageSchema>;
+
 export const PlanStepSchema = z.object({
   kind: z.enum(["before", "say", "filler", "break", "state", "agent", "reply", "passes"]),
   title: z.string().default(""),
@@ -635,6 +1184,8 @@ export const PlanStepSchema = z.object({
   note: z.string().optional(),
   reference: z.string().optional(),
   actual: ActualSchema.optional(),
+  /** What the page showed of this message; none on a try through the API. */
+  page: StepPageSchema.nullish(),
 });
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 
@@ -661,6 +1212,8 @@ export type LaneStep = z.infer<typeof LaneStepSchema>;
 
 const CheckRowSchema = z.object({
   id: z.string(),
+  /** Its check kind (`state`, `shown`, `page_health`, ...); older servers don't say. */
+  kind: z.string().nullish(),
   text: z.string(),
   outcome: TryOutcomeSchema,
   /** Recorded, and doesn't decide. */
@@ -727,6 +1280,19 @@ const ComparedSideSchema = z
   .object({ verdict: z.string(), passed: z.number(), judged: z.number() })
   .nullable();
 
+const ComparedVersionSchema = z.object({ name: z.string(), said: z.string().default("") });
+const ComparedVersionsSchema = z.object({
+  now: ComparedVersionSchema,
+  before: ComparedVersionSchema,
+  heading: z.string().nullable().default(null),
+});
+export const BaseBranchSchema = z.object({
+  name: z.string(),
+  run: z.string().nullable().default(null),
+  missing: z.string().nullable().default(null),
+});
+export type BaseBranch = z.infer<typeof BaseBranchSchema>;
+
 /** One run against another (GET /v1/evals/runs/{run}/comparison). */
 export const ComparisonSchema = z.object({
   run: z.string(),
@@ -735,6 +1301,14 @@ export const ComparisonSchema = z.object({
   headline: z.string().default(""),
   could_be_chance: z.boolean().default(false),
   changed: z.array(z.object({ what: z.string(), before: z.string(), now: z.string() })).default([]),
+  /** When what played says otherwise than the commits: "Same code played: …". */
+  code: z.string().nullable().default(null),
+  /** Each run's version, named and described, and "feature-x vs main" when they differ (ADR
+   * 0011); older servers don't say. */
+  versions: ComparedVersionsSchema.nullable().catch(null).default(null),
+  /** For a run of a branch other than the repository's base branch: that branch, its latest run
+   * of the same tests, and why there is none ("No run of these tests on main yet"). */
+  base_branch: BaseBranchSchema.nullable().catch(null).default(null),
   tests: z
     .array(
       z.object({
@@ -751,10 +1325,73 @@ export const ComparisonSchema = z.object({
 });
 export type Comparison = z.infer<typeof ComparisonSchema>;
 
+/** How one layer of a try came out: stored, answered or shown (ADR 0010). */
+const LayerSchema = z.enum(["pass", "fail", "unjudged", "absent"]).catch("absent");
+/** Which layer of the try shown held, from its check kinds; older servers don't say. */
+export const LayersSchema = z.object({
+  stored: LayerSchema,
+  answered: LayerSchema,
+  shown: LayerSchema,
+  /** The page's own health, apart from what showed of the replies; only a run's rows say it. */
+  page_health: LayerSchema.optional(),
+});
+export type Layers = z.infer<typeof LayersSchema>;
+
+/** What the app's page showed over a whole try played through it (ADR 0010). */
+export const TryPageSchema = z.object({
+  console: z.array(z.object({ level: z.string(), text: z.string(), at: z.number() })).default([]),
+  failed_requests: z
+    .array(
+      z.object({
+        method: z.string(),
+        path: z.string(),
+        /** `null`: no answer came. */
+        status: z.number().nullable().default(null),
+        at: z.number(),
+      }),
+    )
+    .default([]),
+  /** Console lines and failed requests past the cap, not kept. */
+  left_out: z.number().default(0),
+  /** The `page_health` check. */
+  health: PageCheckSchema.nullable().default(null),
+  /** The shown layer with the page's health left out: what showed of the replies alone. */
+  shown_alone: LayerSchema.nullable().catch(null).default(null),
+  /** How the try comes out on every check but the page's; none when it had no API to play. */
+  without_page: TryOutcomeSchema.nullable().catch(null).default(null),
+  /** Reached through its page alone: each reply is what the page showed (reply only). */
+  page_only: z.boolean().default(false),
+  /** The app refused the page's message (its status), or never took it (`status: null`). */
+  not_taken: z
+    .object({ status: z.number().nullable().default(null) })
+    .nullable()
+    .catch(null)
+    .default(null),
+  video: z.object({ name: z.string(), url: z.string().nullable() }).nullable().default(null),
+  /** Why there is no video when one was to be kept. */
+  video_missing: z.string().nullable().default(null),
+  /** What installs ffmpeg, when that's why there is no video and it's still missing here. */
+  video_fix: MissingPieceSchema.nullable().catch(null).default(null),
+  /** The page map ended the try: what the page lacked, and its screenshot of the page then. */
+  broken_map: z
+    .object({ missing: z.string(), shot_url: z.string().nullable().default(null) })
+    .nullable()
+    .catch(null)
+    .default(null),
+  /** Why the try shows no screenshots, when its proof said so (off, or kept only on failure). */
+  shots_missing: z.string().nullable().default(null),
+  /** The try was cut short before the page was closed. */
+  interrupted: z.boolean().default(false),
+});
+export type TryPage = z.infer<typeof TryPageSchema>;
+
 export const CompareSchema = TestPlanSchema.extend({
   run: z.string(),
   verdict: VerdictSchema.nullable().default(null),
   divergence: DivergenceSchema.nullable().catch(null).default(null),
+  layers: LayersSchema.nullish(),
+  /** What the app's page showed; none for a try played through the API alone. */
+  page: TryPageSchema.nullish(),
   tries: z
     .array(
       z.object({
@@ -780,6 +1417,8 @@ export const CompareSchema = TestPlanSchema.extend({
   seconds: z.number().nullable().default(null),
   /** What's missing of the try's traces, when any is. */
   trace_note: z.string().nullable().default(null),
+  /** How this try was isolated; older runs don't say. */
+  isolation: TryIsolationSchema.nullish(),
   explain: ExplainSchema.optional(),
   /** By rubric item id (`rubric-0`). */
   agreement: z.record(z.string(), LineAgreementSchema).default({}),
@@ -823,8 +1462,35 @@ export const EstimateSchema = z.object({
   chats: z.number(),
   /** Tests this app can't serve, left out of the run. */
   refused: z.array(z.object({ case: z.string(), why: z.string() })).default([]),
+  /** How its tests play, what a try keeps and roughly how long one takes: a line each way. */
+  plays: z
+    .array(
+      z.object({
+        how: z.enum(["api", "page", "page_only"]).catch("api"),
+        cases: z.array(z.string()).default([]),
+        seconds: z.number().default(0),
+        kept: z.string().nullable().default(null),
+        text: z.string(),
+      }),
+    )
+    .default([]),
   /** What a new session leaves behind here, in one sentence. */
   isolation_note: z.string().nullable().default(null),
+  /** The code it will play, and whether the images here look like it; older servers don't say. */
+  version: VersionSchema.nullish(),
+  /** The version it plays: `disk`, or a ref evalution checks out and builds first. */
+  ref: z.string().default("disk"),
+  /** How its tries will be kept apart, the plan's status and rough timings; older servers don't say. */
+  isolation: RunIsolationSchema.extend({
+    status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none").default("none"),
+    stores: z.array(StoreWordsSchema).default([]),
+    /** Seconds to start evalution's copy, last time. */
+    start_seconds: z.number().nullable().default(null),
+    /** Seconds to put the copy back before a try, last time. */
+    restore_seconds: z.number().nullable().default(null),
+    /** Seconds the plan's last rehearsal took. */
+    rehearse_seconds: z.number().nullable().default(null),
+  }).nullish(),
 });
 export type Estimate = z.infer<typeof EstimateSchema>;
 
@@ -901,6 +1567,36 @@ export const AgentMessageSchema = z.object({
       changes: z.array(MeaningChangeSchema).optional(),
     })
     .optional(),
+  /** A change the writer proposes to the isolation plan, approved like a test plan. */
+  isolation: z
+    .object({
+      id: z.string(),
+      version: z.number(),
+      status: z.string(),
+      from: z.string(),
+      changes: z.array(z.string()).default([]),
+    })
+    .optional(),
+  /** A page map the writer proposes: approving it lets it be tried with one real message. */
+  page_map: z
+    .object({
+      id: z.string(),
+      version: z.number(),
+      status: z.string(),
+      target: z.string().default(""),
+      described: z.array(MapWordsSchema).default([]),
+      evidence: z
+        .array(
+          z.object({
+            entry: z.string(),
+            file: z.string().nullable().default(null),
+            line: z.number().nullable().default(null),
+            tried: z.boolean().default(false),
+          }),
+        )
+        .default([]),
+    })
+    .optional(),
   run: z.string().optional(),
   review: z
     .object({
@@ -921,6 +1617,72 @@ export const AgentMessageSchema = z.object({
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
+/** One area of a learn as it goes: `listed` weighs nothing (no prompt, tool, state or trace hit)
+ * and isn't learned unless asked; `kept` is current, learned before. `weight`: its skeleton
+ * entries and trace hits; `steps`: the calls its agent may make, which grow with its weight. */
+export const LearnAreaSchema = z.object({
+  id: z.string(),
+  files: z.number(),
+  state: z.enum(["waiting", "running", "learned", "failed", "kept", "listed"]),
+  weight: z.number().optional(),
+  steps: z.number().optional(),
+  calls: z.number().default(0),
+  tokens: z.number().default(0),
+  now: z.string().default(""),
+  since: z.number().optional(),
+  seconds: z.number().optional(),
+});
+export type LearnArea = z.infer<typeof LearnAreaSchema>;
+
+/** A learn's progress: the code map, the skeleton (its entries), the fallback's reading of files
+ * no grammar reads (`read`), the areas, the overview. */
+export const LearnProgressSchema = z.object({
+  at: z.number(),
+  stage: z.enum(["map", "skeleton", "read", "areas", "overview", "saving"]),
+  files: z.number().optional(),
+  skeleton: z.number().optional(),
+  read: z.number().optional(),
+  read_done: z.number().optional(),
+  map_seconds: z.number().optional(),
+  parallel: z.number().optional(),
+  areas: z.array(LearnAreaSchema).default([]),
+});
+export type LearnProgress = z.infer<typeof LearnProgressSchema>;
+
+/** An area as "Learn this area" found it: `current` was learned from what it is now (when:
+ * `learned_at`), and nothing was spent unless asked again anyway. */
+export const AreaStateSchema = z.object({
+  id: z.string(),
+  state: z.enum(["current", "moved", "due", "listed"]),
+  weight: z.number().default(0),
+  files: z.number().default(0),
+  learned_at: z.number().nullable().default(null),
+});
+export type AreaState = z.infer<typeof AreaStateSchema>;
+
+/** One stage of a learn (code map, read, modules, areas, overview, other): its seconds, and the
+ * model calls, tokens and characters made while it ran. */
+export const LearnStageSchema = z.object({
+  stage: z.string(),
+  seconds: z.number().default(0),
+  calls: z.number().default(0),
+  tokens_in: z.number().default(0),
+  tokens_out: z.number().default(0),
+  chars_in: z.number().default(0),
+  chars_out: z.number().default(0),
+});
+export type LearnStage = z.infer<typeof LearnStageSchema>;
+
+/** What one turn of the test writer took; a learn's, stage by stage. */
+export const TurnUsageSchema = z.object({
+  learn: z.boolean().default(false),
+  at: z.number(),
+  seconds: z.number().default(0),
+  calls: z.number().default(0),
+  stages: z.array(LearnStageSchema).default([]),
+});
+export type TurnUsage = z.infer<typeof TurnUsageSchema>;
+
 export const AgentSessionSchema = z.object({
   id: z.string(),
   target: z.string().nullable().default(null),
@@ -929,8 +1691,19 @@ export const AgentSessionSchema = z.object({
   messages: z.array(AgentMessageSchema),
   /** What the agent did last, newest at the end: shown while it works. */
   activity: z.array(z.object({ at: z.number(), text: z.string() })).default([]),
+  /** A learn's progress: its stage and each area's agent. */
+  learn: LearnProgressSchema.nullable().default(null),
+  /** What its turns took, newest last. */
+  usage: z.array(TurnUsageSchema).default([]),
 });
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
+
+/** What "Learn this area" answered: the area as it stood, and the session when a learn started. */
+export const AreaLearnSchema = z.object({
+  area: AreaStateSchema,
+  session: AgentSessionSchema.nullable().default(null),
+});
+export type AreaLearn = z.infer<typeof AreaLearnSchema>;
 
 /** The app's earlier chats, latest first. */
 export const AgentChatSchema = z.object({ id: z.string(), asked: z.string(), at: z.number() });
@@ -1007,18 +1780,55 @@ export const ClaimSchema = z.object({
 });
 export type Claim = z.infer<typeof ClaimSchema>;
 
+/** An area of the app as What it learned lists it (ADR 0012): `current` was learned before from
+ * what it is now, `learning` is being learned, `done` landed in this learn, `due` waits for one,
+ * `listed` weighs nothing (no prompt, tool, state or trace hit) and is learned only when asked. */
+export const LearnedAreaSchema = z.object({
+  id: z.string(),
+  title: z.string().default(""),
+  state: z.enum(["current", "learning", "done", "due", "listed", "failed"]),
+  weight: z.number().default(0),
+  files: z.number().default(0),
+  learned_at: z.number().nullable().default(null),
+});
+export type LearnedArea = z.infer<typeof LearnedAreaSchema>;
+
+/** Where a learn stands, as the understanding carries it: its areas, heaviest first, and whether
+ * the overview is a first pass (from the skeleton and the traces) or final. An older server sends
+ * none; a newer one with no learn kept says `state: null` and no areas. */
+export const LearnStateSchema = z.object({
+  state: z.enum(["learning", "done", "stopped"]).nullable().default(null),
+  started_at: z.number().nullable().default(null),
+  areas: z.array(LearnedAreaSchema).default([]),
+  overview: z.enum(["first_pass", "final"]).nullable().default(null),
+});
+export type LearnState = z.infer<typeof LearnStateSchema>;
+
 /**
  * What the agent understood of a target (docs/architecture.md "The understanding"): the project
  * card, how it works, its usual paths, claims to check, what matters and the tests to start with.
  */
 export const UnderstandingSchema = z.object({
   knowledge: KnowledgeSchema.default(NO_KNOWLEDGE),
+  /** Where the latest learn stands; `null` from a server that doesn't say. */
+  progress: LearnStateSchema.nullable().default(null),
+  /** What the overview was written from: a first pass ("the code's skeleton and 12
+   * conversations") until the areas are in, then final. */
+  overview: z
+    .object({
+      state: z.enum(["first_pass", "final"]).nullable().default(null),
+      basis: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
   version: z.number().default(0),
   written_at: z.number().default(0),
   fingerprint: z.string().default(""),
   card: z.object({
     name: z.string(),
     one_line: z.string().default(""),
+    /** A few plain sentences on what the app is, for a person. */
+    summary: z.string().default(""),
     stack: z.array(z.string()).default([]),
     status: z.enum(["learning", "up_to_date", "out_of_date"]).default("up_to_date"),
     changes: z.number().default(0),
@@ -1096,6 +1906,52 @@ export const UnderstandingSchema = z.object({
     .default([]),
 });
 export type Understanding = z.infer<typeof UnderstandingSchema>;
+
+/** One part of the app's skeleton, read off its code with no model (ADR 0012). */
+export const SkeletonEntrySchema = z.object({
+  id: z.string(),
+  kind: z.enum(["entry", "prompt", "tool", "model", "route", "state", "agent"]),
+  name: z.string(),
+  path: z.string(),
+  line: z.number(),
+  /** How it was found or what it is: a store's kind, the call a model goes through. */
+  what: z.string().default(""),
+  /** The definition it sits in. */
+  inside: z.string().default(""),
+  /** A prompt's text, capped. */
+  text: z.string().default(""),
+  args: z.array(z.string()).default([]),
+  model: z.string().default(""),
+  /** The setting or name a model comes from, when the code doesn't write it out. */
+  model_from: z.string().default(""),
+  /** Its other places (`path:line`): copies, and the agents' settings that list a tool. */
+  places: z.array(z.string()).default([]),
+  /** For a tool: how many agents' settings list it. */
+  agents: z.number().default(0),
+  /** How often real use touched it in the window; null with no use to go by. */
+  uses: z.number().nullable().default(null),
+});
+export type SkeletonEntry = z.infer<typeof SkeletonEntrySchema>;
+
+/** The app's skeleton, and what real use named that the code doesn't. */
+export const SkeletonSchema = z.object({
+  fingerprint: z.string().default(""),
+  entries: z.array(SkeletonEntrySchema).default([]),
+  unseen: z
+    .array(z.object({ kind: z.string(), name: z.string(), calls: z.number().default(0) }))
+    .default([]),
+  /** The use counted: conversations and asks read, from when to when (seconds). */
+  window: z
+    .object({
+      sessions: z.number(),
+      asks: z.number().default(0),
+      since: z.number().nullable().default(null),
+      until: z.number().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+});
+export type AppSkeleton = z.infer<typeof SkeletonSchema>;
 
 /** One steer: check a claim or a box, fix it, pick or add a priority, pick a starter. */
 export type Steer =
@@ -1311,6 +2167,43 @@ export const HealthSchema = z.object({
   report_pending: z.boolean().default(false),
   /** A look for code changes is going; the card may follow. */
   checking: z.boolean().default(false),
+  /** How tests run: the isolation plan in plain words, whatever its status (older servers send it
+   * only when a commit left it out of date). */
+  isolation: z
+    .object({
+      status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none"),
+      version: z.number().nullable().default(null),
+      /** When the plan was last saved: proven, for a proven one. */
+      updated: z.number().nullable().default(null),
+      stores: z.array(StoreWordsSchema).default([]),
+      /** Left alone, kept as a record of what happened. */
+      exclude: z.array(z.string()).default([]),
+      /** Where the last rehearsal found what the plan misses. */
+      leaks: z.array(z.string()).default([]),
+      stale_files: z.array(z.string()).default([]),
+      /** How tries are kept apart without a plan. */
+      plain: IsolationHowSchema.default("none"),
+      /** What the connection itself promises, in one sentence. */
+      note: z.string().nullable().default(null),
+      /** The app's code folder is known, so isolation can be found. */
+      can_run: z.boolean().default(true),
+      problem: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** The page map, only when a commit left it out of date or the check before a run found it
+   * broken. */
+  page: z
+    .object({
+      status: z.enum(["stale", "broken"]).catch("stale"),
+      stale_files: z.array(z.string()).default([]),
+      missing: z.array(z.string()).default([]),
+      /** The page as the check found it, lacking what's missing: a screenshot URL. */
+      shot: z.string().nullable().default(null),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type Health = z.infer<typeof HealthSchema>;
 export type Period = "7d" | "30d" | "all";

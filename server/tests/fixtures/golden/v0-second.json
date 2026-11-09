@@ -123,7 +123,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -331,7 +344,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "passed",
@@ -539,7 +565,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 3,
      "outcome": "passed",
@@ -865,7 +904,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -1203,7 +1255,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "unjudged",
@@ -1537,7 +1602,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 3,
      "outcome": "unjudged",
@@ -1771,7 +1849,13 @@
     "where": "local"
    },
    "error": null,
+   "failure": null,
    "interrupted": false,
+   "isolation": {
+    "how": "none",
+    "person": null,
+    "plan_version": null
+   },
    "judge": {
     "key": "strong",
     "model": null,
@@ -1822,6 +1906,16 @@
     "tokens": 158004,
     "tools": 1.0,
     "unjudged": 0
+   },
+   "version": {
+    "branch": null,
+    "commit": null,
+    "dirty": null,
+    "played": null,
+    "ref": "disk",
+    "said": "what was on disk",
+    "verified": null,
+    "why_unverified": "not recorded: run before evalution kept what played"
    }
   },
   "case_ids": [
@@ -1847,8 +1941,15 @@
     ],
     "last_at": 1793583042.105848,
     "last_run": "20261102-013042-bbbb",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test 1",
     "originally": null,
+    "plays": "api",
     "reasons": [
      null,
      null,
@@ -1886,8 +1987,15 @@
     ],
     "last_at": 1793583042.105848,
     "last_run": "20261102-013042-bbbb",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test 2",
     "originally": "fail",
+    "plays": "api",
     "reasons": [
      "Fake rubric line 7.",
      "Fake rubric line 7.",
@@ -1925,6 +2033,7 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "history": [
    {
     "prompt": "d4607fa1",
@@ -1944,6 +2053,11 @@
    }
   ],
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -2009,6 +2123,16 @@
    "tokens": 588468,
    "tools": 0.666,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "aa603b5d862cfe4816fe2e944efb477592b791b0",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: aa603b5",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -2030,8 +2154,15 @@
    ],
    "last_at": 1793583042.105848,
    "last_run": "20261102-013042-bbbb",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test 1",
    "originally": null,
+   "plays": "api",
    "reasons": [
     null,
     null,
@@ -2069,8 +2200,15 @@
    ],
    "last_at": 1793583042.105848,
    "last_run": "20261102-013042-bbbb",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test 2",
    "originally": "fail",
+   "plays": "api",
    "reasons": [
     "Fake rubric line 7.",
     "Fake rubric line 7.",
@@ -2107,7 +2245,13 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -2173,6 +2317,16 @@
    "tokens": 588468,
    "tools": 0.666,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "aa603b5d862cfe4816fe2e944efb477592b791b0",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: aa603b5",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

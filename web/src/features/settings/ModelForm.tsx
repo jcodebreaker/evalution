@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
+import { asSentence } from "../../lib/format";
 import type { ModelBody, ModelSettings, ModelTest, Provider } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
@@ -141,10 +142,10 @@ export function ModelForm({
         void save();
       }}
     >
-      {fixed ? <p className="m-0 text-[13px] text-ink-2">Set in evalution.yaml.</p> : null}
+      {fixed ? <p className="m-0 text-[14px] text-ink-2">Set in evalution.yaml.</p> : null}
       <Group>
         <Row label="Provider" group>
-          <span className="flex flex-wrap gap-0.5 self-start rounded-lg bg-selection p-0.5">
+          <span className="flex flex-wrap gap-0.5 self-start rounded-[7px] bg-sunk-2 p-[3px]">
             {PROVIDERS.map((entry) => (
               <button
                 key={entry.value}
@@ -156,9 +157,9 @@ export function ModelForm({
                   setTest(null);
                 }}
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
+                  "h-[26px] rounded-[5px] px-2.5 text-[13px] focus-visible:outline-2 focus-visible:outline-tint disabled:opacity-50",
                   provider === entry.value
-                    ? "bg-background font-medium shadow-sm"
+                    ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
                     : "text-ink-2 hover:text-foreground",
                 )}
               >
@@ -223,17 +224,20 @@ export function ModelForm({
         </Row>
       </Group>
       {models.status === "error" && canList && !fixed ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{listError} Type their names, or fix it.</p>
+        <p className="m-0 text-[13px] text-ink-2">
+          {listError ? `${asSentence(listError)} ` : null}So the models can't be listed: type the
+          names of the models to use, or fix the key or address.
+        </p>
       ) : null}
-      {note ? <p className="m-0 text-[12.5px] text-ink-2">{note}</p> : null}
+      {note ? <p className="m-0 text-[13px] text-ink-2">{note}</p> : null}
       {!account && stored && moved && !key.trim() ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{KEY_LEFT_BEHIND}</p>
+        <p className="m-0 text-[13px] text-ink-2">{KEY_LEFT_BEHIND}</p>
       ) : outcome ? (
-        <p className="m-0 text-[12.5px] text-ink-2">{outcome}</p>
+        <p className="m-0 text-[13px] text-ink-2">{outcome}</p>
       ) : null}
 
       {test ? <TestResult test={test} /> : null}
-      {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           variant="secondary"

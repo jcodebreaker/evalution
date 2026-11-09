@@ -39,6 +39,18 @@ class SessionStore:
                 found.append({"id": session["id"], "asked": asked, "at": at})
         return sorted(found, key=lambda chat: chat["at"], reverse=True)
 
+    def usage(self, target: str) -> list[dict[str, Any]]:
+        """What each turn kept on *target*'s sessions took (:mod:`evalution.writer.usage`),
+        oldest first."""
+        turns = [
+            turn
+            for _key, session, _at in self.docs.items(KIND)
+            if session.get("target") == target
+            for turn in session.get("usage") or []
+            if isinstance(turn, dict)
+        ]
+        return sorted(turns, key=lambda turn: float(turn.get("at") or 0))
+
     def load(self, session: str) -> dict[str, Any] | None:
         found = self.docs.get(KIND, session) if _SESSION_ID.match(session) else None
         return found if isinstance(found, dict) else None

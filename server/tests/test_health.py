@@ -319,6 +319,22 @@ def test_an_app_without_runs_reads_empty(tmp_path) -> None:
         "recent": [],
         "code_change": None,
         "checking": False,
+        # Home's "How tests run" says what tries stand on even with no plan: the adapter's word.
+        "isolation": {
+            "status": "none",
+            "version": None,
+            "updated": None,
+            "stores": [],
+            "exclude": [],
+            "leaks": [],
+            "stale_files": [],
+            "plain": "none",
+            "note": "Each try gets a new session id; what carries over is up to your app.",
+            "can_run": False,
+            "problem": None,
+        },
+        # The page map is said only when a commit left it out of date or a check found it broken.
+        "page": None,
     }
 
 

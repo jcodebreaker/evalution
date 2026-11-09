@@ -17,6 +17,23 @@ from typing import Any
 from evalution.core.judgement import Frozen
 
 ITEM_BYTES = 64_000
+#: The most console lines, and failed requests, a page try keeps: the first ones.
+PAGE_LINES = 200
+#: A page try's video, by name in the run's file store.
+VIDEO = "try.webm"
+#: Why a passed try has no video, when its page map keeps one only when a try fails.
+VIDEO_ON_FAILURE = "kept only when a try fails"
+#: Why a passed try has no screenshots, when they are kept only when a try fails; and why a try
+#: has none at all.
+SHOTS_ON_FAILURE = "kept only when a try fails"
+SHOTS_OFF = "turned off for this test"
+
+
+def is_shot(name: str) -> bool:
+    """Whether *name*, one of a page try's files, is a screenshot of it (``turn-<n>.png``)."""
+    return name.startswith("turn-") and name.endswith(".png")
+
+
 _TAIL_BYTES = 16_000
 #: What a span holds in place of content kept from it: not captured, whatever else it says.
 _REDACTED = re.compile(r"__REDACTED__|\[REDACTED\]|<REDACTED>", re.IGNORECASE)
@@ -43,6 +60,9 @@ class Failure(StrEnum):
     #: Before its first message the app already held what the try was to show it come to hold:
     #: what an earlier try left, so the try wasn't played (:mod:`evalution.runs.leftover`).
     LEFTOVER_STATE = "leftover_state"
+    #: The page target didn't find an element its page map names (ADR 0010): the map is off, not
+    #: the app or the adapter.
+    PAGE_MAP = "page_map"
 
 
 class TurnEnd(StrEnum):
@@ -97,6 +117,7 @@ class TurnRecord(Frozen):
     """One message of the transcript and what came back. ``kind``: ``message`` or ``filler``.
 
     :param expected_blocked: The test wants this turn to stop and wait (``"blocked": true``).
+    :param shown: What the app's own page showed, when the try played through it (ADR 0010).
     """
 
     kind: str
@@ -107,6 +128,7 @@ class TurnRecord(Frozen):
     error: str | None = None
     ended_as: TurnEnd = TurnEnd.ANSWERED
     expected_blocked: bool = False
+    shown: Clipped | None = None
 
 
 class ToolRecord(Frozen):
@@ -182,6 +204,114 @@ class MemoryRecord(Frozen):
     compacted: bool | None = None
 
 
+class PageTurn(Frozen):
+    """One turn of the try as the page showed it, at the same place in :attr:`PageRecord.turns`
+    as in :attr:`TryEvidence.turns`. What it showed is :attr:`TurnRecord.shown`.
+
+    :param shown_at: Seconds from the try's first message when the reply appeared; ``None`` when it
+        never did.
+    :param instead: What the page's replies showed when the reply didn't appear (a placeholder, an
+        error, an old reply); empty when it did.
+    :param shot: The file name of the screenshot taken after the turn, in the run's file store
+        (:mod:`evalution.storage.files`); ``None`` when there is none.
+    """
+
+    shown_at: float | None = None
+    instead: Clipped = Clipped()
+    shot: str | None = None
+    #: The error status the app answered the page's request that carried the message with: it
+    #: refused the message (a 503, say). ``None``: it didn't, or the adapter under the page sent.
+    refused: int | None = None
+    #: The app didn't answer the page's request that carried the message in the map's
+    #: ``send_seconds``, or the request failed on the way: it didn't take the message.
+    unanswered: bool = False
+
+    @property
+    def not_taken(self) -> bool:
+        """The app refused the page's message, or never answered it: the app's, not the page's."""
+        return self.refused is not None or self.unanswered
+
+
+class ConsoleLine(Frozen):
+    """An error or a warning the page wrote to its console, scrubbed of secrets.
+
+    :param level: ``error`` or ``warning``.
+    :param at: Seconds from the try's first message.
+    """
+
+    level: str
+    text: Clipped
+    at: float
+
+
+class FailedRequest(Frozen):
+    """A request from the page to the copy's own address that failed.
+
+    :param path: Its path, without the query, where tokens ride.
+    :param status: What the copy answered (400 and up); ``None``: no answer came.
+    :param at: Seconds from the try's first message.
+    :param message: It carried the person's message: the app's answer to it is its turn's
+        (:attr:`PageTurn.refused`), not the page's health.
+    """
+
+    method: str
+    path: str
+    status: int | None = None
+    at: float
+    message: bool = False
+
+
+class PageRecord(Frozen):
+    """What the app's page showed of a try played through it (ADR 0010). A try played through the
+    page always has one, however little it holds; one played through the API alone has none.
+
+    :param files: The try's screenshots and video, by name in the run's file store.
+    :param video_missing: Why there is no video when one was to be kept, e.g. the try was cut off
+        before the browser could finish it.
+    :param video_policy: When the try's video is kept, as the page map said while it played:
+        ``failed`` (a passed try's is deleted once it is judged, :data:`VIDEO_ON_FAILURE`) or
+        ``always``; ``None`` when none was recorded.
+    :param screenshot_policy: When the try's screenshots are kept, as the try's proof said while
+        it played: ``always``, ``failed`` (a passed try's are deleted once it is judged,
+        :data:`SHOTS_ON_FAILURE`) or ``off`` (none taken, :data:`SHOTS_OFF`); ``None`` on a try
+        played before proof could be set, which kept every one.
+    :param interrupted: The try was cut short (a restart, a stop) before the page was closed.
+    :param left_out: Console lines and failed requests past :data:`PAGE_LINES` each, not kept.
+    :param page_only: The target was reached through its page alone, with no API adapter: each
+        turn's reply is what the page showed, and nothing else saw it (ADR 0010, amended).
+    """
+
+    turns: tuple[PageTurn, ...] = ()
+    console: tuple[ConsoleLine, ...] = ()
+    failed_requests: tuple[FailedRequest, ...] = ()
+    files: tuple[str, ...] = ()
+    video_missing: str | None = None
+    video_policy: str | None = None
+    screenshot_policy: str | None = None
+    interrupted: bool = False
+    left_out: int = 0
+    page_only: bool = False
+
+    def capped(self) -> PageRecord:
+        """As stored: every text within :data:`ITEM_BYTES`, and at most :data:`PAGE_LINES` console
+        lines and failed requests, the first ones."""
+        dropped = max(len(self.console) - PAGE_LINES, 0)
+        dropped += max(len(self.failed_requests) - PAGE_LINES, 0)
+        return self.model_copy(
+            update={
+                "turns": tuple(
+                    t.model_copy(update={"instead": t.instead.capped()}) for t in self.turns
+                ),
+                "console": tuple(
+                    c.model_copy(update={"text": c.text.capped()})
+                    for c in self.console[:PAGE_LINES]
+                ),
+                "failed_requests": self.failed_requests[:PAGE_LINES],
+                "left_out": self.left_out + dropped,
+            }
+        )
+
+
 class TryEvidence(Frozen):
     """One try: its transcript, tool calls, model calls and state checks, and how far its traces
     could be read. Span times are seconds from ``t0``, the first message."""
@@ -204,6 +334,9 @@ class TryEvidence(Frozen):
     trace_note: str | None = None
     failure: Failure | None = None
     error: str | None = None
+    #: What the app's own page showed, when the try played through it (ADR 0010); ``None`` for a
+    #: try played through the API alone.
+    page: PageRecord | None = None
 
     @property
     def reply(self) -> str:
@@ -220,7 +353,13 @@ class TryEvidence(Frozen):
         return self.model_copy(
             update={
                 "turns": tuple(
-                    t.model_copy(update={"message": t.message.capped(), "reply": t.reply.capped()})
+                    t.model_copy(
+                        update={
+                            "message": t.message.capped(),
+                            "reply": t.reply.capped(),
+                            "shown": t.shown.capped() if t.shown is not None else None,
+                        }
+                    )
                     for t in self.turns
                 ),
                 "tools": tuple(
@@ -231,5 +370,6 @@ class TryEvidence(Frozen):
                     c.model_copy(update={"sent": c.sent.capped(), "said": c.said.capped()})
                     for c in self.model_calls
                 ),
+                "page": self.page.capped() if self.page is not None else None,
             }
         )

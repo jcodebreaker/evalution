@@ -54,7 +54,8 @@ FACT_CHARS = 300
 FACT_KINDS = ("condition", "order", "refusal", "prompt_rule", "behaviour", "other")
 #: What one summarizing call carries, and how many run at once.
 BATCH_CHARS = 60_000
-PARALLEL = 4
+#: A big app's slice is hundreds of files: at 4 a learn of 760 took over 20 minutes.
+PARALLEL = 8
 #: Of a file too long for one call: its head, then the lines that define something.
 HEAD_CHARS = 20_000
 #: How much of the summaries a learn is given; past it, files by name only.
@@ -239,15 +240,38 @@ def _read_answer(text: str, asked: Iterable[str]) -> dict[str, dict[str, Any]]:
     return found
 
 
-async def index(targets: Targets, name: str, code: Code, ask: Ask, paths: Iterable[str]) -> int:
-    """Summarize the files of *paths* with no summary for what they are now, in batches, a few
-    calls at a time. A batch that fails, or leaves files out, is tried once more in two halves; a
-    file still without a summary is kept in ``failed`` with why, and logged, for the brief to name
-    and the next full learn to try again. Nothing outside *paths* is read. How many were
-    summarized."""
+def _keep(
+    targets: Targets, name: str, files: Mapping[str, str], found: Mapping[str, Mapping[str, Any]]
+) -> None:
+    """Add *found* (``path -> {summary, facts}``) to the summaries kept, each under its file's
+    fingerprint now, leaving the rest as they are."""
+    with targets.guards.knowledge:
+        memory = load(targets, name)
+        kept = dict(memory.get("summaries") or {})
+        kept |= {p: {"fingerprint": files[p], **f} for p, f in found.items()}
+        failed = {p: f for p, f in (memory.get("failed") or {}).items() if p not in found}
+        save(targets, name, {**memory, "summaries": dict(sorted(kept.items())), "failed": failed})
+
+
+async def index(
+    targets: Targets,
+    name: str,
+    code: Code,
+    ask: Ask,
+    paths: Iterable[str],
+    shown: dict[str, Any] | None = None,
+) -> int:
+    """Summarize the files of *paths* with no summary for what they are now, in batches,
+    :data:`PARALLEL` calls at a time, each batch's summaries kept as it finishes. A batch that
+    fails, or leaves files out, is tried once more in two halves; a file still without a summary
+    is kept in ``failed`` with why, and logged, for the brief to name and the next full learn to
+    try again. Nothing outside *paths* is read. How many were summarized. *shown*: a learn's
+    progress, given ``read`` (the files to read) and ``read_done`` (those read so far)."""
+    shown = shown if shown is not None else {}
     files = await asyncio.to_thread(code.hashes)
     memory = load(targets, name)
     missing = unsummarized(memory, files, paths)
+    shown |= {"read": len(missing), "read_done": 0}
     if not missing:
         return 0
     texts, why = {}, {}
@@ -268,6 +292,12 @@ async def index(targets: Targets, name: str, code: Code, ask: Ask, paths: Iterab
             else:
                 error = "left out of the answer"
         why.update({p: error for p in paths if p not in found})
+        if found:
+            # Kept as each batch finishes: a learn stopped partway keeps what it read, and the
+            # next one reads only what is still unsummarized. Kept here, not in a thread: a
+            # learn cut off right after a batch must not drop the save it was waiting on.
+            _keep(targets, name, files, found)
+        shown["read_done"] = shown.get("read_done", 0) + len(found)
         return found
 
     async def round_of(groups: list[list[str]]) -> dict[str, dict[str, Any]]:

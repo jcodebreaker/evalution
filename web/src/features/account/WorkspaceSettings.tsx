@@ -13,7 +13,7 @@ import { Row } from "../shared/Row";
 import type { Account } from "./account";
 
 const LINE =
-  "flex min-w-0 items-center gap-3 border-separator px-3.5 py-2 text-[13px] not-first:border-t";
+  "flex min-w-0 items-center gap-3 border-separator px-3.5 py-2 text-[14px] not-first:border-t";
 const TOKEN_GRID =
   "grid grid-cols-[minmax(0,1fr)_96px_96px_96px_28px] items-center gap-3 max-sm:grid-cols-[minmax(0,1fr)_96px_28px]";
 
@@ -32,7 +32,7 @@ export function WorkspaceSettings({ account }: { account: Account }) {
   };
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="m-0 px-1 text-[13px] font-semibold">Workspace</h2>
+      <h2 className="m-0 px-1 text-[14px] font-semibold">Workspace</h2>
       <Group>
         <Row label="Name">
           <Input
@@ -54,7 +54,7 @@ export function WorkspaceSettings({ account }: { account: Account }) {
       </Group>
       <Members account={account} act={act} />
       <Tokens act={act} />
-      {error ? <p className="m-0 px-1 text-[12.5px] text-destructive">{error}</p> : null}
+      {error ? <p className="m-0 px-1 text-[13px] text-fail">{error}</p> : null}
     </div>
   );
 }
@@ -223,7 +223,7 @@ function Tokens({ act }: { act: Act }) {
           ) : null}
           {tokens.length ? (
             <div
-              className={`${TOKEN_GRID} border-separator px-3.5 pt-2 pb-1 text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase not-first:border-t`}
+              className={`${TOKEN_GRID} border-separator px-3.5 pt-2 pb-1 text-[12px] font-medium text-ink-3 not-first:border-t`}
             >
               <span>Name</span>
               <span>Token</span>
@@ -233,14 +233,14 @@ function Tokens({ act }: { act: Act }) {
             </div>
           ) : null}
           {tokens.map((token) => (
-            <div key={token.id} className={`${TOKEN_GRID} px-3.5 py-1.5 text-[13px] tabular-nums`}>
+            <div key={token.id} className={`${TOKEN_GRID} px-3.5 py-1.5 text-[14px] tabular-nums`}>
               <span className="truncate">
                 {token.name}
                 {token.scope === "traces" ? (
                   <span className="text-ink-3"> · Traces only</span>
                 ) : null}
               </span>
-              <span className="truncate font-mono text-[12px] text-ink-2">{token.prefix}…</span>
+              <span className="truncate font-mono text-[12.5px] text-ink-2">{token.prefix}…</span>
               <span className="truncate text-ink-2 max-sm:hidden">{ago(token.created_at)}</span>
               <span className="truncate text-ink-2 max-sm:hidden">
                 {token.last_used_at ? ago(token.last_used_at) : "Never"}

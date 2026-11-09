@@ -3,6 +3,7 @@ import {
   Gauge,
   House,
   ListChecks,
+  Monitor,
   Network,
   Plus,
   Settings,
@@ -10,11 +11,11 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import { progressText } from "../../lib/format";
 import type { Place, View } from "../../lib/router";
-import type { RunSummary, SetSummary, Target } from "../../lib/schema";
+import type { Isolation, SetSummary, Target } from "../../lib/schema";
 import { Spinner } from "../../ui/loading";
 import { Picker } from "../../ui/menu";
+import { StatusDot } from "../../ui/status";
 import { useAccount } from "../account/account";
 import { WorkspaceMenu } from "../account/WorkspaceMenu";
 import type { Card } from "../learned/ProjectCard";
@@ -22,8 +23,9 @@ import { CardRow } from "../learned/ProjectCard";
 import { Logo } from "./Logo";
 
 /**
- * The app picker (with Connect), then Home, What it learned, Tests, Benchmarks and Runs (with the going run
- * under it); Settings at the bottom.
+ * The mark, the app picker (with Connect) and its test set; then Overview, Tests, Runs, What it
+ * learned, Test environment and Benchmarks; at the foot, how the test copy stands, Ask AI and
+ * Settings.
  */
 export function Sidebar({
   place,
@@ -31,23 +33,27 @@ export function Sidebar({
   target,
   sets,
   set,
-  going,
-  goingLabel,
+  tests = null,
+  failing = 0,
+  plan = null,
   asking,
   onAskAi,
   cards,
   onTarget,
   onSet,
   onView,
-  onGoing,
 }: {
   place: Place;
   targets: Target[];
   target: string | null;
   sets: SetSummary[];
   set: string | null;
-  going: RunSummary | null;
-  goingLabel: string;
+  /** How many tests the set has, once read. */
+  tests?: number | null;
+  /** How many tests failed in the last run that finished. */
+  failing?: number;
+  /** The app's isolation plan, once read: shown at the foot only when proven. */
+  plan?: Pick<Isolation, "status" | "version"> | null;
   asking: boolean;
   onAskAi: (() => void) | null;
   /** Each app's card, once read: its row in the picker. */
@@ -55,24 +61,28 @@ export function Sidebar({
   onTarget: (name: string) => void;
   onSet: (set: string) => void;
   onView: (view: View) => void;
-  onGoing: () => void;
 }) {
   const setName = sets.find((entry) => entry.set === set)?.name ?? set ?? "";
-  const item = (view: View, icon: ReactNode, label: string) => (
+  const item = (view: View, icon: ReactNode, label: string, count?: string, bad?: boolean) => (
     <NavItem
-      selected={place.view === view && !(view === "runs" && going && place.run === going.run)}
+      selected={place.view === view}
       onClick={() => onView(view)}
       icon={icon}
       label={label}
+      count={count}
+      bad={bad}
     />
   );
   const card = target ? (cards?.get(target) ?? null) : null;
   const account = useAccount();
   return (
-    <aside aria-label="Navigation" className="glass flex min-h-0 flex-col">
+    <aside
+      aria-label="Navigation"
+      className="flex min-h-0 flex-col border-e border-separator bg-group p-3 max-md:border-e-0 max-md:border-b"
+    >
       <div
         className={cn(
-          "flex items-center gap-2.5 border-b border-separator px-4 py-3.5",
+          "flex items-center gap-2 px-2 pt-1 pb-3",
           account ? "min-w-0" : "max-md:hidden",
         )}
       >
@@ -80,22 +90,24 @@ export function Sidebar({
         {account ? (
           <WorkspaceMenu account={account} />
         ) : (
-          <span className="text-[16px] font-semibold tracking-[-0.02em]">evalution</span>
+          <span className="text-[16px] leading-none font-semibold tracking-[-0.03em]">
+            evalution
+          </span>
         )}
       </div>
       {target ? (
-        <div className="flex min-w-0 flex-col gap-1 px-3 pt-3 pb-2 max-md:pt-3">
+        <div className="flex min-w-0 flex-col">
           <Picker
             label="App"
             value={
-              <span className="flex min-w-0 items-center gap-2.5">
-                <span className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-selection-strong text-[12px] font-bold text-tint">
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-tint-soft font-semibold text-tint-ink">
                   {target.slice(0, 1).toUpperCase()}
                 </span>
-                <span className="flex min-w-0 flex-col text-start">
+                <span className="flex min-w-0 flex-col text-start leading-[1.25]">
                   <span className="truncate font-semibold">{target}</span>
                   {card?.one_line ? (
-                    <span className="truncate text-[12px] font-normal text-ink-2">
+                    <span className="truncate text-[12px] font-normal text-ink-3">
                       {card.one_line}
                     </span>
                   ) : null}
@@ -118,70 +130,86 @@ export function Sidebar({
                 onClick: () => onView("connect"),
               },
             ]}
-            className="w-full justify-between rounded-lg bg-muted px-2.5 py-2 font-normal"
+            className="w-full justify-between rounded-[10px] border border-separator bg-group p-2 font-normal [&>svg]:size-4 [&>svg]:text-ink-3 [&>svg]:opacity-100"
           />
-          {sets.length > 1 ? (
-            <Picker
-              label="Test set"
-              value={setName}
-              options={sets.map((entry) => ({ value: entry.set, label: entry.name }))}
-              onPick={onSet}
-              className="self-start text-[12px] font-medium text-ink-2"
-            />
+          {setName ? (
+            <div className="mx-2 mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-ink-2">
+              <span className="shrink-0">Test set</span>
+              {sets.length > 1 ? (
+                <Picker
+                  label="Test set"
+                  value={setName}
+                  options={sets.map((entry) => ({ value: entry.set, label: entry.name }))}
+                  onPick={onSet}
+                  className="-ms-1 px-1 py-0 text-[13px] font-medium text-ink"
+                />
+              ) : (
+                <b className="truncate font-medium text-ink">{setName}</b>
+              )}
+            </div>
           ) : null}
         </div>
       ) : null}
       <nav
+        aria-label="Main"
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-3 pt-2 pb-2.5 max-md:flex-row max-md:flex-wrap",
+          "mt-4 flex min-h-0 flex-1 flex-col gap-px overflow-auto max-md:mt-2 max-md:flex-row max-md:flex-wrap",
           !target && "hidden",
         )}
       >
-        {item("home", <House className="size-4" aria-hidden />, "Home")}
-        {item("app", <Network className="size-4" aria-hidden />, "What it learned")}
-        <NavLabel>Your tests</NavLabel>
-        {item("tests", <ListChecks className="size-4" aria-hidden />, "Tests")}
-        {item("runs", <ChartColumn className="size-4" aria-hidden />, "Runs")}
-        {going ? (
+        {item("home", <House aria-hidden />, "Overview")}
+        {item("tests", <ListChecks aria-hidden />, "Tests", tests ? String(tests) : undefined)}
+        {item(
+          "runs",
+          <ChartColumn aria-hidden />,
+          "Runs",
+          failing ? `${failing} failing` : undefined,
+          true,
+        )}
+        {item("app", <Network aria-hidden />, "What it learned")}
+        {item("environment", <Monitor aria-hidden />, "Test environment")}
+        <span className="px-2 pt-4 pb-1 text-[12px] text-ink-3 max-md:hidden">Standard</span>
+        {item("benchmarks", <Gauge aria-hidden />, "Benchmarks")}
+      </nav>
+      <div className="flex flex-col gap-2 pt-2">
+        {target && plan?.status === "proven" ? (
           <button
             type="button"
-            onClick={onGoing}
-            aria-current={place.run === going.run ? "page" : undefined}
-            className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 ps-9 pe-2 text-start text-[12.5px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto max-md:ps-2",
-              place.run === going.run ? "bg-selection-strong text-tint" : "hover:bg-selection",
-            )}
+            onClick={() => onView("environment")}
+            title="The test copy's isolation plan: open the Test environment"
+            className="flex items-center gap-2 rounded-[7px] bg-sunk px-3 py-2 text-start text-[12px] text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-tint max-md:hidden"
           >
-            <Spinner />
-            <span className="truncate">
-              {goingLabel} ·{" "}
-              {going.analyzing
-                ? "Analyzing"
-                : progressText(going, goingLabel === "Benchmark" ? "questions" : "tests")}
-            </span>
+            <StatusDot state="pass" label="Proven" className="ring-3 ring-pass-soft" />
+            {plan.version === null ? "Isolation plan proven" : `Plan v${plan.version} proven`}
           </button>
         ) : null}
-        <NavLabel>Standard</NavLabel>
-        {item("benchmarks", <Gauge className="size-4" aria-hidden />, "Benchmarks")}
-      </nav>
-      <div className="flex flex-col gap-0.5 px-3 pb-3 max-md:pt-0">
-        {onAskAi ? (
-          <NavItem
-            selected={false}
-            onClick={onAskAi}
-            icon={asking ? <Spinner /> : <Sparkles className="size-4 text-tint" aria-hidden />}
-            label="Ask AI"
-          />
-        ) : null}
-        {item("model", <Settings className="size-4" aria-hidden />, "Settings")}
+        <div className="flex flex-col gap-px max-md:flex-row">
+          {onAskAi ? (
+            <NavItem
+              selected={false}
+              onClick={onAskAi}
+              icon={asking ? <Spinner /> : <Sparkles className="text-tint" aria-hidden />}
+              label="Ask AI"
+            />
+          ) : null}
+          {item("model", <Settings aria-hidden />, "Settings")}
+        </div>
       </div>
     </aside>
   );
 }
 
-function NavLabel({ children }: { children: ReactNode }) {
+/** A nav item's number: quiet, or red when it counts failures. */
+function Count({ bad = false, children }: { bad?: boolean; children: ReactNode }) {
   return (
-    <span className="px-2.5 pt-3 pb-1 text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase max-md:hidden">
+    <span
+      className={cn(
+        "ms-auto shrink-0 rounded-full px-1.5 font-mono text-[11px] leading-[18px] font-medium tabular-nums",
+        bad
+          ? "bg-fail-soft text-fail"
+          : "bg-sunk text-ink-3 group-aria-[current=page]:bg-group group-aria-[current=page]:text-tint-ink",
+      )}
+    >
       {children}
     </span>
   );
@@ -190,11 +218,16 @@ function NavLabel({ children }: { children: ReactNode }) {
 function NavItem({
   icon,
   label,
+  count,
+  bad = false,
   selected,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  /** A number beside it, said with its name: "Runs, 3 failing". */
+  count?: string;
+  bad?: boolean;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -202,16 +235,18 @@ function NavItem({
     <button
       type="button"
       aria-current={selected ? "page" : undefined}
+      aria-label={count ? `${label}, ${count}` : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-start text-[13px] focus-visible:outline-2 focus-visible:outline-ring max-md:w-auto",
-        selected ? "bg-muted font-medium text-ink" : "text-ink-2 hover:bg-selection",
+        "group flex h-[34px] w-full min-w-0 items-center gap-3 rounded-[7px] px-2 text-start text-[14px] focus-visible:outline-2 focus-visible:outline-tint max-md:w-auto",
+        selected
+          ? "bg-tint-soft font-medium text-tint-ink"
+          : "text-ink-2 hover:bg-sunk hover:text-ink",
       )}
     >
-      <span className={cn("grid size-4 shrink-0 place-items-center", !selected && "text-ink-2")}>
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="grid size-4 shrink-0 place-items-center [&_svg]:size-4">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
+      {count ? <Count bad={bad}>{count}</Count> : null}
     </button>
   );
 }

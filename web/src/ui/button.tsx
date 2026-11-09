@@ -1,24 +1,32 @@
 import type { ComponentProps } from "react";
 import { cn } from "../lib/cn";
 
-// shadcn's Button, written locally: the same variants and sizes, on a native button.
+// The buttons of docs/mockups/design-studio.html, on a native button: the one primary action solid
+// purple; the rest on a 1px line; never a shadow.
 
 const VARIANT = {
-  default: "bg-primary text-primary-foreground hover:bg-primary/85",
-  secondary: "bg-secondary text-secondary-foreground hover:bg-foreground/10",
-  ghost: "hover:bg-selection hover:text-foreground",
-  outline: "border-border bg-background hover:bg-muted",
-  destructive: "bg-destructive/10 text-destructive hover:bg-destructive/20",
+  /** The screen's one primary action: solid purple. */
+  default:
+    "border-tint bg-tint text-primary-foreground hover:border-tint-ink hover:bg-tint-ink disabled:opacity-40",
+  /** Every other action: white on a 1px line. */
+  secondary: "border-rule-strong bg-group text-ink hover:border-ink-3 hover:bg-sunk",
+  /** The same as `secondary`, kept for its callers. */
+  outline: "border-rule-strong bg-group text-ink hover:border-ink-3 hover:bg-sunk",
+  /** A quiet action, or an icon alone: no line until hovered. */
+  ghost: "text-ink-2 hover:bg-sunk hover:text-ink",
+  /** A way to another screen, as words in purple: "See why →". */
+  link: "h-auto px-1 text-tint-ink hover:underline hover:underline-offset-[3px]",
+  destructive: "border-fail-soft bg-fail-soft text-fail hover:border-fail/40",
 } as const;
 
 const SIZE = {
-  default: "h-8 gap-1.5 px-3 [&_svg:not([class*='size-'])]:size-3.5",
-  lg: "h-10 gap-2 rounded-[10px] px-4 text-[14px] [&_svg:not([class*='size-'])]:size-3.5",
-  sm: "h-7 gap-1 rounded-md px-2.5 text-[12.5px] [&_svg:not([class*='size-'])]:size-3.5",
-  xs: "h-6 gap-1 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+  default: "h-8 gap-2 px-3 [&_svg:not([class*='size-'])]:size-4",
+  lg: "h-10 gap-2 px-4 text-[14px] [&_svg:not([class*='size-'])]:size-4",
+  sm: "h-7 gap-1.5 px-2.5 text-[13px] [&_svg:not([class*='size-'])]:size-3.5",
+  xs: "h-6 gap-1 rounded-[5px] px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
   icon: "size-8",
-  "icon-sm": "size-7 rounded-md",
-  "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+  "icon-sm": "size-7",
+  "icon-xs": "size-6 rounded-[5px] [&_svg:not([class*='size-'])]:size-3.5",
 } as const;
 
 export type ButtonProps = ComponentProps<"button"> & {
@@ -31,9 +39,9 @@ export function buttonClass(
   size: keyof typeof SIZE = "default",
 ) {
   return cn(
-    "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-[13px] font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-3 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-    VARIANT[variant],
+    "inline-flex shrink-0 items-center justify-center rounded-[6px] border border-transparent text-[14px] font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tint active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
     SIZE[size],
+    VARIANT[variant],
   );
 }
 

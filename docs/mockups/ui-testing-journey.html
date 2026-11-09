@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI testing journey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* evalution's own tokens (web/src/index.css). */
+:root{
+  color-scheme:light;
+  --border:#e7e8ef; --input:#e1e3eb; --muted:#eff0f5;
+  --destructive:#c1301f; --success:#0d8f80; --warning:#a65a00;
+  --window:#f6f7f9; --group:#ffffff;
+  --selection-strong:rgba(85,70,216,.09); --tint:#5546d8; --tint-soft:#eceafd;
+  --ink:#14162b; --ink-2:#5c6178; --ink-3:#6a6f85;
+  --up:#d9f5f0; --down:#fde8e6; --warn-bg:#fdf1e2; --primary:#14162b; --on-primary:#fff;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --sc-bg:#fbfaf7; --sc-side:#f2efe8; --sc-ink:#26231d; --sc-ink-2:#77705f; --sc-line:#e6e1d6;
+  --sc-me:#26231d; --sc-on-me:#fbfaf7; --sc-them:#ffffff;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#2dd4bf; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28;
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff; --tint-soft:#272b45;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae;
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16;
+  --sc-bg:#1d1b17; --sc-side:#25221d; --sc-ink:#efe9dc; --sc-ink-2:#a69d8a; --sc-line:#38332b;
+  --sc-me:#efe9dc; --sc-on-me:#1d1b17; --sc-them:#2b2822}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --border:rgba(255,255,255,.1); --input:rgba(255,255,255,.14); --muted:#262a36;
+  --destructive:#ff8577; --success:#2dd4bf; --warning:#f0a95a;
+  --window:#0c0f16; --group:#1b1e28;
+  --selection-strong:rgba(140,155,255,.16); --tint:#8c9bff; --tint-soft:#272b45;
+  --ink:#eef0f6; --ink-2:#aeb4c2; --ink-3:#979eae;
+  --up:#123c37; --down:#47211d; --warn-bg:#3a2a14; --primary:#eef0f6; --on-primary:#0c0f16;
+  --sc-bg:#1d1b17; --sc-side:#25221d; --sc-ink:#efe9dc; --sc-ink-2:#a69d8a; --sc-line:#38332b;
+  --sc-me:#efe9dc; --sc-on-me:#1d1b17; --sc-them:#2b2822}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--window);color:var(--ink);font:400 14px/1.5 var(--sans);letter-spacing:-.011em;-webkit-font-smoothing:antialiased;font-optical-sizing:auto;font-feature-settings:"cv11","ss03";text-rendering:optimizeLegibility}
+b,h1,h2,h3{font-feature-settings:"cv11","ss03"}
+.stat b,.hint,.sel,.ctl{font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+
+/* The journey bar: not part of evalution, it walks the mockup. */
+.journey{position:sticky;top:0;z-index:5;background:var(--group);border-bottom:1px solid var(--border);padding:10px 16px}
+.journey .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.journey h1{margin:0;font-size:16px;font-weight:650;letter-spacing:-.02em}
+.journey .sub{color:var(--ink-3);font-size:12px}
+.steps{display:flex;gap:4px;margin-top:8px;overflow-x:auto;padding-bottom:2px}
+.steps button{flex:none;display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--group);border-radius:999px;padding:4px 10px 4px 4px;color:var(--ink-2);font-weight:500;font-size:12px}
+.steps button i{font-style:normal;width:20px;height:20px;border-radius:50%;background:var(--muted);display:grid;place-items:center;font-size:11px;font-weight:600}
+.steps button.on{border-color:var(--tint);color:var(--ink);background:var(--selection-strong)}
+.steps button.on i{background:var(--tint);color:#fff}
+.narr{margin-top:8px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.narr p{margin:0;flex:1 1 360px;color:var(--ink-2);max-width:90ch}
+.built{flex:none;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--up);color:var(--success)}
+.built.wip{background:var(--warn-bg);color:var(--warning)}
+.nextprev{display:flex;gap:6px;margin-left:auto}
+
+/* evalution's frame */
+.app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 118px)}
+.side{background:var(--group);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 4px;font-size:17px;font-weight:650;letter-spacing:-.03em}
+.logo{width:22px;height:22px;border-radius:7px;background:var(--tint);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.target{margin:10px 12px 0;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--muted)}
+.target .av{width:26px;height:26px;border-radius:7px;background:var(--selection-strong);color:var(--tint);display:grid;place-items:center;font-size:12px;font-weight:700}
+.target b{font-weight:600;display:block}
+.target span{font-size:12px;color:var(--ink-3)}
+.setpick{margin:6px 16px 0;font-size:12px;color:var(--ink-2)}
+.nav{display:flex;flex-direction:column;gap:1px;padding:10px 8px}
+.nav a{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;color:var(--ink);text-decoration:none}
+.nav a.on{background:var(--selection-strong);color:var(--tint);font-weight:500}
+.nav .h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:12px 8px 4px}
+.nav .end{margin-top:auto}
+
+.main{min-width:0}
+.wrap{max-width:900px;margin:0 auto;padding:22px 24px 60px}
+.crumb{color:var(--ink-3);font-size:12px;margin-bottom:6px}
+h2{margin:0;font-size:26px;line-height:1.2;font-weight:650;letter-spacing:-.028em}
+.lede{color:var(--ink-2);margin:6px 0 0;font-size:15px;line-height:1.5;max-width:66ch}
+.card{background:var(--group);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:14px}
+.card h3{margin:0;font-size:16.5px;line-height:1.3;font-weight:600;letter-spacing:-.018em}
+.card p{margin:4px 0 0;color:var(--ink-2)}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:6px 11px;font-weight:500;border:1px solid var(--input);background:var(--group)}
+.btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}
+.btn.link{border:0;background:none;color:var(--tint);padding:6px 4px}
+.btn.sm{padding:4px 9px;font-size:12px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.acts{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.hint{font-size:12.5px;color:var(--ink-3)}
+.lb{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.mono{font-family:var(--mono);font-size:12px}
+.offer{border-color:var(--tint);box-shadow:inset 3px 0 0 var(--tint)}
+.badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px}
+.badge.page{background:var(--tint-soft);color:var(--tint)}
+.badge.api{background:var(--muted);color:var(--ink-2)}
+.ok{color:var(--success)} .bad{color:var(--destructive)} .warn{color:var(--warning)}
+
+.stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+.stat .card{margin:0}
+.stat b{font-size:24px;font-weight:650;letter-spacing:-.025em;display:block;margin-top:2px}
+
+/* lists */
+.list{margin-top:14px;background:var(--group);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.li{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--border)}
+.li:first-child{border-top:0}
+.li .t{flex:1;min-width:0}
+.li .t b{font-weight:500;display:block}
+.li .t span{font-size:12.5px;color:var(--ink-3)}
+.ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none;color:#fff}
+.ic.ok{background:var(--success)} .ic.bad{background:var(--destructive)} .ic.wait{background:none;border:1.5px dashed var(--ink-3)}
+.ic.run{background:none;border:2px solid var(--tint);border-top-color:transparent;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* readiness */
+.parts .li .t span{display:block}
+.bar{height:6px;border-radius:999px;background:var(--muted);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;width:62%;background:var(--tint);border-radius:999px}
+.log{margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--muted);border-radius:8px;padding:8px 10px;white-space:pre-wrap}
+
+/* page shots */
+.shots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.shot{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--sc-bg)}
+.shot .cap{font-size:11px;color:var(--ink-3);padding:5px 8px;background:var(--group);border-top:1px solid var(--border)}
+.mini{height:120px;display:grid;grid-template-columns:42px 1fr;font-family:Georgia,serif;color:var(--sc-ink)}
+.mini .s{background:var(--sc-side);border-right:1px solid var(--sc-line)}
+.mini .m{padding:8px;display:flex;flex-direction:column;gap:5px;font-size:10px}
+.bub{max-width:85%;padding:4px 7px;border-radius:8px}
+.bub.me{align-self:flex-end;background:var(--sc-me);color:var(--sc-on-me)}
+.bub.them{background:var(--sc-them);border:1px solid var(--sc-line)}
+.mini .box{margin-top:auto;border:1px solid var(--sc-line);border-radius:6px;padding:3px 6px;color:var(--sc-ink-2);background:var(--sc-them);display:flex;justify-content:space-between}
+.mini .box .send{background:var(--sc-me);color:var(--sc-on-me);border-radius:4px;padding:0 5px}
+.hl{outline:2px solid var(--tint);outline-offset:1px;border-radius:4px}
+.video{margin-top:12px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.video .scr{height:170px;background:var(--sc-bg);display:grid;place-items:center;position:relative}
+.video .play{width:44px;height:44px;border-radius:50%;background:rgba(20,22,43,.75);display:grid;place-items:center;color:#fff;font-size:16px}
+.video .ctl{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--group);font-size:11px;color:var(--ink-3)}
+.video .ctl .tl{flex:1;height:4px;background:var(--muted);border-radius:99px;position:relative}
+.video .ctl .tl i{position:absolute;inset:0 70% 0 0;background:var(--tint);border-radius:99px}
+
+/* map chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;border:1px solid var(--border);font-weight:500;font-size:12px}
+.chip code{font-family:var(--mono);font-size:11px;color:var(--ink-3);font-weight:400}
+
+/* dialog */
+.scrim{background:rgba(20,22,43,.25);border-radius:14px;padding:30px 20px;margin-top:14px}
+.dialog{max-width:520px;margin:0 auto;background:var(--group);border-radius:14px;border:1px solid var(--border);box-shadow:0 18px 50px rgba(20,22,43,.18);padding:18px}
+.dialog h3{margin:0;font-size:16px}
+.plays{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.play{display:flex;gap:10px;padding:10px 12px;border-radius:10px;background:var(--muted)}
+.play b{font-weight:600}
+.play p{margin:2px 0 0;color:var(--ink-2)}
+.seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--muted);gap:2px}
+.seg span{padding:3px 8px;border-radius:6px;font-size:12px;color:var(--ink-2)}
+.seg span.on{background:var(--group);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.proof{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;margin-top:10px}
+
+/* result */
+.verdict{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;margin-top:14px}
+.verdict.pass{background:var(--up)} .verdict.fail{background:var(--down)}
+.verdict b{display:block;font-size:15px;font-weight:600;letter-spacing:-.015em}
+.verdict p{margin:2px 0 0;color:var(--ink-2)}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 8px;border-radius:999px;background:var(--group);color:var(--ink-2)}
+.cmp .line{display:flex;gap:8px;align-items:baseline;margin-top:6px;flex-wrap:wrap}
+.cmp .line b{font-weight:600;min-width:84px}
+.cmp a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+.sel{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--input);border-radius:8px;padding:3px 8px;font-weight:500;font-size:12px}
+.next{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:12px;background:var(--warn-bg);margin-top:12px}
+.next p{margin:0;flex:1}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.two .card{margin-top:12px}
+.found{font-size:12px;color:var(--ink-2);margin-top:6px}
+.found code{font-family:var(--mono);font-size:11.5px;background:var(--muted);padding:0 4px;border-radius:4px}
+
+@media (max-width:760px){
+  .app{grid-template-columns:1fr}
+  .side{display:none}
+  .wrap{padding:16px}
+  .stat,.shots,.two{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="journey">
+  <div class="top">
+    <h1>UI testing, start to finish</h1>
+    <span class="sub">A developer with relay-lite connected, who has never heard of UI testing. Each step is a real screen of evalution.</span>
+  </div>
+  <div class="steps" id="steps"></div>
+  <div class="narr">
+    <p id="narr"></p>
+    <span class="built" id="built"></span>
+    <div class="nextprev">
+      <button class="btn sm" id="prev">Back</button>
+      <button class="btn sm primary" id="next">Next</button>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo">e</span>evalution</div>
+    <div class="target"><span class="av">S</span><div><b>relay-lite</b><span>Relay is a personal…</span></div></div>
+    <div class="setpick">Page stress ⌄</div>
+    <nav class="nav">
+      <a data-nav="home">Home</a>
+      <a data-nav="learned">What it learned</a>
+      <a data-nav="env">Test environment</a>
+      <div class="h">Your tests</div>
+      <a data-nav="tests">Tests</a>
+      <a data-nav="runs">Runs</a>
+      <div class="h">Standard</div>
+      <a data-nav="bench">Benchmarks</a>
+      <div class="h"></div>
+      <a data-nav="settings">Settings</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+
+  <!-- 1. Home: told it exists -->
+  <section class="wrap" data-screen="1">
+    <div class="crumb">Sunday, November 8 · last run 20 minutes ago</div>
+    <h2>How relay-lite is doing</h2>
+    <div class="card offer">
+      <div class="lb">New for relay-lite</div>
+      <h3 style="margin-top:4px">relay-lite has a page. Test it the way people use it?</h3>
+      <p>Tests can type each message into its page and check the reply shows, on evalution's copy, keeping a screenshot of every message and a video when a try fails.</p>
+      <p class="hint" style="margin-top:6px">The agent learns relay-lite's page on evalution's copy, then tries its map with one message there. You approve the map once, after its screenshots and video.</p>
+      <div class="acts">
+        <button class="btn primary" data-go="2">Set up UI testing</button>
+        <button class="btn ghost">Not now</button>
+        <button class="btn link">Try the demo first</button>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="card"><div class="lb">Tests passing</div><b>4 of 4</b><span class="hint">Same as the last run</span></div>
+      <div class="card"><div class="lb">Consistent answers</div><b>4 of 4</b></div>
+      <div class="card"><div class="lb">Typical reply</div><b>19 s</b></div>
+    </div>
+  </section>
+
+  <!-- 2. Settings: readiness, install -->
+  <section class="wrap" data-screen="2" hidden>
+    <div class="crumb">Settings</div>
+    <h2>UI testing</h2>
+    <p class="lede">What playing tests through a page needs on this computer. Nothing to do in a terminal.</p>
+    <div class="list parts">
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Playwright</b><span>Drives the browser. Installed with evalution.</span></div></div>
+      <div class="li"><span class="ic run"></span><div class="t"><b>A browser</b><span>Chromium, for playing tests through a page. Installing…</span><div class="bar"><i></i></div></div></div>
+      <div class="li"><span class="ic wait"></span><div class="t"><b>ffmpeg</b><span>For video of a try. Without it, tests still play, with screenshots only.</span></div><span class="hint">Next</span></div>
+    </div>
+    <div class="log">Downloading Chromium 141.0 (playwright build v1200) from https://cdn.playwright.dev/…
+|■■■■■■■■■■■■■■■■■■■■                    |  62% of 124.3 MiB</div>
+    <p class="hint" style="margin-top:8px">Or run it yourself: <span class="mono">./install.sh</span> · Hosted evalution can't install here.</p>
+    <div class="acts"><button class="btn primary" data-go="3">Done: back to setup</button></div>
+  </section>
+
+  <!-- 3. Setup: the agent learns the page -->
+  <section class="wrap" data-screen="3" hidden>
+    <div class="crumb">Test environment · How tests reach relay-lite</div>
+    <h2>Setting up UI testing</h2>
+    <p class="lede">The agent is learning relay-lite's page on evalution's copy. It reads the code, looks at the page, and tries one message.</p>
+    <div class="list">
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Started evalution's copy of relay-lite</b><span>eval-relay-lite-0 · 74 s</span></div></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Read the page's code</b><span>web/src/app/Composer.tsx, web/src/app/Thread.tsx</span></div></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Looked at the page</b><span>Found a message box, a Send button, and the conversation</span></div></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Tried one message: "Say hello in five words"</b><span>Typed it, pressed Send, the reply showed in 11 s</span></div></div>
+      <div class="li"><span class="ic run"></span><div class="t"><b>Writing the page map</b><span>How to find each part, with what it saw as evidence</span></div></div>
+    </div>
+    <p class="hint" style="margin-top:8px">Underway on its own. You can leave this page; Home picks it up.</p>
+    <div class="acts"><button class="btn primary" data-go="4">See the map</button></div>
+  </section>
+
+  <!-- 4. Approve the map -->
+  <section class="wrap" data-screen="4" hidden>
+    <div class="crumb">Test environment · How tests reach relay-lite</div>
+    <h2>Approve how tests use the page</h2>
+    <p class="lede">The agent tried this map once, on the copy. Look at what it did, then approve. Tests won't play through the page until you do.</p>
+    <div class="card">
+      <div class="lb">What it found</div>
+      <div class="chips">
+        <span class="chip"><span class="ok">✓</span>Message box <code>textbox "Message"</code></span>
+        <span class="chip"><span class="ok">✓</span>Send <code>button "Send"</code></span>
+        <span class="chip"><span class="ok">✓</span>Replies <code>article</code></span>
+        <span class="chip"><span class="ok">✓</span>Busy <code>status "Thinking"</code></span>
+        <span class="chip"><span class="ok">✓</span>Sign-in <code>headers</code></span>
+      </div>
+      <div class="shots">
+        <div class="shot"><div class="mini"><div class="s"></div><div class="m"><div class="box hl"><span>Message…</span><span class="send">Send</span></div></div></div><div class="cap">1 · Opened the conversation</div></div>
+        <div class="shot"><div class="mini"><div class="s"></div><div class="m"><div class="bub me">Say hello in five words</div><div class="box"><span>Message…</span><span class="send hl">Send</span></div></div></div><div class="cap">2 · Typed, pressed Send</div></div>
+        <div class="shot"><div class="mini"><div class="s"></div><div class="m"><div class="bub me">Say hello in five words</div><div class="bub them hl">Hello there, nice to meet!</div><div class="box"><span>Message…</span><span class="send">Send</span></div></div></div><div class="cap">3 · The reply showed</div></div>
+      </div>
+      <div class="video"><div class="scr"><span class="play">▶</span></div><div class="ctl"><span>0:04</span><span class="tl"><i></i></span><span>0:14 · the whole try</span></div></div>
+      <div class="acts">
+        <button class="btn primary" data-go="5">Approve</button>
+        <button class="btn">Re-learn the page</button>
+        <span class="hint" style="align-self:center">Undo later from this card.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Tests: Page / API badges -->
+  <section class="wrap" data-screen="5" hidden>
+    <div class="crumb">Your tests · Page stress</div>
+    <h2>Tests</h2>
+    <p class="lede">Each test says how it plays. Page tests type into relay-lite's page; API tests send straight to its API.</p>
+    <div class="list">
+      <div class="li"><div class="t"><b>A code block shows</b><span>Played through the page: types each message, checks it shows</span></div><span class="badge page">Page</span></div>
+      <div class="li"><div class="t"><b>A link shows</b><span>Played through the page: types each message, checks it shows</span></div><span class="badge page">Page</span></div>
+      <div class="li"><div class="t"><b>A Markdown table shows</b><span>Played through the page: types each message, checks it shows</span></div><span class="badge page">Page</span></div>
+      <div class="li"><div class="t"><b>A numbered list shows</b><span>Played through the page: types each message, checks it shows</span></div><span class="badge page">Page</span></div>
+      <div class="li"><div class="t"><b>Remembers the dog's name</b><span>Played through the API</span></div><span class="badge api">API</span></div>
+    </div>
+    <div class="acts"><button class="btn primary" data-go="6">Run</button></div>
+  </section>
+
+  <!-- 6. Run dialog -->
+  <section class="wrap" data-screen="6" hidden>
+    <div class="crumb">Your tests · Page stress</div>
+    <h2>Tests</h2>
+    <div class="scrim">
+      <div class="dialog">
+        <h3>Run Page stress</h3>
+        <p class="hint" style="margin-top:2px">On evalution's copy of relay-lite, put back before every try.</p>
+        <div class="plays">
+          <div class="play"><span class="badge page" style="align-self:flex-start">Page</span><div><b>4 tests through relay-lite's page</b><p>One at a time, about 35 s a try. Screenshots of every message, video when a try fails.</p></div></div>
+          <div class="play"><span class="badge api" style="align-self:flex-start">API</span><div><b>1 test through relay-lite's API</b><p>About 20 s a try. Nothing to capture.</p></div></div>
+        </div>
+        <div class="proof">
+          <span class="lb">Screenshots</span><span class="seg"><span class="on">Always</span><span>On failure</span><span>Off</span></span>
+          <span class="lb">Video</span><span class="seg"><span>Always</span><span class="on">On failure</span><span>Off</span></span>
+        </div>
+        <p class="hint" style="margin-top:6px">For every page test of relay-lite. A test can set its own under "What it checks".</p>
+        <div class="acts" style="justify-content:flex-end"><button class="btn ghost">Cancel</button><button class="btn primary" data-go="7">Run 5 tests · about 3 min</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Run result, with the right comparison -->
+  <section class="wrap" data-screen="7" hidden>
+    <div class="crumb">‹ Runs</div>
+    <h2>Run 20261108-181204-a3c1</h2>
+    <p class="hint">6:12 PM · Isolated (proven plan v2) · Page stress</p>
+    <h2 style="margin-top:16px">4 of 5 tests pass</h2>
+    <div class="card cmp">
+      <div class="row"><h3>1 got worse</h3><span style="margin-left:auto" class="hint">Compared with</span><span class="sel">Run 20261108-162158-b581 · Page stress ⌄</span></div>
+      <div class="line"><b class="bad">Worse</b><a>A Markdown table shows</a><span class="hint">1 of 1 → 0 of 1</span></div>
+      <div class="line"><b>Same</b><span class="hint">4 tests pass, as before</span></div>
+      <p class="hint" style="margin-top:8px">Always the last run of the same tests. Pick another run of Page stress to compare with.</p>
+    </div>
+    <div class="list">
+      <div class="li"><span class="ic bad">✕</span><div class="t"><b>A Markdown table shows</b><span>Answered ✓ · Shown ✕ · the reply was stored and sent, but the page didn't show the table</span></div><span class="badge page">Page</span></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>A code block shows</b><span>Stored ✓ · Answered ✓ · Shown ✓</span></div><span class="badge page">Page</span></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>A link shows</b><span>Stored ✓ · Answered ✓ · Shown ✓</span></div><span class="badge page">Page</span></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>A numbered list shows</b><span>Stored ✓ · Answered ✓ · Shown ✓</span></div><span class="badge page">Page</span></div>
+      <div class="li"><span class="ic ok">✓</span><div class="t"><b>Remembers the dog's name</b><span>Stored ✓ · Answered ✓</span></div><span class="badge api">API</span></div>
+    </div>
+    <div class="acts"><button class="btn primary" data-go="8">Open the failing test</button></div>
+  </section>
+
+  <!-- 8. A failed try: what the page showed, and one next step -->
+  <section class="wrap" data-screen="8" hidden>
+    <div class="crumb">‹ Run 20261108-181204-a3c1</div>
+    <h2>A Markdown table shows</h2>
+    <p class="hint">Try 1 of 1 · played through the page · 38 s</p>
+    <div class="verdict fail">
+      <span class="ic bad">✕</span>
+      <div><b>The app answered, but the page didn't show it</b>
+        <p>The table reached relay-lite's reply, and the page showed the text above it, but not the table's rows.</p>
+        <div class="pills"><span class="pill ok">✓ Stored</span><span class="pill ok">✓ Answered</span><span class="pill bad">✕ Shown</span><span class="pill ok">✓ Page healthy</span></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card">
+        <div class="lb">What the page showed</div>
+        <div class="shot" style="margin-top:8px"><div class="mini" style="height:150px"><div class="s"></div><div class="m"><div class="bub me">Compare cats and dogs in a table</div><div class="bub them hl">Here's a comparison:</div><div class="box"><span>Message…</span><span class="send">Send</span></div></div></div><div class="cap">After the reply · 0:31</div></div>
+        <div class="video"><div class="scr" style="height:110px"><span class="play">▶</span></div><div class="ctl"><span>0:00</span><span class="tl"><i></i></span><span>0:38 · kept: the try failed</span></div></div>
+      </div>
+      <div class="card">
+        <div class="lb">What the app answered</div>
+        <div class="log" style="white-space:pre;overflow:auto">Here's a comparison:
+
+| Trait   | Cats | Dogs |
+|---------|------|------|
+| Walks   | No   | Yes  |
+| Purring | Yes  | No   |</div>
+        <p class="found">Shown on the page: <code>Here's a comparison:</code> · Missing: <code>Trait Cats Dogs</code></p>
+      </div>
+    </div>
+    <div class="next">
+      <p><b>Next step:</b> the reply is right, so this is the page's to fix: it drops Markdown tables. Change relay-lite's page, then run this test again.</p>
+      <button class="btn primary sm">Run this test again</button>
+    </div>
+    <div class="card">
+      <div class="lb">Other failures end the same way: a sentence and one button</div>
+      <div class="list" style="margin-top:8px">
+        <div class="li"><span class="ic bad">!</span><div class="t"><b>The app refused the message (503)</b><span>relay-lite's, not the page's. Retried once; still refused.</span></div><button class="btn sm">Run again</button></div>
+        <div class="li"><span class="ic bad">!</span><div class="t"><b>The page changed: no button named "Send"</b><span>With a screenshot of what the page looked like.</span></div><button class="btn sm">Re-learn the page</button></div>
+        <div class="li"><span class="ic bad">!</span><div class="t"><b>No browser on this computer</b><span>Page tests need one.</span></div><button class="btn sm">Install</button></div>
+        <div class="li"><span class="ic bad">!</span><div class="t"><b>No copy of relay-lite yet</b><span>Page tests play only on evalution's own copy.</span></div><button class="btn sm">Set up a copy</button></div>
+      </div>
+    </div>
+  </section>
+
+  </main>
+</div>
+
+<script>
+const STEPS = [
+  {t:"Told it exists", nav:"home", built:true,
+   n:"Home offers UI testing because evalution read relay-lite's code and found a chat page. Nobody has to know the feature exists. \"Not now\" hides it for good; \"Try the demo first\" plays it on a made-up app in about 30 s, for free."},
+  {t:"Install, in the page", nav:"settings", built:true,
+   n:"If the browser or ffmpeg is missing, Settings → UI testing installs it with progress, on the computer the server runs on. The command is still shown for people who want it."},
+  {t:"Agent learns the page", nav:"env", built:true,
+   n:"Pressing Set up UI testing is the one yes. The agent reads the frontend, looks at the copy's page, and tries one real message. That message is the only model spend in setup."},
+  {t:"Approve the map", nav:"env", built:true,
+   n:"The person approves once, after seeing what the agent did: each part it found, screenshots, and a video of the try. No YAML. Undo is on the same card."},
+  {t:"Tests say how they play", nav:"tests", built:true,
+   n:"Every test is marked Page or API, and its description says what that means. Nothing to guess."},
+  {t:"Run says what will happen", nav:"tests", built:true,
+   n:"Before anything runs, the dialog says how each group plays, one at a time or side by side, roughly how long, and what proof it keeps. Proof is a setting per target, and per test."},
+  {t:"Result, compared right", nav:"runs", built:false,
+   n:"The run is compared with the last run of the same tests, so \"1 got worse\" is true. Each test shows Stored, Answered and Shown, so you see which layer broke. The comparison fix is being made now: today this box can pick a run of another set."},
+  {t:"A failure, one next step", nav:"runs", built:true,
+   n:"A failed try shows what the page showed, with screenshot and video, beside what the app answered, and says whose fault it is. Every failure ends in one sentence and one button."}
+];
+let at = 1;
+const stepsEl = document.getElementById("steps");
+STEPS.forEach((s,i)=>{
+  const b=document.createElement("button");
+  b.innerHTML=`<i>${i+1}</i>${s.t}`;
+  b.onclick=()=>show(i+1);
+  stepsEl.appendChild(b);
+});
+function show(n){
+  at=Math.max(1,Math.min(STEPS.length,n));
+  document.querySelectorAll("[data-screen]").forEach(s=>s.hidden=+s.dataset.screen!==at);
+  [...stepsEl.children].forEach((b,i)=>b.classList.toggle("on",i+1===at));
+  stepsEl.children[at-1].scrollIntoView({block:"nearest",inline:"nearest"});
+  const s=STEPS[at-1];
+  document.getElementById("narr").textContent=s.n;
+  const built=document.getElementById("built");
+  built.textContent=s.built?"Built":"Being fixed";
+  built.classList.toggle("wip",!s.built);
+  document.querySelectorAll("[data-nav]").forEach(a=>a.classList.toggle("on",a.dataset.nav===s.nav));
+  document.getElementById("prev").disabled=at===1;
+  document.getElementById("next").textContent=at===STEPS.length?"Start over":"Next";
+  window.scrollTo(0,0);
+}
+document.getElementById("prev").onclick=()=>show(at-1);
+document.getElementById("next").onclick=()=>show(at===STEPS.length?1:at+1);
+document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(+b.dataset.go));
+show(1);
+</script>
+</body>
+</html>

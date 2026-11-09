@@ -27,6 +27,9 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   is refused unless that plan was approved and not used yet. The page's "Add to tests" approves
   it (:meth:`Agent.approve`); in words, the agent calls ``approve(plan_id)`` only when the admin
   clearly said so, and only after the admin spoke since the plan. A question never approves.
+  An isolation proposal is approved the same way, and only then can ``rehearse_isolation`` run
+  it (:mod:`evalution.writer.isolating`); so is a page map, and only then can
+  ``rehearse_page_map`` spend a message on it (:mod:`evalution.writer.paging`).
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from evalution.code import CodeError
@@ -75,6 +78,10 @@ FAILED_STEPS = 20
 FAILED_CHARS = 2_000
 #: How long one admin message may keep it working.
 MAX_SECONDS = 20 * 60
+#: How long a learn's own work (the code map and reading the files) may take, apart from the 20
+#: minutes the chat gets after it: a big app's reading outlasted the chat's limit, was cut, and
+#: started over on "go on". What it read is kept as it goes, so going on picks up from there.
+LEARN_SECONDS = 60 * 60
 #: The same call this many times in a row is a loop: the last isn't run.
 SAME_CALL_TIMES = 3
 #: Activity lines the page gets: what the agent did last, newest at the end.
@@ -108,6 +115,7 @@ def public(session: Mapping[str, Any]) -> dict[str, Any]:
         "activity": session.get("activity", [])[-ACTIVITY_SHOWN:],
         "usage": session.get("usage", []),
         "failed_learns": session.get("failed_learns", []),
+        "learn": session.get("learn"),
     }
 
 
@@ -220,7 +228,13 @@ class Agent:
         self.tools = Tools(runs, self._save)
         self._live: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        #: The sessions whose learn is getting to its areas: one asked for an area meanwhile
+        #: learns it before its overview.
+        self._learning: set[str] = set()
         self._lock = asyncio.Lock()
+        #: Told of each tool call a session's loop makes, by session id: what follows a session
+        #: on the page without its chat (:mod:`evalution.writer.pagelearn`).
+        self.watching: dict[str, Callable[[str, dict[str, Any]], None]] = {}
 
     # Sessions
 
@@ -264,6 +278,27 @@ class Agent:
     async def get(self, session_id: str) -> dict[str, Any]:
         return public(await self._session(session_id))
 
+    async def raw(self, session_id: str) -> dict[str, Any]:
+        """The whole session, its plans and work included, as the loop keeps it: read, never
+        changed.
+
+        :raises LookupError: No such session.
+        """
+        return await self._session(session_id)
+
+    def learning(self, target: str) -> bool:
+        """Whether a learn of *target* is going in this process: a learn's progress that says
+        so with none going was cut with an earlier process."""
+        return any(
+            self.working(sid) and (self._live.get(sid) or {}).get("target") == target
+            for sid in self._learning
+        )
+
+    def working(self, session_id: str) -> bool:
+        """Whether the session's loop is going."""
+        task = self._tasks.get(session_id)
+        return task is not None and not task.done()
+
     async def message(
         self, session_id: str, text: str, run: str | None = None, *, learn: bool = False
     ) -> dict[str, Any]:
@@ -279,6 +314,27 @@ class Agent:
         await self._ask(session, text, said, learn=learn)
         return public(session)
 
+    async def learn_area(self, session_id: str, area: str, force: bool = False) -> dict[str, Any]:
+        """The page's "Learn this area": a learn of *area* alone, even when it weighs nothing;
+        *force*: even when what it was learned from has not moved ("Learn it again anyway"). A
+        learn going in the session learns it before its overview.
+
+        :raises LookupError: No such session.
+        :raises RuntimeError: The session is busy with something else.
+        """
+        session = await self._session(session_id)
+        if self.working(session_id):
+            progress = session.get("learn")
+            if session_id not in self._learning or not isinstance(progress, dict):
+                raise RuntimeError("The test writer is busy. Try again when it's done.")
+            progress.setdefault("asked", []).append({"id": area, "force": force})
+            await self._save(session)
+            return public(session)
+        session["learn_ask"] = {"area": area, "force": force}
+        said = f"Learn the area {area}{' again' if force else ''}."
+        await self._ask(session, said, said, learn=True)
+        return public(session)
+
     async def approve(self, session_id: str, plan_id: str) -> dict[str, Any]:
         """The admin approves plan *plan_id* (the page's "Add to tests"): the agent is told to
         add its case.
@@ -290,6 +346,24 @@ class Agent:
         if plan is None:
             raise LookupError(plan_id)
         plan["approved"] = "admin"
+        if plan.get("isolation"):
+            await self._ask(
+                session,
+                "Rehearse this isolation plan",
+                f"The admin approved isolation plan {plan_id}. Rehearse it with "
+                f"rehearse_isolation(plan_id={plan_id!r}).",
+                approves=plan_id,
+            )
+            return public(session)
+        if plan.get("page_map"):
+            await self._ask(
+                session,
+                "Try this page map with one message",
+                f"The admin approved page map {plan_id}. Try it on evalution's copy with "
+                f"rehearse_page_map(plan_id={plan_id!r}): it sends one real message.",
+                approves=plan_id,
+            )
+            return public(session)
         edited = (
             " The admin swapped rubric lines on the page first: save_case(plan_id) alone saves the "
             "test as it is now; read_case shows it after."
@@ -451,8 +525,10 @@ class Agent:
         # A learn starts from its brief alone, never from the thread's earlier turns (an earlier
         # learn's brief among them): the thread only gets what was asked and said, at the end.
         history = [{"role": "user", "content": asked}] if learn_asked else thread
+        area_ask = session.pop("learn_ask", None) if learn_asked else None
         if learn_asked:
             session.pop("code_seen", None)
+            session.pop("learn", None)
         else:
             thread.append({"role": "user", "content": asked})
         said_from = len(session["messages"])
@@ -462,6 +538,7 @@ class Agent:
         last_call, same = None, 0
         output = ""
         limit = asyncio.timeout(MAX_SECONDS)
+        learning = False
         try:
             if not self.llm:
                 say(session, "agent", "No model is set up yet: choose one in Settings, Model.")
@@ -494,7 +571,25 @@ class Agent:
                         "light" if wanted == "light" and self.llm.model_id("light") else "strong"
                     )
                     _doing(session, "Reading the code")
-                    begun = await learn.begin(self.targets, turn, ask, chat, (area_key, "strong"))
+                    clock = asyncio.get_running_loop()
+                    limit.reschedule(clock.time() + LEARN_SECONDS)
+                    learning = True
+                    self._learning.add(session["id"])
+                    try:
+                        begun = await learn.begin(
+                            self.targets,
+                            turn,
+                            ask,
+                            chat,
+                            (area_key, "strong", light),
+                            usage.stage,
+                            asked=(area_ask["area"],) if area_ask else (),
+                            force=bool(area_ask and area_ask.get("force")),
+                        )
+                    finally:
+                        self._learning.discard(session["id"])
+                    learning = False
+                    limit.reschedule(clock.time() + MAX_SECONDS)
                     usage.note(begun.stats)
                     usage.areas = begun.areas
                     for area, steps_kept in begun.failed:
@@ -572,7 +667,15 @@ class Agent:
             session["status"] = "stopped"
             raise
         except Exception as exc:
-            if limit.expired():
+            if limit.expired() and learning:
+                minutes = round(LEARN_SECONDS / 60)
+                say(
+                    session,
+                    "agent",
+                    f"I stopped learning after {minutes} minutes. The areas I finished are kept: "
+                    "say go on to learn the rest.",
+                )
+            elif limit.expired():
                 minutes = round(MAX_SECONDS / 60)
                 say(session, "agent", f"I stopped after {minutes} minutes. Say go on.")
             else:
@@ -632,6 +735,8 @@ class Agent:
                 return f"Error: no tool {name}"
             # Steps count across the session, so a result can point back to an earlier one.
             turn.session["steps"] = int(turn.session.get("steps") or 0) + 1
+            if (watch := self.watching.get(turn.session["id"])) is not None:
+                watch(name, args)
             if doing := activity_line(name, args):
                 _doing(turn.session, doing)
                 await self._save(turn.session)

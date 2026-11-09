@@ -1,4 +1,4 @@
-import { LayoutTemplate, MessageSquare, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import type { LibraryRow, Source } from "../../lib/schema";
@@ -72,7 +72,7 @@ export function Composer({
         )}
         {kind ? (
           <div className="flex flex-col">
-            <span className="pb-1 text-[13px] font-medium">{kind.title}</span>
+            <span className="pb-1 text-[14px] font-medium">{kind.title}</span>
             {kind.asks.map((ask) => (
               <Row key={ask.name} label={ask.label}>
                 <Input
@@ -112,7 +112,6 @@ export function Composer({
               setKind(null);
             }}
           >
-            <LayoutTemplate />
             From a kind of test
           </Button>
           <Button
@@ -122,12 +121,9 @@ export function Composer({
             className="-ms-1.5 text-ink-2"
             onClick={() => setPicking((now) => !now)}
           >
-            <MessageSquare />
             From a real conversation
           </Button>
-          {error ? (
-            <p className="m-0 min-w-0 flex-1 text-[12px] text-destructive">{error}</p>
-          ) : null}
+          {error ? <p className="m-0 min-w-0 flex-1 text-[12.5px] text-fail">{error}</p> : null}
           <Button
             className="ms-auto"
             disabled={busy || (kind ? !filled : !text.trim())}

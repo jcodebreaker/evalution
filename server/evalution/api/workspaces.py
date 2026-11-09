@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from evalution.accounts.context import LOCAL, acting_user
 from evalution.accounts.keys import model_key_for
@@ -24,12 +24,14 @@ from evalution.api.plans import CasePlans
 from evalution.config import Config, ConfigError, KeyRing, load
 from evalution.connect import discover, probe
 from evalution.llm import LLM
-from evalution.project import impact, knowledge
+from evalution.project import building, impact, isolating, knowledge
+from evalution.runs.page.install import Installer
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.storage.secrets import SecretKeyError, Secrets
 from evalution.targets import Targets
 from evalution.writer.agent import Agent
+from evalution.writer.pagelearn import PageLearns
 from evalution.writer.sessions import SessionStore
 
 #: A workspace id, safe as a folder name. User namespaces (``user:<id>``) are not workspaces.
@@ -55,12 +57,25 @@ class Workspace:
     found: discover.Discoveries | None
     #: The code-change checks the hooks and Home ask for; local only.
     watcher: impact.Watcher | None
+    #: Finding and proving each target's isolation from the page; local only.
+    isolations: isolating.Isolations = field(default_factory=isolating.Isolations)
+    #: Proving each target's build recipe from the page; local only.
+    builds: building.Builds = field(default_factory=building.Builds)
+    #: Installing what UI testing lacks on this computer, from the page; local only.
+    installs: Installer = field(default_factory=Installer)
+    #: The agent learning each target's page map, followed on the page; local only.
+    page_learns: PageLearns | None = None
 
     @property
     def hosted(self) -> bool:
         return not self.targets.folders
 
     async def close(self) -> None:
+        await self.isolations.close()
+        await self.builds.close()
+        await self.installs.close()
+        if self.page_learns is not None:
+            await self.page_learns.close()
         if self.watcher is not None:
             await self.watcher.close()
         await self.targets.close()
@@ -111,18 +126,20 @@ def open_workspace(
             targets.store,
         )
         watcher = impact.Watcher(runs, knowledge.refresh)
+    agent = Agent(runs, SessionStore(targets.docs), llm)
     return Workspace(
         id=workspace,
         targets=targets,
         traces_url=traces_url,
         llm=llm,
         runs=runs,
-        agent=Agent(runs, SessionStore(targets.docs), llm),
+        agent=agent,
         plans=CasePlans(runs),
         probes=probe.Probes(busy=runs.probing),
         lock=asyncio.Lock(),
         found=found,
         watcher=watcher,
+        page_learns=PageLearns(agent),
     )
 
 

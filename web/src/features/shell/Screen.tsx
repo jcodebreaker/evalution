@@ -6,6 +6,7 @@ import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
 import { BenchmarksView } from "../benchmarks/BenchmarksView";
 import { ConnectView } from "../connect/ConnectView";
+import { TestEnvironmentView } from "../environment/TestEnvironment";
 import { HomeView } from "../home/HomeView";
 import { AppView } from "../learned/AppView";
 import { RunAll } from "../runs/RunAll";
@@ -34,6 +35,7 @@ export function Screen({
   runAll,
   runSome,
   runSet,
+  runOn,
   showRun,
   showGoing,
   openTest,
@@ -50,6 +52,8 @@ export function Screen({
   runAll: () => void;
   runSome: (inSet: string, ids: readonly string[]) => void;
   runSet: (inSet: string) => void;
+  /** The Run dialog for a set, on a version other than what's on disk. */
+  runOn?: (inSet: string, ref: string) => void;
   showRun: (id: string) => void;
   showGoing: () => void;
   openTest: (id: string, inRun?: string) => void;
@@ -99,6 +103,8 @@ export function Screen({
         }}
         onLearn={setLearn}
         onLearned={() => nav({ view: "app" })}
+        writer={agent.session}
+        onFirstTest={() => nav({ view: "tests" })}
         onAsk={ask}
       />
     );
@@ -109,12 +115,25 @@ export function Screen({
   if (!target) {
     return null;
   }
+  if (place.view === "environment") {
+    return <TestEnvironmentView target={target} />;
+  }
   if (place.view === "app") {
     return (
       <AppView
         target={target}
         agent={agent.session}
         onLearn={learnAgain}
+        onLearnArea={async (area, force) => {
+          const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
+          const answer = await api.learnArea(target, area, {
+            session: agent.session?.target === target ? open : undefined,
+            set: set ?? undefined,
+            force,
+          });
+          if (answer.session) agent.adopt(answer.session);
+          return answer.area;
+        }}
         onAdd={async (starters) => {
           const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
           const session = await api.plan(target, starters, {
@@ -175,6 +194,7 @@ export function Screen({
     return (
       <HomeView
         scope={scope}
+        runs={runs}
         lastRunAt={runs[0]?.started_at ?? null}
         tests={rows.length}
         stamp={runs[0]?.run ?? ""}
@@ -237,6 +257,7 @@ export function Screen({
         onTest={(id) => go({ case: id })}
         onRunTest={(entry: CaseRow) => runTest(entry.case, entry.name)}
         onRunMore={runMore}
+        onRunOn={runOn}
         onStop={async (id) => {
           await api.stop(id);
           await reloadDetail();

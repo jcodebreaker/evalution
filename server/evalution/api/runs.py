@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 
+from evalution.api import isolation_words
 from evalution.api.deps import (
     Current,
     busy,
@@ -17,30 +22,67 @@ from evalution.api.deps import (
     target_name,
 )
 from evalution.core.case import MOST_TRIES, Case
+from evalution.core.evidence import TryEvidence
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
-from evalution.results.compare import comparison, default_base
+from evalution.results.compare import base_branch_said, comparison, default_base
 from evalution.results.record import pass_marks, verdict_kind
 from evalution.results.store import RunStore
 from evalution.results.upload import UploadError, read_upload
 from evalution.results.views import case_detail, detail, summary, try_reason
 from evalution.review import testplan
 from evalution.runs import trust
+from evalution.runs.isolated import NotIsolated
+from evalution.runs.page.target import NO_VIDEO, page_lacks
 from evalution.runs.runner import RunBusyError
+from evalution.storage.files import FileNameError, Files
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import load_case, sent_files
+from evalution.targets import Targets
 
 #: The most an uploaded run and its evidence may weigh: each try's texts are capped at 64 kB an
 #: item, so this holds a few hundred long tries.
 UPLOAD_BYTES = 32 * 2**20
 
 
-def _replies(store: RunStore, run: str, case: str, n: int) -> list[str]:
-    """What came back to each message of one try, from what was kept of it."""
-    for kept in store.evidence(run):
-        if kept.case == case and kept.n == n:
-            return [turn.reply.text for turn in kept.turns]
-    return []
+#: What a kept file is served as, by its ending; anything else is bytes to save, not to show.
+_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webm": "video/webm"}
+
+
+def _kept(store: RunStore, run: str, case: str, n: int) -> TryEvidence | None:
+    """What was kept of one try; ``None`` when nothing was."""
+    return next((e for e in store.evidence(run) if e.case == case and e.n == n), None)
+
+
+def file_url(run: str, case: str, n: int) -> Callable[[str], str]:
+    """Where the page reads one of try *n*'s kept files, by its name."""
+    base = f"/v1/evals/runs/{quote(run, safe='')}/cases/{quote(case, safe='')}/tries/{n}/files"
+    return lambda name: f"{base}/{quote(name, safe='')}"
+
+
+def _here(files: Files | None, run: str, case: str, n: int) -> frozenset[str]:
+    """The try's files this server holds: none hosted, nor for a run played elsewhere."""
+    if files is None:
+        return frozenset()
+    try:
+        return frozenset(files.list(run, case, n))
+    except FileNameError:
+        return frozenset()
+
+
+def _base_branch(targets: Targets, name: str) -> str | None:
+    """The base branch of *name*'s repository (``main``, as it names it); ``None`` when it has no
+    code folder here (hosted, an app since removed) or none of the names."""
+    try:
+        code = targets.code(name)
+    except LookupError:
+        return None
+    return code.base_branch() if code is not None else None
+
+
+def _read(files: Files, run: str, case: str, n: int, name: str) -> bytes:
+    with files.open(run, case, n, name) as found:
+        return found.read()
 
 
 def runs_router() -> APIRouter:
@@ -59,10 +101,13 @@ def runs_router() -> APIRouter:
     @router.post("/evals/runs/estimate")
     async def estimate(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Tries and chats (a range: :meth:`Runs.estimate`) for a set, one
-        case or some, and the token that starts the run."""
+        case or some, and the token that starts the run. ``ref``: the version it plays, what's on
+        disk by default; another is said with what building it costs (ADR 0011)."""
         targets, runs = ws.targets, ws.runs
         name = target_name(targets, body.get("target"))
-        set_name, tries = body.get("set"), body.get("tries")
+        set_name, tries, ref = body.get("set"), body.get("tries"), body.get("ref")
+        if ref is not None and (not isinstance(ref, str) or not ref.strip() or len(ref) > 250):
+            raise invalid("ref: a branch, tag or commit, or 'disk'")
         cases = body.get("cases") or ([body["case"]] if body.get("case") else None)
         if not isinstance(set_name, str) or not set_name:
             raise invalid("set: required")
@@ -76,9 +121,26 @@ def runs_router() -> APIRouter:
             raise invalid(f"tries: must be a whole number from 1 to {MOST_TRIES}")
         known_set(targets, name, set_name)
         try:
-            return await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
+            found = await asyncio.to_thread(runs.estimate, name, set_name, cases, tries, ref)
+        except NotIsolated as exc:
+            if exc.missing is None:
+                raise invalid(str(exc)) from exc
+            # What UI testing lacks, for the Run dialog to offer what fixes it.
+            said = {"detail": str(exc), "missing": exc.missing.as_dict()}
+            return JSONResponse(said, status_code=400)  # type: ignore[return-value]
         except CaseError as exc:
             raise invalid(str(exc)) from exc
+        # What the Run dialog says of how its tries are kept apart, with rough timings.
+        found["isolation"] = await asyncio.to_thread(
+            lambda: isolation_words.for_estimate(
+                targets, name, found.get("isolation") or {}, runs.all(name)
+            )
+        )
+        # The code it will play, and whether the images here look like it (ADR 0011); a version
+        # other than the disk's said already, with its cost.
+        if found.get("version") is None:
+            found["version"] = await runs.preview(name)
+        return found
 
     @router.post("/evals/runs", status_code=202)
     async def start_run(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
@@ -137,20 +199,24 @@ def runs_router() -> APIRouter:
 
     @router.get("/evals/runs/{run}/comparison")
     async def compare_runs(ws: Current, run: str, base: str | None = None) -> dict[str, Any]:
-        """*run* against *base*, by default the newest earlier run on another setup. ``base`` is
-        null when there's nothing to compare it with. Any run will do, another app's too."""
+        """*run* against *base*, by default the newest earlier run on another setup, or for a run
+        of a branch, the latest run of the same tests on the repository's base branch
+        (``base_branch``, with that run or why there is none: ADR 0011). ``base`` is null when
+        there's nothing to compare it with. Any run will do, another app's too."""
         runs = ws.runs
         doc = await asyncio.to_thread(runs.load, run)
         if doc is None:
             raise not_found("Run")
         others = await asyncio.to_thread(runs.all, doc["target"], doc["set"])
-        chosen = base or default_base(doc, others)
+        main = await asyncio.to_thread(_base_branch, ws.targets, doc["target"])
+        on_main = base_branch_said(doc, others, main)
+        chosen = base or default_base(doc, others, main)
         if chosen is None:
-            return {"run": run, "base": None}
+            return {"run": run, "base": None, "base_branch": on_main}
         other = await asyncio.to_thread(runs.load, chosen)
         if other is None:
             raise not_found("Base run")
-        return comparison(doc, other)
+        return {**comparison(doc, other), "base_branch": on_main}
 
     @router.get("/evals/runs/{run}/cases/{case}")
     async def get_run_case(ws: Current, run: str, case: str) -> dict[str, Any]:
@@ -161,6 +227,26 @@ def runs_router() -> APIRouter:
             raise not_found("Test")
         await asyncio.to_thread(trust.case_view, ws.targets.docs, doc, case, found)
         return found
+
+    @router.get("/evals/runs/{run}/cases/{case}/tries/{n}/files/{name}")
+    async def get_try_file(ws: Current, run: str, case: str, n: int, name: str) -> Response:
+        """One file kept with try *n* (ADR 0010): a screenshot or the video of a try played
+        through the app's page. None hosted, where no page is played, nor for a run played
+        elsewhere, which keeps their names only."""
+        files = ws.targets.files
+        doc = await asyncio.to_thread(ws.runs.load, run) if files is not None else None
+        entry = (doc or {}).get("cases", {}).get(case)
+        if files is None or entry is None or all(t.get("n") != n for t in entry.get("tries", [])):
+            raise not_found("File")
+        try:
+            data = await asyncio.to_thread(_read, files, run, case, n, name)
+        except (FileNameError, FileNotFoundError, IsADirectoryError) as exc:
+            raise not_found("File") from exc
+        media = _MEDIA.get(PurePosixPath(name).suffix.lower(), "application/octet-stream")
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"}
+        if media == "application/octet-stream":
+            headers["Content-Disposition"] = "attachment"
+        return Response(data, media_type=media, headers=headers)
 
     @router.put("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
     async def put_label(
@@ -232,8 +318,18 @@ def runs_router() -> APIRouter:
         try:
             held = (t["n"] for t in tries if current(t).outcome is not Outcome.PASSED)
             wanted = n or next(held, tries[0]["n"])
-            said = await asyncio.to_thread(_replies, runs.store, run, case, wanted)
-            shown = testplan.compare(plan, entry, n, reasons, pass_marks(doc), said)
+            kept = await asyncio.to_thread(_kept, runs.store, run, case, wanted)
+            here = await asyncio.to_thread(_here, targets.files, run, case, wanted)
+            shown = testplan.compare(
+                plan,
+                entry,
+                n,
+                reasons,
+                pass_marks(doc),
+                [turn.reply.text for turn in kept.turns] if kept else [],
+                kept,
+                lambda name: file_url(run, case, wanted)(name) if name in here else None,
+            )
         except LookupError as exc:
             raise not_found("Try") from exc
         one = next(t for t in (case_detail(doc, case) or {})["tries"] if t["n"] == shown["try"])
@@ -246,12 +342,21 @@ def runs_router() -> APIRouter:
         rows = await asyncio.to_thread(
             trust.lines_view, targets.docs, doc, case, list(rubric.values()), shown["try"]
         )
+        # The plan's stores in plain words, for the ids the try's ``isolation.checked`` names.
+        stores = await asyncio.to_thread(isolation_words.try_stores, targets, name)
+        page = shown.get("page")
+        if page is not None and page.get("video_missing") == NO_VIDEO:
+            # No video for want of ffmpeg: what installs it, while it's still missing here.
+            lacks = await asyncio.to_thread(page_lacks, True)
+            page["video_fix"] = next((m.as_dict() for m in lacks if m.part == "ffmpeg"), None)
         return {
             **shown,
+            "isolation": {**shown["isolation"], "stores": stores},
             "agreement": dict(zip(rubric, rows, strict=True)),
             "run": run,
             "verdict": verdict_kind(entry),
             "divergence": entry.get("divergence"),
+            "layers": one.get("layers"),
             "tries": [
                 {
                     "n": t["n"],

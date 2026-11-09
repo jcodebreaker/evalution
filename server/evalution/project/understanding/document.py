@@ -8,6 +8,8 @@ from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
 from typing import Any
 
+#: What the summary a person reads may hold.
+SUMMARY_CHARS = 700
 NODE_KINDS = ("person", "agent", "tools", "worker", "state")
 SECTION_IDS = ("what_it_is", "can_do", "good_reply", "in_use")
 #: The section of facts the engine assembles from the code (:func:`with_details`); the writer
@@ -66,6 +68,7 @@ def check(
     admin's own priorities, which a starter may name too."""
     problems: list[str] = []
     one_line = clean_text(args.get("one_line"))
+    summary = clean_text(args.get("summary"))[:SUMMARY_CHARS]
     if not one_line:
         problems.append("one_line: one sentence on what the app is")
     nodes, ids = [], set()
@@ -178,6 +181,7 @@ def check(
             expected.append(clean)
     return {
         "one_line": one_line,
+        "summary": summary,
         "nodes": nodes,
         "sections": sections,
         "priorities": priorities,

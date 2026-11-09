@@ -1,5 +1,5 @@
-import { Check, CircleAlert } from "lucide-react";
 import { Spinner } from "../../ui/loading";
+import { StatusDot } from "../../ui/status";
 
 export function Steps({
   steps,
@@ -12,11 +12,9 @@ export function Steps({
         <li key={step.text} className="flex items-start gap-2.5">
           <span className="mt-[3px] grid size-3.5 shrink-0 place-items-center">
             {step.state === "doing" ? <Spinner /> : null}
-            {step.state === "done" ? (
-              <Check className="size-3.5 text-success" aria-label="Done" />
-            ) : null}
+            {step.state === "done" ? <StatusDot state="pass" label="Done" /> : null}
             {step.state === "problem" ? (
-              <CircleAlert className="size-3.5 text-warning" aria-label="Needs attention" />
+              <StatusDot state="unjudged" label="Needs attention" />
             ) : null}
           </span>
           <span className={step.state === "doing" ? "shimmer" : undefined}>{step.text}</span>

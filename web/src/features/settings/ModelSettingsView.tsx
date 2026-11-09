@@ -20,15 +20,13 @@ export function ModelSettingsView({ target }: { target: string | null }) {
   else body = <ModelForm key={saved.source} saved={saved} onSaved={reload} />;
 
   return (
-    <>
+    <Page narrow>
       <Toolbar>
         <ToolbarTitle title="Settings" />
       </Toolbar>
-      <Page narrow>
-        {body}
-        {target ? <AppSettings key={target} target={target} /> : null}
-        {account ? <WorkspaceSettings account={account} /> : null}
-      </Page>
-    </>
+      {body}
+      {target ? <AppSettings key={target} target={target} /> : null}
+      {account ? <WorkspaceSettings account={account} /> : null}
+    </Page>
   );
 }

@@ -19,7 +19,8 @@ import yaml
 from evalution.results.store import RunStore
 from evalution.storage import Database
 
-HERE = Path(__file__).parent
+#: The made-up app and gateway, as a module: the one `evalution demo ui` plays too.
+MADE_UP_APP = "evalution.demo.app"
 DEAD_PROXY = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9"}
 
 
@@ -131,7 +132,7 @@ class World:
             "SHARED_MEMORY": "1" if shared_memory else "0",
         }
         self.app = subprocess.Popen(
-            [sys.executable, str(HERE / "made_up_app.py"), str(self.app_port)],
+            [sys.executable, "-m", MADE_UP_APP, str(self.app_port)],
             env=env,
             stdout=subprocess.DEVNULL,
         )

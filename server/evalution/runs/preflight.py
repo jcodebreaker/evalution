@@ -25,6 +25,7 @@ from evalution.config import TargetConfig
 from evalution.core import net
 from evalution.core.case import Case, CaseTurn
 from evalution.core.evidence import Failure, TraceStatus
+from evalution.runs.page.map import PageMapBroken
 from evalution.runs.play import ADAPTER_SECONDS, play_with_retry
 from evalution.traces.base import TraceSource
 
@@ -33,6 +34,9 @@ LIMIT_SECONDS = 120
 _PASSED = "adapter-checks.json"
 #: Who a run's first check plays as.
 RUN_KEY = "adapter-check"
+#: How a turn of a target reached through its page alone may end that is the page's to show, and
+#: the tests' to judge: it showed no reply, or was still busy when the time ran out.
+_THE_PAGES_FINDING = (Failure.APP, Failure.TIMED_OUT)
 
 
 class AdapterBroken(RuntimeError):
@@ -53,6 +57,8 @@ class AdapterCheck:
     refused: bool = False
     #: The failure was the adapter's. One may be a misreading of this turn alone.
     adapter_failed: bool = False
+    #: The page didn't have what its page map names (ADR 0010).
+    page_map: bool = False
     #: The app works, but tests that need its traces can't be judged.
     warnings: list[str] = field(default_factory=list)
 
@@ -81,6 +87,8 @@ async def check_adapter(
     it plays as, which an adapter may tidy up after by name."""
     try:
         session = await asyncio.wait_for(target.open(key), ADAPTER_SECONDS)
+    except PageMapBroken as exc:
+        return AdapterCheck([f"Couldn't open the page: {exc}"], page_map=True)
     except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
         refused = failure_of(exc) is Failure.REFUSED
         said = "The app refused the credentials" if refused else "Couldn't open a session"
@@ -101,7 +109,12 @@ async def check_adapter(
     assert played.evidence is not None
     evidence = played.evidence
     problems = []
-    if played.error and played.failure is not None:
+    warnings = []
+    if played.page_only and played.failure in _THE_PAGES_FINDING:
+        # No adapter to check: what the page showed of the turn is for the tests to judge, and a
+        # page that showed nothing fails them, not the run before them.
+        warnings.append(f"The page didn't answer the check's message: {played.error}")
+    elif played.error and played.failure is not None:
         problems.append(net.no_login(played.error))
     elif not played.reply_text.strip():
         problems.append("The turn ended, but the adapter read an empty reply")
@@ -109,7 +122,6 @@ async def check_adapter(
         problems.append("The adapter read back the message it sent, not a reply")
     elif _raw_json(played.reply_text):
         problems.append("The adapter read the app's raw answer, not the reply inside it")
-    warnings = []
     if evidence.trace is TraceStatus.UNREAD:
         warnings.append(f"The traces couldn't be read: {evidence.trace_note}")
     elif evidence.trace is TraceStatus.EMPTY and source is not None:
@@ -124,7 +136,8 @@ async def check_adapter(
         tools=len(evidence.tools),
         spans=len(evidence.spans),
         traces=evidence.trace.value,
-        app_down=played.failure
+        app_down=bool(problems)
+        and played.failure
         in (
             Failure.APP,
             Failure.UNREACHABLE,
@@ -135,6 +148,7 @@ async def check_adapter(
         ),
         refused=played.failure is Failure.REFUSED,
         adapter_failed=played.failure is Failure.ADAPTER,
+        page_map=played.failure is Failure.PAGE_MAP,
         warnings=warnings,
     )
 

@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { count } from "../../lib/format";
 import type { DiagramNode, Understanding } from "../../lib/schema";
@@ -23,6 +24,26 @@ const ROW_GAP = 20;
 const COLUMN_GAP = 60;
 
 const PAD = 12;
+
+/** Boxes real use never reached shown at first: the most connected; the rest on request. */
+const UNSEEN = 5;
+
+/** The nodes to draw: the person, the agents and what real use reached, then the unseen ones
+ * most connected, up to `UNSEEN` unless `all`; a selected box always stays. */
+function shownNodes(diagram: Diagram, selected: string | null, all: boolean) {
+  const sure = (node: DiagramNode) =>
+    node.seen || node.kind === "person" || node.kind === "agent" || node.id === selected;
+  const links = (id: string) =>
+    diagram.edges.filter((edge) => edge.from === id || edge.to === id).length;
+  const unseen = diagram.nodes
+    .filter((node) => !sure(node))
+    .sort((a, b) => links(b.id) - links(a.id));
+  const kept = new Set((all ? unseen : unseen.slice(0, UNSEEN)).map((node) => node.id));
+  return {
+    nodes: diagram.nodes.filter((node) => sure(node) || kept.has(node.id)),
+    hidden: unseen.length - kept.size,
+  };
+}
 
 /** How far an edge between boxes of one column bows out to the right. */
 const BOW = 44;
@@ -96,7 +117,9 @@ export function DiagramView({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { boxes, width, height } = layout(diagram.nodes);
+  const [all, setAll] = useState(false);
+  const { nodes, hidden } = shownNodes(diagram, selected, all);
+  const { boxes, width, height } = layout(nodes);
   const most = Math.max(1, ...diagram.edges.map((edge) => edge.asks));
   const keys = (id: string) => (event: KeyboardEvent) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -172,9 +195,9 @@ export function DiagramView({
                     selected === node.id
                       ? "stroke-tint"
                       : node.verdict === "right"
-                        ? "stroke-success"
+                        ? "stroke-pass"
                         : wrong
-                          ? "stroke-destructive"
+                          ? "stroke-fail"
                           : "stroke-separator group-hover/node:stroke-tint group-focus-visible/node:stroke-tint",
                   )}
                 />
@@ -182,7 +205,7 @@ export function DiagramView({
                   x={x + 12}
                   y={y + 19}
                   className={cn(
-                    "text-[12.5px] font-medium",
+                    "text-[13px] font-medium",
                     main ? "fill-primary-foreground" : "fill-foreground",
                     wrong && "line-through",
                   )}
@@ -205,6 +228,15 @@ export function DiagramView({
           })}
         </g>
       </svg>
+      {hidden || all ? (
+        <button
+          type="button"
+          onClick={() => setAll((now) => !now)}
+          className="mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
+        >
+          {all ? "Show fewer" : `Show ${hidden} more never seen in use`}
+        </button>
+      ) : null}
     </div>
   );
 }

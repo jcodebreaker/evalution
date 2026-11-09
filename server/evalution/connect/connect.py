@@ -20,6 +20,7 @@ import httpx
 
 from evalution.adapters import adapter_info, infos
 from evalution.adapters.base import AdapterInfo, flat_options, part
+from evalution.adapters.page import NAME as PAGE_ONLY
 from evalution.code import HASH_CAP, Code
 from evalution.config import (
     CodeConfig,
@@ -131,6 +132,15 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
             if area_model not in ("strong", "light"):
                 raise TargetError("code.area_model: strong or light")
             block["code"]["area_model"] = area_model
+        area_parallel = code.get("area_parallel")
+        if area_parallel is not None:
+            if (
+                isinstance(area_parallel, bool)
+                or not isinstance(area_parallel, int)
+                or not 1 <= area_parallel <= 32
+            ):
+                raise TargetError("code.area_parallel: a whole number from 1 to 32")
+            block["code"]["area_parallel"] = area_parallel
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
@@ -301,6 +311,12 @@ def _reached(exc: httpx.HTTPError) -> str:
 
 async def _adapter(conf: TargetConfig, lookup: Any) -> dict[str, Any]:
     info = adapter_info(conf.adapter)
+    if info is None and conf.adapter == PAGE_ONLY:
+        return part(
+            True,
+            "Reached through its page alone: there's no API to try. A run plays the page on "
+            "evalution's own copy of the app.",
+        )
     if info is None:
         return part(False, f"No adapter {conf.adapter!r}")
     async with net.client(timeout=CHECK_SECONDS) as client:

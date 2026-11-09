@@ -1,5 +1,5 @@
-"""``evalution serve | run | accept | sets | profile | hooks | migrate | regrade | backup |
-upgrade | restore | adapter`` (docs/architecture.md, "Layout").
+"""``evalution serve | run | accept | sets | learn | profile | hooks | migrate | regrade |
+backup | upgrade | restore | adapter | demo`` (docs/architecture.md, "Layout").
 
 * ``serve``: the API, the page and the trace intake, on 127.0.0.1:8080. There is no login: it
   answers only this computer, unless ``--host`` names another address on purpose (it then warns:
@@ -31,10 +31,36 @@ upgrade | restore | adapter`` (docs/architecture.md, "Layout").
 * ``regrade RUN --rules | --judge [--yes]``: judge a stored run again. ``--rules`` reads its checks
   under today's rules: free and offline. ``--judge`` grades its replies again from its evidence:
   new model calls, so it says how many tries and asks first, and a run without evidence is refused.
+* ``learn --report T [--json]``: the measures of T's last learn, from its sessions: per stage
+  (code map, read, modules, areas, overview, other) its seconds, model calls, tokens and
+  characters in and out (:mod:`evalution.writer.usage`). Free: the baseline a change to the
+  learn is checked against.
 * ``profile --target T``: the digest of the target's recent traces (no model call).
+* ``stores FOLDER [--target T [--port P] [--yes]]``: where the app in FOLDER keeps state (a
+  prototype, :mod:`evalution.isolation`). Alone, a read of the folder: free. With ``--target``,
+  one probe message carrying a canary goes through T's adapter while the process listening on P
+  (default the target's port) is watched, and what it wrote is lined up with what the code names.
+* ``isolate --target T [--keep] [--yes] [--slot N]``: start evalution's own copy of T's app,
+  find its stores with one probe, draft a reset plan and rehearse it on the copy with a second
+  (:mod:`evalution.isolation.isolate`). Shows the copy and asks before any message is sent. Prints
+  the rehearsal's account and where the plan is kept; exits 1 when it isn't proven. The copy is
+  taken down after, unless ``--keep``.
+* ``isolation down [PROJECT]``: take down a copy (only ``eval-*``); without PROJECT, list them.
+  ``isolation show --target T``: the target's saved plan.
+* ``demo ui [--no-open]``: two tests played through the made-up app's page on a copy, in a scratch
+  folder of their own, then the failing one's result opened in the browser; Ctrl-C stops it and
+  deletes the folder. Spends nothing (:mod:`evalution.demo.ui`, docs/ui-testing.md).
+* ``demo versions [--no-open]``: a small git repository with ``main`` and ``feature-x``, three
+  tests played on each through the real runner (each version checked out into evalution's own
+  folder), and ``feature-x vs main`` printed and opened; Ctrl-C stops it and deletes the folder.
+  Spends nothing (:mod:`evalution.demo.versions`, docs/versions.md).
 * ``hooks install|uninstall|status --target T [--url U]``: git hooks in the target's repo that tell
   a running ``serve`` about a change (:mod:`evalution.project.hooks`). Nothing else ever installs
   them.
+* ``versions [--target T] [--fetch REMOTE/BRANCH] [--remove COMMIT]``: the target's branches and
+  tags, and the versions evalution checked out on its own, with their sizes
+  (:mod:`evalution.project.versions`). ``--fetch`` fetches a remote branch into evalution's own
+  refs, never the person's; ``--remove`` removes a version evalution keeps.
 
 The config is ``--config``, else ``$EVALUTION_CONFIG``, else ``./evalution.yaml``.
 """
@@ -46,10 +72,13 @@ import asyncio
 import json
 import os
 import pkgutil
+import secrets
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI
@@ -66,8 +95,19 @@ from evalution.benchmarks import planning
 from evalution.code import CodeError
 from evalution.config import Config, ConfigError
 from evalution.connect.connect import check as check_parts
+from evalution.core.version import described
+from evalution.demo import ui as demo_ui
+from evalution.demo import versions as demo_versions
+from evalution.isolation import containers as store_boxes
+from evalution.isolation import discover as store_scan
+from evalution.isolation import isolate as isolation
+from evalution.isolation import launch as app_copies
+from evalution.isolation import observe as store_watch
+from evalution.isolation.plan import PlanStore
 from evalution.llm import LLM
+from evalution.project import building
 from evalution.project import hooks as git_hooks
+from evalution.project import versions as code_versions
 from evalution.results import baseline
 from evalution.results.compare import comparison, default_base
 from evalution.results.markdown import comparison_markdown
@@ -82,6 +122,8 @@ from evalution.suite.store import export_sets, import_sets
 from evalution.targets import Targets
 from evalution.traces.base import is_ai
 from evalution.traces.profile import digest, recent_sessions, render
+from evalution.writer import usage as writer_usage
+from evalution.writer.sessions import SessionStore
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 
@@ -185,7 +227,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
     try:
         await runs.recover()
         estimate = runs.estimate(
-            args.target, args.set, [args.case] if args.case else None, args.tries
+            args.target, args.set, [args.case] if args.case else None, args.tries, args.ref
         )
         tries = f"{estimate['tries']}"
         if estimate["tries_high"] > estimate["tries"]:
@@ -193,6 +235,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         print(
             f"evalution: {estimate['cases']} case(s), {tries} tries, {estimate['chats']} messages"
         )
+        _print_version(estimate.get("version") or await runs.preview(args.target))
         refused = estimate["refused"]
         for test in refused:
             print(f"evalution: left out {test['case']}: {test['why']}", file=sys.stderr)
@@ -203,6 +246,8 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
             print("evalution: not started")
             return 0, None
         base = baseline.read(args.against) if args.against else None
+        # A version's build, line by line, as it prints them.
+        runs.on_build_line = lambda line: print(f"  {line}")
         started = await runs.start(estimate["token"], base, args.env)
         print(f"evalution: run {started['run']}")
         try:
@@ -210,6 +255,8 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         except (KeyboardInterrupt, asyncio.CancelledError):
             await runs.stop(started["run"])
         doc = runs.load(started["run"]) or {}
+        if doc.get("version"):
+            _print_version({**doc["version"], "said": described(doc["version"])})
         others = runs.all(args.target, args.set)
         found = detail(doc, others, None)
         print(table(found))
@@ -306,7 +353,12 @@ def compare_runs(config: Config, args: argparse.Namespace) -> int:
         print(f"No run {args.run}", file=sys.stderr)
         return 2
     others = store.all(doc["target"], doc["set"])
-    chosen = args.base or default_base(doc, others)
+    try:
+        code = Targets(config).code(doc["target"])
+    except LookupError:
+        code = None
+    main = code.base_branch() if code is not None else None
+    chosen = args.base or default_base(doc, others, main)
     base = None
     if chosen:
         base = baseline.read(Path(chosen)) if Path(chosen).is_file() else store.load(chosen)
@@ -339,10 +391,23 @@ def accept(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_version(version: dict[str, Any]) -> None:
+    """The code a run plays or played, and why evalution can't vouch for it when it can't."""
+    print(f"evalution: code: {version['said']}")
+    if version.get("cost"):
+        print(f"evalution: {version['cost']}")
+    if version.get("verified") is False:
+        print(f"evalution: warning: {version['why_unverified']}", file=sys.stderr)
+    for note in version.get("notes") or []:
+        print(f"evalution: {note}")
+
+
 def _print_comparison(said: dict[str, Any]) -> None:
     print(f"{said['headline']} ({said['run']} against {said['base']})")
     for row in said["changed"]:
         print(f"  {row['what']}: {row['before']} -> {row['now']}")
+    if said.get("code"):
+        print(f"  {said['code']}")
     for test in said["tests"]:
         was, now = test["before"], test["now"]
         counts = f"{_tries(was)} -> {_tries(now)}"
@@ -393,6 +458,137 @@ async def check_target(config: Config, name: str, isolation: bool = False) -> in
     return 0 if found.ok else 1
 
 
+def find_stores(config: Config, args: argparse.Namespace) -> int:
+    """Print the stores FOLDER names, and with ``--target`` what one probe showed."""
+    folder = Path(args.folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise LookupError(f"not a folder: {folder}")
+    stores = store_scan.scan(folder)
+    if args.target:
+        url = str(config.targets[args.target].options.get("url") or "")
+        port = args.port or urlsplit(url).port
+        pid = store_watch.listening(port) if port else None
+        if pid is None:
+            print(
+                f"evalution: nothing on this computer listens on port {port}; only the folder "
+                "is watched (pass --port)",
+                file=sys.stderr,
+            )
+        if not args.yes and input("Send one probe message to the app? [y/N] ").lower() != "y":
+            return 1
+        seen, boxes, inside = asyncio.run(
+            _probe_stores(config, args.target, folder, stores, pid, port)
+        )
+        stores = store_watch.reconcile(folder, stores, seen)
+        stores = store_boxes.reconcile(stores, boxes, inside)
+        print(f"Watched: {', '.join(seen.roots)}")
+        print(f"Written during the probe: {len(seen.written)} files, {len(seen.canary)} hold it")
+        if boxes:
+            print(f"Containers searched: {', '.join(b.name for b in boxes)}")
+            print(f"Found inside them: {len(inside)} places hold it")
+    if args.json:
+        print(json.dumps([vars(s) for s in stores], indent=2))
+        return 0
+    for s in stores:
+        mark = "seen" if s.seen else ("named" if not args.target else "NOT SEEN")
+        print(f"[{mark:>8}] {s.kind:<8} {s.locator}")
+        for line in s.evidence[:3]:
+            print(f"             named at {line}")
+        for line in s.seen[:3]:
+            print(f"             {line}")
+    return 0
+
+
+async def _probe_stores(
+    config: Config,
+    name: str,
+    folder: Path,
+    stores: list[store_scan.Store],
+    pid: int | None,
+    port: int | None,
+) -> tuple[store_watch.Observation, list[store_boxes.Container], list[store_boxes.Found]]:
+    """One message carrying a canary through *name*'s adapter, with the app watched, on this
+    computer and in the containers behind its port."""
+    target = Targets(config).adapter(name)
+    canary = f"eval-canary-{secrets.token_hex(6)}"
+    boxes = await store_boxes.project_of(port) if port else []
+
+    async def act() -> None:
+        session = await target.open("isolation-probe")
+        try:
+            await target.send(
+                session,
+                f"Please remember this for later: my code word is {canary}.",
+                deadline=time.time() + 120,
+            )
+        finally:
+            await target.close(session)
+
+    seen = await store_watch.watch(folder, stores, act, canary, pid=pid)
+    return seen, boxes, await store_boxes.search(boxes, canary)
+
+
+async def isolate(config: Config, args: argparse.Namespace) -> int:
+    """Find, plan and rehearse T's stores on a copy; 0 when the plan is proven."""
+
+    async def ask(summary: str) -> bool:
+        print(summary)
+        print(
+            "Two messages go to the copy (not to your app): one to find where it keeps what it's "
+            "told, one to rehearse resetting that."
+        )
+        try:
+            answer = await asyncio.to_thread(input, "Send them? [y/N] ")
+        except EOFError:
+            answer = ""
+        return answer.strip().lower() in ("y", "yes")
+
+    try:
+        plan = await isolation.isolate(
+            config, args.target, slot=args.slot, yes=args.yes, ask=ask, keep=args.keep
+        )
+    except isolation.Declined:
+        print("evalution: nothing sent; the copy is taken down", file=sys.stderr)
+        return 1
+    except app_copies.LaunchError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    print(plan.report)
+    print(f"Plan ({plan.status}): {isolation.plan_path(config, args.target)}")
+    if args.keep:
+        name = app_copies.project_name(args.target, args.slot)
+        print(f"The copy is still running: evalution isolation down {name}")
+    return 0 if plan.status == "proven" else 1
+
+
+async def isolation_copies(config: Config, args: argparse.Namespace) -> int:
+    """``isolation down [PROJECT]`` and ``isolation show --target T``."""
+    if args.action == "show":
+        if not args.target:
+            raise LookupError("isolation show needs --target")
+        plan = PlanStore(config.data_dir).load(args.target)
+        if plan is None:
+            print(f"evalution: {args.target} has no isolation plan yet", file=sys.stderr)
+            return 1
+        print(f"{args.target}: {plan.status}, {len(plan.stores)} store(s)")
+        print(plan.report)
+        print(f"Plan: {isolation.plan_path(config, args.target)}")
+        return 0
+    if not args.project:
+        found = await app_copies.copies()
+        print("\n".join(found) if found else "No copies of evalution's are on this computer.")
+        return 0
+    try:
+        app_copies.guard(args.project)
+        await app_copies.down(args.project)
+        left = await isolation.clear_extras(args.project)
+    except app_copies.LaunchError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    print(f"Took down {args.project}" + (f", and {', '.join(left)}" if left else ""))
+    return 0
+
+
 def migrate(config: Config) -> int:
     changed, unreadable = RunStore(Targets(config).docs).upcast_all()
     print(f"evalution: {len(changed)} runs rewritten")
@@ -401,6 +597,36 @@ def migrate(config: Config) -> int:
             f"evalution: these don't read and were left: {', '.join(unreadable)}", file=sys.stderr
         )
         return 1
+    return 0
+
+
+_STAGE_COLUMNS = ("seconds", *writer_usage.STAGE_COUNTS)
+
+
+def learn_report(config: Config, args: argparse.Namespace) -> int:
+    """Print the last learn of ``--report``'s target, stage by stage; as JSON with ``--json``.
+
+    :raises LookupError: It has no learn measured by stage yet.
+    """
+    turns = SessionStore(Database.open(config.data_dir).docs()).usage(args.report)
+    found = writer_usage.last_learn(turns)
+    if found is None:
+        raise LookupError(f"no learn of {args.report} measured yet: learn it, then ask again")
+    if args.json:
+        print(json.dumps(found, indent=2))
+        return 0
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(found.get("at") or 0)))
+    print(
+        f"evalution: the last learn of {args.report}, {at}: {found.get('seconds', 0):,.0f} s, "
+        f"{found.get('calls', 0):,} model calls, {found.get('areas_run', 0):,} of "
+        f"{found.get('areas_total', 0):,} areas learned, {found.get('slice_files', 0):,} files "
+        "read in bulk"
+    )
+    print(f"  {'stage':<14}" + "".join(f"{c.replace('_', ' '):>12}" for c in _STAGE_COLUMNS))
+    for stage in found["stages"]:
+        cells = [f"{stage.get('seconds', 0):>12,.1f}"]
+        cells += [f"{stage.get(c, 0):>12,}" for c in writer_usage.STAGE_COUNTS]
+        print(f"  {stage['stage']:<14}" + "".join(cells))
     return 0
 
 
@@ -594,6 +820,53 @@ def hooks(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _when(seconds: float | None) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(seconds)) if seconds else ""
+
+
+def versions(config: Config, args: argparse.Namespace) -> int:
+    """``evalution versions``: list, fetch a remote branch, or remove a kept version."""
+    targets = Targets(config)
+    name = args.target
+    if name is None:
+        names = targets.names()
+        if len(names) != 1:
+            print("evalution: --target: which app (there is more than one)", file=sys.stderr)
+            return 2
+        name = names[0]
+    try:
+        found = building.versions_of(targets, name)
+        if args.fetch:
+            remote, _, branch = args.fetch.partition("/")
+            commit = found.fetch(remote, branch)
+            print(f"fetched {args.fetch} @ {commit[:7]} into evalution's own refs")
+            return 0
+        if args.remove:
+            gone = found.remove(args.remove)
+            print(f"removed {gone.commit[:7]} ({code_versions.said(gone.size)}): {gone.path}")
+            return 0
+        view = found.view()
+    except code_versions.VersionError as exc:
+        print(f"evalution: {exc}", file=sys.stderr)
+        return 2
+    here = view["checked_out"]
+    at = (here["commit"] or "")[:7]
+    print(f"{view['repo']}: checked out {here['branch'] or 'no branch'} @ {at}")
+    for ref in view["refs"]:
+        marks = ("*" if ref["checked_out"] else " ") + ("v" if ref["worktree"] else " ")
+        print(
+            f"{marks} {ref['kind']:<7} {ref['name']:<40} {ref['commit'][:7]} "
+            f"{_when(ref['date'])}  {ref['subject'][:60]}"
+        )
+    print(
+        f"versions kept: {code_versions.said(view['size'])} of "
+        f"{code_versions.said(view['limit'])}; {code_versions.said(view['free'])} free on this disk"
+    )
+    for kept in view["kept"]:
+        print(f"  {kept['commit'][:7]}  {code_versions.said(kept['size']):>8}  {kept['path']}")
+    return 0
+
+
 def carry_sets(config: Config, args: argparse.Namespace) -> int:
     docs = Database.open(config.data_dir).docs()
     folder = args.dir or config.sets_dir
@@ -655,6 +928,12 @@ def main(argv: list[str] | None = None) -> int:
         "--token", help=f"with --server, a workspace API token (default ${remote.TOKEN_ENV})"
     )
     play.add_argument("--env", metavar="NAME", help="where the app runs, e.g. staging")
+    play.add_argument(
+        "--ref",
+        default="disk",
+        help="the version to play: a branch, origin/branch, a tag or a commit, checked out and "
+        "built by evalution without touching your checkout (default: disk, what's on disk now)",
+    )
     play.add_argument(
         "--traces-port",
         type=int,
@@ -724,13 +1003,53 @@ def main(argv: list[str] | None = None) -> int:
         "--judge", action="store_true", help="grade again from its evidence: calls the model"
     )
     again.add_argument("--yes", action="store_true", help="start without asking")
+    taught = sub.add_parser("learn", help="a learn's measures, stage by stage: free")
+    taught.add_argument(
+        "--report",
+        required=True,
+        metavar="TARGET",
+        help="print the last learn of TARGET from its sessions: each stage's seconds, calls, "
+        "tokens and characters",
+    )
+    taught.add_argument("--json", action="store_true", help="the whole measure, as JSON")
     prof = sub.add_parser("profile", help="a digest of the target's recent traces")
     prof.add_argument("--target", required=True)
     prof.add_argument("--sessions", type=int, default=50)
+    found = sub.add_parser("stores", help="where an app keeps state: a read, or one probe")
+    found.add_argument("folder")
+    found.add_argument("--target", help="send one probe through this target and watch it")
+    found.add_argument("--port", type=int, help="the port the app's process listens on")
+    found.add_argument("--yes", action="store_true")
+    found.add_argument("--json", action="store_true")
+    iso = sub.add_parser(
+        "isolate", help="find, plan and rehearse a target's resets on a copy: sends two messages"
+    )
+    iso.add_argument("--target", required=True)
+    iso.add_argument("--slot", type=int, default=0, help="which copy: eval-<target>-<slot>")
+    iso.add_argument("--keep", action="store_true", help="leave the copy running after")
+    iso.add_argument("--yes", action="store_true", help="send without asking")
+    copy_cmd = sub.add_parser("isolation", help="evalution's copies of apps, and saved plans")
+    copy_cmd.add_argument("action", choices=("down", "show"))
+    copy_cmd.add_argument("project", nargs="?", help="down: the copy (eval-*); none lists them")
+    copy_cmd.add_argument("--target", help="show: whose plan")
+    show = sub.add_parser("demo", help="see a part of evalution working on a made-up app: free")
+    show.add_argument(
+        "what",
+        choices=("ui", "versions"),
+        help="ui: two tests played through a chat page; versions: a branch tested against main",
+    )
+    show.add_argument("--no-open", action="store_true", help="print the result's address only")
     hook = sub.add_parser("hooks", help="git hooks in the target's repo, opt-in")
     hook.add_argument("action", choices=("install", "uninstall", "status"))
     hook.add_argument("--target", required=True)
     hook.add_argument("--url", default="http://127.0.0.1:8080", help="where serve listens")
+    kept = sub.add_parser("versions", help="branches, tags and the versions evalution checked out")
+    kept.add_argument("--target", help="which app (default: the only one)")
+    acted = kept.add_mutually_exclusive_group()
+    acted.add_argument(
+        "--fetch", metavar="REMOTE/BRANCH", help="fetch a remote branch into evalution's own refs"
+    )
+    acted.add_argument("--remove", metavar="COMMIT", help="remove the version of this commit")
     args = parser.parse_args(argv)
     if args.command == "run" and args.summary and not args.against:
         parser.error("--summary needs --against")
@@ -776,14 +1095,27 @@ def main(argv: list[str] | None = None) -> int:
             return carry_sets(config, args)
         if args.command == "benchmark":
             return benchmark(config, args)
+        if args.command == "versions":
+            return versions(config, args)
         if args.command == "hooks":
             return hooks(config, args)
+        if args.command == "demo":
+            shown = demo_versions if args.what == "versions" else demo_ui
+            return shown.run(config.web_dir, open_browser=not args.no_open)
+        if args.command == "stores":
+            return find_stores(config, args)
+        if args.command == "isolate":
+            return asyncio.run(isolate(config, args))
+        if args.command == "isolation":
+            return asyncio.run(isolation_copies(config, args))
         if args.command == "check":
             return asyncio.run(check_target(config, args.target, args.isolation))
         if args.command == "compare":
             return compare_runs(config, args)
         if args.command == "accept":
             return accept(config, args)
+        if args.command == "learn":
+            return learn_report(config, args)
         if args.command == "doctor":
             return asyncio.run(run_doctor(config))
         if args.command == "service":

@@ -1,8 +1,9 @@
-import { ArrowRight, Check, ChevronRight, CircleAlert, Network, Play, Plus } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Play, Plus } from "lucide-react";
 import { count } from "../../lib/format";
 import type { AgentMessage, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Markdown } from "../../ui/markdown";
+import { StatusDot } from "../../ui/status";
 import { Fold, Group, TextLink } from "../shared/group";
 import { MeaningChanges } from "../shared/MeaningChanges";
 import { SuspectTag } from "../shared/marks";
@@ -59,12 +60,12 @@ export function WriterReply({
   onTest: (id: string, run?: string) => void;
   onLearned: () => void;
 }) {
-  const { plan, review, run, saved } = message;
+  const { plan, review, run, saved, isolation, page_map: pageMap } = message;
   const changed = !!plan?.changes?.length;
   return (
     <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
       {message.read?.length ? (
-        <details className="group text-[12px] text-ink-3">
+        <details className="group text-[12.5px] text-ink-3">
           <summary className="flex cursor-default list-none items-center gap-1.5 hover:text-ink-2 [&::-webkit-details-marker]:hidden">
             <ChevronRight
               className="size-3.5 transition-transform group-open:rotate-90"
@@ -83,9 +84,9 @@ export function WriterReply({
       {LEARNED.test(message.text) ? (
         <Group>
           <button type="button" onClick={onLearned} className={ROW_LINK}>
-            <Network className="size-3.5 shrink-0 text-ink-3" aria-hidden />
-            <span className="min-w-0 flex-1 truncate font-medium">What it learned</span>
-            <ChevronRight className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+            <span className="min-w-0 flex-1 truncate font-medium text-tint-ink">
+              What it learned →
+            </span>
           </button>
         </Group>
       ) : null}
@@ -96,24 +97,24 @@ export function WriterReply({
               key={index}
               className="flex items-start gap-2.5 border-separator px-3.5 py-2.5 not-first:border-t"
             >
-              <span className="grid size-5 shrink-0 place-items-center rounded-md bg-selection text-[11px] font-semibold text-ink-2">
+              <span className="w-4 shrink-0 font-mono text-[13px] text-ink-3 tabular-nums">
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{step.title}</span>
-                {step.note ? <p className="m-0 text-[12px] text-ink-2">{step.note}</p> : null}
+                {step.note ? <p className="m-0 text-[12.5px] text-ink-2">{step.note}</p> : null}
               </div>
             </div>
           ))}
           {plan.timeout ? (
-            <p className="m-0 border-t border-separator px-3.5 py-2.5 text-[12px] text-ink-2">
+            <p className="m-0 border-t border-separator px-3.5 py-2.5 text-[12.5px] text-ink-2">
               Time limit {plan.timeout.seconds} s: {plan.timeout.from}
             </p>
           ) : null}
           {plan.flags?.map((flag) => (
             <p
               key={flag}
-              className="m-0 flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[13px]"
+              className="m-0 flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[14px]"
             >
               <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0">{flag}</span>
@@ -122,7 +123,7 @@ export function WriterReply({
           {plan.weak_lines?.map(({ line, why, use }) => (
             <div
               key={line}
-              className="flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[13px]"
+              className="flex items-start gap-2 border-t border-separator px-3.5 py-2.5 text-[14px]"
             >
               <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
               <div className="min-w-0 flex-1">
@@ -130,8 +131,8 @@ export function WriterReply({
                   {line} <span className="text-ink-3">· {WHY[why]}</span>
                 </p>
                 {use ? (
-                  <p className="m-0 flex items-start gap-1 text-[12px] text-ink-2">
-                    <ArrowRight className="mt-1 size-3 shrink-0" aria-hidden />
+                  <p className="m-0 flex items-start gap-1 text-[12.5px] text-ink-2">
+                    <span aria-hidden>→</span>
                     <span className="min-w-0">{suggested(use)}</span>
                   </p>
                 ) : null}
@@ -149,7 +150,7 @@ export function WriterReply({
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
-            <span className="text-[13px] text-ink-2 tabular-nums">
+            <span className="text-[14px] text-ink-2 tabular-nums">
               {count(plan.tries, "try", "tries")}
             </span>
             {latest && plan.id ? (
@@ -161,14 +162,20 @@ export function WriterReply({
           </div>
         </Group>
       ) : null}
+      {pageMap ? (
+        <PageMapProposal proposal={pageMap} latest={latest} onApprove={onApprove} />
+      ) : null}
+      {isolation ? (
+        <IsolationProposal proposal={isolation} latest={latest} onApprove={onApprove} />
+      ) : null}
       {saved ? (
         <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13.5px]">
-          <Check className="size-4 shrink-0 text-success" aria-hidden />
+          <StatusDot state="pass" label="Added" />
           <span className="min-w-0 flex-1">
             Added:{" "}
             <button
               type="button"
-              className="text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              className="text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-tint"
               onClick={() => onTest(saved)}
             >
               {testName(saved)}
@@ -195,7 +202,7 @@ export function WriterReply({
               {review.findings.map((finding, index) => (
                 <div
                   key={index}
-                  className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-[13px] not-first:border-t"
+                  className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-[14px] not-first:border-t"
                 >
                   <div className="flex items-start gap-2">
                     <Markdown text={finding.text} className="flex-1" />
@@ -203,14 +210,14 @@ export function WriterReply({
                   </div>
                   {finding.case ? (
                     <TextLink
-                      className="w-fit text-[12px]"
+                      className="w-fit text-[12.5px]"
                       onClick={() => onTest(finding.case ?? "", run)}
                     >
                       {testName(finding.case)}
                     </TextLink>
                   ) : null}
                   {finding.evidence?.length ? (
-                    <Fold title="Evidence" className="text-[12px]">
+                    <Fold title="Evidence" className="text-[12.5px]">
                       <ul className="m-0 flex list-none flex-col gap-0.5 p-0 font-mono text-[11.5px] text-ink-2">
                         {finding.evidence.map((line, at) => (
                           <li key={at}>{line}</li>
@@ -223,7 +230,7 @@ export function WriterReply({
             </Group>
           ) : null}
           {review.proposal ? (
-            <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[13px]">
+            <Group className="flex flex-wrap items-center gap-2.5 px-3.5 py-3 text-[14px]">
               <Markdown text={review.proposal} className="flex-1 basis-[200px]" />
               {latest ? (
                 <Button size="sm" onClick={() => onReply("Do it")}>
@@ -235,5 +242,120 @@ export function WriterReply({
         </div>
       ) : null}
     </div>
+  );
+}
+
+const PROPOSAL_STATUS: Record<string, string> = {
+  draft: "Not approved yet",
+  approved: "Approved",
+  proven: "Proven on evalution's copy of the app",
+  failed: "Not proven: the rehearsal found what it misses",
+};
+
+/** Where a page map's entry comes from, in a few words. */
+function source(row: NonNullable<AgentMessage["page_map"]>["evidence"][number]): string {
+  const where = row.file ? `${row.file}${row.line ? `:${row.line}` : ""}` : "";
+  if (where && row.tried) return `${where}, found on the page`;
+  return where || (row.tried ? "found on the page" : "");
+}
+
+/** The entry of a page map each of its plain-words rows is about. */
+const ROW_ENTRY: Record<string, string> = {
+  Opens: "url",
+  "Signs in with": "sign_in",
+  "Ready when it shows": "ready",
+  "Message box": "actions.type",
+  Send: "actions.send",
+  "New chat": "actions.new_chat",
+  Replies: "replies.in",
+  "Busy while": "busy",
+};
+
+/** A page map the writer proposes, approved like a test plan. Approving it tries the map with one
+ * real message on evalution's own copy; the map is used only once it's approved again on the Test
+ * environment page. */
+function PageMapProposal({
+  proposal,
+  latest,
+  onApprove,
+}: {
+  proposal: NonNullable<AgentMessage["page_map"]>;
+  latest: boolean;
+  onApprove: (planId: string) => void;
+}) {
+  const evidence = new Map(proposal.evidence.map((row) => [row.entry, source(row)]));
+  return (
+    <Group data-testid="page-map-proposal">
+      <p className="m-0 px-3.5 pt-2.5 text-[12.5px] text-ink-2">
+        How tests would reach {proposal.target || "the app"}'s page
+      </p>
+      <ul className="m-0 flex list-none flex-col p-0">
+        {proposal.described.map((row) => {
+          const from = evidence.get(ROW_ENTRY[row.what] ?? "");
+          return (
+            <li
+              key={row.what}
+              className="flex flex-col border-separator px-3.5 py-2 text-[14px] not-first:border-t"
+            >
+              <span>
+                <span className="text-ink-2">{row.what}:</span> {row.where}
+              </span>
+              {from ? <span className="font-mono text-[11.5px] text-ink-3">{from}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
+        <span className="text-[14px] text-ink-2">
+          {proposal.status === "draft"
+            ? "Trying it sends one message to evalution's copy"
+            : (PROPOSAL_STATUS[proposal.status] ?? proposal.status)}
+        </span>
+        {latest && proposal.status === "draft" ? (
+          <Button size="sm" className="ms-auto" onClick={() => onApprove(proposal.id)}>
+            <Check />
+            Approve and try it
+          </Button>
+        ) : null}
+      </div>
+    </Group>
+  );
+}
+
+/** A change the writer proposes to the isolation plan, approved like a test plan. Approving it
+ * rehearses it on evalution's own copy of the app; the saved plan changes only once it's proven. */
+function IsolationProposal({
+  proposal,
+  latest,
+  onApprove,
+}: {
+  proposal: NonNullable<AgentMessage["isolation"]>;
+  latest: boolean;
+  onApprove: (planId: string) => void;
+}) {
+  return (
+    <Group>
+      <p className="m-0 px-3.5 pt-2.5 text-[12.5px] text-ink-2">
+        Changes to the isolation plan, from {proposal.from}
+      </p>
+      <ul className="m-0 flex list-none flex-col p-0">
+        {proposal.changes.map((change, index) => (
+          <li key={index} className="border-separator px-3.5 py-2 text-[14px] not-first:border-t">
+            {change}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3">
+        <span className="text-[14px] text-ink-2">
+          {PROPOSAL_STATUS[proposal.status] ?? proposal.status}
+        </span>
+        {latest && proposal.status === "draft" ? (
+          <Button size="sm" className="ms-auto" onClick={() => onApprove(proposal.id)}>
+            <Check />
+            Approve and rehearse
+          </Button>
+        ) : null}
+      </div>
+    </Group>
   );
 }

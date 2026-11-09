@@ -9,14 +9,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from evalution.api.deps import Current, busy, invalid, local_only, not_found, target_name
+from evalution.api.workspaces import Workspace
 from evalution.code import CodeError
-from evalution.project import hooks, knowledge, profile, understanding
-from evalution.runs.runner import Runs
+from evalution.project import hooks, knowledge, profile, skeleton_view, understanding
 from evalution.suite.store import list_sets
+from evalution.writer import learn
 
 
-async def _understood(runs: Runs, name: str) -> dict[str, Any]:
+async def _understood(ws: Workspace, name: str) -> dict[str, Any]:
+    """The understanding as the page reads it. A learn's progress that says it is learning with
+    no learn going was cut with an earlier server: it says stopped, its areas in flight due."""
+    runs = ws.runs
     found = await asyncio.to_thread(understanding.view, runs.targets, runs, name)
+    progress = found["progress"]
+    if progress["state"] == "learning" and not ws.agent.learning(name):
+        areas = [
+            {**a, "state": "due"} if a["state"] == "learning" else a for a in progress["areas"]
+        ]
+        found["progress"] = {**progress, "state": "stopped", "areas": areas}
     return {**found, "knowledge": await asyncio.to_thread(knowledge.summary, runs, name)}
 
 
@@ -29,14 +39,70 @@ def understanding_router(url: str) -> APIRouter:
     async def get_understanding(ws: Current, target: str) -> dict[str, Any]:
         """What evalution understood of the target, with the admin's steers and the numbers as
         they are now; ``status: "learning"`` before the agent wrote it."""
-        targets, runs = ws.targets, ws.runs
-        return await _understood(runs, target_name(targets, target))
+        return await _understood(ws, target_name(ws.targets, target))
+
+    @router.get("/targets/{target}/skeleton")
+    async def get_skeleton(ws: Current, target: str) -> dict[str, Any]:
+        """The app's skeleton from its code, with no model (ADR 0012): entry points, prompts,
+        tools, model calls, routes, state and agents, each with its file and line, and how often
+        real use touched each; what real use names that the code doesn't, apart."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        code = targets.code(name)
+        if code is None:
+            raise busy("This app has no code folder, so there is no skeleton to show.")
+        try:
+            found = await asyncio.to_thread(skeleton_view.current, targets, name, code)
+        except (CodeError, OSError) as exc:
+            raise busy(f"Couldn't read the app's code: {exc}") from exc
+        used = await skeleton_view.uses(targets, name)
+        return skeleton_view.shown(found, used)
+
+    @router.post("/targets/{target}/areas/{area}/learn")
+    async def learn_area(
+        ws: Current, target: str, area: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The page's "Learn this area": one area learned, even one listed as weighing nothing.
+        One whose files and trace hits haven't moved since it was learned answers ``state:
+        current`` with when, and spends nothing, unless ``force`` ("Learn it again anyway").
+        ``session``: the test writer's session to learn in (a learn going there learns it before
+        its overview), else a new one on ``set`` (else the first set). The answer: the area as it
+        stood, and the session when a learn was asked for."""
+        targets, agent = ws.targets, ws.agent
+        name = target_name(targets, target)
+        force = body.get("force", False)
+        if not isinstance(force, bool):
+            raise invalid("force: true or false")
+        try:
+            found = await learn.area_state(targets, name, area)
+        except LookupError as exc:
+            raise not_found(f"Area {area}") from exc
+        except (CodeError, OSError) as exc:
+            raise busy(f"Couldn't read the app's code: {exc}") from exc
+        if found["state"] == "current" and not force:
+            return {"area": found, "session": None}
+        if not agent.llm:
+            raise busy("No model is set up yet: choose one in Settings, Model.")
+        session_id = body.get("session")
+        try:
+            if not isinstance(session_id, str) or not session_id:
+                sets = list_sets(targets.docs, name)
+                set_name = body.get("set") or (sets[0] if sets else None)
+                if not isinstance(set_name, str):
+                    raise invalid("set: this app has no test set")
+                session_id = (await agent.create(name, set_name))["id"]
+            session = await agent.learn_area(session_id, area, force)
+        except LookupError as exc:
+            raise not_found("Test writer session or test set") from exc
+        except RuntimeError as exc:
+            raise busy(str(exc)) from exc
+        return {"area": found, "session": session}
 
     @router.post("/targets/{target}/understanding/steer")
     async def steer_understanding(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
         """A claim or node marked right or wrong or fixed, a priority picked or added, a
         starter selected."""
-        targets, runs = ws.targets, ws.runs
+        targets = ws.targets
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(understanding.steer, targets, name, body)
@@ -44,7 +110,7 @@ def understanding_router(url: str) -> APIRouter:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise invalid(str(exc)) from exc
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/update")
     async def update_understanding(ws: Current, target: str) -> dict[str, Any]:
@@ -56,18 +122,18 @@ def understanding_router(url: str) -> APIRouter:
             raise busy("No model is set up yet.")
         if outcome in ("failed", "busy", "superseded"):
             raise busy("Couldn't update. Nothing changed.")
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/undo")
     async def undo_understanding(ws: Current, target: str) -> dict[str, Any]:
         """Put back what it knew before the last update from a commit."""
-        targets, runs = ws.targets, ws.runs
+        targets = ws.targets
         name = target_name(targets, target)
         try:
             await asyncio.to_thread(knowledge.undo, targets, name)
         except LookupError as exc:
             raise busy(str(exc)) from exc
-        return await _understood(runs, name)
+        return await _understood(ws, name)
 
     @router.post("/targets/{target}/understanding/seen", status_code=204)
     async def saw_understanding(ws: Current, target: str) -> None:

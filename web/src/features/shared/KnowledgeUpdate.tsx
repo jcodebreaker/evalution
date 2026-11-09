@@ -29,7 +29,7 @@ export function OutOfDate({
     setBusy(false);
   };
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[14px] text-ink-2">
       <span>{count(knowledge.out_of_date, "thing")} it knows may be out of date</span>
       {knowledge.can_update ? (
         <Button variant="secondary" disabled={busy} onClick={() => void update()}>
@@ -37,7 +37,7 @@ export function OutOfDate({
           Update
         </Button>
       ) : null}
-      {error ? <span className="text-destructive">{error}</span> : null}
+      {error ? <span className="text-fail">{error}</span> : null}
     </div>
   );
 }

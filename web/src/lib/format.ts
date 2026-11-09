@@ -111,3 +111,11 @@ export function ago(at: number, now = Date.now() / 1000): string {
   if (hours < 24) return `${count(hours, "hour")} ago`;
   return `${count(Math.floor(hours / 24), "day")} ago`;
 }
+
+/** A reason as the server words it ("the app answered … 503", "The key was refused") made a
+ * sentence of its own, so the next sentence after it doesn't run into it. */
+export function asSentence(reason: string): string {
+  const said = reason.trim();
+  const capital = said.charAt(0).toUpperCase() + said.slice(1);
+  return /[.!?…]$/.test(capital) ? capital : `${capital}.`;
+}

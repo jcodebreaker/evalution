@@ -137,6 +137,107 @@ async def test_a_poll_that_never_ends_runs_out_of_time() -> None:
     assert turn.failure is Failure.TIMED_OUT
 
 
+async def test_watch_waits_by_polling_on_a_turn_the_page_sent() -> None:
+    """With done.poll, a turn something else sent is read the way send reads one; it sends
+    nothing itself, and a turn that errors after was heard."""
+    said: list[str] = []
+    polls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        said.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        polls["n"] += 1
+        status = "idle" if polls["n"] >= 2 else "busy"
+        return httpx.Response(200, json={"status": status, "reply": "Biscuit"})
+
+    target = _target(
+        {**BOT, "done": {"poll": {**POLL["poll"], "interval": 0.01}}, "reply": "$.reply"}, handler
+    )
+    assert target.capabilities.watch
+    session = await target.open("run")
+    since = time.time() - 1
+    turn = await target.watch(session, since, deadline=time.time() + 5)
+    assert (turn.reply, turn.error, turn.started, turn.ended_as) == (
+        "Biscuit",
+        None,
+        since,
+        TurnEnd.ANSWERED,
+    )
+    assert "POST" not in said and polls["n"] == 2
+
+    looks: list[int] = []
+
+    def fails(request: httpx.Request) -> httpx.Response:
+        looks.append(1)
+        status = "busy" if len(looks) == 1 else "failed"
+        return httpx.Response(200, json={"status": status, "error": "no disk"})
+
+    poll = {
+        **POLL["poll"],
+        "interval": 0.01,
+        "failed_when": "$.status == 'failed'",
+        "why": "$.error",
+    }
+    failing = _target({**BOT, "done": {"poll": poll}}, fails)
+    turn = await failing.watch(await failing.open("r"), time.time(), deadline=time.time() + 5)
+    assert (turn.ended_as, turn.error) == (TurnEnd.FAILED, "no disk")
+    late = _polling("busy")
+    turn = await late.watch(await late.open("r"), time.time(), deadline=time.time() + 0.02)
+    assert turn.failure is Failure.TIMED_OUT
+
+    def down(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    gone = _target({**BOT, "done": POLL}, down)
+    turn = await gone.watch(await gone.open("r"), time.time(), deadline=time.time() + 5)
+    assert turn.failure is Failure.TRANSIENT and turn.heard, "the page sent it"
+
+
+async def test_watch_never_takes_the_reply_from_before_the_page_sent() -> None:
+    """The app still says idle, with the old reply, for a moment after the page's message."""
+    sent_at = time.time()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        after = time.time() - sent_at
+        if after < 0.3:
+            return httpx.Response(200, json={"status": "idle", "reply": "Old"})
+        if after < 0.5:
+            return httpx.Response(200, json={"status": "busy", "reply": "Old"})
+        return httpx.Response(200, json={"status": "idle", "reply": "New"})
+
+    poll = {"poll": {**POLL["poll"], "interval": 0.05}}
+    target = _target({**BOT, "done": poll}, handler)
+    turn = await target.watch(await target.open("r"), sent_at, deadline=time.time() + 5)
+    assert (turn.error, turn.reply) == (None, "New")
+
+    def straight_to_new(request: httpx.Request) -> httpx.Response:
+        new = time.time() - sent_at >= 0.3
+        return httpx.Response(200, json={"status": "idle", "reply": "New" if new else "Old"})
+
+    sent_at = time.time()
+    target = _target({**BOT, "done": poll}, straight_to_new)
+    turn = await target.watch(await target.open("r"), sent_at, deadline=time.time() + 5)
+    assert turn.reply == "New", "a reply that changed is a move, though it never looked busy"
+
+    def never_moves(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "idle", "reply": "Old"})
+
+    target = _target({**BOT, "done": poll}, never_moves)
+    turn = await target.watch(await target.open("r"), time.time(), deadline=time.time() + 0.3)
+    assert turn.failure is Failure.TIMED_OUT and turn.heard and turn.reply == ""
+    # send, which sent the message itself, takes a done session at its word, as before.
+    turn = await target.send(await target.open("r"), "hi", deadline=time.time() + 5)
+    assert (turn.error, turn.reply) == (None, "Old")
+
+
+async def test_watch_isnt_declared_without_a_poll() -> None:
+    target = _target(BOT, lambda _request: httpx.Response(200, json={"reply": "Hi"}))
+    assert not target.capabilities.watch
+    with pytest.raises(NotImplementedError):
+        await target.watch(await target.open("r"), time.time(), deadline=time.time() + 5)
+
+
 def test_what_a_poll_checks_must_read() -> None:
     with pytest.raises(ConfigError, match="failed_when"):
         _polling("idle", failed_when="status is failed")
@@ -268,3 +369,95 @@ async def test_an_error_keeps_the_status_and_path_never_the_urls_login_or_query(
     assert net.no_login(said) == "Bad 'http://bot.example.test:81/chat' and postgres://h/d"
     assert net.said(ValueError(said)) == f"ValueError: {net.no_login(said)}"
     assert net.no_login("nothing to see: 12:30 a/b") == "nothing to see: 12:30 a/b"
+
+
+async def test_url_is_where_evalution_points_the_target() -> None:
+    """``{url}`` is the target's ``url``: on evalution's copy, the copy's address."""
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(str(request.url))
+        return httpx.Response(200, json={"reply": "Hi"})
+
+    http = {"send": {"url": "{url}/chat/{session}"}, "reply": "$.reply"}
+    conf = TargetConfig("bot", "http", None, None, {"url": "http://copy:9/", "http": http})
+    target = HttpTarget(conf, transport=httpx.MockTransport(handler))
+    session = await target.open("r")
+    turn = await target.send(session, "Hi", deadline=time.time() + 5)
+    assert turn.reply == "Hi" and called == [f"http://copy:9/chat/{session.id}"]
+
+
+def test_on_a_copy_routes_written_on_the_apps_own_address_move_to_the_copys() -> None:
+    """A route written in full on the target's own ``url`` (same scheme, host and port) is moved
+    onto the copy's address, its path kept; one written with ``{url}`` needs nothing."""
+    own = "http://LOCALHOST:80/api"
+    http = {
+        "send": {"url": "http://localhost/api/chat/{session}", "body": {"m": "{message}"}},
+        "open": {"url": "http://localhost:80/api/sessions", "id": "$.id"},
+        "done": {"poll": {"url": "{url}/sessions/{session}", "until": "$.done"}},
+        "cancel": {"url": "http://localhost/api/sessions/{session}/stop"},
+        "health": "http://localhost/health",
+        "reply": "$.reply",
+    }
+    options = {"url": own, "http": http}
+    moved = http_module.INFO.on_copy(options, "http://127.0.0.1:5123/api")
+    assert moved["url"] == "http://127.0.0.1:5123/api"
+    got = moved["http"]
+    assert got["send"] == {
+        "url": "http://127.0.0.1:5123/api/chat/{session}",
+        "body": {"m": "{message}"},
+    }
+    assert got["open"] == {"url": "http://127.0.0.1:5123/api/sessions", "id": "$.id"}
+    assert got["done"]["poll"]["url"] == "{url}/sessions/{session}"
+    assert got["cancel"]["url"] == "http://127.0.0.1:5123/api/sessions/{session}/stop"
+    assert got["health"] == "http://127.0.0.1:5123/health"
+    # The saved target is left as it is.
+    assert options == {"url": own, "http": http} and http["send"]["url"].startswith("http://local")
+
+
+@pytest.mark.parametrize(
+    ("own", "route"),
+    [
+        ("http://localhost:3000", "http://localhost:3001/chat"),  # another port
+        ("http://localhost:3000", "https://localhost:3000/chat"),  # another scheme
+        ("http://localhost:3000", "http://127.0.0.1:3000/chat"),  # another host, even this one
+        ("http://localhost:3000", "https://api.example.test/chat"),
+        ("http://localhost:3000", "http://localhost:{port}/chat"),
+        (None, "http://localhost:3000/chat"),  # nothing to tell its own address by
+    ],
+)
+def test_on_a_copy_a_route_on_another_address_is_refused_by_name(own, route) -> None:
+    options = {"http": {"send": {"url": "{url}/chat"}, "cancel": {"url": route}}}
+    if own:
+        options["url"] = own
+    with pytest.raises(ValueError) as said:
+        http_module.INFO.on_copy(options, "http://127.0.0.1:5123")
+    assert f"http.cancel.url ({route})" in str(said.value)
+    assert "{url}" in str(said.value) and "send" not in str(said.value)
+
+
+async def test_on_a_copy_a_target_written_in_full_sends_to_the_copy_only() -> None:
+    """Pointed at a copy, every request goes to the copy's address; none to the app's own."""
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(str(request.url))
+        if request.url.path.endswith("/sessions"):
+            return httpx.Response(200, json={"id": "s1"})
+        return httpx.Response(200, json={"reply": "Hi"})
+
+    http = {
+        "open": {"url": "http://localhost:3000/sessions", "id": "$.id"},
+        "send": {"url": "http://localhost:3000/chat/{session}"},
+        "reply": "$.reply",
+    }
+    options = http_module.INFO.on_copy(
+        {"url": "http://localhost:3000", "http": http}, "http://127.0.0.1:5123"
+    )
+    target = HttpTarget(
+        TargetConfig("bot", "http", None, None, options), httpx.MockTransport(handler)
+    )
+    session = await target.open("r")
+    turn = await target.send(session, "Hi", deadline=time.time() + 5)
+    assert turn.reply == "Hi"
+    assert called == ["http://127.0.0.1:5123/sessions", "http://127.0.0.1:5123/chat/s1"]

@@ -74,9 +74,11 @@ async def keep(
     cmap: CodeMap | None,
     detail_paths: Iterable[str] | None,
     read: Iterable[str] = (),
+    replace: bool = False,
 ) -> dict[str, Any]:
     """Save *written* (checked) as the new understanding, with its Details: of *detail_paths*
-    when a learn gives them, else as they were."""
+    when a learn gives them, else as they were. *replace*: in place of the last version, one
+    this learn saved as its areas landed (:func:`keep_partial`)."""
     found, fingerprint = taken
     if detail_paths is not None and cmap is not None:
         memory = await asyncio.to_thread(filememory.load, targets, name)
@@ -85,9 +87,25 @@ async def keep(
         claims = understanding.details_of(understanding.load(targets, name))
     written = understanding.with_details(written, claims)
     drift.keep_baseline(targets, name, fingerprint)
-    saved = understanding.save(targets, name, understanding.build(written, found))
+    saved = understanding.save(targets, name, understanding.build(written, found), replace=replace)
     code = targets.code(name)
     if code is not None:
         await asyncio.to_thread(knowledge.written, targets, name, code, list(read))
         await asyncio.to_thread(filememory.learned, targets, name, code)
     return saved
+
+
+def keep_partial(
+    targets: Targets,
+    name: str,
+    written: dict[str, Any],
+    found: Mapping[str, Any],
+    replace: bool,
+) -> dict[str, Any]:
+    """Save *written* (checked) while a learn goes, so the page shows the areas as they land: its
+    Details as they were, and nothing else the engine keeps moved (the drift baseline, the
+    knowledge links, what the learn saw of the code), which only a finished learn sets.
+    *replace*: in place of the version this learn saved before."""
+    claims = understanding.details_of(understanding.load(targets, name))
+    whole = understanding.build(understanding.with_details(written, claims), found)
+    return understanding.save(targets, name, whole, replace=replace)

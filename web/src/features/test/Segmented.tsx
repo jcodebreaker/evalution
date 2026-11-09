@@ -2,6 +2,7 @@ import { cn } from "../../lib/cn";
 
 export type Mode = "plan" | "result";
 
+/** The test's two views as tabs on a line: what it checks, and its latest result. */
 export function Segmented({
   value,
   onChange,
@@ -20,15 +21,15 @@ export function Segmented({
       disabled={disabled}
       onClick={() => onChange(mode)}
       className={cn(
-        "h-7 rounded-[7px] px-3 text-[13px] font-medium text-ink-2 focus-visible:outline-2 focus-visible:outline-ring disabled:text-ink-3",
-        value === mode && "bg-group text-foreground ring-[0.5px] ring-separator",
+        "-mb-px h-9 border-b-2 border-transparent px-2 text-[14px] font-medium text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-ring disabled:text-ink-3 disabled:hover:text-ink-3",
+        value === mode && "border-tint text-tint-ink hover:text-tint-ink",
       )}
     >
       {label}
     </button>
   );
   return (
-    <div className="inline-flex gap-0.5 rounded-[9px] bg-bubble p-[3px]">
+    <div className="flex gap-1 border-b border-separator">
       {option("plan", "What it checks")}
       {option("result", resultLabel, resultOff)}
     </div>

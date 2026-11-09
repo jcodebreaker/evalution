@@ -43,7 +43,7 @@ export function TracesHelp({
   onCheck: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2.5 border-separator border-t pt-4 text-[13px]">
+    <div className="flex flex-col gap-2.5 border-separator border-t pt-4 text-[14px]">
       <p className="m-0 text-ink-2">{traces.text}</p>
       <Copyable text={traces.lines} label="Copy the lines" />
       {traces.command ? (

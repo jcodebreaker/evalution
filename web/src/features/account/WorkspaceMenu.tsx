@@ -93,7 +93,7 @@ function NewWorkspace({ onClose }: { onClose: () => void }) {
           onChange={(event) => setName(event.target.value)}
           autoFocus
         />
-        {error ? <p className="m-0 text-[12.5px] text-destructive">{error}</p> : null}
+        {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
       </form>
     </ConfirmDialog>
   );

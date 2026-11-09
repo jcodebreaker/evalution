@@ -1,13 +1,3 @@
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  CircleHelp,
-  Database,
-  Scissors,
-  Send,
-  Target,
-} from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -17,13 +7,6 @@ import { Button } from "../../ui/button";
 import { TextLink } from "../shared/group";
 
 export type Run = Benchmarks["runs"][number];
-const ICONS: Partial<Record<MetricKey, LucideIcon>> = {
-  accuracy: Target,
-  recall: Database,
-  reached: Send,
-  abstention: CircleHelp,
-  compacted: Scissors,
-};
 type MetricKey =
   | "accuracy"
   | "average"
@@ -169,7 +152,7 @@ export function Glance({
   return (
     <>
       <div className="flex flex-col gap-0.5 px-1">
-        <p className="m-0 flex flex-wrap gap-x-2 text-[13px] text-ink-2">
+        <p className="m-0 flex flex-wrap gap-x-2 text-[14px] text-ink-2">
           {benchmarkName(run.set)}
           {run.started_at ? <span className="text-ink-3">{when(run.started_at)}</span> : null}
           {didntFinish ? <span className="font-semibold text-warning">Didn't finish</span> : null}
@@ -191,7 +174,6 @@ export function Glance({
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3">
           {cards.map((card) => {
             const delta = change(card.value, was.find((old) => old.key === card.key)?.value);
-            const Icon = ICONS[card.key] ?? Target;
             return (
               <button
                 key={card.key}
@@ -199,16 +181,11 @@ export function Glance({
                 aria-expanded={open === card.key}
                 onClick={() => pick(card.key)}
                 className={cn(
-                  "glass flex min-w-0 flex-col gap-2 rounded-xl p-4 text-start hover:border-input focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                  open === card.key && "ring-1 ring-chart",
+                  "glass flex min-w-0 flex-col gap-2 rounded-[12px] p-4 text-start hover:border-rule-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tint",
+                  open === card.key && "border-tint ring-3 ring-tint-soft-2",
                 )}
               >
-                <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-ink-2">
-                  <span className="grid size-6 shrink-0 place-items-center rounded-md border border-separator">
-                    <Icon className="size-3.5 text-ink-2" aria-hidden />
-                  </span>
-                  <span className="truncate">{card.label}</span>
-                </span>
+                <span className="truncate text-[13px] text-ink-2">{card.label}</span>
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="text-[24px] leading-none font-semibold tracking-[-0.02em] tabular-nums">
                     {share(card.value)}
@@ -216,20 +193,16 @@ export function Glance({
                   {delta ? (
                     <span
                       className={cn(
-                        "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                        delta > 0 ? "bg-up text-success" : "bg-down text-destructive",
+                        "rounded-full px-1.5 py-px text-[12px] font-medium tabular-nums",
+                        delta > 0 ? "bg-pass-soft text-pass" : "bg-fail-soft text-fail",
                       )}
                     >
+                      {delta > 0 ? "+" : "−"}
                       {Math.abs(delta)} pts
-                      {delta > 0 ? (
-                        <ArrowUpRight className="size-3" aria-label="up" />
-                      ) : (
-                        <ArrowDownRight className="size-3" aria-label="down" />
-                      )}
                     </span>
                   ) : null}
                 </span>
-                <span className="text-[12px] text-ink-3 tabular-nums">{card.note}</span>
+                <span className="text-[12.5px] text-ink-3 tabular-nums">{card.note}</span>
               </button>
             );
           })}
@@ -239,11 +212,11 @@ export function Glance({
         <div className="glass flex flex-col gap-1.5 rounded-xl px-5 py-3.5">
           <pre
             title={how.who}
-            className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+            className="m-0 font-mono text-[14px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
           >
             {how.lines}
           </pre>
-          <div className="flex flex-wrap gap-x-3 text-[12px]">
+          <div className="flex flex-wrap gap-x-3 text-[12.5px]">
             {report.task_average === null || open === "average" ? null : (
               <TextLink onClick={() => pick("average")}>
                 Task average {share(report.task_average)}
@@ -303,7 +276,7 @@ function Progress({
         <span
           className={cn(
             "font-display font-semibold tabular-nums",
-            big ? "text-[34px] leading-tight tracking-[-0.03em]" : "text-[15px]",
+            big ? "text-[36px] leading-tight tracking-[-0.03em]" : "text-[15px]",
           )}
         >
           {done} of {total} questions
@@ -328,8 +301,8 @@ function Progress({
       >
         <div className="h-full rounded-full bg-chart" style={{ width: `${part * 100}%` }} />
       </div>
-      {step ? <p className="m-0 truncate text-[12.5px] text-ink-2 tabular-nums">{step}</p> : null}
-      {failed ? <p className="m-0 text-[13px] text-destructive">{failed}</p> : null}
+      {step ? <p className="m-0 truncate text-[13px] text-ink-2 tabular-nums">{step}</p> : null}
+      {failed ? <p className="m-0 text-[14px] text-fail">{failed}</p> : null}
     </div>
   );
 }
@@ -350,7 +323,7 @@ function Usage({ run }: { run: Run }) {
   ].filter(Boolean);
   if (!parts.length) return null;
   return (
-    <p className="m-0 text-[12px] text-ink-3 tabular-nums [overflow-wrap:anywhere]">
+    <p className="m-0 text-[12.5px] text-ink-3 tabular-nums [overflow-wrap:anywhere]">
       {parts.join(" · ")}
     </p>
   );

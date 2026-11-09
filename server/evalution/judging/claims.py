@@ -60,6 +60,10 @@ def _said(evidence: TryEvidence) -> Iterable[str]:
     for state in evidence.states:
         yield state.actual or ""
         yield state.reason
+    if evidence.page is not None:
+        yield from (t.shown.text for t in evidence.turns if t.shown is not None)
+        yield from (t.instead.text for t in evidence.page.turns)
+        yield from (line.text.text for line in evidence.page.console)
 
 
 def _refs(evidence: TryEvidence) -> Iterable[str]:
@@ -69,6 +73,12 @@ def _refs(evidence: TryEvidence) -> Iterable[str]:
     yield from (f"span:{call.span}" for call in evidence.model_calls)
     yield from (f"turn:{n}" for n in range(1, len(evidence.turns) + 1))
     yield from (f"state:{state.index}" for state in evidence.states)
+    page = evidence.page
+    if page is not None:
+        yield from (f"page:{n}" for n in range(1, len(evidence.turns) + 1))
+        yield from (f"shot:{name}" for name in page.files)
+        yield from (f"console:{n}" for n in range(1, len(page.console) + 1))
+        yield from (f"request:{n}" for n in range(1, len(page.failed_requests) + 1))
 
 
 def index_of(tries: Iterable[TryEvidence]) -> EvidenceIndex:

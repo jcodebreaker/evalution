@@ -1,6 +1,6 @@
 """From a try's evidence to the checks code decides (docs/judging.md): the state and context checks,
-the reply's words, what tools returned, ``never``, the steps, the limits and how the try's turns
-went. Pure: no model, no files, and what it
+the reply's words, what tools returned, ``never``, the steps, the limits, how the try's turns
+went, and on a try played through the page, what it showed. Pure: no model, no files, and what it
 could not know it says, rather than failing or passing on it.
 
 On a partial read of the traces only what was seen can decide. Not seeing a call, or a word in a
@@ -10,6 +10,7 @@ model call, decides nothing.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,7 @@ from evalution.core.case import Case
 from evalution.core.evidence import (
     Failure,
     ModelCallRecord,
+    PageRecord,
     StateRecord,
     ToolRecord,
     TraceStatus,
@@ -34,6 +36,7 @@ from evalution.core.judgement import (
     Route,
     WhyUnjudged,
 )
+from evalution.core.rendered import NOTHING_SHOWN, reply_words, shows
 from evalution.core.rules import route_of, steps_bind, timeout_outcome
 from evalution.judging.steps import EXTRA_OK, Step, arg_problem
 
@@ -54,6 +57,7 @@ _FAILURE = {
     Failure.REFUSED: WhyUnjudged.CREDENTIALS_REFUSED,
     Failure.TRANSIENT: WhyUnjudged.APP_BUSY,
     Failure.LEFTOVER_STATE: WhyUnjudged.LEFTOVER_STATE,
+    Failure.PAGE_MAP: WhyUnjudged.PAGE_MAP,
 }
 #: A try cut short by one of these is on the app. Cut short by anything else, what it didn't get to
 #: do says nothing.
@@ -62,6 +66,13 @@ _MAX_REFS = 5
 #: Seconds a model call may seem to end after the reply it gave: a span's clock is the app's, and it
 #: may close only after its last word went out.
 _CLOCK_SLACK = 1.0
+#: What a page renders away of Markdown: its marks, a link's target, a list's numbers, a table's
+#: bars.
+_MARKS = re.compile(r"[*_`#>~-]")
+_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_NUMBERED = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)
+#: How much of what a page showed a check's reason quotes.
+_SHOWN_CHARS = 160
 
 
 @dataclass(frozen=True)
@@ -261,6 +272,144 @@ def _reply_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
     return found
 
 
+def _plain(text: str) -> str:
+    """Text as a page and a reply can both be read: Markdown's marks, links' targets and list
+    numbers gone, spacing collapsed, case aside. The page renders what the reply writes out."""
+    text = _LINK.sub(r"\1", text)
+    text = _NUMBERED.sub(" ", text)
+    return _words(_MARKS.sub("", text).replace("|", " "))
+
+
+def _page_turn_refs(evidence: TryEvidence, at: int) -> list[EvidenceRef]:
+    """Where turn *at* (from 1) shows on the page: what it showed, and its screenshot."""
+    refs = [EvidenceRef(ref=f"page:{at}")]
+    page = evidence.page
+    if page is not None and at <= len(page.turns) and page.turns[at - 1].shot:
+        refs.append(EvidenceRef(ref=f"shot:{page.turns[at - 1].shot}"))
+    return refs
+
+
+def _shown_check(evidence: TryEvidence, at: int, role: Role) -> CheckResult | None:
+    """Whether turn *at* (from 1)'s reply showed on the page: its words, as a page renders them,
+    in order in what the page showed of it (:func:`evalution.core.rendered.shows`, the same reading
+    the page target waited with). ``None`` for a turn with no reply to look for."""
+    turn = evidence.turns[at - 1]
+    id_, kind, refs = f"shown:{at}", CheckKind.SHOWN, _page_turn_refs(evidence, at)
+    page = evidence.page
+    if turn.error and page is not None and page.page_only and turn.error == NOTHING_SHOWN:
+        # Reached through its page alone, the page settled and showed nothing: that is this.
+        instead = page.turns[at - 1].instead.text if at <= len(page.turns) else ""
+        said = f"; it showed {_cut(instead)!r}" if instead.strip() else ""
+        why = f"turn {at}'s reply never showed on the page{said}"
+        return _code(id_, kind, Outcome.FAILED, why, role=role, evidence=refs)
+    if turn.error:
+        why = f"turn {at} ended in an error, so there was no reply to show"
+        return _code(
+            id_,
+            kind,
+            Outcome.UNJUDGED,
+            why,
+            role=role,
+            unjudged=WhyUnjudged.NO_REPLY,
+            evidence=refs,
+        )
+    if not reply_words(turn.reply.text):
+        return None
+    if turn.shown is None:
+        page = evidence.page
+        instead = page.turns[at - 1].instead.text if page and at <= len(page.turns) else ""
+        said = f"; it showed {_cut(instead)!r} instead" if instead.strip() else ""
+        why = f"turn {at}'s reply never showed on the page{said}"
+        return _code(id_, kind, Outcome.FAILED, why, role=role, evidence=refs)
+    if shows(turn.reply.text, turn.shown.text):
+        why = f"turn {at}'s reply showed on the page"
+        return _code(id_, kind, Outcome.PASSED, why, role=role, evidence=refs)
+    why = f"the page showed {_cut(turn.shown.text)!r}, not turn {at}'s reply"
+    return _code(id_, kind, Outcome.FAILED, why, role=role, evidence=refs)
+
+
+def _cut(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= _SHOWN_CHARS else f"{text[:_SHOWN_CHARS]}…"
+
+
+def _shown_words(case: Case, evidence: TryEvidence, role: Role) -> list[CheckResult]:
+    """The test's own ``page.contains`` and ``page.lacks``, on what the page showed of the last
+    reply. A try cut short has none to read, as for the reply's words; a reply that never showed
+    fails both, as an empty reply does."""
+    if evidence.failure is not None or not (case.shown_contains or case.shown_lacks):
+        return []
+    at = next(
+        (i for i in range(len(evidence.turns), 0, -1) if evidence.turns[i - 1].kind == "message"),
+        0,
+    )
+    shown = evidence.turns[at - 1].shown if at else None
+    text = _plain(shown.text) if shown is not None else ""
+    refs = _page_turn_refs(evidence, at) if at else []
+    found = []
+    for wanted, words, name in (
+        (True, case.shown_contains, "contains"),
+        (False, case.shown_lacks, "lacks"),
+    ):
+        for i, word in enumerate(words):
+            present = bool(text) and _plain(word) in text
+            why = (
+                f"the page {'shows' if present else 'lacks'} {word!r}"
+                if text
+                else "the reply never showed on the page"
+            )
+            outcome = Outcome.PASSED if text and present == wanted else Outcome.FAILED
+            found.append(
+                _code(f"shown:{name}:{i}", CheckKind.SHOWN, outcome, why, role=role, evidence=refs)
+            )
+    return found
+
+
+def _page_health(page: PageRecord, role: Role) -> CheckResult:
+    """No console errors and no failed requests to the copy, over the whole try. A warning is
+    kept and decides nothing. The request that carried a message the app refused is the app's
+    answer, its turn's to say, not the page's health."""
+    errors = [(i, c) for i, c in enumerate(page.console, 1) if c.level == "error"]
+    failed = [(i, r) for i, r in enumerate(page.failed_requests, 1) if not r.message]
+    refs = [EvidenceRef(ref=f"console:{i}") for i, _ in errors[:_MAX_REFS]]
+    refs += [EvidenceRef(ref=f"request:{i}") for i, _ in failed[:_MAX_REFS]]
+    if not errors and not failed:
+        why = "no console errors, and no failed requests to the copy"
+        return _code("page_health", CheckKind.PAGE_HEALTH, Outcome.PASSED, why, role=role)
+    said = []
+    if errors:
+        said.append(f"{len(errors)} console error(s), first {_cut(errors[0][1].text.text)!r}")
+    if failed:
+        first = failed[0][1]
+        status = first.status if first.status is not None else "no answer"
+        said.append(f"{len(failed)} failed request(s), first {first.method} {first.path}: {status}")
+    return _code(
+        "page_health",
+        CheckKind.PAGE_HEALTH,
+        Outcome.FAILED,
+        "; ".join(said),
+        role=role,
+        evidence=refs,
+    )
+
+
+def page_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
+    """What the page showed, on a try played through it (ADR 0010): each message turn's reply
+    showed, the test's own words, and the page's health. A guide unless the test says the page
+    decides (``page.decides``). A try played through the API alone has none."""
+    if evidence.page is None:
+        return []
+    role = Role.MUST if case.page_decides else Role.GUIDE
+    found = [
+        check
+        for at, turn in enumerate(evidence.turns, 1)
+        if turn.kind == "message" and (check := _shown_check(evidence, at, role))
+    ]
+    found += _shown_words(case, evidence, role)
+    found.append(_page_health(evidence.page, role))
+    return found
+
+
 def _result_problem(spec: Mapping[str, Any], tool: ToolRecord) -> str | None:
     """Why *tool*'s result doesn't hold what *spec* wants; ``None`` when it does.
 
@@ -360,6 +509,10 @@ def _turn_check(evidence: TryEvidence) -> CheckResult | None:
     id_ = f"turn:{len(evidence.turns)}"
     ref = [EvidenceRef(ref=id_)]
     why = evidence.error or "the try stopped"
+    last = evidence.turns[-1] if evidence.turns else None
+    if evidence.page is not None and last is not None and last.error == NOTHING_SHOWN:
+        # The page showed nothing: its evidence is the page's, and the shown layer's to say.
+        ref.append(EvidenceRef(ref=f"page:{len(evidence.turns)}"))
     if evidence.failure is Failure.APP:
         return _code(id_, CheckKind.TURN, Outcome.FAILED, why, evidence=ref)
     if evidence.failure is Failure.TIMED_OUT:
@@ -448,9 +601,15 @@ def code_checks(
     found += [aligned] if aligned else []
     turn = _turn_check(evidence)
     found += [turn] if turn else []
+    page = page_checks(case, evidence)
+    if case.page_decides:
+        found += page
     if not found and not case.rubric and not case.reference:
         # Nothing to check: the try itself still has to have been seen.
         found.append(_seen_check(evidence))
+    if not case.page_decides:
+        # Page checks that only guide leave a test with nothing else to check as it was.
+        found += page
     limit = _limit_check(case, evidence)
     found += [limit] if limit else []
     return CodeChecks(

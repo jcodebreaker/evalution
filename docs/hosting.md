@@ -86,6 +86,8 @@ It takes the workspace's tests for that set first (`GET /v1/evals/sets/export?ta
 files `sets export` writes, as JSON), plays them with your local config's settings for the app and
 your own model key, then uploads the run and its evidence (`POST /v1/evals/runs/import`, at most
 32 MiB). The app and the set must exist in the workspace. Sending a run again replaces it.
+A run played through the app's page keeps its screenshots and video on the computer that played
+it: the upload carries their names, not the files.
 
 Every run records where it played: `hosted`, or `local` for one played by `evalution run`, with the
 name `--env` gives it (a run the page starts can say one too: `environment` beside the token). The

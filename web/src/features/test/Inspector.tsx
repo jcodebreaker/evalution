@@ -32,12 +32,12 @@ export function Inspector({ span, onClose }: { span: Span; onClose: () => void }
       className="flex min-h-0 w-[300px] shrink-0 flex-col overflow-auto border-s border-separator bg-content max-lg:w-auto max-lg:border-s-0 max-lg:border-t"
     >
       <div className="flex items-start gap-2 px-4 pt-4 pb-2.5">
-        <h4 className="m-0 flex-1 text-[13px] font-semibold break-words">{span.name}</h4>
+        <h4 className="m-0 flex-1 text-[14px] font-semibold break-words">{span.name}</h4>
         <Button variant="ghost" size="icon-xs" aria-label="Close" onClick={onClose}>
           <X />
         </Button>
       </div>
-      <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 px-4 pb-3.5 text-[12px]">
+      <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 px-4 pb-3.5 text-[12.5px]">
         {rows.map(([name, value]) => (
           <div key={name} className="contents">
             <dt className="text-ink-3">{name}</dt>

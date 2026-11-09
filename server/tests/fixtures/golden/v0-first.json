@@ -123,7 +123,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -331,7 +344,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "passed",
@@ -539,7 +565,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 3,
      "outcome": "passed",
@@ -690,8 +729,15 @@
     ],
     "last_at": 1793572986.018167,
     "last_run": "20261101-224306-aaaa",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test 1",
     "originally": null,
+    "plays": "api",
     "reasons": [
      null,
      null,
@@ -720,6 +766,7 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "history": [
    {
     "prompt": "d4607fa1",
@@ -730,6 +777,11 @@
    }
   ],
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -780,6 +832,16 @@
    "tokens": 158004,
    "tools": 1.0,
    "unjudged": 0
+  },
+  "version": {
+   "branch": null,
+   "commit": null,
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -801,8 +863,15 @@
    ],
    "last_at": 1793583042.105848,
    "last_run": "20261102-013042-bbbb",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test 1",
    "originally": null,
+   "plays": "api",
    "reasons": [
     null,
     null,
@@ -836,7 +905,13 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -887,6 +962,16 @@
    "tokens": 158004,
    "tools": 1.0,
    "unjudged": 0
+  },
+  "version": {
+   "branch": null,
+   "commit": null,
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

@@ -53,6 +53,31 @@ jobs:
             echo "No tests/acceptance yet"
           fi
 
+  # Playing tests through an app's own page (ADR 0010): the page extra and a browser, which the
+  # server job leaves out so those tests skip there.
+  page:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - run: uv sync --locked --all-groups --extra page
+      - run: uv run --all-groups playwright install --with-deps chromium
+      # A page try's video (ADR 0010): without it the tries play on with no video.
+      - run: uv run --all-groups playwright install ffmpeg
+      - run: >-
+          uv run --all-groups pytest -q -rs
+          tests/test_page_map.py tests/test_page_target.py tests/test_page_target_contract.py
+          tests/test_page_evidence.py tests/test_page_view.py tests/acceptance/test_page_runs.py
+          tests/test_demo.py tests/acceptance/test_demo_ui.py
+
   server-audit:
     runs-on: ubuntu-24.04
     defaults:

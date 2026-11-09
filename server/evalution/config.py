@@ -12,7 +12,10 @@ and how it reads them (:class:`TracesConfig`).
 What the page sets lives in the database, kind :data:`SETTINGS`, owned here: the targets
 connected from the page under ``targets/<name>`` (each its block), merged in, a name in both
 being the hand-edited one; and the model set from the page under ``model`` (its ``model:``
-block), which a ``model:`` in the file wins over whole. The file itself is never written.
+block), which a ``model:`` in the file wins over whole; and, for a target set in the file, the
+page map a person approved on the page under ``page-maps/<name>`` (a ``page:`` block), read as
+its ``page:`` when the file gives it none, the file's own winning. The file itself is never
+written.
 """
 
 from __future__ import annotations
@@ -37,6 +40,8 @@ MODEL_KEYS = ("strong", "light")
 SETTINGS = "settings"
 MODEL_DOC = "model"
 _TARGETS = "targets/"
+#: The approved ``page:`` blocks of targets set in the file, which evalution never writes.
+_BESIDE = "page-maps/"
 #: ``traces`` keys from when evalution could run Phoenix itself: still read, and left unused.
 RETIRED_TRACES = ("managed", "port", "grpc", "keep_mb")
 #: The stored secret that holds the model's API key, when it was set from the page.
@@ -161,6 +166,9 @@ class CodeConfig:
     summarize: float | None = None
     #: The model a learn's areas are understood with: ``strong`` (``None``) or ``light``.
     area_model: str | None = None
+    #: Areas a learn understands at once; ``None``: the default (8). The provider's rate limit
+    #: is the ceiling.
+    area_parallel: int | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +210,15 @@ class TracesConfig:
 
 
 @dataclass(frozen=True)
+class IsolationConfig:
+    """How a run treats an app with no proven isolation plan (ADR 0009). ``require_proven``:
+    refuse to run it (``evalution isolate --target T`` makes one); off (the default), it runs on
+    the app as it is, every result labelled not isolated."""
+
+    require_proven: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     file: Path
     root: Path
@@ -214,7 +231,11 @@ class Config:
     model_source: str | None = None
     #: The targets connected from the page, which the page may edit.
     managed: frozenset[str] = frozenset()
+    #: Targets set in the file whose ``page:`` block is the one approved on the page, stored
+    #: beside the file (:func:`beside_pages`), as the file gives none.
+    page_beside: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
+    isolation: IsolationConfig = IsolationConfig()
     #: The ready-made test library (``library/stateful/*.json``).
     library_dir: Path = Path("library")
     #: One real turn before the first run on an adapter and its settings (``runs/preflight.py``).
@@ -311,6 +332,13 @@ def _traces(block: dict[str, Any]) -> TracesConfig:
     return TracesConfig(keep_days, float(settle), float(stuck))
 
 
+def _isolation(block: dict[str, Any]) -> IsolationConfig:
+    required = block.get("require_proven", False)
+    if not isinstance(required, bool):
+        raise ConfigError("isolation.require_proven: true or false")
+    return IsolationConfig(require_proven=required)
+
+
 def _check_adapters(raw: dict[str, Any]) -> bool:
     found = raw.get("check_adapters", True)
     if not isinstance(found, bool):
@@ -357,10 +385,18 @@ def target_config(
         area_model = c.get("area_model")
         if area_model not in (None, "strong", "light"):
             raise ConfigError(f"{where}.code.area_model: strong or light")
+        area_parallel = c.get("area_parallel")
+        if area_parallel is not None and (
+            isinstance(area_parallel, bool)
+            or not isinstance(area_parallel, int)
+            or not 1 <= area_parallel <= 32
+        ):
+            raise ConfigError(f"{where}.code.area_parallel: a whole number from 1 to 32")
         code = CodeConfig(
             path=(root / _str(c, "path", f"{where}.code")).resolve(),
             summarize=float(summarize) if summarize is not None else None,
             area_model=area_model,
+            area_parallel=area_parallel,
             **globs,
         )
     parallel = block.get("max_parallel", 1)
@@ -385,6 +421,19 @@ def save_page_target(docs: Docs, name: str, block: dict[str, Any] | None) -> Non
         docs.delete(SETTINGS, f"{_TARGETS}{name}")
     else:
         docs.put(SETTINGS, f"{_TARGETS}{name}", block)
+
+
+def beside_pages(docs: Docs) -> dict[str, Any]:
+    """The ``page:`` blocks approved on the page for targets set in the file, by name."""
+    return {key.removeprefix(_BESIDE): body for key, body, _ in docs.items(SETTINGS, _BESIDE)}
+
+
+def save_beside_page(docs: Docs, name: str, block: dict[str, Any] | None) -> None:
+    """Store *name*'s approved ``page:`` block beside the file; ``None`` removes it."""
+    if block is None:
+        docs.delete(SETTINGS, f"{_BESIDE}{name}")
+    else:
+        docs.put(SETTINGS, f"{_BESIDE}{name}", block)
 
 
 def page_model(docs: Docs) -> dict[str, Any]:
@@ -433,6 +482,14 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
     for name in targets:
         if not isinstance(name, str) or not name.replace("-", "").replace("_", "").isalnum():
             raise ConfigError(f"targets.{name}: not a target name")
+    blocks = {n: _dict(b, f"targets.{n}") for n, b in targets.items()}
+    beside = beside_pages(docs) if own else {}
+    page_beside = set()
+    for name in own:
+        # The file's own page: wins; else the map approved on the page, kept beside it.
+        if "page" not in blocks[name] and isinstance(beside.get(name), dict):
+            blocks[name] = {**blocks[name], "page": beside[name]}
+            page_beside.add(name)
     allowed = os.environ.get(ALLOWED_HOSTS_ENV)
     hosts = allowed.split(",") if allowed is not None else data.get("allowed_hosts") or []
     if not isinstance(hosts, list) or not all(isinstance(h, str) for h in hosts):
@@ -446,11 +503,11 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
         web_dir=where("web_dir", "web/dist"),
         model=_model(model_block, keys),
         model_source=model_source if model_block else None,
-        targets={
-            n: target_config(n, _dict(b, f"targets.{n}"), root, keys) for n, b in targets.items()
-        },
+        targets={n: target_config(n, b, root, keys) for n, b in blocks.items()},
         managed=frozenset(n for n in managed if n not in own),
+        page_beside=frozenset(page_beside),
         traces=_traces(_dict(data.get("traces"), "traces")),
+        isolation=_isolation(_dict(data.get("isolation"), "isolation")),
         library_dir=where("library_dir", "library"),
         check_adapters=_check_adapters(data),
         adapters_dir=where("adapters_dir", "data/adapters") if "adapters_dir" in data else None,

@@ -21,16 +21,35 @@ import hashlib
 import io
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from evalution.core.case import Case
+from evalution.core.evidence import (
+    SHOTS_OFF,
+    SHOTS_ON_FAILURE,
+    VIDEO_ON_FAILURE,
+    Failure,
+    PageRecord,
+    PageTurn,
+    TryEvidence,
+)
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
-from evalution.core.rules import called_of, current, label_of, line_reason, steps_bind
+from evalution.core.rendered import shown_part
+from evalution.core.rules import (
+    called_of,
+    current,
+    judge_try,
+    label_of,
+    layers,
+    line_reason,
+    steps_bind,
+)
 from evalution.core.trace import Call
 from evalution.judging.steps import actual, describe_arg
 from evalution.llm import Caller, ask_json, fenced, json_answer
+from evalution.results.record import isolation_of
 
 _logger = logging.getLogger(__name__)
 
@@ -695,6 +714,7 @@ def _tool_rows(attempt: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _check_row(check: CheckResult) -> dict[str, Any]:
     return {
         "id": check.id,
+        "kind": check.kind.value,
         "text": check.why or check.id,
         "outcome": check.outcome.value,
         "guide": check.role is Role.GUIDE,
@@ -780,6 +800,113 @@ def trace_words(attempt: Mapping[str, Any], judged: Judgement) -> str | None:
     return f"{words} ({note})" if note else words
 
 
+def _decided(check: CheckResult | None) -> dict[str, Any] | None:
+    return {"outcome": check.outcome.value, "why": check.why} if check else None
+
+
+def _on_page(
+    steps: Sequence[dict[str, Any]],
+    kept: TryEvidence | None,
+    judged: Judgement,
+    file_url: Callable[[str], str | None],
+) -> dict[str, Any] | None:
+    """What the app's page showed of a try played through it (ADR 0010): each message step's
+    ``page`` (what showed, or what showed instead, when, its screenshot and the ``shown`` check
+    that decided it, by code), and the try's console, failed requests and video. ``None`` for a
+    try played through the API alone. Turns are counted as :func:`_sent` counts them."""
+    page = kept.page if kept is not None else None
+    if kept is None or page is None:
+        return None
+    checks = {c.id: c for c in judged.checks}
+    at = 0
+    for step in steps:
+        if step["kind"] == "filler":
+            at += int(step.get("count") or 1)
+        if step["kind"] != "say":
+            continue
+        at += 1
+        if at > len(kept.turns):
+            continue
+        turn = kept.turns[at - 1]
+        shown = turn.shown
+        seen = page.turns[at - 1] if at <= len(page.turns) else PageTurn()
+        check = checks.get(f"shown:{at}")
+        # How far the page showed a reply it failed to show: the words it did, and from where not.
+        part = (
+            shown_part(
+                turn.reply.text,
+                shown.text if shown is not None else seen.instead.text,
+                message=turn.message.text,
+            )
+            if check is not None and check.outcome is Outcome.FAILED and turn.reply.text
+            else None
+        )
+        step["page"] = {
+            "shown": shown.text if shown is not None else None,
+            "shown_at": seen.shown_at,
+            "instead": seen.instead.text,
+            "shot": seen.shot,
+            "shot_url": file_url(seen.shot) if seen.shot else None,
+            "check": _decided(check),
+            "part": {"shown": part[0], "missing": part[1]} if part else None,
+        }
+    video = next((name for name in page.files if name.endswith(".webm")), None)
+    url = file_url(video) if video else None
+    missing = page.video_missing
+    if video and url is None and page.video_policy == "failed" and judged.outcome is Outcome.PASSED:
+        # Deleted once the try passed, here and wherever it was played.
+        video, missing = None, VIDEO_ON_FAILURE
+    # Why the try shows no screenshots, when its proof said so: none taken, or deleted once it
+    # passed.
+    shots_missing = None
+    if page.screenshot_policy == "off":
+        shots_missing = SHOTS_OFF
+    elif page.screenshot_policy == "failed" and judged.outcome is Outcome.PASSED:
+        shots_missing = SHOTS_ON_FAILURE
+    return {
+        "console": [
+            {"level": line.level, "text": line.text.text, "at": line.at} for line in page.console
+        ],
+        "failed_requests": [r.model_dump(mode="json") for r in page.failed_requests],
+        "left_out": page.left_out,
+        "health": _decided(checks.get("page_health")),
+        # The shown layer without the page's health: what showed of the replies alone.
+        "shown_alone": layers(judged, health=False)["shown"],
+        # How the try comes out on every check but the page's: through the API alone. A target
+        # reached through its page alone has no API to have played through: none.
+        "without_page": None
+        if page.page_only
+        else judge_try(
+            c for c in judged.checks if c.kind not in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH)
+        ).value,
+        # Reached through its page alone: each reply is what the page showed (reply only).
+        "page_only": page.page_only,
+        # The app refused the page's message (its status) or never took it (none): the app's.
+        "not_taken": next(
+            ({"status": t.refused} for t in page.turns if t.not_taken),
+            None,
+        ),
+        "broken_map": _broken_map(kept, page, file_url),
+        "video": {"name": video, "url": url} if video else None,
+        "video_missing": missing,
+        "shots_missing": shots_missing,
+        "interrupted": page.interrupted,
+    }
+
+
+def _broken_map(
+    kept: TryEvidence, page: PageRecord, file_url: Callable[[str], str | None]
+) -> dict[str, Any] | None:
+    """A try the page map ended (ADR 0010): what the page lacked, in words, and its last
+    screenshot of the page as it was, when it has one. ``None`` for any other try."""
+    if kept.failure is not Failure.PAGE_MAP:
+        return None
+    error = kept.error or ""
+    missing = error.split("the page has no ", 1)[1] if "the page has no " in error else error
+    shots = [t.shot for t in page.turns if t.shot]
+    return {"missing": missing, "shot_url": file_url(shots[-1]) if shots else None}
+
+
 def _code_check(item: str, judged: Judgement) -> CheckResult | None:
     """The check behind a reply word or tool result item; a try older than it has none."""
     start = item.replace("-", ":") + ":" if item.startswith("result-") else item.replace("-", ":")
@@ -793,10 +920,14 @@ def compare(
     reasons: Mapping[int, str | None] | None = None,
     marks: Mapping[str, float] | None = None,
     replies: Sequence[str] = (),
+    kept: TryEvidence | None = None,
+    file_url: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
     """*plan* with try *n* of the run's case *entry* (the first that didn't pass when ``None``, else
     the first) laid over it. *reasons* are each try's one-line reason, *marks* the pass marks it was
-    held to, *replies* what came back to each message of the try.
+    held to, *replies* what came back to each message of the try. *kept* is the try's evidence,
+    whose page record (ADR 0010) is laid over its turns too; *file_url* says where the page reads
+    one of its kept files, ``None`` when this server doesn't hold it.
 
     :raises LookupError: No such try.
     """
@@ -894,6 +1025,7 @@ def compare(
                 else:
                     item["actual"] = {"passed": False, "text": attempt.get("error") or "Not graded"}
     _sent(steps, attempt, replies)
+    on_page = _on_page(steps, kept, judged, file_url or (lambda _name: None))
     broken = list(attempt.get("limits_broken") or [])
     passes = next((s for s in steps if s["kind"] == "passes"), None)
     if passes is not None:
@@ -924,6 +1056,8 @@ def compare(
         "trace_url": attempt.get("trace_url"),
         "seconds": attempt.get("seconds"),
         "trace_note": trace_words(attempt, judged),
+        # How this try was kept from earlier ones (ADR 0009); an older run reads as none.
+        "isolation": isolation_of(attempt),
         "explain": explain(judged, attempt, len(ids), marks or {}),
         "tool_rows": _tool_rows(attempt),
         "trajectory": _trajectory(tries, expected, names),
@@ -933,4 +1067,6 @@ def compare(
             "must": [i["text"] for i in reply_step["items"]] if reply_step else [],
             "highlights": _highlights(reply, lines),
         },
+        # What the app's page showed, for a try played through it (ADR 0010); none through the API.
+        "page": on_page,
     }

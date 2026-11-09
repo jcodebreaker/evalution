@@ -6,7 +6,7 @@ Reading and checking their text is :mod:`evalution.suite.cases`; keeping them,
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 #: The model keys a set may pin for its Grader and filler writer (``model.models`` in the config).
@@ -26,6 +26,10 @@ CONTEXT_CHECKS = ("context_contains", "context_lacks")
 #: What a test can need a try to start clean of: each its own promise, as a new conversation isn't
 #: new memory.
 CLEAN_KINDS = ("conversation", "memory", "files")
+#: What a try played through the app's page keeps (``page.proof``), and when each is kept: for
+#: every try, only for one that fails, or not taken at all (ADR 0010).
+PROOF_PARTS = ("screenshots", "video")
+PROOF_KEEPS = ("always", "failed", "off")
 
 
 @dataclass(frozen=True)
@@ -120,3 +124,12 @@ class Case:
     #: Ask the app to fold older turns from this many tokens (``fold_at_tokens``), so a short
     #: history reaches what a long one would. An app that can't is measured as never folding.
     fold_at_tokens: int | None = None
+    #: Words the app's page must show (``page.contains``) and must not (``page.lacks``) of the last
+    #: reply, on a try played through the page (ADR 0010): decided by code, from what it showed.
+    shown_contains: tuple[str, ...] = ()
+    shown_lacks: tuple[str, ...] = ()
+    #: The page's checks decide the try (``page.decides``); otherwise they are shown as a guide.
+    page_decides: bool = False
+    #: What a try played through the page keeps, part by part (``page.proof``), over what the
+    #: target's page map says: ``{"screenshots" | "video": "always" | "failed" | "off"}``.
+    page_proof: dict[str, str] = field(default_factory=dict)

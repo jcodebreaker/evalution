@@ -53,7 +53,7 @@ function Metric({ label, value, delta }: { label: string; value: string; delta: 
   return (
     <div className="min-w-0 border-separator px-3.5 py-3 not-first:border-s max-[900px]:border-s-0 max-[900px]:not-first:border-t">
       <small className="block text-[11.5px] text-ink-2">{label}</small>
-      <b className="mt-0.5 block text-[20px] font-semibold tracking-[-0.4px] tabular-nums">
+      <b className="mt-0.5 block text-[21px] font-semibold tracking-[-0.4px] tabular-nums">
         {value}
       </b>
       {delta ? <div className="mt-0.5 flex gap-2 text-[11.5px] text-ink-3">{delta}</div> : null}

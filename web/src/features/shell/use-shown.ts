@@ -5,6 +5,22 @@ import { live } from "../../lib/format";
 import type { Place } from "../../lib/router";
 import type { CaseRow, RunSummary } from "../../lib/schema";
 import { POLL_MS, useLoad, useVisiblePoll } from "../../lib/use-load";
+import { isBenchmark } from "../benchmarks/BenchmarksView";
+
+/**
+ * Where the page moves so the run shown sits in its own app and test set: the sidebar, the run
+ * numbers and what the run is compared with all follow the page's set. `null` when it's there.
+ */
+export function followRun(
+  place: Pick<Place, "view" | "run">,
+  run: Pick<RunSummary, "run" | "target" | "set"> | null,
+  scope: { target: string | null; set: string | null },
+): Partial<Place> | null {
+  if (place.view !== "runs" || !run || run.run !== place.run || isBenchmark(run.set)) return null;
+  const target = run.target ?? scope.target;
+  if (run.set === scope.set && target === scope.target) return null;
+  return { target, set: run.set };
+}
 
 /** The run shown, and the test shown with the run whose tries it shows. */
 export function useShown(

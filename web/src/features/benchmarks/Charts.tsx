@@ -1,32 +1,24 @@
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 
 /** A chart's card: what it plots and in what unit. */
 export function ChartPanel({
-  icon: Icon,
   title,
   unit,
   className,
   children,
 }: {
-  icon: LucideIcon;
   className?: string;
   title: string;
   unit: string;
   children: ReactNode;
 }) {
   return (
-    <section className={cn("glass flex min-w-0 flex-col gap-3 rounded-xl p-4", className)}>
+    <section className={cn("glass flex min-w-0 flex-col gap-3 rounded-[12px] p-4", className)}>
       <div className="flex flex-wrap items-center justify-between gap-x-3">
-        <h3 className="m-0 flex items-center gap-2 text-[13px] font-medium">
-          <span className="grid size-6 place-items-center rounded-md border border-separator">
-            <Icon className="size-3.5 text-ink-2" aria-hidden />
-          </span>
-          {title}
-        </h3>
-        <span className="text-[12px] text-ink-3">{unit}</span>
+        <h3 className="m-0 text-[16px] font-semibold tracking-[-0.01em]">{title}</h3>
+        <span className="text-[12.5px] text-ink-3">{unit}</span>
       </div>
       {children}
     </section>
@@ -52,7 +44,7 @@ function Tip({ left, top, children }: { left: number | string; top: number; chil
   return (
     <div
       style={{ left, top }}
-      className="pointer-events-none absolute z-10 max-w-[240px] -translate-x-1/2 -translate-y-full rounded-lg bg-popover px-2.5 py-1.5 text-[12px] whitespace-normal shadow-lg ring-1 ring-separator"
+      className="pointer-events-none absolute z-10 max-w-[240px] -translate-x-1/2 -translate-y-full rounded-lg bg-popover px-2.5 py-1.5 text-[12.5px] whitespace-normal shadow-lg ring-1 ring-separator"
     >
       {children}
     </div>
@@ -168,7 +160,7 @@ export function LineChart({
           <text
             x={x(points.length - 1) + 8}
             y={y(last.value) + 4}
-            className="fill-foreground text-[12px] font-semibold tabular-nums"
+            className="fill-foreground text-[12.5px] font-semibold tabular-nums"
           >
             {last.label}
           </text>
@@ -332,9 +324,9 @@ export function BarChart({
   const cell = "border-t border-separator px-4 py-2.5";
   return (
     <div className="-mx-4 -mb-4 overflow-x-auto">
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[14px]">
         <thead>
-          <tr className="bg-head text-[10.5px] font-medium tracking-[0.06em] text-ink-3 uppercase">
+          <tr className="bg-head text-[12px] font-medium text-ink-3">
             <th scope="col" className="px-4 py-2 text-start font-medium">
               {head}
             </th>
@@ -360,7 +352,7 @@ export function BarChart({
                         style={{ width: `${part}%` }}
                       />
                     </span>
-                    <span className="w-9 text-end text-[12px] text-ink-2 tabular-nums">
+                    <span className="w-9 text-end text-[12.5px] text-ink-2 tabular-nums">
                       {Math.round(part)}%
                     </span>
                   </span>
@@ -467,7 +459,7 @@ export function PromptChart({
         </svg>
       ) : null}
       {few ? (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-ink-2">
           {questions.map((question, index) => (
             <span key={question.id} className="flex min-w-0 items-center gap-1.5">
               <svg width="8" height="8" aria-hidden className="shrink-0">
@@ -503,7 +495,7 @@ export function Outcomes({
       <dl className="m-0 flex flex-wrap gap-x-6 gap-y-2">
         {parts.map((part) => (
           <div key={part.name} className="flex flex-col gap-0.5">
-            <dt className="flex items-center gap-1.5 text-[12px] text-ink-2">
+            <dt className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
               <span className={cn("h-3 w-0.5 rounded-full", part.dot)} />
               {part.name}
             </dt>
@@ -552,7 +544,7 @@ export function Outcomes({
           x={middle}
           y={middle - 6}
           textAnchor="middle"
-          className="fill-foreground text-[26px] font-semibold tabular-nums"
+          className="fill-foreground text-[28px] font-semibold tabular-nums"
         >
           {headline}
         </text>

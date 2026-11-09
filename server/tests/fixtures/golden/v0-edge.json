@@ -123,7 +123,20 @@
      ],
      "different_route": true,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -331,7 +344,20 @@
      ],
      "different_route": true,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "passed",
@@ -627,7 +653,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -890,7 +929,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -1272,7 +1324,20 @@
      ],
      "different_route": false,
      "error": "No traces arrived, so this try could not be judged",
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -1591,7 +1656,20 @@
      ],
      "different_route": false,
      "error": "No traces arrived, so this try could not be judged",
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "unjudged",
@@ -2019,7 +2097,20 @@
      ],
      "different_route": false,
      "error": "No traces arrived, so this try could not be judged",
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Missing evidence",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "unjudged",
@@ -2326,7 +2417,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Passed",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 1,
      "outcome": "passed",
@@ -2589,7 +2693,20 @@
      ],
      "different_route": false,
      "error": null,
+     "isolation": {
+      "checked": [],
+      "how": "none",
+      "plan_version": null,
+      "problem": null,
+      "reset": "try",
+      "restore_seconds": null
+     },
      "label": "Grader unavailable",
+     "layers": {
+      "answered": "absent",
+      "shown": "absent",
+      "stored": "absent"
+     },
      "limits_broken": [],
      "n": 2,
      "outcome": "unjudged",
@@ -2814,8 +2931,15 @@
     ],
     "last_at": 1793586642.105848,
     "last_run": "20261102-023000-cccc",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test no traces",
     "originally": null,
+    "plays": "api",
     "reasons": [
      "no traces arrived",
      "no traces arrived"
@@ -2854,9 +2978,16 @@
     ],
     "last_at": 1793586642.105848,
     "last_run": "20261102-023000-cccc",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test some no traces",
     "note": "2 of 3 tries couldn't be judged",
     "originally": "flaky",
+    "plays": "api",
     "reasons": [
      "no traces arrived",
      null,
@@ -2895,8 +3026,15 @@
     ],
     "last_at": 1793586642.105848,
     "last_run": "20261102-023000-cccc",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test different route",
     "originally": null,
+    "plays": "api",
     "reasons": [
      null,
      null
@@ -2930,9 +3068,16 @@
     ],
     "last_at": 1793586642.105848,
     "last_run": "20261102-023000-cccc",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test flaky",
     "note": "1 of 2 tries couldn't be judged",
     "originally": "flaky",
+    "plays": "api",
     "reasons": [
      null,
      "Fake rubric line 7."
@@ -2962,8 +3107,10 @@
     "labels": [],
     "last_at": 1793586642.105848,
     "last_run": "20261102-023000-cccc",
+    "layers": null,
     "name": "Fake test not played",
     "originally": null,
+    "plays": "api",
     "reasons": [],
     "reply": null,
     "seconds": null,
@@ -2984,6 +3131,7 @@
    "where": "local"
   },
   "error": "The app's session went away mid-try",
+  "failure": null,
   "history": [
    {
     "prompt": "88f609a8",
@@ -2998,6 +3146,11 @@
    }
   ],
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -3110,6 +3263,16 @@
    "tokens": 927976,
    "tools": 0.639,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: d9aafd9",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  },
  "latest_rows": [
@@ -3129,8 +3292,15 @@
    ],
    "last_at": 1793586642.105848,
    "last_run": "20261102-023000-cccc",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test no traces",
    "originally": null,
+   "plays": "api",
    "reasons": [
     "no traces arrived",
     "no traces arrived"
@@ -3169,9 +3339,16 @@
    ],
    "last_at": 1793586642.105848,
    "last_run": "20261102-023000-cccc",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test some no traces",
    "note": "2 of 3 tries couldn't be judged",
    "originally": "flaky",
+   "plays": "api",
    "reasons": [
     "no traces arrived",
     null,
@@ -3210,8 +3387,15 @@
    ],
    "last_at": 1793586642.105848,
    "last_run": "20261102-023000-cccc",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test different route",
    "originally": null,
+   "plays": "api",
    "reasons": [
     null,
     null
@@ -3245,9 +3429,16 @@
    ],
    "last_at": 1793586642.105848,
    "last_run": "20261102-023000-cccc",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test flaky",
    "note": "1 of 2 tries couldn't be judged",
    "originally": "flaky",
+   "plays": "api",
    "reasons": [
     null,
     "Fake rubric line 7."
@@ -3277,8 +3468,10 @@
    "labels": [],
    "last_at": 1793586642.105848,
    "last_run": "20261102-023000-cccc",
+   "layers": null,
    "name": "Fake test not played",
    "originally": null,
+   "plays": "api",
    "reasons": [],
    "reply": null,
    "seconds": null,
@@ -3308,7 +3501,13 @@
    "where": "local"
   },
   "error": "The app's session went away mid-try",
+  "failure": null,
   "interrupted": false,
+  "isolation": {
+   "how": "none",
+   "person": null,
+   "plan_version": null
+  },
   "judge": {
    "key": "strong",
    "model": null,
@@ -3421,6 +3620,16 @@
    "tokens": 927976,
    "tools": 0.639,
    "unjudged": 1
+  },
+  "version": {
+   "branch": null,
+   "commit": "d9aafd9a6568f5746a8e8652a6514a6dd7e12e7e",
+   "dirty": null,
+   "played": null,
+   "ref": "disk",
+   "said": "what was on disk: d9aafd9",
+   "verified": null,
+   "why_unverified": "not recorded: run before evalution kept what played"
   }
  }
 }

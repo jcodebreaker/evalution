@@ -1,4 +1,3 @@
-import { Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { cn } from "../../lib/cn";
@@ -21,7 +20,7 @@ export function Priorities({
     setTitle("");
     setAdding(false);
   };
-  const chip = "inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[13px]";
+  const chip = "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[13px]";
   return (
     <div className="flex flex-wrap gap-1.5 px-[18px] pt-1 pb-2">
       {priorities.map((entry) => (
@@ -32,8 +31,10 @@ export function Priorities({
           onClick={() => onSteer({ priority: entry.id, picked: !entry.picked })}
           className={cn(
             chip,
-            "focus-visible:outline-2 focus-visible:outline-ring",
-            entry.picked ? "bg-selection-strong font-medium text-tint" : "bg-bubble text-ink-2",
+            "focus-visible:outline-2 focus-visible:outline-tint",
+            entry.picked
+              ? "border-tint-soft-2 bg-tint-soft font-medium text-tint-ink"
+              : "border-separator bg-group text-ink-2 hover:bg-sunk",
           )}
         >
           {entry.title}
@@ -48,7 +49,7 @@ export function Priorities({
             onBlur={() => !title.trim() && setAdding(false)}
             placeholder="What matters"
             aria-label="What matters most to test"
-            className="h-[30px] w-56 rounded-full"
+            className="h-7 w-56 rounded-full"
           />
         </form>
       ) : (
@@ -57,11 +58,10 @@ export function Priorities({
           onClick={() => setAdding(true)}
           className={cn(
             chip,
-            "bg-bubble text-ink-2 focus-visible:outline-2 focus-visible:outline-ring",
+            "border-dashed border-rule-strong text-ink-2 hover:bg-sunk focus-visible:outline-2 focus-visible:outline-tint",
           )}
         >
-          <Plus className="size-3" aria-hidden />
-          Add your own
+          + Add your own
         </button>
       )}
     </div>

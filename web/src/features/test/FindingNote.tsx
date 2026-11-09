@@ -28,11 +28,11 @@ export function FindingNote({
         <p className="m-0 min-w-0 flex-1 font-medium">{(lead ?? detail)?.text}</p>
         {finding.suspected ? <SuspectTag suspect={finding.suspected} /> : null}
       </div>
-      {lead && detail ? <p className="m-0 text-[12.5px] text-ink-2">{detail.text}</p> : null}
-      {finding.fix ? <p className="m-0 text-[12.5px] text-ink-2">{finding.fix}</p> : null}
+      {lead && detail ? <p className="m-0 text-[13px] text-ink-2">{detail.text}</p> : null}
+      {finding.fix ? <p className="m-0 text-[13px] text-ink-2">{finding.fix}</p> : null}
       {onSpan
         ? [...new Set(spans)].map((span) => (
-            <TextLink key={span} className="w-fit text-[12.5px]" onClick={() => onSpan(span)}>
+            <TextLink key={span} className="w-fit text-[13px]" onClick={() => onSpan(span)}>
               Evidence
             </TextLink>
           ))

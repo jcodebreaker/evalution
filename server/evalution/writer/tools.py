@@ -5,6 +5,7 @@ model is told about them is in :mod:`evalution.writer.schemas`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import hashlib
 import json
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from evalution.config import ConfigError
 from evalution.core.case import Case
 from evalution.llm import cut, fenced
 from evalution.project import (
@@ -33,12 +35,14 @@ from evalution.results.views import case_detail, detail, latest_rows
 from evalution.review.findings import SUSPECTS
 from evalution.runs.estimate import suggest_seconds
 from evalution.runs.fit import why_not
+from evalution.runs.page.map import page_map_of
+from evalution.runs.page.target import page_capabilities
 from evalution.runs.runner import Runs
 from evalution.suite import cases, library, store
 from evalution.targets import Targets
 from evalution.traces.base import TraceSource
 from evalution.traces.profile import digest, recent_sessions, render
-from evalution.writer import linecheck, saving
+from evalution.writer import building, isolating, linecheck, paging, saving
 from evalution.writer.draft import draft, from_traces, sources
 from evalution.writer.schemas import STEP_KINDS
 
@@ -125,6 +129,16 @@ def activity_line(name: str, args: Mapping[str, Any]) -> str | None:
         "adapt_template": f"Adapting the library test {args.get('id')}",
         "list_conversations": "Looking at recent conversations",
         "draft_from_conversation": "Drafting a test from a conversation",
+        "read_isolation": "Reading what was found about the app's state",
+        "propose_isolation_plan": "Proposing a change to the isolation plan",
+        "rehearse_isolation": "Rehearsing the isolation plan",
+        "read_build_recipe": "Reading how a version is built",
+        "propose_build_recipe": "Proposing how a version is built",
+        "read_page_code": "Reading the page's code",
+        "look_at_page": "Looking at the page on evalution's copy",
+        "try_page_entry": f"Trying where the page has {args.get('entry')}",
+        "propose_page_map": "Proposing how tests reach the page",
+        "rehearse_page_map": "Trying the page map with one message",
     }.get(name)
 
 
@@ -253,7 +267,7 @@ class Tools:
         session = turn.session
         plan = (session.get("plans") or {}).get(str(args.get("plan_id") or ""))
         if plan is None:
-            return "Refused: no such plan. Show it with reply(plan=...) and end your turn."
+            return "Refused: no such plan. Show it with reply first and end your turn."
         if int(session.get("asks", 0)) <= plan["asks"]:
             return "Refused: the admin has not answered this plan yet. End your turn and wait."
         plan["approved"] = plan.get("approved") or "message"
@@ -263,6 +277,10 @@ class Tools:
         session = turn.session
         plan_id = str(args.get("plan_id") or "")
         plan = (session.get("plans") or {}).get(plan_id)
+        if plan is not None and plan.get("isolation"):
+            return "Refused: that is an isolation plan; rehearse it with rehearse_isolation."
+        if plan is not None and plan.get("page_map"):
+            return "Refused: that is a page map; rehearse it with rehearse_page_map."
         if plan is None or not plan.get("approved"):
             return (
                 "Refused: that plan is not approved. Show the plan with reply(plan=...) and end "
@@ -308,7 +326,12 @@ class Tools:
     async def save_fixture(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
         plan = (session.get("plans") or {}).get(str(args.get("plan_id") or ""))
-        if plan is None or not plan.get("approved"):
+        if (
+            plan is None
+            or not plan.get("approved")
+            or plan.get("isolation")
+            or plan.get("page_map")
+        ):
             return "Refused: that plan is not approved. Write files only for an approved plan."
         name = str(args.get("name") or "")
         if not FIXTURE_NAME.match(name):
@@ -596,9 +619,60 @@ class Tools:
         turn.read.append(f"Drafted a test from {'trace' if trace_id else 'conversation'}")
         return {"case": found, "next": "Show it as a plan; save it with save_case once approved."}
 
+    async def read_isolation(self, turn: AgentTurn, _args: dict) -> Any:
+        turn.read.append("Read what was found about the app's state")
+        return await isolating.read(self.targets, turn.session)
+
+    async def propose_isolation_plan(self, turn: AgentTurn, args: dict) -> Any:
+        return await isolating.propose(self.targets, turn.session, args)
+
+    async def rehearse_isolation(self, turn: AgentTurn, args: dict) -> Any:
+        found = await isolating.rehearse(self.targets, turn.session, args)
+        await self._save(turn.session)
+        return found
+
+    async def read_build_recipe(self, turn: AgentTurn, _args: dict) -> Any:
+        turn.read.append("Read how a version is built")
+        return await building.read(self.targets, turn.session)
+
+    async def propose_build_recipe(self, turn: AgentTurn, args: dict) -> Any:
+        return await building.propose_recipe(self.targets, turn.session, args)
+
+    async def read_page_code(self, turn: AgentTurn, _args: dict) -> Any:
+        turn.read.append("Read the page's code")
+        return await paging.read_code(self.targets, turn.session)
+
+    async def look_at_page(self, turn: AgentTurn, args: dict) -> Any:
+        found = await paging.guarded(paging.look_at(self.runs, turn.session, args))
+        if isinstance(found, dict):
+            turn.read.append(f"Looked at {found.get('at') or 'the page'} on evalution's copy")
+        return found
+
+    async def try_page_entry(self, turn: AgentTurn, args: dict) -> Any:
+        return await paging.guarded(paging.try_entry(self.runs, turn.session, args))
+
+    async def propose_page_map(self, turn: AgentTurn, args: dict) -> Any:
+        return await paging.propose(self.targets, turn.session, args)
+
+    async def rehearse_page_map(self, turn: AgentTurn, args: dict) -> Any:
+        found = await paging.guarded(paging.rehearse(self.runs, turn.session, args))
+        await self._save(turn.session)
+        return found
+
     async def reply(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
         text = _text(args.get("text"), "text")
+        isolation = None
+        if args.get("isolation"):
+            # The proposal goes to the admin as data and in words: approving it is what lets
+            # rehearse_isolation run it.
+            isolation, words = isolating.shown(session, str(args["isolation"]))
+            text = f"{text}\n\n{words}"
+        page_map = None
+        if args.get("page_map"):
+            # Approving it lets rehearse_page_map spend one message on it.
+            page_map, words = paging.shown(session, str(args["page_map"]))
+            text = f"{text}\n\n{words}"
         plan = _plan(args["plan"]) if args.get("plan") else None
         file = args["plan"].get("file") if plan is not None else None
         base = None
@@ -617,7 +691,22 @@ class Tools:
             run=run,
             review=review,
             saved=turn.saved,
+            isolation=isolation,
+            page_map=page_map,
         )
+        plans = session.setdefault("plans", {})
+        if page_map is not None and not (plans.get(page_map["id"]) or {}).get("approved"):
+            plans[page_map["id"]] = {
+                "asks": int(session.get("asks", 0)),
+                "approved": None,
+                "page_map": True,
+            }
+        if isolation is not None and not (plans.get(isolation["id"]) or {}).get("approved"):
+            plans[isolation["id"]] = {
+                "asks": int(session.get("asks", 0)),
+                "approved": None,
+                "isolation": True,
+            }
         if plan is not None:
             plans = session.setdefault("plans", {})
             # What the admin is shown this plan for: approving it approves this test, no other.
@@ -632,6 +721,16 @@ class Tools:
             }
         turn.read, turn.saved, turn.replied = [], None, True
         await self._save(session)
+        if isolation is not None:
+            return (
+                f"Shown to the admin as isolation plan {isolation['id']}. End your turn: "
+                "rehearse it only once they approve."
+            )
+        if page_map is not None:
+            return (
+                f"Shown to the admin as page map {page_map['id']}. End your turn: rehearse it "
+                "only once they approve."
+            )
         if plan is None:
             return "Shown to the admin."
         limit = plan.get("timeout", {}).get("seconds")
@@ -666,7 +765,12 @@ class Tools:
         flags = []
         capabilities = self.targets.adapter(target).capabilities
         traced = self.targets.source(target) is not None
-        if why := why_not(case, capabilities, traced):
+        page = None
+        with contextlib.suppress(ConfigError):  # a map that doesn't read is the run's to refuse
+            page = page_map_of(self.targets.conf(target))
+        if page is not None:
+            capabilities = page_capabilities(capabilities, page)
+        if why := why_not(case, capabilities, traced, page=page is not None):
             flags.append(f"This app can't run this test: {why}.")
         missing = [
             kind
@@ -737,5 +841,15 @@ HANDLERS: dict[str, Callable[[Tools, AgentTurn, dict], Awaitable[Any]]] = {
     "adapt_template": Tools.adapt_template,
     "list_conversations": Tools.list_conversations,
     "draft_from_conversation": Tools.draft_from_conversation,
+    "read_isolation": Tools.read_isolation,
+    "propose_isolation_plan": Tools.propose_isolation_plan,
+    "rehearse_isolation": Tools.rehearse_isolation,
+    "read_build_recipe": Tools.read_build_recipe,
+    "propose_build_recipe": Tools.propose_build_recipe,
+    "read_page_code": Tools.read_page_code,
+    "look_at_page": Tools.look_at_page,
+    "try_page_entry": Tools.try_page_entry,
+    "propose_page_map": Tools.propose_page_map,
+    "rehearse_page_map": Tools.rehearse_page_map,
     "reply": Tools.reply,
 }

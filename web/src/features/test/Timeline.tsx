@@ -31,7 +31,7 @@ export function Timeline({
   const axis = useMemo(() => timelineAxis(spans), [spans]);
   return (
     <div>
-      <div className="flex justify-end gap-3 px-1 pb-1.5 text-[12px] text-ink-3">
+      <div className="flex justify-end gap-3 px-1 pb-1.5 text-[12.5px] text-ink-3">
         {spans.some((span) => span.automatic) ? (
           <span className="me-auto">Automatic: ran by itself, not scored</span>
         ) : null}
@@ -61,7 +61,7 @@ export function Timeline({
             <>
               <span
                 className={cn(
-                  "flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[12.5px]",
+                  "flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[13px]",
                   red && "text-destructive",
                 )}
                 style={{ paddingInlineStart: (depths.get(span.id) ?? 0) * 14 }}

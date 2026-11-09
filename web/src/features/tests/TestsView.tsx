@@ -10,6 +10,17 @@ import { Composer } from "./Composer";
 import { PassMarksDialog } from "./PassMarksDialog";
 import { TestRow } from "./TestRow";
 
+/** How the tests play, in a sentence over the list: every test of an app plays one way. */
+export function playsLine(target: string, rows: readonly CaseRow[]): string {
+  const page = rows.filter((row) => row.plays === "page").length;
+  if (page === rows.length) {
+    return `Played through ${target}'s page: each test types each message there, and checks it shows.`;
+  }
+  if (page === 0)
+    return `Played through ${target}'s API: each test sends its messages straight to it.`;
+  return `Page tests type into ${target}'s page; API tests send straight to its API.`;
+}
+
 /**
  * The tests: what to test next (handed to the test writer), Run all, then every test with its
  * latest verdict. Pass marks sit in the header's menu.
@@ -40,22 +51,27 @@ export function TestsView({
   const [marking, setMarking] = useState(false);
   return (
     <>
-      <Toolbar>
-        <ToolbarTitle title="Tests" />
-        <MoreMenu
-          label="More"
-          actions={[{ label: "Pass marks", onClick: () => setMarking(true) }]}
-        />
-      </Toolbar>
       <Page>
+        <Toolbar>
+          <ToolbarTitle title="Tests" />
+          <MoreMenu
+            label="More"
+            actions={[{ label: "Pass marks", onClick: () => setMarking(true) }]}
+          />
+        </Toolbar>
         <Composer target={scope.target} onAsk={onAsk} />
         {rows.length ? (
           <>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <h2 className="m-0 min-w-0 flex-1 text-[17px] font-semibold tracking-[-0.2px]">
-                {count(rows.length, "test")}
-              </h2>
-              <RunAll going={going} onGoing={onGoing} onRun={onRunAll} />
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                <h2 className="m-0 min-w-0 flex-1 text-[19px] font-semibold tracking-[-0.01em]">
+                  {count(rows.length, "test")}
+                </h2>
+                <RunAll going={going} onGoing={onGoing} onRun={onRunAll} />
+              </div>
+              <p className="m-0 text-[13px] text-ink-2" data-testid="tests-plays">
+                {playsLine(scope.target, rows)}
+              </p>
             </div>
             <Group>
               {rows.map((row) => (
