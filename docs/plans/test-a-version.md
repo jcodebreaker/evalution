@@ -45,6 +45,22 @@ Answer before building anything:
 
 Write what was found into this plan, as page testing's phase 0 did.
 
+#### What phase 0 found (2026-11-08, on `~/pttx/relay-lite`, nothing built)
+
+| Question | Answer |
+|---|---|
+| 1. Build into evalution's names | **Yes, with two variables, no override.** `deployment/compose.yaml` names both images `${IMAGE_REGISTRY:-relay}/<engine\|host>:${IMAGE_TAG:-local}`, and its own `deployment/build.sh` takes the same two. `docker compose config` on a worktree with `IMAGE_REGISTRY=evalution/relay-lite IMAGE_TAG=e535c4d89abb` resolves the engine to `evalution/relay-lite/engine:e535c4d89abb`, with the build context in the worktree. The host image is a build-only service under the `build` profile, so the recipe is `docker compose -f <worktree>/deployment/compose.yaml --profile build build engine host` with those two variables set. The person's `.env` sets neither, so nothing they built is renamed. |
+| 2. Point the copy's host containers at the version | **Yes, by the same two variables.** The engine reads `ATRIUM_HOST_IMAGE: ${IMAGE_REGISTRY:-relay}/host:${IMAGE_TAG:-local}` from compose, which resolved to `evalution/relay-lite/host:e535c4d89abb`. Setting both in the copy's environment (`ComposeCopy`'s `env`, which wins over the `--env-file`) starts the version's engine, and the engine starts the version's host per person. No change to relay-lite. |
+| 3. Build time and disk | **Not measured: not enough disk.** 1.9 GB free on the Mac; Docker runs in Colima, whose disk file (`~/.colima`, 54 GB) grows on the Mac's disk. Today's images are 2.85 GB (engine) and 3.96 GB (host); the build cache was pruned on 2026-11-08, so a first build is cold and could add up to about 7 GB. Measure once there's room (see below). |
+| 4. A worktree builds as is | **Yes.** relay-lite is itself a worktree of `~/pttx/relay-monorepo`; `git worktree add --detach` from it took 0.8 s and 47 MB (3,100 files, no submodules, no LFS). Every file the two Dockerfiles copy is tracked and present; the web bundle and the agents' bundles are built inside the image. The person's status, branches and stash were byte-identical before and after, and the worktree was removed. `.env` (secrets, git-ignored) isn't in a worktree: a version's copy keeps reading the person's `.env`, as today. |
+
+What this changes in the plan:
+
+- **The recipe for an app like this is two variables**, found by reading the compose file (`image:` interpolated) or its build script (`IMAGE_REGISTRY`/`IMAGE_TAG`). Phase 3's agent looks for that first; a build override that rewrites `image:` is the fallback for apps whose names are fixed.
+- **Names have a slash:** `evalution/relay-lite/engine:<commit12>`, as the app's own `${IMAGE_REGISTRY}/<name>` makes them. Decision 3's `evalution/<target>-<service>` is one shape the override can make, not the only one.
+- **The env file stays the person's.** A worktree has no `.env`; the copy reads it from their checkout, as `launch.env_file` does now. A version that adds a setting its `.env` lacks fails to start, and says which.
+- **Before measuring builds,** free room inside Colima, not just on the Mac: `relay/engine:train` and `relay/host:train` (13 days old, 6.6 GB together) are the person's to remove. Space freed inside the VM is reused by a build without growing `~/.colima` on the Mac.
+
 ### Phase 1: say what played (no new behaviour)
 
 Worth doing even if nothing else ships: today's runs can be wrong about their code.
