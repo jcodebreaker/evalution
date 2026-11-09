@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from evalution.core.rendered import reply_words, shown_span, shows
+from evalution.core.rendered import reply_words, shown_part, shown_span, shows
 
 TABLE_ASKED = (
     "Make a Markdown table with two columns, Fruit and Colour, and three rows: apple red, "
@@ -78,3 +78,21 @@ def test_the_newest_showing_is_the_one_found() -> None:
     page = "Your dog is called Biscuit.\nWhat's my dog called?\nYour dog is called Biscuit."
     start, _ = shown_span("Your dog is called Biscuit.", page, message="What's my dog called?")
     assert start == page.rindex("Your dog")
+
+
+def test_how_far_a_page_showed_a_reply_names_where_it_stopped() -> None:
+    """The mockup's table: the page showed the text above it, and none of its rows."""
+    reply = (
+        "Here's a comparison:\n\n| Trait | Cats | Dogs |\n|---|---|---|\n"
+        "| Walks | No | Yes |\n| Purring | Yes | No |"
+    )
+    message = "Compare cats and dogs in a table"
+    page = f"{message}\nHere's a comparison:\nMessage…\nSend"
+    assert shown_part(reply, page, message=message) == (
+        "Here's a comparison",
+        "Trait Cats Dogs Walks No Yes …",
+    )
+    # Nothing of it showed; and all of it did, which is no part missing.
+    assert shown_part("Your dog is Biscuit.", "Loading…") == ("", "Your dog is Biscuit")
+    assert shown_part("Your dog is Biscuit.", "Your dog is Biscuit.") is None
+    assert shown_part("", "anything") is None

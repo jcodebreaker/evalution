@@ -1,4 +1,4 @@
-import { Check, Square } from "lucide-react";
+import { Check, RotateCcw, Square } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 import type { KeptPageMap, PageLearn, PageReach } from "../../lib/schema";
@@ -39,6 +39,50 @@ export function MapWords({ kept }: { kept: KeptPageMap }) {
         </div>
       ))}
     </Group>
+  );
+}
+
+/** Entries of a map that are how it waits and what it keeps, not a part found on the page. */
+const SETTINGS = new Set([
+  "Done when",
+  "Waits for the app to take a message",
+  "Waits for the reply",
+  "Screenshots",
+  "Video",
+]);
+
+/** A page map's parts as chips, each with where it is on the page, then how it waits and what it
+ * keeps in one line. */
+export function MapChips({ kept }: { kept: KeptPageMap }) {
+  if (kept.error) {
+    return <p className="m-0 text-[13px] text-destructive">The map doesn't read: {kept.error}</p>;
+  }
+  const parts = kept.map.filter((entry) => !SETTINGS.has(entry.what));
+  const settings = kept.map.filter((entry) => SETTINGS.has(entry.what));
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="What it found">
+        {parts.map((entry) => (
+          <li
+            key={entry.what}
+            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-full bg-group px-2.5 py-1 text-[12.5px] ring-[0.5px] ring-separator"
+          >
+            <span className="shrink-0 font-medium">{entry.what}</span>
+            <span
+              className="min-w-0 truncate font-mono text-[11.5px] text-ink-3"
+              title={entry.where}
+            >
+              {entry.where}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {settings.length ? (
+        <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">
+          {settings.map((entry) => `${entry.what}: ${entry.where}`).join(" · ")}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -92,49 +136,79 @@ export function RehearsalVideo({ src }: { src: string }) {
 }
 
 /**
- * The agent's map waiting for approval: in plain words, what its rehearsal showed, its screenshots
- * and video, and one Approve. `onApproved`: the view after it was saved.
+ * The agent's map waiting for approval, as the person approves it: each part it found and where,
+ * what its rehearsal showed, its screenshots and video, then Approve or Re-learn the page.
+ * `onChange`: the view after either. `undoHere`: the card offers Undo once it's approved (Test
+ * environment's); else the words say where it is.
  */
 export function ProposedMap({
   target,
   reach,
-  onApproved,
+  onChange,
+  undoHere = false,
 }: {
   target: string;
   reach: PageReach;
-  onApproved: (reach: PageReach) => void;
+  onChange: (reach: PageReach) => void;
+  undoHere?: boolean;
 }) {
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<"approve" | "learn" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const kept = reach.proposed;
   if (!kept) return null;
-  const approve = async () => {
-    setWorking(true);
+  const act = async (which: "approve" | "learn") => {
+    setWorking(which);
     setError(null);
     try {
-      onApproved(await api.approvePage(target));
+      onChange(await (which === "approve" ? api.approvePage(target) : api.learnPage(target)));
     } catch (failure) {
-      setError(errorText(failure, "Couldn't approve it."));
+      setError(
+        errorText(
+          failure,
+          which === "approve" ? "Couldn't approve it." : "Couldn't start learning the page.",
+        ),
+      );
     }
-    setWorking(false);
+    setWorking(null);
   };
+  const undo = undoHere ? "Undo later from this card." : "Undo later under Test environment.";
   return (
-    <div className="flex flex-col gap-2.5" data-testid="page-map-proposed">
-      <p className="m-0 font-medium">The agent's map, waiting for your approval</p>
-      <MapWords kept={kept} />
+    <div className="flex flex-col gap-3" data-testid="page-map-proposed">
+      <div className="flex flex-col gap-1">
+        <p className="m-0 font-medium">Approve how tests use the page</p>
+        <p className="m-0 max-w-[68ch] text-ink-2">
+          The agent tried this map once, on evalution's copy. Look at what it did, then approve.
+          Tests won't play through the page until you do.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">
+          What it found
+        </span>
+        <MapChips kept={kept} />
+      </div>
       {kept.report ? <p className="m-0 max-w-[68ch] text-ink-2">{kept.report}</p> : null}
-      {kept.video ? <RehearsalVideo src={kept.video} /> : null}
       <Shots shots={kept.shots} />
+      {kept.video ? <RehearsalVideo src={kept.video} /> : null}
       <div className="flex flex-wrap items-center gap-3">
-        <Button disabled={!reach.writable || working} onClick={() => void approve()}>
-          {working ? <Spinner /> : <Check />}
+        <Button disabled={!reach.writable || working !== null} onClick={() => void act("approve")}>
+          {working === "approve" ? <Spinner /> : <Check />}
           Approve
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={!reach.can_learn || working !== null}
+          title={reach.can_learn ? oneMessage(target) : (reach.why_not ?? undefined)}
+          onClick={() => void act("learn")}
+        >
+          {working === "learn" ? <Spinner /> : <RotateCcw />}
+          Re-learn the page
         </Button>
         <span className="min-w-0 flex-1 text-[12.5px] text-ink-3">
           {reach.writable
             ? reach.managed
-              ? "From the next run, tests reach it through its page."
-              : "From the next run, tests reach it through its page. evalution.yaml isn't changed: the map is kept in the data folder."
+              ? `From the next run, tests reach it through its page. ${undo}`
+              : `From the next run, tests reach it through its page. evalution.yaml isn't changed: the map is kept in the data folder. ${undo}`
             : `${target}'s page: block in evalution.yaml wins: change the map there, or take the block out to use this one.`}
         </span>
       </div>
@@ -165,7 +239,12 @@ export function LearnSteps({
   return (
     <div className="flex flex-col gap-2.5" data-testid="page-learn">
       {learn.state === "running" ? (
-        <p className="m-0 font-medium">The agent is learning {target}'s page</p>
+        <div className="flex flex-col gap-0.5">
+          <p className="m-0 font-medium">The agent is learning {target}'s page</p>
+          <p className="m-0 max-w-[68ch] text-ink-2">
+            On evalution's copy: it reads the page's code, looks at the page, and tries one message.
+          </p>
+        </div>
       ) : null}
       <Checklist steps={learn.steps} />
       {learn.state === "failed" && learn.error ? (
@@ -174,11 +253,14 @@ export function LearnSteps({
         </p>
       ) : null}
       {learn.state === "running" ? (
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           <Button variant="ghost" size="sm" disabled={stopping} onClick={() => void stop()}>
             {stopping ? <Spinner /> : <Square />}
             Stop
           </Button>
+          <span className="text-[12.5px] text-ink-3">
+            Underway on its own: you can leave this page and come back to it.
+          </span>
         </div>
       ) : null}
     </div>

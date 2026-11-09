@@ -508,6 +508,12 @@ export type InstallJob = z.infer<typeof InstallJobSchema>;
 export const UiTestingSchema = z.object({
   ready: z.boolean().default(false),
   missing: z.array(MissingPieceSchema).default([]),
+  /** Each piece and whether it's here; older servers don't say. */
+  parts: z
+    .object({ playwright: z.boolean(), browser: z.boolean(), ffmpeg: z.boolean() })
+    .nullable()
+    .catch(null)
+    .default(null),
   can_install: z.boolean().default(false),
   why_not_install: z.string().nullable().default(null),
   job: InstallJobSchema.nullable().catch(null).default(null),
@@ -812,6 +818,13 @@ export const CaseRowSchema = z.object({
   stale: z.string().nullable().default(null),
   /** How it plays: through the app's page, or its API. */
   plays: z.enum(["api", "page"]).catch("api").default("api"),
+  /** Which layer held on the try its page opens on (the first that didn't pass); older servers
+   * don't say. */
+  layers: z
+    .lazy(() => LayersSchema)
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type CaseRow = z.infer<typeof CaseRowSchema>;
 
@@ -967,6 +980,9 @@ export const StepPageSchema = z.object({
   shot_url: z.string().nullable().default(null),
   /** The `shown` check of this message. */
   check: PageCheckSchema.nullable().default(null),
+  /** How far the page showed a reply it failed to show: its words that showed, and the reply's
+   * words from the first that didn't. */
+  part: z.object({ shown: z.string(), missing: z.string() }).nullable().catch(null).default(null),
 });
 export type StepPage = z.infer<typeof StepPageSchema>;
 
@@ -1116,6 +1132,8 @@ export const LayersSchema = z.object({
   stored: LayerSchema,
   answered: LayerSchema,
   shown: LayerSchema,
+  /** The page's own health, apart from what showed of the replies; only a run's rows say it. */
+  page_health: LayerSchema.optional(),
 });
 export type Layers = z.infer<typeof LayersSchema>;
 
@@ -1137,6 +1155,8 @@ export const TryPageSchema = z.object({
   left_out: z.number().default(0),
   /** The `page_health` check. */
   health: PageCheckSchema.nullable().default(null),
+  /** The shown layer with the page's health left out: what showed of the replies alone. */
+  shown_alone: LayerSchema.nullable().catch(null).default(null),
   /** How the try comes out on every check but the page's; none when it had no API to play. */
   without_page: TryOutcomeSchema.nullable().catch(null).default(null),
   /** Reached through its page alone: each reply is what the page showed (reply only). */

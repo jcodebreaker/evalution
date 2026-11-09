@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from evalution.core.case import Case
-from evalution.core.judgement import Basis, Outcome, Route
+from evalution.core.judgement import Basis, CheckKind, Judgement, Outcome, Route
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
@@ -93,7 +93,35 @@ def case_row(
         "last_run": last["run"] if last else None,
         "last_at": float(last["started_at"]) if last else None,
         "stale": entry.get("stale"),
+        # The layers of the try the test's page opens on (the first that didn't pass, else the
+        # first), and how that try played: through the app's page when it has the page's checks.
+        "layers": _row_layers(shown) if (shown := _shown_try(found)) else None,
+        "plays": _played(found, last),
     }
+
+
+def _row_layers(found: Judgement) -> dict[str, str]:
+    """A row's layers as the try's page says them: ``shown`` is what showed of the replies alone,
+    and ``page_health`` the page's own health (``absent`` when it wasn't checked), apart."""
+    said = {Outcome.FAILED: "fail", Outcome.UNJUDGED: "unjudged", Outcome.PASSED: "pass"}
+    health = next((c for c in found.checks if c.kind is CheckKind.PAGE_HEALTH), None)
+    return {
+        **layers(found, health=False),
+        "page_health": said[health.outcome] if health is not None else "absent",
+    }
+
+
+def _shown_try(found: Sequence[Judgement]) -> Judgement | None:
+    """The try a test's page opens on: the first that didn't pass, else the first."""
+    return next((j for j in found if j.outcome is not Outcome.PASSED), found[0] if found else None)
+
+
+def _played(found: Sequence[Judgement], run: Mapping[str, Any] | None) -> str:
+    """``page`` when a try has the page's checks (ADR 0010), or *run* played through the page;
+    else ``api``."""
+    if any(c.kind in (CheckKind.SHOWN, CheckKind.PAGE_HEALTH) for j in found for c in j.checks):
+        return "page"
+    return "page" if run and run.get("plays") in ("page", "page_only") else "api"
 
 
 def _steps_scored(entry: Mapping[str, Any]) -> bool:

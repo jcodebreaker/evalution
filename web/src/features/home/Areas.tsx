@@ -25,7 +25,9 @@ export function Areas({ areas }: { areas: Health["areas"] }) {
           <div key={area.name} className="flex flex-col gap-1.5">
             <div className="flex items-baseline gap-2">
               <span className="text-[14px] font-semibold">{area.name}</span>
-              <span className={cn("rounded-full px-[7px] py-px text-[12.5px] font-bold", level.tag)}>
+              <span
+                className={cn("rounded-full px-[7px] py-px text-[12.5px] font-bold", level.tag)}
+              >
                 {level.word}
               </span>
               <span className="ms-auto font-semibold text-ink-2 tabular-nums">{area.pct}%</span>

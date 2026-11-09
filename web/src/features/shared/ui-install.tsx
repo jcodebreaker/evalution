@@ -8,7 +8,7 @@ import { Button } from "../../ui/button";
 import { CopyField } from "../../ui/copy-field";
 import { Spinner } from "../../ui/loading";
 import { useAccount } from "../account/account";
-import { Checklist } from "../environment/Checklist";
+import { Checklist, Mark } from "../environment/Checklist";
 
 /** How often the page reads the install again while it goes. */
 export const INSTALL_POLL_MS = 1_000;
@@ -33,6 +33,7 @@ export const RUN_IT = "Run it where evalution is installed, then try again.";
 export function useUiTesting(onReady?: () => void) {
   const hosted = useAccount() !== null;
   const [data, setData] = useState<UiTesting | null>(null);
+  const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const ready = useRef(onReady);
@@ -41,8 +42,10 @@ export function useUiTesting(onReady?: () => void) {
   const read = useCallback(async () => {
     try {
       setData(await api.uiTesting());
+      setFailed(false);
     } catch {
       setData(null);
+      setFailed(true);
     }
   }, []);
   useEffect(() => {
@@ -68,15 +71,24 @@ export function useUiTesting(onReady?: () => void) {
     }
     setStarting(false);
   };
-  return { data: hosted ? null : data, error, starting, install };
+  return { data: hosted ? null : data, failed, error, starting, install };
 }
 
-/** An install as it goes: a step per piece, and the last lines it printed. */
-export function InstallProgress({ job }: { job: InstallJob }) {
+/** How far the running download is, from the last line it printed ("… 62% of 124.3 MiB"). */
+export function percentOf(job: InstallJob | null): number | null {
+  if (job?.state !== "running") return null;
+  const found = /(\d{1,3})%/.exec(job.lines[job.lines.length - 1] ?? "");
+  const percent = found ? Number(found[1]) : null;
+  return percent !== null && percent <= 100 ? percent : null;
+}
+
+/** An install as it goes: a step per piece (unless `steps` is false, where the pieces are listed
+ * with their state already), and the last lines it printed. */
+export function InstallProgress({ job, steps = true }: { job: InstallJob; steps?: boolean }) {
   const lines = job.lines.slice(-LINES_SHOWN);
   return (
     <div className="flex min-w-0 flex-col gap-2" data-testid="install-progress">
-      <Checklist steps={job.steps} />
+      {steps ? <Checklist steps={job.steps} /> : null}
       {job.state === "running" && lines.length ? (
         <pre
           className="m-0 overflow-hidden rounded-md bg-bubble px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
@@ -122,7 +134,23 @@ export function InstallPieces({
   onInstalled?: () => void;
   className?: string;
 }) {
-  const { data, error, starting, install } = useUiTesting(onInstalled);
+  const ui = useUiTesting(onInstalled);
+  return <InstallWith ui={ui} pieces={pieces} className={className} />;
+}
+
+/** {@link InstallPieces} on a reading already in hand. `steps`: show the install's steps. */
+function InstallWith({
+  ui,
+  pieces,
+  steps = true,
+  className,
+}: {
+  ui: ReturnType<typeof useUiTesting>;
+  pieces: readonly MissingPiece[];
+  steps?: boolean;
+  className?: string;
+}) {
+  const { data, error, starting, install } = ui;
   const job = data?.job ?? null;
   const running = job?.state === "running";
   const installed = job?.state === "done" && data?.ready;
@@ -130,7 +158,7 @@ export function InstallPieces({
   if (installed) {
     return (
       <div className={cn("flex min-w-0 flex-col gap-2 text-[13px]", className)}>
-        <InstallProgress job={job} />
+        <InstallProgress job={job} steps={steps} />
         <p className="m-0 flex items-center gap-1.5 text-success" data-testid="ui-installed">
           <Check className="size-3.5" aria-hidden />
           Installed. UI testing is ready.
@@ -164,7 +192,7 @@ export function InstallPieces({
           On this computer, as ./install.sh does. A browser is about 150 MB, once.
         </span>
       </div>
-      {job ? <InstallProgress job={job} /> : null}
+      {job ? <InstallProgress job={job} steps={steps} /> : null}
       {error ? <p className="m-0 text-destructive">{error}</p> : null}
       {byHand.length ? (
         <details className="text-ink-2">
@@ -180,43 +208,117 @@ export function InstallPieces({
   );
 }
 
-/** Settings → UI testing: Ready, or what's missing with one Install for all of it. */
+type Part = keyof NonNullable<UiTesting["parts"]>;
+
+/** Each piece UI testing needs: its name and what it's for. */
+const PARTS: { part: Part; name: string; said: string }[] = [
+  { part: "playwright", name: "Playwright", said: "Drives the browser." },
+  {
+    part: "browser",
+    name: "A browser",
+    said: "Chromium or Chrome, which plays tests on the page.",
+  },
+  {
+    part: "ffmpeg",
+    name: "ffmpeg",
+    said: "For video of a try. Without it, tests still play, with screenshots only.",
+  },
+];
+
+const STATE_WORDS = {
+  done: "Installed.",
+  running: "Installing…",
+  waiting: "Next.",
+  failed: "Didn't install.",
+  missing: "Not installed.",
+} as const;
+
+/** Every piece UI testing needs, each there, missing, or as the install has it now, with how
+ * far the running download is. */
+function Parts({ data }: { data: UiTesting }) {
+  const parts = data.parts;
+  if (!parts) return null;
+  const job = data.job;
+  const percent = percentOf(job);
+  return (
+    <ul
+      className="m-0 flex list-none flex-col gap-2.5 p-0"
+      aria-label="What UI testing needs"
+      data-testid="ui-parts"
+    >
+      {PARTS.map(({ part, name, said }) => {
+        const step = job?.steps.find((each) => each.key === part);
+        const state =
+          step && (job?.state === "running" || step.state === "failed")
+            ? step.state
+            : parts[part]
+              ? "done"
+              : "missing";
+        return (
+          <li key={part} className="flex items-start gap-2.5" data-part={part} data-state={state}>
+            <span className="pt-px">
+              <Mark state={state === "missing" ? "waiting" : state} />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="font-medium">{name}</span>
+              <span className="text-ink-3">
+                {said} {STATE_WORDS[state]}
+              </span>
+              {state === "running" && percent !== null ? (
+                <div
+                  role="progressbar"
+                  aria-label={`Installing ${name}`}
+                  aria-valuenow={percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="mt-1.5 h-1.5 max-w-[360px] overflow-hidden rounded-full bg-bubble"
+                >
+                  <div className="h-full rounded-full bg-tint" style={{ width: `${percent}%` }} />
+                </div>
+              ) : null}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Settings → UI testing: each piece it needs on this computer, there or not, and one Install for
+ * what's missing, with its progress and the last lines it printed. */
 export function UiTestingStatus() {
-  const [shown, setShown] = useState<UiTesting | null>(null);
-  const [failed, setFailed] = useState(false);
-  const read = useCallback(async () => {
-    try {
-      setShown(await api.uiTesting());
-    } catch {
-      setFailed(true);
-    }
-  }, []);
-  useEffect(() => {
-    void read();
-  }, [read]);
+  const ui = useUiTesting();
+  const shown = ui.data;
   if (!shown) {
     return (
       <span className="pt-1.5 text-[14px] text-ink-3">
-        {failed ? "Couldn't read what UI testing has here." : "…"}
+        {ui.failed ? "Couldn't read what UI testing has here." : "…"}
       </span>
     );
   }
-  if (shown.ready && shown.job?.state !== "running") {
-    return (
-      <span className="flex items-center gap-1.5 pt-1.5 text-[14px]" data-testid="ui-testing-ready">
-        <Check className="size-3.5 text-success" aria-label="Ready" />
-        Ready: Playwright, a browser, and ffmpeg for video.
-      </span>
-    );
-  }
+  const running = shown.job?.state === "running";
   return (
-    <div className="flex min-w-0 flex-col gap-2 pt-1.5 text-[13px]">
-      {shown.missing.map((piece) => (
-        <p key={piece.part} className="m-0 max-w-[68ch]">
-          {piece.said}
-        </p>
-      ))}
-      <InstallPieces pieces={shown.missing} onInstalled={() => void read()} />
+    <div className="flex min-w-0 flex-col gap-2.5 pt-1.5 text-[13px]">
+      <p className="m-0 max-w-[68ch] text-ink-2">
+        What playing tests through an app's page needs on this computer.
+      </p>
+      {shown.parts ? (
+        <Parts data={shown} />
+      ) : (
+        shown.missing.map((piece) => (
+          <p key={piece.part} className="m-0 max-w-[68ch]">
+            {piece.said}
+          </p>
+        ))
+      )}
+      {shown.ready && !running ? (
+        <span className="flex items-center gap-1.5" data-testid="ui-testing-ready">
+          <Check className="size-3.5 text-success" aria-hidden />
+          Ready: tests can play through a page here.
+        </span>
+      ) : (
+        <InstallWith ui={ui} pieces={shown.missing} steps={!shown.parts} />
+      )}
     </div>
   );
 }

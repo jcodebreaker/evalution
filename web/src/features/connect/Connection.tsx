@@ -57,9 +57,7 @@ export function Connection({
       <>
         <p className="m-0 text-[14px] text-ink-2">Set in evalution.yaml.</p>
         {checker.check ? <CheckResult check={checker.check} /> : null}
-        {checker.error ? (
-          <p className="m-0 text-[13px] text-destructive">{checker.error}</p>
-        ) : null}
+        {checker.error ? <p className="m-0 text-[13px] text-destructive">{checker.error}</p> : null}
         <Button
           variant="secondary"
           className="self-end"

@@ -159,7 +159,7 @@ export function PageReach({ target }: { target: string }) {
           ) : null}
 
           {reach.proposed && !learning ? (
-            <ProposedMap target={target} reach={reach} onApproved={setReach} />
+            <ProposedMap target={target} reach={reach} onChange={setReach} undoHere />
           ) : null}
 
           {current ? (
@@ -207,28 +207,27 @@ export function PageReach({ target }: { target: string }) {
             <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{reach.why_not}</p>
           ) : null}
           {reach.problem ? <p className="m-0 text-destructive">{reach.problem}</p> : null}
-          {learning ? null : (
+          {learning || (reach.proposed && !reach.can_undo) ? null : (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant={again || (!current && !reach.proposed) ? "default" : "secondary"}
-                  disabled={!reach.can_learn || working !== null}
-                  onClick={() => void learn()}
-                >
-                  {working === "learn" ? <Spinner /> : null}
-                  {again
-                    ? "Re-learn the page"
-                    : current || reach.proposed
-                      ? "Learn it again"
-                      : "Set up UI testing"}
-                </Button>
+                {/* A map waiting says Re-learn the page beside its Approve. */}
+                {reach.proposed ? null : (
+                  <Button
+                    variant={again || !current ? "default" : "secondary"}
+                    disabled={!reach.can_learn || working !== null}
+                    onClick={() => void learn()}
+                  >
+                    {working === "learn" ? <Spinner /> : null}
+                    {again ? "Re-learn the page" : current ? "Learn it again" : "Set up UI testing"}
+                  </Button>
+                )}
                 {reach.can_undo ? (
                   <Button variant="ghost" disabled={working !== null} onClick={() => void undo()}>
                     Undo the last map
                   </Button>
                 ) : null}
               </div>
-              {reach.can_learn ? (
+              {reach.can_learn && !reach.proposed ? (
                 <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{oneMessage(target)}</p>
               ) : null}
             </div>

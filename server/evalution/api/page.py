@@ -28,6 +28,7 @@ from evalution.connect import page
 from evalution.core.evidence import VIDEO
 from evalution.project import pagemaps, profile
 from evalution.runs.page import install
+from evalution.runs.page import target as page_target
 from evalution.runs.page.learn import lacking, refusal
 from evalution.runs.page.target import page_lacks
 from evalution.storage.files import FileNameError
@@ -42,12 +43,14 @@ def _view(ws: Workspace, name: str) -> dict[str, Any]:
 
 def _ui_testing(ws: Workspace) -> dict[str, Any]:
     """What UI testing has on this computer (as ``evalution doctor`` reads it), whether the page
-    can install what it lacks, and the install job, when there is one."""
+    can install what it lacks, and the install job, when there is one. ``parts``: each piece
+    (``playwright``, ``browser``, ``ffmpeg``) and whether it's here, so the page lists all three."""
     missing = page_lacks(True)
     _steps, why_not = install.plan()
     job = ws.installs.job
     return {
         "ready": not missing,
+        "parts": page_target.page_parts(),
         "missing": [m.as_dict() for m in missing],
         "can_install": bool(missing) and why_not is None,
         "why_not_install": why_not if missing else None,

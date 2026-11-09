@@ -35,7 +35,8 @@ export function Checklist({ steps }: { steps: readonly IsolationStep[] }) {
   );
 }
 
-function Mark({ state }: { state: IsolationStep["state"] }) {
+/** A step's mark: waiting, running, done or failed. */
+export function Mark({ state }: { state: IsolationStep["state"] }) {
   if (state === "done") {
     return (
       <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-up text-success">

@@ -29,6 +29,11 @@ function serve(routes: Record<string, unknown>) {
 }
 
 beforeEach(() => window.history.replaceState(null, "", "/"));
+
+/** The page polls only while it's shown: jsdom says it's shown. */
+function shown() {
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+}
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -61,9 +66,20 @@ it("shows the agent's tried map in plain words with its screenshot, and approves
     [`POST ${T}/page/approve`]: reach({ plays: "page", current: kept({}), can_undo: true }),
   });
   render(<PageReach target="relay-lite" />);
-  await screen.findByText("The agent's map, waiting for your approval");
+  await screen.findByText("Approve how tests use the page");
   expect(screen.getByRole("button", { name: "Its page", pressed: true })).toBeTruthy();
-  expect(screen.getByText("button named “Send”")).toBeTruthy();
+  // Each part it found, as a chip with where it is on the page.
+  const found = screen.getByRole("list", { name: "What it found" });
+  expect([...found.querySelectorAll("li")].map((chip) => chip.textContent)).toEqual([
+    "Opens/chat",
+    "Message boxtextbox named “Message”",
+    "Sendbutton named “Send”",
+  ]);
+  // Re-learn sits beside Approve, once; undo is said on the same card.
+  expect(screen.getAllByRole("button", { name: /Re-learn the page|Learn it again/ })).toHaveLength(
+    1,
+  );
+  expect(screen.getByText(/Undo later from this card\./)).toBeTruthy();
   expect(screen.getByText(/the reply showed: “hi!”/)).toBeTruthy();
   const shot = screen.getByRole("img") as HTMLImageElement;
   expect(shot.src).toContain(`${T}/page/shots/turn-1.png`);
@@ -158,7 +174,8 @@ it("a try the page map ended shows the page then, what it lacked, and Re-learn t
   expect(onRelearn.mock.calls[0]?.[0]).toContain("it has no button 'Send'");
 });
 
-it("Home says a broken page map, and what it lacks, with a way to learn it again", () => {
+it("Home says a broken page map, and Re-learn the page is the one flow on the card", async () => {
+  shown();
   const health = HealthSchema.parse({
     page: {
       status: "broken",
@@ -167,16 +184,41 @@ it("Home says a broken page map, and what it lacks, with a way to learn it again
       shot: `${T}/page/shots/page-map-check.png`,
     },
   });
-  const onAsk = vi.fn();
-  render(<PageMapCard target="relay-lite" page={health.page} onAsk={onAsk} />);
+  const steps = (state: string) =>
+    ["code", "look", "find", "propose", "rehearse"].map((key) => ({ key, label: key, state }));
+  const proposed = kept({ status: "tried", report: "The reply showed." });
+  serve({
+    [`GET ${T}/page`]: reach({ plays: "page", current: kept({ status: "broken" }) }),
+    [`POST ${T}/page/learn`]: reach({
+      plays: "page",
+      learn: { state: "running", started: 1, steps: steps("waiting") },
+    }),
+  });
+  render(<PageMapCard target="relay-lite" page={health.page} />);
   expect(
     screen.getByText(/no longer matches relay-lite's page: it has no button 'Send'/),
   ).toBeTruthy();
   expect(screen.getByRole("img").getAttribute("src")).toBe(`${T}/page/shots/page-map-check.png`);
+  // Pressing it is the yes to one message, said before.
+  expect(screen.getByText(/then tries its map with one message there/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Re-learn the page" }));
-  expect(onAsk.mock.calls[0]?.[0]).toContain("it has no button 'Send'");
-  render(<PageMapCard target="relay-lite" page={HealthSchema.parse({}).page} onAsk={onAsk} />);
-  expect(screen.getAllByTestId("page-map-card")).toHaveLength(1);
+  await screen.findByText("The agent is learning relay-lite's page");
+  expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([`${T}/page/learn`]);
+  // The card follows it to the map waiting, with Approve, without the chat.
+  serve({
+    [`GET ${T}/page`]: reach({
+      plays: "page",
+      proposed,
+      learn: { state: "done", started: 1, steps: steps("done") },
+    }),
+  });
+  await screen.findByText("Approve how tests use the page", undefined, { timeout: 3000 });
+  expect(screen.getByText(/Undo later under Test environment\./)).toBeTruthy();
+});
+
+it("Home says nothing of a page map that's fine", () => {
+  render(<PageMapCard target="relay-lite" page={HealthSchema.parse({}).page} />);
+  expect(screen.queryByTestId("page-map-card")).toBeNull();
 });
 
 it("the writer's proposed map shows where each entry comes from, and trying it is approved", () => {

@@ -1,11 +1,47 @@
 import { cn } from "../../lib/cn";
 import type { CaseRow } from "../../lib/schema";
-import { originallyWord, PASSED_MODEL_ONLY, unjudgedWords, verdictWord } from "../../lib/verdict";
+import {
+  layerLine,
+  originallyWord,
+  PASSED_MODEL_ONLY,
+  unjudgedWords,
+  verdictWord,
+} from "../../lib/verdict";
 import { Group } from "../shared/group";
-import { NotRunGlyph, TryDots, VerdictGlyph } from "../shared/marks";
+import { NotRunGlyph, PlaysChip, TryDots, VerdictGlyph } from "../shared/marks";
 import { RunAction } from "./RunAction";
 
-/** The results: verdict, name, tries, and why a failing test failed (else what it checks). */
+/** A row's line under its name: why a failing test failed, else what it checks. A test played
+ * through the page says which layer held first (`Stored ✓ · Answered ✓ · Shown ✕`), then why, in
+ * the reason's own plain words, without the label its ✕ already says. */
+export function rowLine(row: CaseRow): string | null {
+  const failing = row.verdict === "fail" || row.verdict === "flaky";
+  const reason = row.reasons.find((found) => found) ?? null;
+  const layered = layerLine(row.layers);
+  if (layered) {
+    const why =
+      row.verdict === "unjudged"
+        ? unjudgedWords(row.unjudged)
+        : failing
+          ? reason
+          : row.verdict === "pass" && row.basis === "model_only"
+            ? PASSED_MODEL_ONLY
+            : row.note;
+    return [layered, why].filter(Boolean).join(" · ");
+  }
+  return row.verdict === "unjudged"
+    ? `${row.label ?? verdictWord("unjudged")} · ${unjudgedWords(row.unjudged)}`
+    : failing
+      ? [row.label, reason ?? row.about].filter(Boolean).join(" · ")
+      : row.note
+        ? row.note
+        : row.verdict === "pass" && row.basis === "model_only"
+          ? PASSED_MODEL_ONLY
+          : row.about;
+}
+
+/** The results: verdict, name, tries, and why a failing test failed (else what it checks). Where
+ * any test played through the app's page, each played test says how: Page or API. */
 export function Results({
   rows,
   going,
@@ -17,22 +53,12 @@ export function Results({
   onTest: (id: string) => void;
   onRun: (row: CaseRow) => void;
 }) {
+  const paged = rows.some((row) => row.tries.length && row.plays === "page");
   return (
     <Group>
       {rows.map((row) => {
         const failing = row.verdict === "fail" || row.verdict === "flaky";
-        const line =
-          row.verdict === "unjudged"
-            ? `${row.label ?? verdictWord("unjudged")} · ${unjudgedWords(row.unjudged)}`
-            : failing
-              ? [row.label, row.reasons.find((reason) => reason) ?? row.about]
-                  .filter(Boolean)
-                  .join(" · ")
-              : row.note
-                ? row.note
-                : row.verdict === "pass" && row.basis === "model_only"
-                  ? PASSED_MODEL_ONLY
-                  : row.about;
+        const line = rowLine(row);
         const shown = row.originally ? `${originallyWord(row.originally)} · ${line}` : line;
         return (
           <div
@@ -49,12 +75,14 @@ export function Results({
                 <span className="truncate">{row.name}</span>
                 {shown ? (
                   <span
+                    title={shown}
                     className={cn("truncate text-[12.5px]", failing ? "text-ink-2" : "text-ink-3")}
                   >
                     {shown}
                   </span>
                 ) : null}
               </span>
+              {paged && row.tries.length ? <PlaysChip plays={row.plays} /> : null}
               <TryDots tries={row.tries} />
             </button>
             {going ? null : <RunAction name={row.name} onRun={() => onRun(row)} />}

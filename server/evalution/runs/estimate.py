@@ -110,7 +110,8 @@ def plays(
             {
                 "how": how,
                 "cases": [case.case for case in chosen],
-                "seconds": round(seconds),
+                # A try under half a second still took time: 0 would read as none known.
+                "seconds": max(1, round(seconds)),
                 "kept": kept or None,
                 "text": text,
             }

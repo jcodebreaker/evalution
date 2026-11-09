@@ -24,7 +24,15 @@ from evalution.core.evidence import (
 )
 from evalution.core.judgement import CheckKind, Outcome, Role, Route, WhyUnjudged
 from evalution.core.rendered import NOTHING_SHOWN
-from evalution.core.rules import RULES_VERSION, current, judge_try, judgement, layers
+from evalution.core.rules import (
+    RULES_VERSION,
+    current,
+    first_reason,
+    judge_try,
+    judgement,
+    layers,
+    page_health_words,
+)
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
 from evalution.results.migrate import upcast
@@ -374,6 +382,66 @@ def test_a_message_the_app_refused_or_never_took_is_answered_not_shown(
         "shown": "unjudged",
     }
     assert judge_try(found.values()).value == outcome
+
+
+def test_the_shown_layer_can_leave_the_pages_health_apart() -> None:
+    """Every reply showed, and a request failed: shown fails, but not what showed of the replies."""
+    evidence = _evidence(
+        _turn("Your dog is Biscuit", "Your dog is Biscuit"),
+        page=_page(
+            PageTurn(shown_at=1.0),
+            failed_requests=(FailedRequest(method="GET", path="/v1/me", status=503, at=0.2),),
+        ),
+    )
+    found = judgement(
+        code_checks(_case(), evidence, [], 1.0, {"tools": 0.8}).checks, None, Route.UNKNOWN
+    )
+    assert layers(found)["shown"] == "fail"
+    assert layers(found, health=False)["shown"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("why", "said"),
+    [
+        (
+            "1 console error(s), first 'Failed to load resource: the server responded with a "
+            "status of 503 (Service Unavailable)'; 1 failed request(s), first POST "
+            "/v1/sessions/95834ea5/events: 503",
+            "the app answered a request from the page with an error, 503",
+        ),
+        (
+            "2 failed request(s), first GET /v1/me: 404",
+            "the app turned down a request from the page, 404 (and 1 more)",
+        ),
+        (
+            "1 failed request(s), first GET /v1/me: no answer",
+            "a request from the page to the app got no answer",
+        ),
+        ("3 console error(s), first 'TypeError: parts'", "the page logged 3 errors"),
+        ("something else", "something else"),
+    ],
+)
+def test_a_failed_page_health_reads_whose_it_is_not_a_log_line(why: str, said: str) -> None:
+    assert page_health_words(why) == said
+
+
+def test_a_trys_reason_says_the_pages_health_in_plain_words() -> None:
+    """Run 20261108-162620-839b: the reason a row read was the log line itself."""
+    evidence = _evidence(
+        _turn("Your dog is Biscuit", "Your dog is Biscuit"),
+        page=_page(
+            PageTurn(shown_at=1.0),
+            failed_requests=(FailedRequest(method="POST", path="/events", status=503, at=0.2),),
+        ),
+    )
+    found = judgement(
+        code_checks(_case(page={"decides": True}), evidence, [], 1.0, {"tools": 0.8}).checks,
+        None,
+        Route.UNKNOWN,
+    )
+    assert first_reason(found) == "the app answered a request from the page with an error, 503"
+    page_health = next(c for c in found.checks if c.kind is CheckKind.PAGE_HEALTH)
+    assert "POST /events: 503" in page_health.why, "the check itself keeps the detail"
 
 
 def test_a_page_that_showed_nothing_is_still_the_shown_layers() -> None:

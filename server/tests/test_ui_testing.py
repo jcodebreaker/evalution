@@ -358,3 +358,11 @@ def test_the_estimate_says_how_its_tests_play(client) -> None:
         assert [line["text"] for line in found["plays"]] == [
             "2 tests through bot's API, about 30 s a try."
         ]
+
+
+def test_a_try_under_half_a_second_still_has_a_time() -> None:
+    """The demo's made-up app answers in a blink: 0 would read as no time known, and the Run
+    dialog would fall back to one plain line with no total."""
+    runs = [{"cases": {"a": {"tries": [{"seconds": 0.3}]}}}]
+    (found,) = plays("demo-chat", [_case("a")], runs, PageMap.model_validate(MAP))
+    assert found["seconds"] == 1 and "about 5 s a try" in found["text"]

@@ -18,9 +18,7 @@ export function PlaysThrough({ page }: { page: TargetDetail["page"] }) {
         </p>
       ) : null}
       {page?.error ? (
-        <p className="m-0 text-[13px] text-destructive">
-          Its page map doesn't read: {page.error}
-        </p>
+        <p className="m-0 text-[13px] text-destructive">Its page map doesn't read: {page.error}</p>
       ) : null}
       {page?.map.length ? (
         <p className="m-0 text-[13px] text-ink-2">

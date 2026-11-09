@@ -37,12 +37,7 @@ def page_words(text: str) -> list[str]:
 def reply_words(markdown: str) -> list[str]:
     """The words a page shows of *markdown*: fences, link addresses, list markers and a table's
     rule left out."""
-    text = _FENCE.sub(" ", markdown)
-    text = _LINK.sub(r"\1", text)
-    text = _AUTOLINK.sub(r"\1", text)
-    text = _TABLE_RULE.sub(" ", text)
-    text = _LIST_MARK.sub(" ", text)
-    return page_words(text)
+    return page_words(_rendered(markdown))
 
 
 def _spans(text: str) -> list[tuple[str, int, int]]:
@@ -102,6 +97,51 @@ def reply_after(page: str, *, message: str = "", after: int = 0) -> str:
     if start >= len(found):
         return ""
     return page[found[start][1] :].strip()
+
+
+def _rendered(markdown: str) -> str:
+    """*markdown* as a page renders it, for :func:`reply_words`: its text, not just its words."""
+    text = _FENCE.sub(" ", markdown)
+    text = _LINK.sub(r"\1", text)
+    text = _AUTOLINK.sub(r"\1", text)
+    text = _TABLE_RULE.sub(" ", text)
+    return _LIST_MARK.sub(" ", text)
+
+
+#: How many of the reply's words :func:`shown_part` names of what's missing.
+_MISSING_WORDS = 6
+
+
+def shown_part(reply: str, page: str, *, message: str = "") -> tuple[str, str] | None:
+    """How far *page* showed *reply*: the start of the reply whose words *page* shows in order
+    after the person's *message* (:func:`reply_after`), and the reply's words from the first it
+    doesn't, a few of them, as the page renders them. ``None`` when every word shows, or the reply
+    has none: then it's not a part that's missing, and this says nothing."""
+    text = _rendered(reply)
+    words = _spans(text)
+    if not words:
+        return None
+    seen = page_words(reply_after(page, message=message))
+    at, held = 0, 0
+    for word, _, _ in words:
+        try:
+            at = seen.index(word, at) + 1
+        except ValueError:
+            break
+        held += 1
+    if held == len(words):
+        return None
+    shown = _flat(text[words[0][1] : words[held - 1][2]]) if held else ""
+    rest = words[held : held + _MISSING_WORDS]
+    missing = _flat(text[rest[0][1] : rest[-1][2]])
+    if held + _MISSING_WORDS < len(words):
+        missing += " …"
+    return shown, missing
+
+
+def _flat(text: str) -> str:
+    """*text* on one line, a table's bars left out."""
+    return " ".join(text.replace("|", " ").split())
 
 
 def shows(reply: str, page: str, *, message: str = "", after: int = 0) -> bool:

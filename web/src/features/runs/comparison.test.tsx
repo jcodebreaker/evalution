@@ -68,3 +68,55 @@ it("a run opened from another set's page brings the page to the run's own set", 
   expect(followRun(place, SHOWN, { target: "relay-lite", set: "page-stress" })).toBeNull();
   expect(followRun({ ...place, run: "another" }, SHOWN, { target: null, set: null })).toBeNull();
 });
+
+it("reads plainly: what moved, what stayed, and a test the run never played", async () => {
+  const side = (verdict: string, passed: number, judged: number) => ({ verdict, passed, judged });
+  vi.spyOn(api, "comparison").mockResolvedValue(
+    ComparisonSchema.parse({
+      run: SHOWN.run,
+      base: PREVIOUS.run,
+      headline: "1 test got worse",
+      tests: [
+        {
+          case: "table",
+          name: "A Markdown table shows",
+          change: "worse",
+          before: side("pass", 1, 1),
+          now: side("fail", 0, 1),
+        },
+        {
+          case: "list",
+          name: "A numbered list shows",
+          change: "unknown",
+          before: side("pass", 1, 1),
+          now: side("not_run", 0, 0),
+        },
+        ...["a", "b"].map((id) => ({
+          case: id,
+          name: id,
+          change: "same",
+          before: side("pass", 1, 1),
+          now: side("pass", 1, 1),
+        })),
+        {
+          case: "c",
+          name: "c",
+          change: "same",
+          before: side("fail", 0, 1),
+          now: side("fail", 0, 1),
+        },
+      ],
+    }),
+  );
+  show([SHOWN, PREVIOUS]);
+  await screen.findByText("1 test got worse");
+  expect(screen.getByText("1 of 1 → 0 of 1")).toBeTruthy();
+  expect(screen.getByText("Not run")).toBeTruthy();
+  expect(screen.getByText("1 of 1 → not run")).toBeTruthy();
+  expect(screen.getByText("2 tests pass, as before; 1 test still fails")).toBeTruthy();
+  expect(
+    screen.getByText(
+      "Same setup as that run: no recorded change in model, code, prompt or grader.",
+    ),
+  ).toBeTruthy();
+});

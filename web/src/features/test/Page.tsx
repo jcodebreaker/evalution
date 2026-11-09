@@ -83,8 +83,9 @@ export function pageLines(page: TryPage): PageLine[] {
   ];
 }
 
-/** Under the steps of a page try: its console and failed requests, its video, and quiet notes. */
-export function PageNotes({ page }: { page: TryPage }) {
+/** Under the steps of a page try: its console and failed requests, its video (unless `video` is
+ * false: shown already beside what the app answered), and quiet notes. */
+export function PageNotes({ page, video = true }: { page: TryPage; video?: boolean }) {
   const lines = pageLines(page);
   const errors = lines.filter((line) => line.tone === "error").length;
   const notes = [
@@ -95,7 +96,8 @@ export function PageNotes({ page }: { page: TryPage }) {
       ? "Its video stayed on the computer that played it."
       : null,
   ].filter(Boolean);
-  if (!lines.length && !page.video?.url && !notes.length && !page.video_fix) return null;
+  const film = video ? page.video?.url : null;
+  if (!lines.length && !film && !notes.length && !page.video_fix) return null;
   return (
     <div className="flex flex-col gap-2">
       {lines.length ? (
@@ -132,13 +134,13 @@ export function PageNotes({ page }: { page: TryPage }) {
           ) : null}
         </Fold>
       ) : null}
-      {page.video?.url ? (
+      {film ? (
         <Fold title="Video of the try">
           {/* biome-ignore lint/a11y/useMediaCaption: a recording of a page, with no speech */}
           <video
             controls
             preload="metadata"
-            src={page.video.url}
+            src={film}
             aria-label="Recording of the try on the page"
             className="w-full max-w-[720px] rounded-lg ring-[0.5px] ring-separator"
           />

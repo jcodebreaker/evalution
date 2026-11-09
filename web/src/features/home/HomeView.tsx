@@ -118,11 +118,9 @@ export function HomeView({
               </p>
               {runAll}
             </div>
-            {health ? <HowTestsRun target={scope.target} isolation={health.isolation} /> : null}
-            {health ? (
-              <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
-            ) : null}
             <UiOffer target={scope.target} className={CARD} />
+            {health ? <HowTestsRun target={scope.target} isolation={health.isolation} /> : null}
+            {health ? <PageMapCard target={scope.target} page={health.page} /> : null}
           </>
         ) : load.status === "loading" ? (
           <>
@@ -133,6 +131,8 @@ export function HomeView({
           <Centered>Couldn't load how it's doing.</Centered>
         ) : (
           <>
+            {/* Offered first, where it's seen: the app has a page nobody tests yet. */}
+            <UiOffer target={scope.target} className={CARD} />
             {health.report_pending ? (
               <section className={CARD}>
                 <LoadingState label="Writing the report" />
@@ -152,8 +152,7 @@ export function HomeView({
               onUpdated={() => void reload()}
             />
             <HowTestsRun target={scope.target} isolation={health.isolation} />
-            <PageMapCard target={scope.target} page={health.page} onAsk={(text) => onAsk(text)} />
-            <UiOffer target={scope.target} className={CARD} />
+            <PageMapCard target={scope.target} page={health.page} />
             {health.code_change ? (
               <ChangeCard
                 change={health.code_change}

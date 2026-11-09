@@ -6,6 +6,7 @@ import type { PageOffer, PageReach } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { CopyField } from "../../ui/copy-field";
 import { Spinner } from "../../ui/loading";
+import { TextLink } from "../shared/group";
 import { MissingPieceNote } from "../shared/next-step";
 import { LearnSteps, oneMessage, ProposedMap, useLearnPoll } from "./LearnFlow";
 import { useOpenEnvironment } from "./use-isolation";
@@ -24,7 +25,8 @@ export const DEMO = "uv run --project server evalution demo ui";
 export function UiOffer({ target, className }: { target: string; className?: string }) {
   const [offer, setOffer] = useState<PageOffer | null>(null);
   const [reach, setReach] = useState<PageReach | null>(null);
-  const [working, setWorking] = useState<"setup" | "dismiss" | null>(null);
+  const [working, setWorking] = useState<"setup" | "dismiss" | "undo" | null>(null);
+  const [demo, setDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const open = useOpenEnvironment();
   const follow = useCallback(async () => {
@@ -78,6 +80,19 @@ export function UiOffer({ target, className }: { target: string; className?: str
     }
     setWorking(null);
   };
+  const undo = async () => {
+    setWorking("undo");
+    setError(null);
+    try {
+      await api.undoPage(target);
+      // Back to its API: the offer is made again.
+      setReach(null);
+      await read();
+    } catch (failure) {
+      setError(errorText(failure, "Couldn't undo it."));
+    }
+    setWorking(null);
+  };
   const learn = reach?.learn ?? null;
   const approved = reach !== null && reach.plays !== "api" && !reach.proposed;
   const missing = offer?.missing ?? null;
@@ -87,27 +102,49 @@ export function UiOffer({ target, className }: { target: string; className?: str
 
   return (
     <section
-      className={cn("flex flex-col gap-3 text-[14px]", className)}
+      className={cn(
+        "flex flex-col gap-3 text-[14px]",
+        className,
+        "border-tint/50 shadow-[inset_3px_0_0_var(--color-tint)]",
+      )}
       aria-label="UI testing"
       data-testid="ui-offer"
     >
-      <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold">
-        <MousePointerClick className="size-4 text-tint" aria-hidden />
-        {target} has a page. Test it the way people use it?
-      </h2>
+      <div className="flex flex-col gap-1">
+        <span className="text-[11.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">
+          New for {target}
+        </span>
+        <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold">
+          <MousePointerClick className="size-4 text-tint" aria-hidden />
+          {target} has a page. Test it the way people use it?
+        </h2>
+      </div>
       {reach ? (
         <>
           {learn && learn.state !== "done" ? (
             <LearnSteps target={target} learn={learn} onStopped={setReach} />
           ) : null}
           {reach.proposed && learn?.state !== "running" ? (
-            <ProposedMap target={target} reach={reach} onApproved={setReach} />
+            <ProposedMap target={target} reach={reach} onChange={setReach} />
           ) : null}
           {approved ? (
-            <p className="m-0 flex items-center gap-1.5" data-testid="ui-approved">
-              <Check className="size-4 text-success" aria-hidden />
-              Approved. From the next run, tests reach {target} through its page.
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="m-0 flex items-center gap-1.5" data-testid="ui-approved">
+                <Check className="size-4 text-success" aria-hidden />
+                Approved. From the next run, tests reach {target} through its page.
+              </p>
+              {reach.can_undo ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={working !== null}
+                  onClick={() => void undo()}
+                >
+                  {working === "undo" ? <Spinner /> : null}
+                  Undo
+                </Button>
+              ) : null}
+            </div>
           ) : null}
           {learn?.state === "failed" ? (
             <div>
@@ -141,18 +178,29 @@ export function UiOffer({ target, className }: { target: string; className?: str
             <Button variant="ghost" disabled={working !== null} onClick={() => void notNow()}>
               Not now
             </Button>
+            <TextLink
+              className="text-[13px]"
+              aria-expanded={demo}
+              aria-controls="ui-demo"
+              onClick={() => setDemo(!demo)}
+            >
+              Try the demo first
+            </TextLink>
           </div>
-          <details className="text-[13px] text-ink-2" data-testid="ui-demo">
-            <summary className="cursor-pointer select-none">Try the demo first</summary>
-            <div className="mt-2 flex max-w-[68ch] flex-col gap-2">
-              <p className="m-0">
-                Plays two tests through a made-up app's page in about a minute, and opens the result
-                with its screenshots and video. It spends nothing.
-              </p>
-              <CopyField value={DEMO} label="The command that starts the demo" />
-              <p className="m-0 text-ink-3">Run it in the folder evalution is installed in.</p>
-            </div>
-          </details>
+          {/* The demo runs from the terminal (`evalution demo ui`): the card gives its command. */}
+          <div
+            id="ui-demo"
+            hidden={!demo}
+            className="flex max-w-[68ch] flex-col gap-2 text-[13px] text-ink-2"
+            data-testid="ui-demo"
+          >
+            <p className="m-0">
+              Plays two tests through a made-up app's page in about a minute, and opens the result
+              with its screenshots and video. It spends nothing.
+            </p>
+            <CopyField value={DEMO} label="The command that starts the demo" />
+            <p className="m-0 text-ink-3">Run it in the folder evalution is installed in.</p>
+          </div>
         </>
       )}
       {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}

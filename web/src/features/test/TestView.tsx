@@ -19,6 +19,7 @@ import { HowItPlays } from "./HowItPlays";
 import { Inspector } from "./Inspector";
 import { Output } from "./Output";
 import { PageNotes } from "./Page";
+import { messageOf, PageBeside, PageNextStep } from "./PageBeside";
 import type { Mode } from "./Segmented";
 import { Segmented } from "./Segmented";
 import { Steps } from "./Steps";
@@ -190,6 +191,15 @@ export function TestView({
               onRelearn={(text) => onAsk(text)}
             />
           ) : null}
+          {view === "result" && shown?.try ? <PageBeside shown={shown} /> : null}
+          {view === "result" && shown?.try ? (
+            <PageNextStep
+              shown={shown}
+              appName={appName}
+              going={going}
+              onRun={() => onRun(test.name)}
+            />
+          ) : null}
           {view === "result" && shown?.trace_note ? (
             <p className="m-0 text-[13px] text-warning">{shown.trace_note}</p>
           ) : null}
@@ -222,7 +232,14 @@ export function TestView({
           ) : (
             <Centered>Couldn't read what this test checks.</Centered>
           )}
-          {view === "result" && shown?.page ? <PageNotes page={shown.page} /> : null}
+          {view === "result" && shown?.page ? (
+            <PageNotes
+              page={shown.page}
+              video={
+                !messageOf(shown.steps) || shown.outcome === "passed" || !!shown.page.broken_map
+              }
+            />
+          ) : null}
 
           {view === "result" && shown?.try ? (
             <>

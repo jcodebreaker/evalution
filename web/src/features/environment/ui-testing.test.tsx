@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   CaseRowSchema,
@@ -9,8 +9,10 @@ import {
 } from "../../lib/schema";
 import { RunConfirm } from "../runs/RunConfirm";
 import { MissingPieceNote } from "../shared/next-step";
+import { UiTestingStatus } from "../shared/ui-install";
 import { HowItPlays } from "../test/HowItPlays";
 import { TestRow } from "../tests/TestRow";
+import { playsLine } from "../tests/TestsView";
 import { PageReach } from "./PageReach";
 import { UiOffer } from "./UiOffer";
 
@@ -58,6 +60,70 @@ it("badges each test row with how it plays", () => {
   expect(screen.getByText("Page").getAttribute("title")).toMatch(/types each message/);
 });
 
+it("says over the list how the tests play", () => {
+  const rows = (plays: string[]) =>
+    plays.map((way, i) =>
+      CaseRowSchema.parse({ case: `t${i}`, name: "t", verdict: null, plays: way }),
+    );
+  expect(playsLine("relay-lite", rows(["page", "page"]))).toBe(
+    "Played through relay-lite's page: each test types each message there, and checks it shows.",
+  );
+  expect(playsLine("relay-lite", rows(["api"]))).toBe(
+    "Played through relay-lite's API: each test sends its messages straight to it.",
+  );
+});
+
+it("lists in Settings each piece UI testing needs, and installs what's missing with progress", async () => {
+  shown();
+  const browser = {
+    part: "browser",
+    said: "UI testing needs a browser.",
+    command: "uv run playwright install chromium",
+  };
+  const job = {
+    state: "running",
+    started: 1,
+    steps: [{ key: "browser", label: "Download Chromium", state: "running" }],
+    lines: ["Downloading Chromium 141.0", "|■■■■■■■■■■   |  62% of 124.3 MiB"],
+  };
+  let started = false;
+  serve({
+    "GET /v1/settings/ui-testing": () => ({
+      ready: false,
+      missing: [browser],
+      parts: { playwright: true, browser: false, ffmpeg: true },
+      can_install: true,
+      job: started ? job : null,
+    }),
+    "POST /v1/settings/ui-testing/install": () => {
+      started = true;
+      return {
+        ready: false,
+        missing: [browser],
+        parts: { playwright: true, browser: false, ffmpeg: true },
+        can_install: true,
+        job,
+      };
+    },
+  });
+  render(<UiTestingStatus />);
+  const parts = await screen.findByRole("list", { name: "What UI testing needs" });
+  const state = () =>
+    [...parts.querySelectorAll("li")].map((li) => [li.dataset.part, li.dataset.state]);
+  expect(state()).toEqual([
+    ["playwright", "done"],
+    ["browser", "missing"],
+    ["ffmpeg", "done"],
+  ]);
+  expect(screen.getByText(/Without it, tests still play, with screenshots only/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Install" }));
+  await screen.findByRole("progressbar", { name: "Installing A browser" });
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("62");
+  expect(state()[1]).toEqual(["browser", "running"]);
+  expect(screen.getByLabelText("What the install says").textContent).toContain("62%");
+  expect(screen.getByText("Or run it yourself")).toBeTruthy();
+});
+
 it("says in the Run dialog how each test plays, what it keeps and how long", async () => {
   const estimate = EstimateSchema.parse({
     token: "t",
@@ -84,8 +150,57 @@ it("says in the Run dialog how each test plays, what it keeps and how long", asy
   render(
     <RunConfirm target={{ scope: SCOPE, estimate }} onClose={() => null} onStarted={() => null} />,
   );
-  await screen.findByText(/3 tests through relay-lite's page, one at a time/);
-  expect(screen.getByText(/1 test through relay-lite's page.*no screenshots/)).toBeTruthy();
+  // A group for each way they play, badged, with how they play, how long and what's kept.
+  await screen.findByText("3 tests through relay-lite's page");
+  const groups = screen.getAllByRole("listitem");
+  expect(groups.map((group) => group.textContent)).toEqual([
+    "Page3 tests through relay-lite's pageOne at a time, about 40 s a try. Screenshots of every message, video when a try fails.",
+    "Page1 test through relay-lite's pageOne at a time, about 40 s a try. No screenshots, video when a try fails.",
+  ]);
+  // Played one at a time: the button says the rough total (4 tries at about 40 s).
+  expect(screen.getByRole("button", { name: "Run 4 tests · about 3 min" })).toBeTruthy();
+});
+
+it("sets what a page try keeps right in the Run dialog, and says the run again", async () => {
+  const line = (kept: string) => ({
+    how: "page",
+    cases: ["a"],
+    seconds: 30,
+    kept,
+    text: `1 test through relay-lite's page, one at a time, about 30 s a try; ${kept}.`,
+  });
+  let proof = { screenshots: "always", video: "failed" };
+  serve({
+    "POST /v1/evals/runs/estimate": () => ({
+      token: "t",
+      cases: 1,
+      tries: 1,
+      chats: 1,
+      plays: [
+        line(
+          proof.video === "off"
+            ? "screenshots of every message, no video"
+            : "screenshots of every message, video when a try fails",
+        ),
+      ],
+    }),
+    [`GET ${T}/page`]: () => ({ target: "relay-lite", plays: "page", writable: true, proof }),
+    [`PUT ${T}/page/proof`]: () => {
+      proof = { ...proof, video: "off" };
+      return { target: "relay-lite", plays: "page", writable: true, proof };
+    },
+  });
+  render(<RunConfirm target={{ scope: SCOPE }} onClose={() => null} onStarted={() => null} />);
+  await screen.findByText(/, video when a try fails\./);
+  const video = await screen.findByRole("group", { name: "Video" });
+  expect(screen.getByText(/A test can set its own under "What it checks"/)).toBeTruthy();
+  fireEvent.click(within(video).getByRole("button", { name: "Off" }));
+  // The same setting the Test environment card writes, and the dialog says what's kept now.
+  await screen.findByText(/, no video\./);
+  expect(calls.filter((c) => c.method === "PUT")).toEqual([
+    { method: "PUT", path: `${T}/page/proof`, body: { video: "off" } },
+  ]);
+  expect(calls.filter((c) => c.path === "/v1/evals/runs/estimate")).toHaveLength(2);
 });
 
 it("says an API run plays through the API, with nothing to capture", async () => {
@@ -107,6 +222,10 @@ it("says an API run plays through the API, with nothing to capture", async () =>
   );
   await screen.findByText("2 tests through relay-lite's API, about 20 s a try.");
   expect(screen.queryByText(/screenshots/)).toBeNull();
+  expect(screen.getByText("API")).toBeTruthy();
+  // Through the API tests may play side by side: no total is guessed.
+  expect(screen.getByRole("button", { name: "Run 2 tests" })).toBeTruthy();
+  expect(screen.queryByTestId("run-proof")).toBeNull();
 });
 
 it("sets what each try keeps on the app's How tests reach card", async () => {
@@ -190,7 +309,18 @@ it("offers UI testing once, and Not now turns it down on the server", async () =
   });
   render(<UiOffer target="relay-lite" />);
   await screen.findByText("relay-lite has a page. Test it the way people use it?");
+  expect(screen.getByText("New for relay-lite")).toBeTruthy();
+  // Set up, Not now and Try the demo first, side by side.
+  const acts = screen.getByRole("button", { name: "Set up UI testing" }).parentElement;
+  expect([...(acts?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
+    "Set up UI testing",
+    "Not now",
+    "Try the demo first",
+  ]);
   // The demo runs from the terminal: the card gives its command.
+  expect(screen.getByTestId("ui-demo").hidden).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Try the demo first" }));
+  expect(screen.getByTestId("ui-demo").hidden).toBe(false);
   const demo = screen.getByLabelText("The command that starts the demo") as HTMLInputElement;
   expect(demo.value).toBe("uv run --project server evalution demo ui");
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
@@ -239,6 +369,7 @@ it("sets UI testing up on the card: the agent's steps, the rehearsal's video, on
       ...base,
       plays: "page",
       current: { status: "approved", map: proposed.map },
+      can_undo: true,
       learn: learn(Array(5).fill("done"), "done"),
     },
   });
@@ -253,9 +384,10 @@ it("sets UI testing up on the card: the agent's steps, the rehearsal's video, on
   expect(writes()).toEqual([{ method: "POST", path: `${T}/page/learn`, body: { confirm: true } }]);
 
   // The card follows it to the map that showed its reply, without the chat.
-  await screen.findByText("The agent's map, waiting for your approval", undefined, {
+  await screen.findByText("Approve how tests use the page", undefined, {
     timeout: 3000,
   });
+  expect(screen.getByRole("button", { name: "Re-learn the page" })).toBeTruthy();
   const video = screen.getByLabelText("A video of the rehearsal on the page");
   expect(video.getAttribute("src")).toBe(`${T}/page/shots/try.webm`);
   expect((screen.getByRole("img") as HTMLImageElement).src).toContain("turn-1.png");
@@ -264,6 +396,8 @@ it("sets UI testing up on the card: the agent's steps, the rehearsal's video, on
   fireEvent.click(screen.getByRole("button", { name: "Approve" }));
   await screen.findByTestId("ui-approved");
   expect(writes().map((c) => c.path)).toEqual([`${T}/page/learn`, `${T}/page/approve`]);
+  // Undo is on the same card.
+  expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
 });
 
 it("says what the agent said when it found no map, and offers to try again", async () => {

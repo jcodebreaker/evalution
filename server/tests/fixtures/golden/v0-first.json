@@ -729,8 +729,15 @@
     ],
     "last_at": 1793572986.018167,
     "last_run": "20261101-224306-aaaa",
+    "layers": {
+     "answered": "absent",
+     "page_health": "absent",
+     "shown": "absent",
+     "stored": "absent"
+    },
     "name": "Fake test 1",
     "originally": null,
+    "plays": "api",
     "reasons": [
      null,
      null,
@@ -845,8 +852,15 @@
    ],
    "last_at": 1793583042.105848,
    "last_run": "20261102-013042-bbbb",
+   "layers": {
+    "answered": "absent",
+    "page_health": "absent",
+    "shown": "absent",
+    "stored": "absent"
+   },
    "name": "Fake test 1",
    "originally": null,
+   "plays": "api",
    "reasons": [
     null,
     null,

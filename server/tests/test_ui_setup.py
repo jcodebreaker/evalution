@@ -201,6 +201,8 @@ def test_settings_say_whether_the_page_can_install_and_follow_the_job(
     assert found["ready"] is False and found["can_install"] is True
     assert found["why_not_install"] is None and found["job"] is None
     assert [m["part"] for m in found["missing"]] == ["ffmpeg"]
+    # Every piece, there or not, so the page lists all three.
+    assert found["parts"] == {"playwright": True, "browser": True, "ffmpeg": False}
 
     started = app.post("/v1/settings/ui-testing/install")
     assert started.status_code == 202

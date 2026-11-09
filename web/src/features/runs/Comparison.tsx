@@ -12,7 +12,27 @@ const MORE_TRIES = 5;
 type Side = Compared["tests"][number]["before"];
 
 function tries(side: Side): string {
-  return side ? `${side.passed} of ${side.judged}` : "not run";
+  if (!side || side.verdict === "not_run") return "not run";
+  return side.judged ? `${side.passed} of ${side.judged}` : "not judged";
+}
+
+/** The tests that didn't move, in a line by how they came out: "4 tests pass, as before". */
+export function sameWords(all: readonly Compared["tests"][number][]): string | null {
+  const same = all.filter((test) => test.change === "same");
+  if (!same.length) return null;
+  const n = (verdicts: string[]) =>
+    same.filter((test) => verdicts.includes(test.now?.verdict ?? "")).length;
+  const pass = n(["pass"]);
+  const fail = n(["fail", "flaky"]);
+  const rest = same.length - pass - fail;
+  const tests = (k: number) => (k === 1 ? "1 test" : `${k} tests`);
+  return [
+    pass ? `${tests(pass)} ${pass === 1 ? "passes" : "pass"}, as before` : null,
+    fail ? `${tests(fail)} still ${fail === 1 ? "fails" : "fail"}` : null,
+    rest ? `${tests(rest)} came out the same` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 const WORDS: Record<string, string> = {
@@ -54,7 +74,7 @@ export function Comparison({
   }
   const found = load.data;
   const moved = found.tests.filter((test) => test.change !== "same");
-  const same = found.tests.length - moved.length;
+  const same = sameWords(found.tests);
   // Runs of another set or app share none of its tests: every one would be "in one run only".
   const others = runs
     .filter(
@@ -97,7 +117,9 @@ export function Comparison({
           ))}
         </ul>
       ) : (
-        <p className="m-0 text-[14px] text-ink-2">Nothing recorded about the setup changed.</p>
+        <p className="m-0 text-[14px] text-ink-2">
+          Same setup as that run: no recorded change in model, code, prompt or grader.
+        </p>
       )}
       {moved.length ? (
         <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[14px]">
@@ -111,7 +133,9 @@ export function Comparison({
                   test.change !== "worse" && test.change !== "better" && "text-ink-2",
                 )}
               >
-                {WORDS[test.change] ?? test.change}
+                {test.change === "unknown" && test.now?.verdict === "not_run"
+                  ? "Not run"
+                  : (WORDS[test.change] ?? test.change)}
               </span>
               <TextLink onClick={() => onTest(test.case)}>{test.name}</TextLink>
               <span className="text-[14px] text-ink-2">
@@ -125,14 +149,15 @@ export function Comparison({
         </ul>
       ) : null}
       {same ? (
-        <p className="m-0 text-[14px] text-ink-2">
-          {same === 1 ? "1 test didn't change." : `${same} tests didn't change.`}
+        <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-[14px]">
+          <span className="font-semibold text-ink-2">Same</span>
+          <span className="text-ink-2">{same}</span>
         </p>
       ) : null}
       {found.could_be_chance ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p className="m-0 min-w-0 flex-1 text-[14px] text-ink-2">
-            This few tries could be the agent varying.
+            Too few tries to tell this from the agent varying.
           </p>
           <Button
             size="sm"

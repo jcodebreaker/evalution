@@ -207,10 +207,13 @@ def test_the_try_view_lays_the_page_over_its_turns(client, home) -> None:
         "shot": "turn-1.png",
         "shot_url": "/v1/evals/runs/r1/cases/dog/tries/1/files/turn-1.png",
         "check": {"outcome": "passed", "why": "turn 1's reply showed on the page"},
+        "part": None,
     }
     assert second["shown"] is None and second["instead"] == "Couldn't load this reply"
     assert second["shot_url"] is None, "not kept on this server"
     assert second["check"]["outcome"] == "failed"
+    # How far the page showed the reply it failed to show: none of it.
+    assert second["part"] == {"shown": "", "missing": "Biscuit"}
 
     page = shown["page"]
     assert [c["level"] for c in page["console"]] == ["warning", "error"]
@@ -219,11 +222,28 @@ def test_the_try_view_lays_the_page_over_its_turns(client, home) -> None:
     ]
     assert page["not_taken"] is None and page["broken_map"] is None
     assert page["health"] == {"outcome": "failed", "why": "1 console error(s)"}
+    assert page["shown_alone"] == "fail", "turn 2's reply never showed, health apart"
     assert page["without_page"] == "passed", "its state held: through the API alone, it passed"
     assert page["video"] == {"name": "try.webm", "url": None}
     assert page["video_missing"] is None and page["interrupted"] is False
     kinds = {c["id"]: c["kind"] for c in shown["explain"]["code"]["checks"]}
     assert kinds["shown:2"] == "shown" and kinds["page_health"] == "page_health"
+
+
+def test_a_runs_rows_say_how_each_test_played_and_which_layer_held(client, home) -> None:
+    _store(home, SHOWN)
+    row = client.get("/v1/evals/runs/r1").json()["cases"][0]
+    assert row["plays"] == "page"
+    assert row["layers"] == {
+        "stored": "pass",
+        "answered": "absent",
+        "shown": "fail",
+        "page_health": "fail",
+    }
+
+    _store(home, None)
+    row = client.get("/v1/evals/runs/r1").json()["cases"][0]
+    assert row["plays"] == "api" and row["layers"]["shown"] == "absent"
 
 
 def test_a_passed_trys_video_kept_only_on_failure_is_said_to_be(client, home) -> None:

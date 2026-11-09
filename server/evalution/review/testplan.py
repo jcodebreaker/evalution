@@ -36,11 +36,13 @@ from evalution.core.evidence import (
     TryEvidence,
 )
 from evalution.core.judgement import CheckKind, CheckResult, Decider, Judgement, Outcome, Role
+from evalution.core.rendered import shown_part
 from evalution.core.rules import (
     called_of,
     current,
     judge_try,
     label_of,
+    layers,
     line_reason,
     steps_bind,
 )
@@ -825,15 +827,28 @@ def _on_page(
         at += 1
         if at > len(kept.turns):
             continue
-        shown = kept.turns[at - 1].shown
+        turn = kept.turns[at - 1]
+        shown = turn.shown
         seen = page.turns[at - 1] if at <= len(page.turns) else PageTurn()
+        check = checks.get(f"shown:{at}")
+        # How far the page showed a reply it failed to show: the words it did, and from where not.
+        part = (
+            shown_part(
+                turn.reply.text,
+                shown.text if shown is not None else seen.instead.text,
+                message=turn.message.text,
+            )
+            if check is not None and check.outcome is Outcome.FAILED and turn.reply.text
+            else None
+        )
         step["page"] = {
             "shown": shown.text if shown is not None else None,
             "shown_at": seen.shown_at,
             "instead": seen.instead.text,
             "shot": seen.shot,
             "shot_url": file_url(seen.shot) if seen.shot else None,
-            "check": _decided(checks.get(f"shown:{at}")),
+            "check": _decided(check),
+            "part": {"shown": part[0], "missing": part[1]} if part else None,
         }
     video = next((name for name in page.files if name.endswith(".webm")), None)
     url = file_url(video) if video else None
@@ -855,6 +870,8 @@ def _on_page(
         "failed_requests": [r.model_dump(mode="json") for r in page.failed_requests],
         "left_out": page.left_out,
         "health": _decided(checks.get("page_health")),
+        # The shown layer without the page's health: what showed of the replies alone.
+        "shown_alone": layers(judged, health=False)["shown"],
         # How the try comes out on every check but the page's: through the API alone. A target
         # reached through its page alone has no API to have played through: none.
         "without_page": None

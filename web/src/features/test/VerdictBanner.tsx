@@ -1,9 +1,11 @@
 import { cn } from "../../lib/cn";
 import { seconds } from "../../lib/format";
-import type { Compare, Layers, TryOutcome } from "../../lib/schema";
+import type { Compare, TryOutcome } from "../../lib/schema";
 import {
+  type LayerPill,
   layerWords,
   NEVER_REACHED,
+  notTakenOf,
   PAGE_ONLY,
   PASSED_MODEL_ONLY,
   retriedWords,
@@ -16,7 +18,7 @@ const TONE: Record<TryOutcome, [string, string, string]> = {
   failed: ["bg-destructive/10", "text-destructive", "✕"],
   unjudged: ["bg-bubble", "text-ink-2", "?"],
 };
-const PILL: Record<Layers["shown"], string> = {
+const PILL: Record<LayerPill["state"], string> = {
   pass: "text-success",
   fail: "text-destructive",
   unjudged: "text-ink-2",
@@ -57,7 +59,10 @@ export function VerdictBanner({
     shown.outcome,
     shown.page?.without_page,
     pageOnly,
-    shown.page?.not_taken,
+    notTakenOf(shown),
+    shown.page
+      ? { healthy: shown.page.health?.outcome ?? null, shownAlone: shown.page.shown_alone }
+      : null,
   );
   return (
     <div
@@ -76,7 +81,7 @@ export function VerdictBanner({
         <small className="text-[13px] text-ink-2">
           {[
             layered?.line ?? null,
-            shown.passed ? null : shown.reason,
+            shown.passed || !shown.reason ? null : asSentence(shown.reason),
             shown.called ? null : NEVER_REACHED,
             ...retriedWords(shown.retried),
             ...rest,
@@ -128,4 +133,12 @@ export function VerdictBanner({
       ) : null}
     </div>
   );
+}
+
+/** A reason as the server words it ("the app answered … 503") made a sentence of its own, so the
+ * banner's next sentence doesn't run into it. */
+export function asSentence(reason: string): string {
+  const said = reason.trim();
+  const capital = said.charAt(0).toUpperCase() + said.slice(1);
+  return /[.!?…]$/.test(capital) ? capital : `${capital}.`;
 }
