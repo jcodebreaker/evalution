@@ -35,6 +35,7 @@ export function Screen({
   runAll,
   runSome,
   runSet,
+  runOn,
   showRun,
   showGoing,
   openTest,
@@ -51,6 +52,8 @@ export function Screen({
   runAll: () => void;
   runSome: (inSet: string, ids: readonly string[]) => void;
   runSet: (inSet: string) => void;
+  /** The Run dialog for a set, on a version other than what's on disk. */
+  runOn?: (inSet: string, ref: string) => void;
   showRun: (id: string) => void;
   showGoing: () => void;
   openTest: (id: string, inRun?: string) => void;
@@ -243,6 +246,7 @@ export function Screen({
         onTest={(id) => go({ case: id })}
         onRunTest={(entry: CaseRow) => runTest(entry.case, entry.name)}
         onRunMore={runMore}
+        onRunOn={runOn}
         onStop={async (id) => {
           await api.stop(id);
           await reloadDetail();

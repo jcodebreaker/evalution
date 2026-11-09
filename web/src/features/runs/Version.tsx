@@ -25,11 +25,21 @@ export function CodeLines({
   return (
     <div className={cn("flex flex-col gap-0.5 text-[13px]", className)} data-testid="code-lines">
       <p className="m-0 text-ink-2">{`Code: ${version.said}`}</p>
+      {version.cost ? (
+        <p className="m-0 text-ink-2" data-testid="version-cost">
+          {version.cost}
+        </p>
+      ) : null}
       {why && version.verified === false ? (
         <p className="m-0 text-warning">{`Can't vouch for this: ${why}.`}</p>
-      ) : why && version.verified === null ? (
+      ) : why && version.verified === null && version.ref === "disk" ? (
         <p className="m-0 text-ink-3">{`${why[0]?.toUpperCase()}${why.slice(1)}.`}</p>
       ) : null}
+      {version.notes.map((note) => (
+        <p key={note} className="m-0 text-warning">
+          {note}
+        </p>
+      ))}
     </div>
   );
 }
@@ -49,5 +59,21 @@ export function VersionChip({ version }: { version: Version | null | undefined }
     >
       {said}
     </span>
+  );
+}
+
+/** Why a run of a version ended before any try: it couldn't be checked out or built. Nothing
+ * played, so nothing is judged; the reason, then the build's last lines as it printed them. */
+export function NotBuilt({ reason }: { reason: string }) {
+  const [head = "", ...lines] = reason.split("\n");
+  return (
+    <div className="flex flex-col gap-1.5 text-[13px]" data-testid="version-not-built">
+      <p className="m-0 text-warning">{`Nothing played, so nothing was judged: ${head}`}</p>
+      {lines.length ? (
+        <pre className="m-0 overflow-x-auto rounded-lg bg-bubble px-3 py-2 font-mono text-[12px] leading-[1.45] whitespace-pre-wrap text-ink-2">
+          {lines.join("\n")}
+        </pre>
+      ) : null}
+    </div>
   );
 }

@@ -96,6 +96,7 @@ from evalution.isolation import launch as app_copies
 from evalution.isolation import observe as store_watch
 from evalution.isolation.plan import PlanStore
 from evalution.llm import LLM
+from evalution.project import building
 from evalution.project import hooks as git_hooks
 from evalution.project import versions as code_versions
 from evalution.results import baseline
@@ -215,7 +216,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
     try:
         await runs.recover()
         estimate = runs.estimate(
-            args.target, args.set, [args.case] if args.case else None, args.tries
+            args.target, args.set, [args.case] if args.case else None, args.tries, args.ref
         )
         tries = f"{estimate['tries']}"
         if estimate["tries_high"] > estimate["tries"]:
@@ -223,7 +224,7 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
         print(
             f"evalution: {estimate['cases']} case(s), {tries} tries, {estimate['chats']} messages"
         )
-        _print_version(await runs.preview(args.target))
+        _print_version(estimate.get("version") or await runs.preview(args.target))
         refused = estimate["refused"]
         for test in refused:
             print(f"evalution: left out {test['case']}: {test['why']}", file=sys.stderr)
@@ -234,6 +235,8 @@ async def _play(config: Config, args: argparse.Namespace) -> tuple[int, str | No
             print("evalution: not started")
             return 0, None
         base = baseline.read(args.against) if args.against else None
+        # A version's build, line by line, as it prints them.
+        runs.on_build_line = lambda line: print(f"  {line}")
         started = await runs.start(estimate["token"], base, args.env)
         print(f"evalution: run {started['run']}")
         try:
@@ -339,7 +342,12 @@ def compare_runs(config: Config, args: argparse.Namespace) -> int:
         print(f"No run {args.run}", file=sys.stderr)
         return 2
     others = store.all(doc["target"], doc["set"])
-    chosen = args.base or default_base(doc, others)
+    try:
+        code = Targets(config).code(doc["target"])
+    except LookupError:
+        code = None
+    main = code.base_branch() if code is not None else None
+    chosen = args.base or default_base(doc, others, main)
     base = None
     if chosen:
         base = baseline.read(Path(chosen)) if Path(chosen).is_file() else store.load(chosen)
@@ -375,8 +383,12 @@ def accept(config: Config, args: argparse.Namespace) -> int:
 def _print_version(version: dict[str, Any]) -> None:
     """The code a run plays or played, and why evalution can't vouch for it when it can't."""
     print(f"evalution: code: {version['said']}")
+    if version.get("cost"):
+        print(f"evalution: {version['cost']}")
     if version.get("verified") is False:
         print(f"evalution: warning: {version['why_unverified']}", file=sys.stderr)
+    for note in version.get("notes") or []:
+        print(f"evalution: {note}")
 
 
 def _print_comparison(said: dict[str, Any]) -> None:
@@ -781,9 +793,8 @@ def versions(config: Config, args: argparse.Namespace) -> int:
             print("evalution: --target: which app (there is more than one)", file=sys.stderr)
             return 2
         name = names[0]
-    code = targets.code(name)
     try:
-        found = code_versions.of(name, code.root if code else None, config.data_dir)
+        found = building.versions_of(targets, name)
         if args.fetch:
             remote, _, branch = args.fetch.partition("/")
             commit = found.fetch(remote, branch)
@@ -876,6 +887,12 @@ def main(argv: list[str] | None = None) -> int:
         "--token", help=f"with --server, a workspace API token (default ${remote.TOKEN_ENV})"
     )
     play.add_argument("--env", metavar="NAME", help="where the app runs, e.g. staging")
+    play.add_argument(
+        "--ref",
+        default="disk",
+        help="the version to play: a branch, origin/branch, a tag or a commit, checked out and "
+        "built by evalution without touching your checkout (default: disk, what's on disk now)",
+    )
     play.add_argument(
         "--traces-port",
         type=int,

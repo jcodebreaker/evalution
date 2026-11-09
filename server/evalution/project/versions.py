@@ -53,6 +53,8 @@ FOLDER_COMMIT = 12
 READ_TIMEOUT = 20
 FETCH_TIMEOUT = 300
 CHECKOUT_TIMEOUT = 300
+#: Seconds listing a remote's branches may take: a network call, so the picker isn't held long.
+LIST_TIMEOUT = 30
 #: Refs listed at most, newest first.
 REFS_CAP = 500
 #: Settings no repo gets to change for evalution's git calls: nothing of theirs runs.
@@ -117,6 +119,31 @@ class Ref:
             "date": self.date,
             "checked_out": self.checked_out,
             "worktree": self.worktree,
+        }
+
+
+@dataclass(frozen=True)
+class RemoteBranch:
+    """A branch on a remote, as ``git ls-remote`` lists it: maybe not fetched here at all.
+
+    :param fetched: Evalution fetched it into its own refs; *fetched_commit* is where that is,
+        which may be behind *commit*.
+    """
+
+    remote: str
+    name: str
+    commit: str
+    fetched: bool = False
+    fetched_commit: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "remote": self.remote,
+            "name": self.name,
+            "ref": f"{self.remote}/{self.name}",
+            "commit": self.commit,
+            "fetched": self.fetched,
+            "fetched_commit": self.fetched_commit,
         }
 
 
@@ -354,6 +381,34 @@ class Versions:
             "on the remote is fetched first."
         )
 
+    def remote_of(self, ref: str) -> tuple[str, str] | None:
+        """``(remote, branch)`` when *ref* is ``<remote>/<branch>`` for one of the repository's
+        remotes; else ``None``."""
+        remote, _, branch = (ref or "").strip().partition("/")
+        return (remote, branch) if branch and remote in self.remotes() else None
+
+    def reach(self, ref: str, *, fetch: bool = True) -> str:
+        """The commit *ref* names, fetching it first when it is a remote's branch that is here
+        neither as evalution's fetched ref nor as the person's remote-tracking branch. A remote
+        branch evalution fetched wins over the person's remote-tracking one: the page fetches it
+        when it is picked, so it is the newer.
+
+        :raises VersionError: Nothing by that name, here or on the remote.
+        """
+        name = (ref or "").strip()
+        on_remote = self.remote_of(name)
+        if on_remote is not None:
+            ours = f"{self._ours()}{name}"
+            if git(self.top, "rev-parse", "--verify", "-q", ours).returncode == 0:
+                return self.resolve(ours)
+            try:
+                return self.resolve(name)
+            except VersionError:
+                if not fetch:
+                    raise
+            return self.fetch(*on_remote)
+        return self.resolve(name)
+
     def fetch(self, remote: str, branch: str) -> str:
         """Fetch *remote*'s *branch* into ``refs/evalution/<target>/<remote>/<branch>``, and
         return its commit. Nothing else is written: no branch of the person's, no
@@ -392,6 +447,34 @@ class Versions:
                 raise VersionError(f"{remote} has no branch {branch}")
             raise VersionError(f"Fetching {branch} from {remote} failed: {why}")
         return self.resolve(ours)
+
+    def remote_branches(self, remote: str) -> list[RemoteBranch]:
+        """The branches *remote* has now, as ``git ls-remote --heads`` lists them, with the
+        person's own git settings and credentials, nothing fetched and nothing written; each says
+        whether evalution has fetched it, and at which commit.
+
+        :raises VersionError: No such remote, or the listing failed (its last line said).
+        """
+        remote = (remote or "").strip()
+        if remote not in self.remotes():
+            known = ", ".join(self.remotes()) or "none"
+            raise VersionError(f"{remote or '(none)'}: not a remote of {self.top.name} ({known})")
+        done = self._git("ls-remote", "--heads", "--end-of-options", remote, timeout=LIST_TIMEOUT)
+        if done.returncode != 0:
+            raise VersionError(
+                f"Listing {remote}'s branches failed: {_last_line(done.stderr)}. Check that "
+                f"`git ls-remote {remote}` works in {self.top}."
+            )
+        fetched = {r.name: r.commit for r in self.refs() if r.kind == "fetched"}
+        found = []
+        for line in done.stdout.splitlines():
+            commit, _, ref = line.strip().partition("\t")
+            if not ref.startswith("refs/heads/") or not _HEX.match(commit):
+                continue
+            name = ref.removeprefix("refs/heads/")
+            kept = fetched.get(f"{remote}/{name}")
+            found.append(RemoteBranch(remote, name, commit, kept is not None, kept))
+        return sorted(found, key=lambda b: b.name)[:REFS_CAP]
 
     # Worktrees
 

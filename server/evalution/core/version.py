@@ -1,9 +1,12 @@
 """The version of the code a run played, by name, and whether evalution can vouch for it (ADR 0011).
 
-A run plays a **version**: for now always ``disk``, the target's checkout as it stands, uncommitted
-changes included. What it records of it:
+A run plays a **version**: ``disk`` by default, the target's checkout as it stands, uncommitted
+changes included; or a ref (a branch, a remote's branch, a tag, a commit) that evalution checks
+out into its own folder and builds itself (:func:`built`, :func:`set_up`). What it records of it:
 
-- ``branch`` and ``commit``: the checkout's branch (``None`` when it isn't on one) and last commit.
+- ``ref``: as asked, ``disk`` or the ref's name.
+- ``branch`` and ``commit``: the checkout's branch (``None`` when it isn't on one) and last commit;
+  for a ref, the branch or tag it names and the commit it resolved to.
 - ``dirty``: whether a watched file differs from that commit; ``None`` when nobody looked.
 - ``played``: what actually played. On a compose copy, each service's image, with its id and when
   it was built (``{"kind": "images", "images": [...]}``); on a process copy, the hash of the
@@ -24,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-#: The version that is the target's checkout as it stands: the only one there is for now.
+#: The version that is the target's checkout as it stands: the default.
 DISK = "disk"
 #: How much of a commit a person is shown.
 SHORT = 7
@@ -34,6 +37,8 @@ NOT_STARTED = "the app as it's running; evalution didn't start it"
 NOT_RECORDED = "not recorded: run before evalution kept what played"
 NO_CHECKOUT = "the code folder isn't a git checkout, so there is no commit to compare with"
 NO_BUILT = "the app's compose files build no image of their own, so its code isn't in them"
+#: Every image evalution builds is named under this (as :mod:`evalution.isolation.recipe` says).
+OWN = "evalution/"
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,50 @@ def unstarted(checkout: Checkout) -> Version:
     return _from(checkout, None, None, NOT_STARTED)
 
 
+def _judge_built(images: Sequence[Image], ids: Mapping[str, str]) -> tuple[bool, str | None]:
+    """Whether the images a version's copy plays are the ones evalution built from its commit:
+    every built service it runs, by id, under evalution's names."""
+    wrong = [
+        i.image
+        for i in images
+        if i.built
+        and (not i.image.startswith(OWN) or (i.service in ids and i.id != ids[i.service]))
+    ]
+    if wrong:
+        names, was, _ = _said([i for i in images if i.image in wrong])
+        return False, f"{names} {was} not what evalution built from this commit"
+    return True, None
+
+
+def built(
+    ref: str,
+    name: str | None,
+    commit: str,
+    images: Sequence[Image],
+    ids: Mapping[str, str] | None = None,
+) -> Version:
+    """A version evalution checked out and built itself (ADR 0011, phase 4), played on a compose
+    copy: *ref* as asked, *name* the branch or tag it names (``None`` for a bare commit), what
+    played the images under ``evalution/`` with their ids. Vouched for, since evalution built them
+    from *commit*, unless the copy ran another image than the one built (*ids*: service -> id)."""
+    verified, why = _judge_built(images, ids or {})
+    played = {"kind": "images", "images": [i.as_dict() for i in images]}
+    return Version(ref, name, commit, False, played, verified, why)
+
+
+def set_up(ref: str, name: str | None, commit: str, folder: str) -> Version:
+    """A version evalution checked out and set up itself, played on a process copy started in
+    its *folder*: what played is the commit's tree, exactly."""
+    played = {"kind": "tree", "code": f"commit:{commit}", "folder": folder}
+    return Version(ref, name, commit, False, played, True, None)
+
+
+def asked(ref: str, name: str | None, commit: str | None, why: str | None = None) -> Version:
+    """A version asked for that hasn't played: not yet, or not checked out or not built
+    (*why*)."""
+    return Version(ref, name, commit, False, None, None, why)
+
+
 def not_recorded(commit: Any) -> dict[str, Any]:
     """An old run's version: what was on disk, its commit as it recorded it, nothing vouched."""
     return {
@@ -187,8 +236,12 @@ def described(version: Mapping[str, Any] | None, *, now: bool = False) -> str:
     changes"; *now*, before a run, "what's on disk now: ...". Parts that don't apply are left
     out."""
     found = version or {}
-    head = "what's on disk now" if now else "what was on disk"
     where = " @ ".join(p for p in (found.get("branch"), short(found.get("commit"))) if p)
+    ref = found.get("ref") or DISK
+    if ref != DISK:
+        # A version evalution checks out and builds: "feature-x @ a1b2c3d".
+        return where or str(ref)
+    head = "what's on disk now" if now else "what was on disk"
     said = f"{head}: {where}" if where else head
     return said + (", with uncommitted changes" if found.get("dirty") else "")
 

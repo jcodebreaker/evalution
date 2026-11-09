@@ -57,6 +57,9 @@ LEFTOVER_STATE = "Started with leftover state"
 APP_NOT_READY, ADAPTER_BROKEN, OTHER_FAILURE = "app_not_ready", "adapter_broken", "other"
 #: A failed run's ``failure`` when the page didn't have what its page map names (ADR 0010).
 PAGE_MAP_BROKEN = "page_map_broken"
+#: A failed run's ``failure`` when the version it was to play couldn't be checked out or built
+#: (ADR 0011): nothing played, which says nothing of the app.
+VERSION_NOT_BUILT = "version_not_built"
 
 
 #: Why a try couldn't be judged, as the one word a person reads.

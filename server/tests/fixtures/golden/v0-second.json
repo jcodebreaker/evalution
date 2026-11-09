@@ -1849,6 +1849,7 @@
     "where": "local"
    },
    "error": null,
+   "failure": null,
    "interrupted": false,
    "isolation": {
     "how": "none",
@@ -2032,6 +2033,7 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "history": [
    {
     "prompt": "d4607fa1",
@@ -2243,6 +2245,7 @@
    "where": "local"
   },
   "error": null,
+  "failure": null,
   "interrupted": false,
   "isolation": {
    "how": "none",

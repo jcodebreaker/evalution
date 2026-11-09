@@ -353,7 +353,12 @@ class Copies:
         found: Footing,
         spans: SpanStore | None = None,
         setup: Setup | None = None,
+        *,
+        spec: dict[str, Any] | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
+        """*spec* and *env*: how each copy starts when not as the plan says, a version of the code
+        evalution checked out and built (:mod:`evalution.runs.versioned`)."""
         assert found.plan is not None
         self.config = config
         #: The test setup the copies play on: the person, the sample data, when they're put back.
@@ -368,7 +373,9 @@ class Copies:
         self.target = target
         self.plan = found.plan
         self.version = found.version
-        self.spec = plan_spec(config, target, found.plan)
+        self.spec = spec or plan_spec(config, target, found.plan)
+        #: Settings every copy starts with beside the traces': a version's image names.
+        self.version_env = dict(env or {})
         self.slots: list[Slot] = []
 
     @property
@@ -394,7 +401,9 @@ class Copies:
         took = True
         for index in range(slots):
             work = await asyncio.to_thread(work_folder, self.config, self.target)
-            copy = copy_of(self.spec, self.target, index, work, env=self.env)
+            copy = copy_of(
+                self.spec, self.target, index, work, env={**self.env, **self.version_env}
+            )
             slot = Slot(index, copy, work)
             self.slots.append(slot)
             await slot.copy.start()

@@ -9,16 +9,20 @@ Proving builds what's on disk into evalution's names and starts a copy from it
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextlib
 import logging
 import math
 import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from evalution.config import Config
 from evalution.isolation import build
+from evalution.isolation.launch import LaunchError
 from evalution.isolation.recipe import (
     BuildRecipe,
     RecipeStore,
@@ -28,6 +32,8 @@ from evalution.isolation.recipe import (
     stale,
     words,
 )
+from evalution.project import versions
+from evalution.project.versions import FOLDER_COMMIT
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
@@ -233,6 +239,75 @@ async def remove(targets: Targets, name: str, tag: str) -> build.Removed:
     done = await build.remove_images(names)
     await asyncio.to_thread(store.forget_built, name, tag)
     return done
+
+
+# Built versions, as parts of the versions evalution keeps
+
+
+def tag_of(commit: str) -> str:
+    """The tag a version of *commit* is built as: its first twelve characters (phase 0)."""
+    return commit[:FOLDER_COMMIT]
+
+
+def _blocking(work: Awaitable[Any]) -> Any:
+    """*work* run to its end from synchronous code, in a thread of its own when this one already
+    runs an event loop."""
+
+    async def wrapped() -> Any:
+        return await work
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(wrapped())
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        return pool.submit(asyncio.run, wrapped()).result()
+
+
+class BuiltPart:
+    """What a target's version keeps beside its worktree (a
+    :class:`~evalution.project.versions.Part`): the images evalution built from its commit, or for
+    a process app the record of its setup. Their size counts toward the target's limit, and they
+    go with the worktree: evalution's own tags only, then the Docker VM's disk trimmed."""
+
+    def __init__(self, data_dir: Path, target: str) -> None:
+        self.store = RecipeStore(data_dir)
+        self.data_dir = data_dir
+        self.target = target
+
+    def _record(self, commit: str) -> dict[str, Any] | None:
+        return self.store.built(self.target).get(tag_of(commit))
+
+    def size(self, commit: str) -> int:
+        record = self._record(commit) or {}
+        return int(record.get("disk_bytes") or record.get("image_bytes") or 0)
+
+    def remove(self, commit: str) -> None:
+        record = self._record(commit)
+        if record is None:
+            return
+        names = [str(n) for n in (record.get("images") or {}).values()]
+        if names:
+            try:
+                _blocking(build.remove_images(names))
+            except (LaunchError, OSError, ValueError) as exc:
+                # Kept on record, so the Test environment page still offers to remove them.
+                _logger.warning("build: %s's images of %s not removed: %s", self.target,
+                                tag_of(commit), exc)  # fmt: skip
+                return
+        self.store.forget_built(self.target, tag_of(commit))
+        with contextlib.suppress(OSError, ValueError):
+            build.override_file(self.data_dir, self.target, tag_of(commit)).unlink(missing_ok=True)
+
+
+def versions_of(targets: Targets, name: str) -> versions.Versions:
+    """*name*'s versions, each with what was built of it as a part of it.
+
+    :raises VersionError: No code folder, or it isn't a git checkout.
+    """
+    code = targets.code(name)
+    data = targets.config.data_dir
+    return versions.of(name, code.root if code else None, data, parts=[BuiltPart(data, name)])
 
 
 # What the page shows

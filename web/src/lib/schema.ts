@@ -814,10 +814,67 @@ export const VersionSchema = z.object({
   /** `false`: what played may not be this code, and `why_unverified` says why. `null`: can't tell. */
   verified: z.boolean().nullable().default(null),
   why_unverified: z.string().nullable().default(null),
-  /** In words: "what was on disk: page-testing @ e535c4d, with uncommitted changes". */
+  /** In words: "what was on disk: page-testing @ e535c4d, with uncommitted changes", or a version
+   * evalution checked out and built: "feature-x @ a1b2c3d". */
   said: z.string().default(""),
+  /** Before a run of a version other than the disk: what checking it out and building it costs,
+   * "Checks out feature-x @ a1b2c3d and builds it: about 4 min and up to 20 GB, once", or "Built
+   * already". */
+  cost: z.string().nullable().default(null),
+  /** What was said of a version beside it: the reset plan or page map made on another version,
+   * a compose file read from the person's checkout. */
+  notes: z.array(z.string()).default([]),
 });
 export type Version = z.infer<typeof VersionSchema>;
+
+/** A branch, remote branch or tag of the app's repository (ADR 0011). */
+export const VersionRefSchema = z.object({
+  name: z.string(),
+  ref: z.string(),
+  kind: z.enum(["local", "remote", "fetched", "tag"]).catch("local"),
+  commit: z.string(),
+  subject: z.string().default(""),
+  date: z.number().nullable().default(null),
+  checked_out: z.boolean().default(false),
+  worktree: z.boolean().default(false),
+});
+export type VersionRef = z.infer<typeof VersionRefSchema>;
+
+/** The app's repository: its refs, which branch is checked out, its remotes. */
+export const VersionsSchema = z.object({
+  target: z.string(),
+  remotes: z.array(z.string()).default([]),
+  checked_out: z
+    .object({ branch: z.string().nullable().default(null), commit: z.string().nullable() })
+    .nullable()
+    .default(null),
+  refs: z.array(VersionRefSchema).default([]),
+});
+export type Versions = z.infer<typeof VersionsSchema>;
+
+/** A remote's branches as `git ls-remote` lists them now: maybe not fetched here. */
+export const RemoteBranchesSchema = z.object({
+  remote: z.string(),
+  branches: z
+    .array(
+      z.object({
+        remote: z.string(),
+        name: z.string(),
+        ref: z.string(),
+        commit: z.string(),
+        fetched: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+});
+export type RemoteBranches = z.infer<typeof RemoteBranchesSchema>;
+
+/** A remote's branch fetched into evalution's own refs, and its commit. */
+export const FetchedBranchSchema = z.object({
+  remote: z.string(),
+  branch: z.string(),
+  commit: z.string(),
+});
 
 export const RunSummarySchema = z.object({
   run: z.string(),
@@ -826,6 +883,10 @@ export const RunSummarySchema = z.object({
   started_at: z.number(),
   environment: EnvironmentSchema.default({ where: "local", name: null }),
   status: z.enum(["running", "done", "stopped", "failed"]),
+  /** Why a failed run stopped, as a kind (`version_not_built`, `app_not_ready`, ...) and in words;
+   * older servers don't say. */
+  failure: z.string().nullable().catch(null).default(null),
+  stop_reason: z.string().nullable().catch(null).default(null),
   /** The server restarted under it, which says nothing of the app. */
   interrupted: z.boolean().default(false),
   /** Short hash of the app's prompt, when the target knows one. */
@@ -1197,6 +1258,19 @@ const ComparedSideSchema = z
   .object({ verdict: z.string(), passed: z.number(), judged: z.number() })
   .nullable();
 
+const ComparedVersionSchema = z.object({ name: z.string(), said: z.string().default("") });
+const ComparedVersionsSchema = z.object({
+  now: ComparedVersionSchema,
+  before: ComparedVersionSchema,
+  heading: z.string().nullable().default(null),
+});
+export const BaseBranchSchema = z.object({
+  name: z.string(),
+  run: z.string().nullable().default(null),
+  missing: z.string().nullable().default(null),
+});
+export type BaseBranch = z.infer<typeof BaseBranchSchema>;
+
 /** One run against another (GET /v1/evals/runs/{run}/comparison). */
 export const ComparisonSchema = z.object({
   run: z.string(),
@@ -1207,6 +1281,12 @@ export const ComparisonSchema = z.object({
   changed: z.array(z.object({ what: z.string(), before: z.string(), now: z.string() })).default([]),
   /** When what played says otherwise than the commits: "Same code played: …". */
   code: z.string().nullable().default(null),
+  /** Each run's version, named and described, and "feature-x vs main" when they differ (ADR
+   * 0011); older servers don't say. */
+  versions: ComparedVersionsSchema.nullable().catch(null).default(null),
+  /** For a run of a branch other than the repository's base branch: that branch, its latest run
+   * of the same tests, and why there is none ("No run of these tests on main yet"). */
+  base_branch: BaseBranchSchema.nullable().catch(null).default(null),
   tests: z
     .array(
       z.object({
@@ -1376,6 +1456,8 @@ export const EstimateSchema = z.object({
   isolation_note: z.string().nullable().default(null),
   /** The code it will play, and whether the images here look like it; older servers don't say. */
   version: VersionSchema.nullish(),
+  /** The version it plays: `disk`, or a ref evalution checks out and builds first. */
+  ref: z.string().default("disk"),
   /** How its tries will be kept apart, the plan's status and rough timings; older servers don't say. */
   isolation: RunIsolationSchema.extend({
     status: z.enum(["none", "draft", "proven", "stale", "failed"]).catch("none").default("none"),

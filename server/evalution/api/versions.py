@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Request
 
 from evalution.api.deps import Current, busy, invalid, not_found, target_name
 from evalution.api.workspaces import Workspace
-from evalution.project import versions
+from evalution.project import building, versions
 
 HOSTED = "Versions are local only: hosted evalution has no copies of apps to play them on."
 
@@ -23,10 +23,10 @@ def _local(request: Request) -> None:
 
 
 def _versions(ws: Workspace, name: str) -> versions.Versions:
-    """:raises HTTPException: 400, no code folder or not a git checkout."""
-    code = ws.targets.code(name)
+    """:raises HTTPException: 400, no code folder or not a git checkout. What evalution built of
+    each version counts with it, and goes with it."""
     try:
-        return versions.of(name, code.root if code else None, ws.targets.config.data_dir)
+        return building.versions_of(ws.targets, name)
     except versions.VersionError as exc:
         raise invalid(str(exc)) from exc
 
@@ -66,6 +66,29 @@ def versions_router() -> APIRouter:
             return {"remote": remote, "branch": branch, "commit": commit}
 
         return await asyncio.to_thread(fetch)
+
+    @router.get("/targets/{target}/versions/remote")
+    async def remote_branches(
+        ws: Current, target: str, remote: str | None = None
+    ) -> dict[str, Any]:
+        """The branches *remote* has now (``origin`` by default, else the first remote), listed
+        with ``git ls-remote`` and the person's own credentials: nothing fetched, nothing
+        written. Each says whether evalution fetched it."""
+        name = target_name(ws.targets, target)
+
+        def listed() -> dict[str, Any]:
+            found = _versions(ws, name)
+            remotes = found.remotes()
+            chosen = remote or ("origin" if "origin" in remotes else (remotes or [""])[0])
+            if not chosen:
+                raise invalid(f"{found.top.name} has no remote to list branches of")
+            try:
+                branches = found.remote_branches(chosen)
+            except versions.VersionError as exc:
+                raise invalid(str(exc)) from exc
+            return {"remote": chosen, "branches": [b.as_dict() for b in branches]}
+
+        return await asyncio.to_thread(listed)
 
     @router.delete("/targets/{target}/versions/{commit}")
     async def remove_version(ws: Current, target: str, commit: str) -> dict[str, Any]:

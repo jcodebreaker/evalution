@@ -679,6 +679,9 @@ async def rehearse_plan(
     *,
     slot: int = 0,
     on_stage: OnStage | None = None,
+    spec: dict[str, Any] | None = None,
+    env: dict[str, str] | None = None,
+    folder: Path | None = None,
 ) -> Plan:
     """Rehearse *plan* as it is on a fresh copy of the app and take the copy down. Sends one
     probe message. The plan comes back ``proven`` or ``failed``, with the rehearsal's account in
@@ -686,6 +689,8 @@ async def rehearse_plan(
     starts as the target's setup says (sample data included), so what is proven is what runs.
 
     :param on_stage: Told ``copy``, ``store:<id>``, ``person`` and ``prove`` as each begins.
+    :param spec: How the copy starts, when not as the plan says: a version of the code evalution
+        checked out (ADR 0011), with *env* set on it and *folder* its code folder.
     :raises LookupError: No such target, or nothing says how to start a copy.
     :raises LaunchError: The copy didn't start.
     :raises SetupError: The setup's sample data isn't a ``.sql`` file in the app's folder.
@@ -699,12 +704,12 @@ async def rehearse_plan(
 
     if (why := off_copy(config, target)) is not None:
         raise ConfigError(why)
-    folder = code_folder(config, target).resolve()
-    spec = plan_spec(config, target, plan)
+    folder = (folder or code_folder(config, target)).resolve()
+    spec = spec or plan_spec(config, target, plan)
     setup = setup_for(config, target)
     seed = seed_path(config, target, setup)
     work = work_folder(config, target)
-    copy = copy_of(spec, target, slot, work)
+    copy = copy_of(spec, target, slot, work, env=env)
     left: list[str] = []
     downed = False
     try:

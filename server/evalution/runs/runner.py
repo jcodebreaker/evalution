@@ -31,7 +31,7 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Coroutine, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -62,10 +62,11 @@ from evalution.core.rules import (
     RULES_VERSION,
     SERVER_RESTARTED,
     TARGET_GONE,
+    VERSION_NOT_BUILT,
     current,
     judgement,
 )
-from evalution.core.version import Checkout, described, unstarted
+from evalution.core.version import DISK, Checkout, asked, described, unstarted
 from evalution.isolation.setup import setup_for
 from evalution.judging import labels
 from evalution.judging.checks import code_checks
@@ -94,7 +95,7 @@ from evalution.results.store import RunLock, RunStore
 from evalution.results.views import summary, totals
 from evalution.review import divergence
 from evalution.review.findings import analyze_run, write_report
-from evalution.runs import isolated, trust
+from evalution.runs import isolated, trust, versioned
 from evalution.runs.estimate import messages, plays
 from evalution.runs.fit import why_not
 from evalution.runs.page import learn
@@ -136,6 +137,8 @@ _logger = logging.getLogger(__name__)
 TOKEN_SECONDS = 600
 #: Seconds a try's session gets to open, or to reset.
 SETUP_SECONDS = 120.0
+#: Seconds between saves of a run while its version builds, so the page follows the build's lines.
+BUILD_SAVE_SECONDS = 2.0
 #: Seconds a try waits for traces once an earlier one of the run waited in full and found none.
 NO_TRACES_WAIT = 2.0
 STOPPED_BY_ADMIN = "Stopped by the admin"
@@ -197,6 +200,8 @@ class _Plan:
     tries: int | None
     scope: str
     expires: float
+    #: The version it plays: ``disk``, or a ref evalution checks out and builds (ADR 0011).
+    ref: str = DISK
 
 
 class RunBusyError(Exception):
@@ -257,6 +262,8 @@ class Runs:
         self._no_traces: set[str] = set()
         self._orphans_marked = False
         self._orphan_sessions: list[tuple[str, dict[str, Any]]] = []
+        #: Told each line a version's build prints, as it prints it: ``evalution run`` shows them.
+        self.on_build_line: Callable[[str], object] | None = None
 
     def caller(self, key: str) -> Caller | None:
         return self.llm.caller(key) if self.llm else None
@@ -338,7 +345,12 @@ class Runs:
         return rows
 
     def estimate(
-        self, target: str, set_name: str, cases: Sequence[str] | None, tries: int | None
+        self,
+        target: str,
+        set_name: str,
+        cases: Sequence[str] | None,
+        tries: int | None,
+        ref: str | None = None,
     ) -> dict[str, Any]:
         """The ``Estimate`` for a set or some of its cases, with the token that starts it.
 
@@ -346,7 +358,11 @@ class Runs:
         it, each case plays from its own ``tries`` (``tries`` and ``chats``: the low end, what they
         read before tries could grow) up to :data:`MOST_TRIES` (``tries_high``).
 
-        :raises CaseError: An unknown set or case, or a bad case file.
+        *ref*: the version it plays, what's on disk by default; another is checked out and built
+        first, said with its cost in ``version`` (:func:`evalution.runs.versioned.preview`).
+
+        :raises CaseError: An unknown set or case, or a bad case file; a version that can't be
+            run (:class:`~evalution.runs.versioned.VersionRefused`), with the next step.
         :raises LookupError: An unknown target.
         """
         docs = self.targets.docs
@@ -361,6 +377,11 @@ class Runs:
                 else None
             )
             raise isolated.NotIsolated(why, missing)
+        ref = DISK if versioned.is_disk(ref) else str(ref).strip()
+        if (why := versioned.refusal(self.targets.config, target, ref, found)) is not None:
+            raise versioned.VersionRefused(why)
+        # The version, when it isn't what's on disk: its commit, and what building it costs.
+        version = None if ref == DISK else versioned.preview(self.targets.config, target, ref)
         capabilities = isolated.capabilities_on(self._declared(target), found)
         # Through the app's page, when it has a page map: refusal above read it already.
         page = page_map_of(self.targets.conf(target))
@@ -375,10 +396,12 @@ class Runs:
         token = secrets.token_urlsafe(18)
         scope = "all" if {c.case for c in every} <= set(least) else "some"
         self._plans[token] = _Plan(
-            target, set_name, tuple(least), tries, scope, now + TOKEN_SECONDS
+            target, set_name, tuple(least), tries, scope, now + TOKEN_SECONDS, ref
         )
         return {
             "token": token,
+            "ref": ref,
+            **({"version": version} if version is not None else {}),
             "target": target,
             "set": set_name,
             "cases": len(chosen),
@@ -427,6 +450,15 @@ class Runs:
             **{k: v for k, v in said.as_dict().items() if k != "played"},
             "said": described(said.as_dict(), now=True),
         }
+
+    def _base_branch(self, target: str) -> str | None:
+        """The base branch of *target*'s repository (``main``, as it names it), for the run a
+        comparison would choose; ``None`` with no code folder, or none of the names."""
+        try:
+            code = self.targets.code(target)
+            return code.base_branch() if code is not None else None
+        except (LookupError, OSError):
+            return None
 
     def _declared(self, target: str) -> Capabilities:
         """What *target*'s adapter declares, before any plan is laid over it."""
@@ -560,7 +592,7 @@ class Runs:
             self._running = self._playing = None
             self.lock.release()
             raise
-        self._go(self._play(doc, eval_set, cases, plan.tries, base))
+        self._go(self._play(doc, eval_set, cases, plan.tries, base, plan.ref))
         self._stop_watch = asyncio.get_running_loop().create_task(self._heed_stop(doc["run"]))
         return summary(doc)
 
@@ -773,7 +805,8 @@ class Runs:
             await self.store.save(doc)
             kept = await asyncio.to_thread(self.store.evidence, doc["run"])
             earlier = await asyncio.to_thread(self.all, doc["target"], doc["set"])
-            await asyncio.to_thread(_mark_divergences, self.store, doc, kept, earlier)
+            main = await asyncio.to_thread(self._base_branch, doc["target"])
+            await asyncio.to_thread(_mark_divergences, self.store, doc, kept, earlier, main)
             by_try = {(e.case, e.n): index_of([e]) for e in kept}
             by_case = {stem: index_of(e for e in kept if e.case == stem) for stem in doc["cases"]}
             await analyze_run(caller, doc, by_try, index_of(kept))
@@ -820,6 +853,7 @@ class Runs:
         cases: Sequence[Case],
         tries: int | None,
         base: Mapping[str, Any] | None,
+        ref: str = DISK,
     ) -> None:
         """Play every try of *cases*: one case after another, or up to the target's
         ``max_parallel`` cases at once when its adapter declares ``parallel``, each slot in its own
@@ -828,7 +862,10 @@ class Runs:
 
         On a target with a proven isolation plan, each slot plays on evalution's own copy of the
         app, put back and checked before every try, or before each test's first as its test setup
-        says, which also says how many copies play at once (:mod:`evalution.runs.isolated`)."""
+        says, which also says how many copies play at once (:mod:`evalution.runs.isolated`).
+
+        A *ref* other than ``disk`` is checked out and built first, and the copies start from it
+        (:mod:`evalution.runs.versioned`); one that can't be ends the run before any try."""
         name = doc["target"]
         target = self.targets.adapter(name)
         source = self.targets.source(name)
@@ -836,6 +873,7 @@ class Runs:
         # Each slot's adapter, when it plays on a copy of the app; else the target's own.
         on: dict[int, Target] = {}
         copies: isolated.Copies | None = None
+        ready: versioned.Ready | None = None
 
         def pairs() -> list[tuple[Target, Session]]:
             return [(on.get(i, target), s) for i, s in sessions.items()]
@@ -852,7 +890,10 @@ class Runs:
             bases = await asyncio.to_thread(self._bases, doc, base)
             parallel = target.capabilities.parallel
             slots = min(self.targets.conf(name).max_parallel, len(cases)) if parallel else 1
-            footing = await self._footing(doc, name, target)
+            footing = await self._footing(doc, name, target, ref)
+            if not versioned.is_disk(ref):
+                ready = await self._version(doc, name, ref, footing)
+                footing = await versioned.footing_on(self.targets.config, name, footing, ready)
             doc["isolation"] = footing.run_label()
             if not footing.managed:
                 # The app as it runs: whatever it was started from.
@@ -868,17 +909,29 @@ class Runs:
                 setup = await asyncio.to_thread(setup_for, config, name)
                 # On copies, the test setup says how many play side by side.
                 slots = min(setup.copies, len(cases)) if parallel else 1
-                copies = isolated.Copies(config, name, footing, self.targets.store, setup)
+                copies = isolated.Copies(
+                    config,
+                    name,
+                    footing,
+                    self.targets.store,
+                    setup,
+                    spec=ready.spec if ready else None,
+                    env=ready.env if ready else None,
+                )
                 began = time.monotonic()
                 await copies.start(slots)
                 # How long starting the copies took: the Run dialog's rough figure next time.
                 doc["copy_start_seconds"] = round(time.monotonic() - began, 1)
-                # What the copies play: their images, or the working tree.
-                version = await isolated.played(copies, checkout, doc.get("code"))
-                doc["version"] = version.as_dict()
+                # What the copies play: their images, or the working tree; or the version built.
+                if ready is None:
+                    version = await isolated.played(copies, checkout, doc.get("code"))
+                    doc["version"] = version.as_dict()
+                else:
+                    version = await versioned.played(ready, copies.slots[0].copy)
+                    doc["version"] = versioned.version_dict(version, ready.notes)
                 doc["isolation"] = footing.run_label(copies.person)
                 on = {s.index: s.adapter for s in copies.slots if s.adapter is not None}
-                await self._check_page_map(doc, name, on.get(0))
+                await self._check_page_map(doc, name, on.get(0), ready)
             if self.targets.config.check_adapters:
                 doc["current"] = {"case": "", "name": "Checking the connection", "try": 1}
                 await self.store.save(doc)
@@ -998,6 +1051,12 @@ class Runs:
             doc.update(status="stopped", stop_reason=self._stop_reason or SERVER_SHUTDOWN)
             await self._finish(pairs(), doc, copies)
             raise
+        except versioned.NotBuilt as exc:
+            _logger.warning("evals: run %s: its version wasn't built", doc["run"])
+            doc["version"] = versioned.version_dict(exc.version, [])
+            doc.update(
+                status="failed", failure=VERSION_NOT_BUILT, stop_reason=str(exc), error=str(exc)
+            )
         except (isolated.NotIsolated, isolated.CopyLost) as exc:
             doc.update(status="failed", failure=APP_NOT_READY, stop_reason=str(exc), error=str(exc))
         except AdapterBroken as exc:
@@ -1045,16 +1104,25 @@ class Runs:
         if doc["analyzing"]:
             await self._analyze(doc)
 
-    async def _footing(self, doc: dict[str, Any], name: str, target: Target) -> isolated.Footing:
+    async def _footing(
+        self, doc: dict[str, Any], name: str, target: Target, ref: str = DISK
+    ) -> isolated.Footing:
         """What the run stands on: a proven plan, rehearsed again first when its evidence changed.
+        For a version other than the disk, the plan is checked against the version's files
+        instead, once it is checked out (:func:`evalution.runs.versioned.footing_on`).
 
         :raises NotIsolated: It has none, and ``isolation.require_proven`` asks for one.
+        :raises NotBuilt: A version that can't be run, as it starts.
         """
         config = self.targets.config
         found = await asyncio.to_thread(isolated.footing, config, name, target.capabilities)
         # Refused before rehearsing too: a rehearsal can't make a refused run possible.
         if (why := isolated.refusal(config, name, found)) is not None:
             raise isolated.NotIsolated(why)
+        if not versioned.is_disk(ref):
+            if (why := versioned.refusal(config, name, ref, found)) is not None:
+                raise versioned.NotBuilt(why, asked(ref, versioned.name_of(ref, None), None, why))
+            return found
         if found.to_rehearse:
             doc["current"] = {"case": "", "name": "Rehearsing the isolation plan again", "try": 1}
             await self.store.save(doc)
@@ -1063,15 +1131,65 @@ class Runs:
             raise isolated.NotIsolated(why)
         return found
 
-    async def _check_page_map(self, doc: dict[str, Any], name: str, target: Target | None) -> None:
+    async def _version(
+        self, doc: dict[str, Any], name: str, ref: str, found: isolated.Footing
+    ) -> versioned.Ready:
+        """Check *ref* out and build it, saying each step and the build's newest line as the
+        run's ``current``, saved every few seconds while it goes.
+
+        :raises NotBuilt: It couldn't be checked out or built.
+        """
+        assert found.plan is not None
+        current: dict[str, Any] = {"case": "", "name": f"Checking out {ref}", "try": 1}
+        doc["current"] = current
+        doc["version"] = asked(ref, versioned.name_of(ref, None), None).as_dict()
+        await self.store.save(doc)
+
+        def step(said: str) -> None:
+            current.update(name=said, stage="")
+
+        def line(said: str) -> None:
+            current["stage"] = said[:200]
+            if self.on_build_line is not None:
+                self.on_build_line(said)
+
+        async def keep_saying() -> None:
+            while True:
+                await asyncio.sleep(BUILD_SAVE_SECONDS)
+                await self.store.save(doc)
+
+        saying = asyncio.ensure_future(keep_saying())
+        try:
+            ready = await versioned.prepare(
+                self.targets.config, name, ref, found.plan, said=line, on_step=step
+            )
+        finally:
+            saying.cancel()
+            await asyncio.gather(saying, return_exceptions=True)
+        doc["version"] = versioned.version_dict(ready.unplayed(), ready.notes)
+        return ready
+
+    async def _check_page_map(
+        self,
+        doc: dict[str, Any],
+        name: str,
+        target: Target | None,
+        ready: versioned.Ready | None = None,
+    ) -> None:
         """Before a run plays through the page, a map that a commit left out of date, that the last
         check found broken, or whose evidence changed, is checked on the copy: every element a
         turn needs is found, none is acted on, no message is sent. It is saved approved again, or
         broken.
 
+        On a version other than the disk (*ready*), it is checked when the files its evidence
+        cites differ in that version, and nothing is saved: the map stays as it is for the disk.
+
         :raises PageMapBroken: The page lacks what the map names; the run ends ``page_map_broken``.
         """
         if not isinstance(target, PageTarget):
+            return
+        if ready is not None:
+            await self._check_map_on_version(doc, name, target, ready)
             return
         kept = await asyncio.to_thread(pagemaps.to_check, self.targets, name)
         if kept is None:
@@ -1089,6 +1207,38 @@ class Runs:
                 f"before playing, the page has no {', '.join(missing)}. Re-learn the page to "
                 "propose a new map."
             )
+
+    async def _check_map_on_version(
+        self, doc: dict[str, Any], name: str, target: PageTarget, ready: versioned.Ready
+    ) -> None:
+        """The page map checked on the version's copy when the files its evidence cites differ
+        there; said in the version's notes, and saved nowhere.
+
+        :raises PageMapBroken: The version's page lacks what the map names.
+        """
+        kept = await asyncio.to_thread(pagemaps.in_use, self.targets, name)
+        if kept is None or kept.status not in ("approved", "stale", "broken"):
+            return
+        changed = await asyncio.to_thread(pagemaps.moved, kept.evidence_hashes, ready.folder)
+        if not changed:
+            return
+        doc["current"] = {"case": "", "name": "Checking the page map on this version", "try": 1}
+        await self.store.save(doc)
+        found = await learn.check(target, name, self.targets.files)
+        files = ", ".join(changed)
+        if found.missing:
+            raise PageMapBroken(
+                f"The page map was made on another version, and {ready.where}'s page has no "
+                f"{', '.join(found.missing)} ({files} differ). Re-learn the page on that version, "
+                "or run what's on disk."
+            )
+        note = (
+            f"The page map was made on another version ({files} differ in {ready.where}): "
+            "checked on this version's copy before the first try, and everything it names is there."
+        )
+        ready.notes.append(note)
+        if isinstance(doc.get("version"), dict):
+            doc["version"]["notes"] = list(ready.notes)
 
     async def _map_broke(self, name: str, played: Played, at: tuple[str, str, int]) -> None:
         """A try found the page without what its map names: the map in use is marked broken,
@@ -1110,7 +1260,7 @@ class Runs:
         comparison would choose (:func:`default_base`), as far as *doc* is known when it starts."""
         if base is None:
             others = self.store.all(doc["target"], doc["set"])
-            chosen = default_base(doc, others)
+            chosen = default_base(doc, others, self._base_branch(doc["target"]))
             base = next((r for r in others if r["run"] == chosen), None)
         if base is None:
             return {}
@@ -1377,10 +1527,12 @@ def _mark_divergences(
     doc: dict[str, Any],
     kept: Sequence[TryEvidence],
     others: Sequence[Mapping[str, Any]],
+    base_branch: str | None = None,
 ) -> None:
     """Write each test's first difference between a passing and a failing try on *doc*, before
-    its analysis reads it; the passing try may be from the run a comparison would choose."""
-    chosen = default_base(doc, others)
+    its analysis reads it; the passing try may be from the run a comparison would choose, on
+    *base_branch* (the repository's ``main``) when *doc* is of another branch."""
+    chosen = default_base(doc, others, base_branch)
     base = next((r for r in others if r["run"] == chosen), None)
     base_kept = store.evidence(base["run"]) if base else []
     for stem, found in divergence.of_run(doc, kept, base, base_kept).items():

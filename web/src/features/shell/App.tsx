@@ -63,6 +63,9 @@ export function App() {
   const runSet = (inSet: string) => {
     if (target) setConfirm({ scope: { target, set: inSet } });
   };
+  const runOn = (inSet: string, ref: string) => {
+    if (target && !going) setConfirm({ scope: { target, set: inSet }, ref });
+  };
   const showRun = (id: string) => go({ view: "runs", run: id, case: null, base: null });
   const showBenchmark = (id: string) => go({ view: "benchmarks", run: id, case: null, base: null });
   const showGoing = () => {
@@ -146,6 +149,7 @@ export function App() {
             runAll={runAll}
             runSome={runSome}
             runSet={runSet}
+            runOn={runOn}
             showRun={showRun}
             showGoing={showGoing}
             openTest={openTest}

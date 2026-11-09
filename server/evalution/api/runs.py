@@ -25,7 +25,7 @@ from evalution.core.case import MOST_TRIES, Case
 from evalution.core.evidence import TryEvidence
 from evalution.core.judgement import Outcome
 from evalution.core.rules import current, label_of
-from evalution.results.compare import comparison, default_base
+from evalution.results.compare import base_branch_said, comparison, default_base
 from evalution.results.record import pass_marks, verdict_kind
 from evalution.results.store import RunStore
 from evalution.results.upload import UploadError, read_upload
@@ -38,6 +38,7 @@ from evalution.runs.runner import RunBusyError
 from evalution.storage.files import FileNameError, Files
 from evalution.suite.cases import CaseError, parse_case
 from evalution.suite.store import load_case, sent_files
+from evalution.targets import Targets
 
 #: The most an uploaded run and its evidence may weigh: each try's texts are capped at 64 kB an
 #: item, so this holds a few hundred long tries.
@@ -69,6 +70,16 @@ def _here(files: Files | None, run: str, case: str, n: int) -> frozenset[str]:
         return frozenset()
 
 
+def _base_branch(targets: Targets, name: str) -> str | None:
+    """The base branch of *name*'s repository (``main``, as it names it); ``None`` when it has no
+    code folder here (hosted, an app since removed) or none of the names."""
+    try:
+        code = targets.code(name)
+    except LookupError:
+        return None
+    return code.base_branch() if code is not None else None
+
+
 def _read(files: Files, run: str, case: str, n: int, name: str) -> bytes:
     with files.open(run, case, n, name) as found:
         return found.read()
@@ -90,10 +101,13 @@ def runs_router() -> APIRouter:
     @router.post("/evals/runs/estimate")
     async def estimate(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Tries and chats (a range: :meth:`Runs.estimate`) for a set, one
-        case or some, and the token that starts the run."""
+        case or some, and the token that starts the run. ``ref``: the version it plays, what's on
+        disk by default; another is said with what building it costs (ADR 0011)."""
         targets, runs = ws.targets, ws.runs
         name = target_name(targets, body.get("target"))
-        set_name, tries = body.get("set"), body.get("tries")
+        set_name, tries, ref = body.get("set"), body.get("tries"), body.get("ref")
+        if ref is not None and (not isinstance(ref, str) or not ref.strip() or len(ref) > 250):
+            raise invalid("ref: a branch, tag or commit, or 'disk'")
         cases = body.get("cases") or ([body["case"]] if body.get("case") else None)
         if not isinstance(set_name, str) or not set_name:
             raise invalid("set: required")
@@ -107,7 +121,7 @@ def runs_router() -> APIRouter:
             raise invalid(f"tries: must be a whole number from 1 to {MOST_TRIES}")
         known_set(targets, name, set_name)
         try:
-            found = await asyncio.to_thread(runs.estimate, name, set_name, cases, tries)
+            found = await asyncio.to_thread(runs.estimate, name, set_name, cases, tries, ref)
         except NotIsolated as exc:
             if exc.missing is None:
                 raise invalid(str(exc)) from exc
@@ -122,8 +136,10 @@ def runs_router() -> APIRouter:
                 targets, name, found.get("isolation") or {}, runs.all(name)
             )
         )
-        # The code it will play, and whether the images here look like it (ADR 0011).
-        found["version"] = await runs.preview(name)
+        # The code it will play, and whether the images here look like it (ADR 0011); a version
+        # other than the disk's said already, with its cost.
+        if found.get("version") is None:
+            found["version"] = await runs.preview(name)
         return found
 
     @router.post("/evals/runs", status_code=202)
@@ -183,20 +199,24 @@ def runs_router() -> APIRouter:
 
     @router.get("/evals/runs/{run}/comparison")
     async def compare_runs(ws: Current, run: str, base: str | None = None) -> dict[str, Any]:
-        """*run* against *base*, by default the newest earlier run on another setup. ``base`` is
-        null when there's nothing to compare it with. Any run will do, another app's too."""
+        """*run* against *base*, by default the newest earlier run on another setup, or for a run
+        of a branch, the latest run of the same tests on the repository's base branch
+        (``base_branch``, with that run or why there is none: ADR 0011). ``base`` is null when
+        there's nothing to compare it with. Any run will do, another app's too."""
         runs = ws.runs
         doc = await asyncio.to_thread(runs.load, run)
         if doc is None:
             raise not_found("Run")
         others = await asyncio.to_thread(runs.all, doc["target"], doc["set"])
-        chosen = base or default_base(doc, others)
+        main = await asyncio.to_thread(_base_branch, ws.targets, doc["target"])
+        on_main = base_branch_said(doc, others, main)
+        chosen = base or default_base(doc, others, main)
         if chosen is None:
-            return {"run": run, "base": None}
+            return {"run": run, "base": None, "base_branch": on_main}
         other = await asyncio.to_thread(runs.load, chosen)
         if other is None:
             raise not_found("Base run")
-        return comparison(doc, other)
+        return {**comparison(doc, other), "base_branch": on_main}
 
     @router.get("/evals/runs/{run}/cases/{case}")
     async def get_run_case(ws: Current, run: str, case: str) -> dict[str, Any]:

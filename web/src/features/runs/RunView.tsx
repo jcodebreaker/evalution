@@ -11,7 +11,7 @@ import { Comparison } from "./Comparison";
 import { Details } from "./Details";
 import { Progress } from "./Progress";
 import { Results } from "./Results";
-import { CodeLines } from "./Version";
+import { CodeLines, NotBuilt } from "./Version";
 import { WhatWentWrong } from "./WhatWentWrong";
 
 /**
@@ -30,6 +30,7 @@ export function RunView({
   onTest,
   onRunTest,
   onRunMore,
+  onRunOn,
   onStop,
   onAnalyze,
 }: {
@@ -44,6 +45,8 @@ export function RunView({
   onTest: (id: string) => void;
   onRunTest: (row: CaseRow) => void;
   onRunMore: (ids: readonly string[], tries: number) => void;
+  /** Opens the Run dialog for a set on another version: "Run them on main". */
+  onRunOn?: (set: string, ref: string) => void;
   onStop: (run: string) => Promise<void>;
   onAnalyze: (run: string) => Promise<void>;
 }) {
@@ -116,6 +119,9 @@ export function RunView({
                 </p>
               ) : null}
               <CodeLines version={run.version} className="mt-1" />
+              {run.failure === "version_not_built" && run.stop_reason ? (
+                <NotBuilt reason={run.stop_reason} />
+              ) : null}
             </div>
 
             <Comparison
@@ -125,6 +131,7 @@ export function RunView({
               going={going}
               onTest={onTest}
               onRunMore={onRunMore}
+              onRunOn={onRunOn ? (ref) => onRunOn(run.set, ref) : undefined}
             />
 
             {failing ? (

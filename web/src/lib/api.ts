@@ -29,6 +29,7 @@ import {
   ComparisonSchema,
   DiscoverySchema,
   EstimateSchema,
+  FetchedBranchSchema,
   HealthSchema,
   HooksSchema,
   InviteSchema,
@@ -47,6 +48,7 @@ import {
   PageReachSchema,
   ProbeSchema,
   RedraftSchema,
+  RemoteBranchesSchema,
   RunCaseSchema,
   RunDetailSchema,
   RunSummarySchema,
@@ -62,6 +64,7 @@ import {
   UiTestingSchema,
   UnderstandingSchema,
   UpdatesSchema,
+  VersionsSchema,
   WorkspaceSchema,
 } from "./schema";
 
@@ -408,13 +411,31 @@ export const api = {
       one(LineAgreementSchema),
     );
   },
-  estimate: ({ target, set }: Scope, id?: string, cases?: readonly string[], tries?: number) =>
+  estimate: (
+    { target, set }: Scope,
+    id?: string,
+    cases?: readonly string[],
+    tries?: number,
+    ref?: string,
+  ) =>
     post(one(EstimateSchema), "/v1/evals/runs/estimate", {
       target,
       set,
       ...(id ? { case: id } : {}),
       ...(cases ? { cases } : {}),
       ...(tries ? { tries } : {}),
+      ...(ref && ref !== "disk" ? { ref } : {}),
+    }),
+  /** The app's repository: branches, remote-tracking branches, tags, what's checked out. */
+  versions: (target: string) => get(one(VersionsSchema), `/v1/targets/${enc(target)}/versions`),
+  /** A remote's branches as they are now (`git ls-remote`): nothing fetched. */
+  remoteBranches: (target: string) =>
+    get(one(RemoteBranchesSchema), `/v1/targets/${enc(target)}/versions/remote`),
+  /** Fetch a remote's branch into evalution's own refs, never the person's. */
+  fetchBranch: (target: string, remote: string, branch: string) =>
+    post(one(FetchedBranchSchema), `/v1/targets/${enc(target)}/versions/fetch`, {
+      remote,
+      branch,
     }),
   /** Starts the run an estimate described, graded with the set's pass marks. */
   start: (token: string) => post(one(RunSummarySchema), "/v1/evals/runs", { token }),

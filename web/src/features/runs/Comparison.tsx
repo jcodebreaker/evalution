@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import type { Comparison as Compared, RunSummary } from "../../lib/schema";
+import type { BaseBranch, Comparison as Compared, RunSummary } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { TextLink } from "../shared/group";
@@ -43,8 +43,52 @@ const WORDS: Record<string, string> = {
   only_one: "In one run only",
 };
 
-/** Did this change make it worse? This run against an earlier run of its own set: what changed,
- * and which tests moved. */
+/** For a run of a branch other than the repository's base branch (ADR 0011): "Compare with
+ * main" when the comparison is with another run, or, with no run of these tests on main yet, a
+ * way to run them there. Nothing for a run on the base branch, or when already compared with it. */
+export function CompareWithBase({
+  base,
+  shown,
+  going,
+  onCompare,
+  onRunOn,
+}: {
+  base: BaseBranch | null;
+  /** The run compared with now. */
+  shown: string | null;
+  going: boolean;
+  onCompare: (run: string) => void;
+  /** Opens the Run dialog for the same tests, on that branch. */
+  onRunOn?: (ref: string) => void;
+}) {
+  if (!base) return null;
+  if (base.run) {
+    if (base.run === shown) return null;
+    return (
+      <div data-testid="compare-with-base">
+        <Button size="sm" variant="secondary" onClick={() => onCompare(base.run as string)}>
+          {`Compare with ${base.name}`}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="compare-with-base">
+      <p className="m-0 min-w-0 flex-1 text-[14px] text-ink-2">
+        {`${base.missing ?? `No run of these tests on ${base.name} yet`}.`}
+      </p>
+      {onRunOn ? (
+        <Button size="sm" variant="secondary" disabled={going} onClick={() => onRunOn(base.name)}>
+          {`Run them on ${base.name}`}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Did this change make it worse? This run against an earlier run of its own set, or for a run
+ * of a branch, against the latest run of the same tests on the base branch: what changed, and
+ * which tests moved. */
 export function Comparison({
   run,
   runs,
@@ -52,6 +96,7 @@ export function Comparison({
   going,
   onTest,
   onRunMore,
+  onRunOn,
 }: {
   run: Pick<RunSummary, "run" | "target" | "set" | "started_at">;
   runs: RunSummary[];
@@ -59,6 +104,8 @@ export function Comparison({
   going: boolean;
   onTest: (id: string) => void;
   onRunMore: (ids: readonly string[], tries: number) => void;
+  /** Opens the Run dialog for this run's set on another version (a branch's name). */
+  onRunOn?: (ref: string) => void;
 }) {
   const [chosen, setPicked] = useState<{ run: string; base: string } | null>(null);
   // A base picked on another run's page is not this one's.
@@ -67,12 +114,28 @@ export function Comparison({
     api.comparison(run.run, picked),
   );
   if (load.status !== "ready" || load.data.run !== run.run) return null;
+  const pick = (base: string) => setPicked({ run: run.run, base });
+  const onBase = (
+    <CompareWithBase
+      base={load.data.base_branch}
+      shown={load.data.base}
+      going={going}
+      onCompare={pick}
+      onRunOn={onRunOn}
+    />
+  );
   if (!load.data.base) {
     return (
-      <p className="m-0 text-[14px] text-ink-2">No earlier run of this test set to compare with.</p>
+      <div className="flex flex-col gap-2">
+        <p className="m-0 text-[14px] text-ink-2">
+          No earlier run of this test set to compare with.
+        </p>
+        {onBase}
+      </div>
     );
   }
   const found = load.data;
+  const versions = found.versions;
   const moved = found.tests.filter((test) => test.change !== "same");
   const same = sameWords(found.tests);
   // Runs of another set or app share none of its tests: every one would be "in one run only".
@@ -89,12 +152,23 @@ export function Comparison({
   return (
     <section className="flex flex-col gap-3 rounded-[14px] bg-group p-4 ring-1 ring-separator">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 className="m-0 min-w-0 flex-1 text-[17px] font-bold text-balance">{found.headline}</h3>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {versions?.heading ? (
+            <p
+              className="m-0 font-mono text-[12.5px] text-ink-2"
+              title={`${versions.now.said} vs ${versions.before.said}`}
+              data-testid="compare-versions"
+            >
+              {versions.heading}
+            </p>
+          ) : null}
+          <h3 className="m-0 text-[17px] font-bold text-balance">{found.headline}</h3>
+        </div>
         <label className="flex items-center gap-1.5 text-[14px] text-ink-2">
           Compared with
           <select
             value={base}
-            onChange={(event) => setPicked({ run: run.run, base: event.target.value })}
+            onChange={(event) => pick(event.target.value)}
             className="rounded-md bg-bubble px-1.5 py-1 text-[14px] text-foreground"
           >
             {others.some((other) => other.run === base) ? null : (
@@ -108,6 +182,7 @@ export function Comparison({
           </select>
         </label>
       </div>
+      {onBase}
       {found.changed.length ? (
         <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-[14px] text-ink-2">
           {found.changed.map((row) => (

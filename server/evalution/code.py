@@ -35,6 +35,8 @@ DIFF_FILES = 500
 #: What :meth:`Code.diff` says when no watched file changed: not a diff to read.
 NOTHING_CHANGED = "(no watched file changed)"
 NEW_FILE_CAP = 4_000
+#: Where ``origin``'s branches are, as the person's remote-tracking refs.
+_ORIGIN = "refs/remotes/origin/"
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
 #: Folders that hold no source: output and copies of what others wrote.
 _OUTPUT_DIRS = {
@@ -303,6 +305,19 @@ class Code:
         found = self._git("rev-parse", "--abbrev-ref", "HEAD")
         name = found.strip() if found else ""
         return name if name and name != "HEAD" else None
+
+    def base_branch(self) -> str | None:
+        """The repository's base branch, as it names it (ADR 0011): the branch ``origin/HEAD``
+        points at, else ``main``, else ``master``, here or on ``origin``; ``None`` when it has
+        none of them or this is not a checkout. Read only: nothing is fetched or written."""
+        head = self._git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+        if head and head.strip().startswith(_ORIGIN):
+            return head.strip().removeprefix(_ORIGIN)
+        for name in ("main", "master"):
+            for ref in (f"refs/heads/{name}", f"{_ORIGIN}{name}"):
+                if self._git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is not None:
+                    return name
+        return None
 
     def checkout(self) -> Checkout:
         """The folder as it stands, for what a run played (:mod:`evalution.core.version`): its

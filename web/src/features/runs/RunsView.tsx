@@ -8,6 +8,7 @@ import { Group, GroupHeading, TextLink } from "../shared/group";
 import { Centered, Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import type { Entry } from "./RunRow";
 import { RunRow } from "./RunRow";
+import { versionChip } from "./Version";
 
 /** How many runs a test shows before "Show all". */
 const SHOWN_RUNS = 5;
@@ -32,6 +33,12 @@ function byPlace(runs: RunSummary[]): Place[] {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, place]) => ({ key, label: place.label, groups: byTest(place.runs) }))
     .filter((place) => place.groups.length);
+}
+
+/** The versions the runs played, newest first, as their chips say them: "feature-x @ a1b2c3d".
+ * Runs that didn't record one aren't any of them. */
+export function versionsOf(runs: RunSummary[]): string[] {
+  return [...new Set(runs.map((run) => versionChip(run.version)).filter((said) => said !== null))];
 }
 
 /** Each test with its runs, the most recently run test first; a run counts for every test it played. */
@@ -71,10 +78,14 @@ export function RunsView({
   benchmarks?: RunSummary[];
   onBenchmark?: (run: string) => void;
 }) {
-  const places = byPlace(runs);
+  const [version, setVersion] = useState("");
+  const versions = versionsOf(runs);
+  // A version no run played any more (the list reloaded) shows them all.
+  const only = versions.includes(version) ? version : "";
+  const places = byPlace(only ? runs.filter((run) => versionChip(run.version) === only) : runs);
   // A benchmark run that stopped before playing anything has nothing behind it.
   const played = benchmarks.filter((run) => live(run) || run.tests.some((test) => test.tries));
-  if (!places.length && !played.length) {
+  if (!places.length && !played.length && !only) {
     return (
       <Centered>
         <p className="m-0 text-[15px] font-semibold text-foreground">No runs yet</p>
@@ -86,6 +97,21 @@ export function RunsView({
     <>
       <Toolbar>
         <ToolbarTitle title="Runs" />
+        {versions.length > 1 ? (
+          <select
+            aria-label="Version"
+            value={only}
+            onChange={(event) => setVersion(event.target.value)}
+            className="max-w-[260px] truncate rounded-md bg-bubble px-1.5 py-1 font-mono text-[12.5px] text-foreground"
+          >
+            <option value="">All versions</option>
+            {versions.map((said) => (
+              <option key={said} value={said}>
+                {said}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </Toolbar>
       <Page>
         {played.length ? (

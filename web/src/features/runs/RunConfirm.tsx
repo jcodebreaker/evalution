@@ -14,7 +14,7 @@ import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { PlaysChip } from "../shared/marks";
 import { MissingPieceNote } from "../shared/next-step";
 import { ProofControl } from "../shared/ProofControl";
-import { CodeLines } from "./Version";
+import { CodePicker, DISK } from "./CodePicker";
 
 /** "How this works": the Test environment screen, or the explainer where the page can't move. */
 function HowItWorks() {
@@ -193,6 +193,9 @@ export type RunTarget = {
   tries?: number;
   /** An estimate already in hand, as saving a test with `run` returns one. */
   estimate?: Estimate;
+  /** The version to play, a branch's name ("main"), as "Run them on main" from a comparison
+   * opens it (ADR 0011); what's on disk when absent. */
+  ref?: string;
 };
 
 /**
@@ -216,6 +219,8 @@ export function RunConfirm({
   /** What UI testing lacks, when that's why the run is refused: said with what fixes it. */
   const [missing, setMissing] = useState<MissingPiece | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The version it plays: what's on disk now, unless another is picked (ADR 0011). */
+  const [ref, setRef] = useState(target.ref ?? DISK);
 
   const given = !!target.estimate;
   const { target: name, set } = target.scope;
@@ -223,10 +228,13 @@ export function RunConfirm({
   const cases = target.cases;
   const tries = target.tries;
   useEffect(() => {
-    if (given && round === 0) return;
+    // An estimate in hand is of what's on disk: another version is estimated on its own.
+    if (given && round === 0 && ref === DISK) return;
     let cancelled = false;
     setReading(true);
-    api.estimate({ target: name, set }, testId, cases, tries).then(
+    setError(null);
+    setMissing(null);
+    api.estimate({ target: name, set }, testId, cases, tries, ref).then(
       (found) => {
         if (cancelled) return;
         setEstimate(found);
@@ -234,6 +242,8 @@ export function RunConfirm({
       },
       (failure: unknown) => {
         if (cancelled) return;
+        // A version that can't run: said, and Run waits for another pick.
+        if (ref !== DISK) setEstimate(null);
         setMissing(missingOf(failure));
         setError(errorText(failure, "Couldn't estimate this run."));
         setReading(false);
@@ -242,7 +252,7 @@ export function RunConfirm({
     return () => {
       cancelled = true;
     };
-  }, [given, round, name, set, testId, cases, tries]);
+  }, [given, round, name, set, testId, cases, tries, ref]);
 
   const start = async () => {
     if (!estimate) return;
@@ -301,8 +311,13 @@ export function RunConfirm({
       {estimate ? <PlaysLines estimate={estimate} app={name} /> : null}
       {page ? <RunProof app={name} onChanged={() => setRound((n) => n + 1)} /> : null}
       {estimate ? <IsolationLines estimate={estimate} app={name} /> : null}
-      {estimate?.version ? (
-        <CodeLines version={estimate.version} className="items-center text-center" />
+      {estimate?.version || ref !== DISK ? (
+        <CodePicker
+          app={name}
+          picked={ref}
+          version={estimate?.ref === ref ? estimate.version : null}
+          onRef={setRef}
+        />
       ) : null}
       {estimate?.refused.map((item) => (
         <p key={item.case} className="m-0 text-center text-[13px] text-warning">

@@ -12,7 +12,7 @@ from typing import Any
 
 from evalution.core.judgement import Change, WhyUnjudged
 from evalution.core.rules import change_of, could_be_chance
-from evalution.core.version import same_played
+from evalution.core.version import DISK, NOT_RECORDED, described, same_played, short
 from evalution.results.record import (
     agent_models,
     environment_of,
@@ -37,23 +37,107 @@ def same_code(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
     return same if same is not None else a.get("commit") == b.get("commit")
 
 
-def default_base(run: Mapping[str, Any], others: Sequence[Mapping[str, Any]]) -> str | None:
-    """What *run* is best compared with: the newest earlier run on another setup, else the one
-    before it. Only runs that played anything, where it played, count: an app on staging and on
-    someone's computer differ in more than the setup says."""
+def branch_of(run: Mapping[str, Any]) -> str | None:
+    """The branch *run*'s version is of (ADR 0011): the branch it names, else its ref when that
+    isn't the disk; ``None`` for an old run that didn't record its version, or a detached one."""
+    version = run.get("version")
+    if not version or version.get("why_unverified") == NOT_RECORDED:
+        return None
+    ref = version.get("ref") or DISK
+    return version.get("branch") or (None if ref == DISK else str(ref))
+
+
+def on_branch(run: Mapping[str, Any], branch: str) -> bool:
+    """Whether *run* played *branch*, as the person names it or as ``origin`` does."""
+    found = branch_of(run)
+    return found is not None and found in (branch, f"origin/{branch}")
+
+
+def of_another_branch(run: Mapping[str, Any], base_branch: str | None) -> bool:
+    """Whether *run* played a branch other than the base branch: what is compared with the base
+    branch by default."""
+    found = branch_of(run)
+    return bool(base_branch and found and not on_branch(run, base_branch))
+
+
+def _comparable(run: Mapping[str, Any], others: Sequence[Mapping[str, Any]]) -> list[Any]:
+    """The other runs *run* can be compared with, newest first: those that played anything, where
+    it played; an app on staging and on someone's computer differ in more than the setup says."""
     here = environment_of(run)
-    earlier = [
+    found = [
         r
         for r in others
         if r["run"] != run["run"]
         and environment_of(r) == here
-        and float(r["started_at"]) < float(run["started_at"])
         and any(c.get("tries") for c in r["cases"].values())
     ]
-    earlier.sort(key=lambda r: -float(r["started_at"]))
+    return sorted(found, key=lambda r: -float(r["started_at"]))
+
+
+def base_branch_run(
+    run: Mapping[str, Any], others: Sequence[Mapping[str, Any]], base_branch: str
+) -> str | None:
+    """The latest run of *others* (the same target and set) on *base_branch*: an earlier one,
+    else a later one, as when the person ran the base branch after seeing there was none."""
+    found = [r for r in _comparable(run, others) if on_branch(r, base_branch)]
+    began = float(run["started_at"])
+    earlier = next((r for r in found if float(r["started_at"]) < began), None)
+    chosen = earlier or (found[0] if found else None)
+    return chosen["run"] if chosen else None
+
+
+def default_base(
+    run: Mapping[str, Any],
+    others: Sequence[Mapping[str, Any]],
+    base_branch: str | None = None,
+) -> str | None:
+    """What *run* is best compared with. A run of a branch other than *base_branch* (the
+    repository's ``main``) is compared with the latest run of the same tests on the base branch,
+    when there is one (:func:`base_branch_run`). Else the newest earlier run on another setup,
+    else the one before it. Only runs that played anything, where it played, count."""
+    if of_another_branch(run, base_branch):
+        found = base_branch_run(run, others, str(base_branch))
+        if found is not None:
+            return found
+    earlier = [
+        r for r in _comparable(run, others) if float(r["started_at"]) < float(run["started_at"])
+    ]
     other = next((r for r in earlier if _setup(r) != _setup(run) or not same_code(r, run)), None)
     found = other or (earlier[0] if earlier else None)
     return found["run"] if found else None
+
+
+def version_name(run: Mapping[str, Any]) -> str:
+    """A run's version in a word or two, as a comparison's heading says it: its branch
+    ("feature-x"), else its commit, else "not recorded"."""
+    commit = (run.get("version") or {}).get("commit") or run.get("commit")
+    return branch_of(run) or short(commit) or "not recorded"
+
+
+def versions(run: Mapping[str, Any], base: Mapping[str, Any]) -> dict[str, Any]:
+    """Both runs' versions, named and described, and "feature-x vs main" when they differ."""
+    now, before = version_name(run), version_name(base)
+    return {
+        "now": {"name": now, "said": described(run.get("version"))},
+        "before": {"name": before, "said": described(base.get("version"))},
+        "heading": f"{now} vs {before}" if now != before else None,
+    }
+
+
+def base_branch_said(
+    run: Mapping[str, Any], others: Sequence[Mapping[str, Any]], base_branch: str | None
+) -> dict[str, Any] | None:
+    """For a run of another branch than *base_branch*: the base branch's name and its latest run
+    of the same tests, with the line said when there is none ("No run of these tests on main
+    yet"). ``None`` for a run on the base branch, of the disk off any branch, or an old one."""
+    if not of_another_branch(run, base_branch):
+        return None
+    found = base_branch_run(run, others, str(base_branch))
+    return {
+        "name": base_branch,
+        "run": found,
+        "missing": None if found else f"No run of these tests on {base_branch} yet",
+    }
 
 
 def _short(commit: Any) -> str:
@@ -196,6 +280,7 @@ def comparison(run: Mapping[str, Any], base: Mapping[str, Any]) -> dict[str, Any
         "changed": _changed(run, base),
         # When what played says otherwise than the commits (ADR 0011), in a line.
         "code": code_said(run, base)[1],
+        "versions": versions(run, base),
         "tests": sorted(tests, key=lambda t: _ORDER.get(t["change"], len(_ORDER))),
         "seconds": {"before": b.get("median_seconds"), "now": a.get("median_seconds")},
         "tokens": {"before": b.get("tokens"), "now": a.get("tokens")},
