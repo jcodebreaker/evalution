@@ -160,6 +160,9 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if not use.serving():
             raise RuntimeError("a restore is going on this data folder: let it end first")
+        if local is not None:
+            # A learn an earlier server was running was cut: it reads stopped, with "Go on".
+            local.agent.learns.interrupted()
         daily = [
             asyncio.create_task(_daily_drift(workspaces)),
             # Copies a server that stopped left behind, before anything starts its own.

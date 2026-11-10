@@ -291,7 +291,10 @@ export type Need = { id: string; tone: Tone } & (
 export type NeedsInput = Numbered & {
   /** The newest finished run's detail: its base and how it moved. */
   detail: Pick<RunDetail, "run" | "base" | "delta" | "cases"> | null;
-  health: Pick<Health, "attention" | "page" | "isolation" | "code_change" | "knowledge"> | null;
+  health: Pick<
+    Health,
+    "attention" | "page" | "isolation" | "code_change" | "knowledge" | "changes"
+  > | null;
   /** The UI-testing offer shows. */
   offer: boolean;
 };
@@ -372,7 +375,9 @@ export function rankNeeds(input: NeedsInput): Need[] {
     out.push({ id: "isolation", tone: "unjudged", kind: "isolation" });
   }
   const change = health?.code_change;
-  if (change && (change.tests.length || change.uncovered.length || !change.read)) {
+  // The tests from the one signal of what the code moved, when the server sends it.
+  const affected = health?.changes?.tests ?? change?.tests ?? [];
+  if (change && (affected.length || change.uncovered.length || !change.read)) {
     out.push({ id: "change", tone: "unjudged", kind: "change" });
   }
   const knowledge = health?.knowledge;

@@ -172,6 +172,13 @@ class CodeConfig:
     #: Areas a learn understands at once; ``None``: the default (8). The provider's rate limit
     #: is the ceiling.
     area_parallel: int | None = None
+    #: When a learn reads the areas (docs/plans/next-level.md C1): ``on_demand`` (the default),
+    #: only when a person or the test writer asks for one; ``full``, every learn learns them all
+    #: (at most 12 in one go).
+    learn: str = "on_demand"
+    #: The one agent tested, by its name in the skeleton, on a platform that hosts many: a learn
+    #: starts from it (:func:`evalution.project.areas.agent_scope`). ``None``: all of them.
+    focus: str | None = None
 
 
 @dataclass(frozen=True)
@@ -423,11 +430,19 @@ def target_config(
             or not 1 <= area_parallel <= 32
         ):
             raise ConfigError(f"{where}.code.area_parallel: a whole number from 1 to 32")
+        learn = c.get("learn", "on_demand")
+        if learn not in ("on_demand", "full"):
+            raise ConfigError(f"{where}.code.learn: on_demand or full")
+        focus = c.get("focus")
+        if focus is not None and (not isinstance(focus, str) or not focus.strip()):
+            raise ConfigError(f"{where}.code.focus: an agent's name")
         code = CodeConfig(
             path=(root / _str(c, "path", f"{where}.code")).resolve(),
             summarize=float(summarize) if summarize is not None else None,
             area_model=area_model,
             area_parallel=area_parallel,
+            learn=learn,
+            focus=focus.strip() if focus else None,
             **globs,
         )
     parallel = block.get("max_parallel", 1)

@@ -137,33 +137,35 @@ async def test_a_learn_stopped_after_two_areas_keeps_both_and_the_next_learns_on
     sid = (await agent.create("bot", "main"))["id"]
     real = area_agents.run_area
     started: list[str] = []
+    stopping: list[asyncio.Future] = []
 
     async def stopped_at_the_third(area, ctx, before, budget=None, shown=None):
         started.append(area.id)
         if len(started) == 3:
             await asyncio.sleep(0.2)  # the second area's section is being kept
-            agent._tasks[sid].cancel()
+            stopping.append(asyncio.ensure_future(agent.learns.stop("bot")))  # the page's Stop
             await asyncio.sleep(10)
         return await real(area, ctx, before, budget, shown)
 
     monkeypatch.setattr(area_agents, "run_area", stopped_at_the_third)
     monkeypatch.setattr(learn, "PARALLEL", 1)
-    await agent.message(sid, "Learn bot.", learn=True)
+    agent.start_learn("bot", everything=True)
     with contextlib.suppress(asyncio.CancelledError):
-        await agent._tasks[sid]
+        await agent.learns.wait("bot")
+    assert agent.learns.get("bot").state == "stopped"
     assert started == ["root", "agents", "lib"]
     kept = filememory.load(agent.targets, "bot")
     assert sorted(kept["areas"]) == ["agents", "root"] and kept["incomplete"] is True
-    # The understanding was saved as each area landed: the first overview and those two.
+    # The understanding was saved as each area landed: the facts card and those two.
     doc = understanding.load(agent.targets, "bot")
     assert [s["id"] for s in doc["sections"]] == [
         "what_it_is",
         f"{understanding.AREA_PREFIX}root",
         f"{understanding.AREA_PREFIX}agents",
     ]
-    assert doc["overview"]["state"] == "first_pass"
+    assert doc["overview"]["state"] == "facts"
     progress = understanding.progress(agent.targets, "bot")
-    assert progress["state"] == "stopped" and progress["overview"] == "first_pass"
+    assert progress["state"] == "stopped" and progress["overview"] == "facts"
     states = {a["id"]: a["state"] for a in progress["areas"]}
     assert states == {"root": "done", "agents": "done", "lib": "due", "web": "listed"}
     assert len(understanding.versions(agent.targets, "bot")) == 1, "one version a learn"
@@ -176,8 +178,7 @@ async def test_a_learn_stopped_after_two_areas_keeps_both_and_the_next_learns_on
     assert states == {"root": "kept", "agents": "kept", "lib": "learned", "web": "listed"}
     sections = {s["id"] for s in understanding.load(agent.targets, "bot")["sections"]}
     assert {f"{understanding.AREA_PREFIX}{a}" for a in ("root", "agents", "lib")} <= sections
-    # Still no final overview, so a first one is due, but of the same skeleton and areas: the one
-    # kept, with no call. The final one replaces it.
+    # The facts card was kept, with no call again; the final overview replaces it.
     assert len(sent["first"]) == 1
     progress = understanding.progress(agent.targets, "bot")
     states = {a["id"]: a["state"] for a in progress["areas"]}
@@ -200,11 +201,8 @@ async def test_a_listed_area_is_learned_on_request_and_a_current_one_only_when_f
 
     # "Learn this area": web alone, and the overview again since a section was added.
     before = len(sent["areas"])
-    await agent.learn_area(sid, "web")
-    await agent._tasks[sid]
-    shown = await agent.get(sid)
+    shown = await _learn(agent, areas=("web",), everything=False)
     assert _area_runs(shown) == ["web"] and len(sent["areas"]) == before + 1
-    assert shown["messages"][-2]["text"] == "Learn the area web."
     assert shown["messages"][-1]["text"] == "I've learned bot. Check what I understood."
     assert (await learn.area_state(targets, "bot", "web"))["state"] == "current"
     sections = {s["id"] for s in understanding.load(targets, "bot")["sections"]}
@@ -214,14 +212,11 @@ async def test_a_listed_area_is_learned_on_request_and_a_current_one_only_when_f
 
     # Unchanged: said current, with no model call, unless asked again anyway.
     calls = len(sent["areas"])
-    await agent.learn_area(sid, "web")
-    await agent._tasks[sid]
-    said = (await agent.get(sid))["messages"][-1]["text"]
+    shown = await _learn(agent, areas=("web",), everything=False)
+    said = shown["messages"][-1]["text"]
     assert said.startswith("web is current, learned ") and len(sent["areas"]) == calls
-    await agent.learn_area(sid, "web", force=True)
-    await agent._tasks[sid]
+    await _learn(agent, areas=("web",), everything=False, force=True)
     assert len(sent["areas"]) == calls + 1
-    assert (await agent.get(sid))["messages"][-2]["text"] == "Learn the area web again."
 
     # web's file moved: it was learned, so it is kept current like any other.
     (repo / "web/chat.ts").write_text(APP["web/chat.ts"] + "export const X = 2;\n")
@@ -301,12 +296,12 @@ def _states(progress: dict) -> dict[str, str]:
     return {a["id"]: a["state"] for a in progress["areas"]}
 
 
-async def test_the_understanding_shows_a_first_overview_then_each_area_as_it_lands(
+async def test_the_understanding_shows_the_facts_then_each_area_as_it_lands(
     tmp_path, monkeypatch
 ) -> None:
-    """Phase 3 and the server half of phase 4: a first learn writes a first overview from the
-    skeleton before any area, saves the understanding again as each area lands, and says how it
-    goes area by area; the final overview replaces the first."""
+    """A learn of every area saves the facts card (C1) before any area, then the understanding
+    again as each area lands, and says how it goes area by area; the overview written from the
+    areas replaces the card."""
     agent, _repo, sent, _script = _learning(tmp_path)
     targets = agent.targets
     sid = (await agent.create("bot", "main"))["id"]
@@ -332,29 +327,27 @@ async def test_the_understanding_shows_a_first_overview_then_each_area_as_it_lan
     monkeypatch.setattr(learn, "PARALLEL", 1)
     shown = await _learn(agent, sid)
 
-    # One call more than before ADR 0012's phase 3: the first overview, by the light model, from
-    # the skeleton and the areas alone.
+    # The card's one call, by the light model, from the skeleton alone.
     assert len(sent["first"]) == 1 and sent["first"][0]["model"] == "l"
-    assert sent["first"][0]["max_tokens"] == learn.OVERVIEW_TOKENS
     brief = _first_text(sent["first"][0])
     assert "tool greet_people (app.py:6)" in brief
-    assert "root (" in brief and "web (" in brief and "nothing in it" in brief
     assert "[Data: the areas' sections" not in brief
     assert len(sent["overview"]) == 1 and len(sent["areas"]) == 3
     usage = shown["usage"][-1]
-    assert usage["first_overview_calls"] == 1 and usage["overview_calls"] == 1
+    assert usage["facts_calls"] == 1 and usage["overview_calls"] == 1
 
-    # Saved before any area started: the first pass alone, said as such.
+    # Saved before any area started: the facts card, with its diagram, said as such.
     first = seen["root"]["doc"]
     assert first["one_line"] == FIRST_ARGS["one_line"]
     assert [s["id"] for s in first["sections"]] == ["what_it_is"]
-    assert first["overview"] == {"state": "first_pass", "basis": "the code's skeleton"}
+    assert first["overview"] == {"state": "facts", "basis": "the code"}
     view = seen["root"]["view"]
-    assert view["card"]["one_line"] == FIRST_ARGS["one_line"] and view["diagram"]["nodes"] == []
-    assert view["overview"]["state"] == "first_pass"
-    assert view["progress"]["overview"] == "first_pass"
+    assert view["card"]["one_line"] == FIRST_ARGS["one_line"]
+    assert {"agent", "tools"} <= {n["id"] for n in view["diagram"]["nodes"]}
+    assert view["overview"]["state"] == "facts"
+    assert view["progress"]["overview"] == "facts"
     progress = seen["root"]["progress"]
-    assert progress["state"] == "learning" and progress["overview"] == "first_pass"
+    assert progress["state"] == "learning" and progress["overview"] == "facts"
     assert progress["started_at"] > 0
     assert [a["id"] for a in progress["areas"]] == ["root", "agents", "lib", "web"], "heaviest"
     assert _states(progress) == {
@@ -376,15 +369,15 @@ async def test_the_understanding_shows_a_first_overview_then_each_area_as_it_lan
     assert _states(seen["lib"]["progress"])["lib"] == "learning"
     assert _states(seen["lib"]["progress"])["web"] == "listed"
 
-    # Saved again as each area landed, the sections growing, the first pass standing meanwhile.
-    assert partial[0] == (["what_it_is"], "first_pass")
+    # Saved again as each area landed, the sections growing, the facts card standing meanwhile.
+    assert partial[0] == (["what_it_is"], "facts")
     counts = [len(ids) for ids, _ in partial[1:]]
     assert counts == sorted(counts) and counts[0] >= 2
     area_ids = {f"{understanding.AREA_PREFIX}{a}" for a in ("root", "agents", "lib")}
     assert area_ids <= set(partial[-1][0])
-    assert all(state == "first_pass" for _, state in partial)
+    assert all(state == "facts" for _, state in partial)
 
-    # Done: the final overview replaced the first, and every area says how it went.
+    # Done: the overview replaced the card, and every area says how it went.
     doc = understanding.load(targets, "bot")
     assert doc["one_line"] == OVERVIEW_ARGS["one_line"]
     assert doc["overview"] == {"state": "final", "basis": "3 learned areas and the code's skeleton"}
@@ -398,7 +391,7 @@ async def test_the_understanding_shows_a_first_overview_then_each_area_as_it_lan
     assert len(understanding.versions(targets, "bot")) == 1, "one version a learn"
 
 
-async def test_no_first_overview_when_nothing_or_little_moved(tmp_path) -> None:
+async def test_the_card_is_made_once_and_the_overview_only_as_areas_move(tmp_path) -> None:
     agent, repo, sent, _script = _learning(tmp_path)
     targets = agent.targets
     sid = (await agent.create("bot", "main"))["id"]
@@ -413,7 +406,7 @@ async def test_no_first_overview_when_nothing_or_little_moved(tmp_path) -> None:
     assert len(sent["first"]) == 1 and understanding.progress(targets, "bot") == progress
     assert understanding.load(targets, "bot")["version"] == doc["version"]
 
-    # A small change (one area of three) with an overview: no first pass; the area learned again
+    # A small change (one area of three) with an overview: no card call; the area learned again
     # came out the same, so the overview stands, with no call.
     (repo / "lib/memory.py").write_text(
         "class MemoryStore:\n    def remember(self, name):\n        return name.strip()\n"
@@ -422,7 +415,7 @@ async def test_no_first_overview_when_nothing_or_little_moved(tmp_path) -> None:
     shown = await _learn(agent, sid)
     assert _area_runs(shown) == ["lib"]
     assert len(sent["first"]) == 1 and len(sent["overview"]) == 1
-    assert shown["usage"][-1]["first_overview_calls"] == 0
+    assert shown["usage"][-1]["facts_calls"] == 0
     progress = understanding.progress(targets, "bot")
     assert progress["state"] == "done" and progress["overview"] == "final"
     states = _states(progress)
@@ -431,13 +424,14 @@ async def test_no_first_overview_when_nothing_or_little_moved(tmp_path) -> None:
     assert after["overview"]["state"] == "final" and after["one_line"] == doc["one_line"]
     assert len(understanding.versions(targets, "bot")) == 2, "one version a learn"
 
-    # Most of it moved (two areas of three): a first overview again, then the final one.
+    # Most of it moved (two areas of three): no card call (the overview stands for it until it
+    # is written again), and "Learn again" learns them again, the facts with them.
     (repo / "app.py").write_text(APP["app.py"] + "\nGREETING = 1\n")
     (repo / "agents/planner.md").write_text("# Planner\nPlans the week.\n")
     _git(repo, "commit", "-qam", "most")
-    shown = await _learn(agent, sid)
+    shown = await _learn(agent, sid, everything=False)
     assert sorted(_area_runs(shown)) == ["agents", "root"]
-    assert len(sent["first"]) == 2 and shown["usage"][-1]["first_overview_calls"] == 1
+    assert len(sent["first"]) == 1 and shown["usage"][-1]["facts_calls"] == 0
     assert understanding.load(targets, "bot")["overview"]["state"] == "final"
 
 

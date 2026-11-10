@@ -10,10 +10,11 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from evalution.api.deps import Current, invalid, not_found, target_name
+from evalution.api.deps import Current, busy, invalid, not_found, target_name
+from evalution.code import CodeError
 from evalution.config import ConfigError
 from evalution.core.case import CLEAN_KINDS
-from evalution.project import drift, profile
+from evalution.project import drift, profile, skeleton_view
 from evalution.runs.preflight import passed_setups, setup_key
 from evalution.suite.store import list_sets
 
@@ -83,6 +84,21 @@ def target_router() -> APIRouter:
             raise invalid(f"This app can't promise a clean start of {lacking[0]}")
         await asyncio.to_thread(profile.update_connection, targets, name, required_clean=kinds)
         return {"required": kinds}
+
+    @router.get("/targets/{target}/agents")
+    async def get_agents(ws: Current, target: str) -> dict[str, Any]:
+        """The agents the target's code defines, to pick the one tested (``code.focus``, set
+        with ``PUT /targets/{target}``): ``choices`` as connecting asks them, most used by real
+        traces first, "All of them" last; ``focus``: the one tested now, ``null`` for all."""
+        targets = ws.targets
+        name = target_name(targets, target)
+        code = targets.code(name)
+        if code is None:
+            raise busy("This app has no code folder, so there are no agents to pick from.")
+        try:
+            return await skeleton_view.agent_choices(targets, name, code)
+        except (CodeError, OSError) as exc:
+            raise busy(f"Couldn't read the app's code: {exc}") from exc
 
     @router.get("/targets/{target}/profile")
     async def get_profile(ws: Current, target: str) -> dict[str, Any]:

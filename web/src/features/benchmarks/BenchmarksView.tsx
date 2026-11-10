@@ -30,27 +30,54 @@ export function isBenchmark(set: string): boolean {
   return set.startsWith("longmemeval-");
 }
 
-/** The two datasets a person chooses between, each with its own runs. */
+/** The datasets a person chooses between, each with its own runs, and the size each one plays. */
 const DATASETS = [
   {
     key: "short",
+    size: "short",
     label: "Short histories",
     about:
-      "Does it save a fact and recall it later? About 11 messages a question, holding only what it needs to know.",
+      "Does it save a fact and recall it later? Every kind of question, and some it can't know, each holding only what it needs to know.",
   },
   {
     key: "middle",
+    size: "middle",
     label: "Middle histories",
     about:
-      "Can it still answer once older chat is folded away? About 50 messages a question, in one conversation.",
+      "Can it still answer once older chat is folded away? In one conversation, after unrelated chat.",
+  },
+  {
+    key: "quick",
+    size: "quick",
+    label: "Quick check",
+    about: "Does a run work on this app at all? Too few questions for the score to mean much.",
   },
 ] as const;
 
 type Dataset = (typeof DATASETS)[number]["key"];
 
 function datasetOf(set: string): Dataset {
+  if (/^longmemeval-quick(-|$)/.test(set)) return "quick";
   // Runs of the full-length sizes, played from the command line, sit with the histories they most resemble.
   return /^longmemeval-(middle|s|m)(-|$)/.test(set) ? "middle" : "short";
+}
+
+type Sized = { holds: number | null; messages: number | null };
+
+/** How many messages a size's questions send each, on average, from what it holds. */
+function perQuestion(sized: Sized | undefined): number | null {
+  return sized?.holds && sized.messages ? Math.round(sized.messages / sized.holds) : null;
+}
+
+/** "30 questions, about 10 messages each", from what the size holds. */
+function sizeWords(sized: Sized | undefined): string | null {
+  if (!sized?.holds) return null;
+  const each = perQuestion(sized);
+  return `${sized.holds} question${sized.holds === 1 ? "" : "s"}${each ? `, about ${each} messages each` : ""}`;
+}
+
+function sizeOf(dataset: Dataset): string {
+  return DATASETS.find((entry) => entry.key === dataset)?.size ?? "short";
 }
 
 const SHORT_CHARS = 110;
@@ -167,7 +194,7 @@ export function BenchmarksView({
     null;
   const runDataset = async (key: Dataset) => {
     setDataset(key);
-    const size = key === "middle" ? "middle" : "quick";
+    const size = sizeOf(key);
     const entry = data.sizes.find((listed) => listed.size === size);
     if (!entry) return;
     if (entry.questions === null) await api.installBenchmark(target, size);
@@ -181,8 +208,9 @@ export function BenchmarksView({
       <Toolbar>
         <ToolbarTitle title="Benchmarks" />
       </Toolbar>
-      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+      <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
         {DATASETS.map((entry) => {
+          const holds = sizeWords(data.sizes.find((listed) => listed.size === entry.size));
           const own = data.runs.filter((other) => datasetOf(other.set) === entry.key);
           const latest = own.find((other) => other.report.judged > 0);
           const mine = own.find((other) => other.status === "running");
@@ -212,6 +240,9 @@ export function BenchmarksView({
                   ) : null}
                 </span>
                 <span className="text-[13px] text-ink-2">{entry.about}</span>
+                {holds ? (
+                  <span className="text-[12.5px] font-medium text-ink-2 tabular-nums">{holds}</span>
+                ) : null}
               </button>
               <div className="flex min-h-7 items-center gap-2 text-[12.5px] text-ink-2 tabular-nums">
                 {mine ? (
@@ -274,7 +305,12 @@ export function BenchmarksView({
       {active && played(active) > 0 && shownTab !== "setup" ? (
         <AskTraces run={active} onAsk={onAsk} />
       ) : null}
-      {shownTab === "setup" ? <HowItRuns dataset={shownDataset} /> : null}
+      {shownTab === "setup" ? (
+        <HowItRuns
+          dataset={shownDataset}
+          sized={data.sizes.find((listed) => listed.size === sizeOf(shownDataset))}
+        />
+      ) : null}
       {shownTab === "runs" && active ? (
         <RunList
           runs={inDataset}
@@ -307,27 +343,25 @@ const ASK_STARTERS = [
 ];
 
 /** Ask the agent about this run: it reads the run and its traces. */
-const SETUPS: Record<
-  Dataset,
-  { questions: string; messages: string; history: string; memory: string }
-> = {
+const SETUPS: Record<Dataset, { history: string; memory: string }> = {
   short: {
-    questions: "5",
-    messages: "About 11",
     history: "Only the chats holding the answer. The conversation is cleared between chats.",
     memory: "Only what it saved can answer.",
   },
   middle: {
-    questions: "10",
-    messages: "About 50",
     history: "The chats holding the answer, then about 40 unrelated messages, in one conversation.",
     memory: "Your app folds older chat, so the raw messages are gone.",
+  },
+  quick: {
+    history: "Only the chats holding the answer. The conversation is cleared between chats.",
+    memory: "Only what it saved can answer.",
   },
 };
 
 /** How a dataset plays, for someone who hasn't run it yet. */
-function HowItRuns({ dataset }: { dataset: Dataset }) {
+function HowItRuns({ dataset, sized }: { dataset: Dataset; sized?: Sized }) {
   const setup = SETUPS[dataset];
+  const each = perQuestion(sized);
   const steps = [
     ["Send the history", setup.history],
     ["Check memory", "Is the fact saved? Measured, and never decides the score."],
@@ -339,11 +373,13 @@ function HowItRuns({ dataset }: { dataset: Dataset }) {
       <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2">
         <div>
           <dt className="text-[12.5px] text-ink-2">Questions</dt>
-          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.questions}</dd>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">{sized?.holds ?? "?"}</dd>
         </div>
         <div>
           <dt className="text-[12.5px] text-ink-2">Messages each</dt>
-          <dd className="m-0 text-[21px] font-semibold tabular-nums">{setup.messages}</dd>
+          <dd className="m-0 text-[21px] font-semibold tabular-nums">
+            {each ? `About ${each}` : "?"}
+          </dd>
         </div>
       </dl>
       <ol className="m-0 grid list-none grid-cols-4 gap-3 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">

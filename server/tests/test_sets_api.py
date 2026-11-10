@@ -544,7 +544,16 @@ def test_a_benchmark_stays_out_of_the_apps_own_numbers(client, tmp_path) -> None
 
 def test_benchmarks_list_their_sizes_and_stay_empty_until_played(client, tmp_path) -> None:
     found = client.get("/v1/benchmarks", params={"target": "bot"}).json()
-    assert [entry["size"] for entry in found["sizes"]] == ["quick", "oracle", "middle", "s", "m"]
+    sizes = {entry["size"]: entry for entry in found["sizes"]}
+    assert list(sizes) == ["short", "quick", "oracle", "middle", "s", "m"]
     assert found["sizes"][0]["questions"] is None and found["runs"] == []
+    assert (sizes["short"]["holds"], sizes["quick"]["holds"], sizes["middle"]["holds"]) == (
+        30,
+        5,
+        10,
+    )
+    assert sizes["short"]["messages"] > 30 and sizes["oracle"]["holds"] is None, (
+        "read before install"
+    )
     refused = client.post("/v1/benchmarks/install", json={"target": "bot", "size": "huge"})
     assert refused.status_code == 400 and "huge" in refused.text

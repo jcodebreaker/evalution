@@ -4,14 +4,36 @@ A benchmark is a public golden dataset: questions with known answers. evalution 
 
 ## On the page
 
-| Dataset | Questions | Messages each | What it tests |
-|---|---|---|---|
-| Short histories | 5 | About 11 | Whether saved memory alone can answer: the conversation is cleared between chats |
-| Middle histories | 10 | About 50 | Whether it can still answer once older chat is folded away, in one conversation |
+| Dataset | Size | Questions | Messages each | What it tests |
+|---|---|---|---|---|
+| Short histories | `short` | 30 | About 10 | Whether saved memory alone can answer: the conversation is cleared between chats |
+| Middle histories | `middle` | 10 | About 55 | Whether it can still answer once older chat is folded away, in one conversation |
+| Quick check | `quick` | 5 | About 11 | Only whether a run works on the app: one answer moves its score 20 points |
+
+Each card says how many questions it has and about how many messages each sends, read from the bundled file. The confirm step after Run gives the estimate for the whole run.
 
 Press Run on a card; a confirm step shows the estimate first. These questions are in the repository (`server/evalution/benchmarks/longmemeval_data/`, with the dataset's MIT license), so they need no download, and they stay the same so runs compare. Middle is our own variation, so its scores don't compare with published ones. A question the app broke off on (it timed out, crashed or couldn't be reached) counts as wrong, as it would for a person waiting on an answer; the run says how many. Only a question the grader couldn't judge stays out of the numbers.
 
 The page shows accuracy with its 95% range, says how many questions timed out and were counted as wrong, and says the numbers are a sample, not comparable with published scores. A change in points against the run before shows only when it's real (see The numbers).
+
+### The short size
+
+`short` is 30 questions from LongMemEval's `longmemeval_oracle.json`, whose histories hold only the sessions with the answer (the evidence sessions), so a run stays affordable: 307 messages in all. `bundle("short", data_dir)` in `server/evalution/benchmarks/longmemeval.py` picks them with the same code as the other sizes: the playable questions are grouped by kind, with the unanswerable ones as a group of their own, each group is sampled with `random.Random(0)` (`_SAMPLE_SEED`), and the groups take turns until 30 are chosen. Run it again on the same file and it picks the same question ids, in the same order.
+
+| Kind | Questions |
+|---|---|
+| Single-session facts (`single-session-user`) | 5 |
+| Preferences (`single-session-preference`) | 5 |
+| Across conversations (`multi-session`) | 5 |
+| Dates and order (`temporal-reasoning`) | 5 |
+| Updated facts (`knowledge-update`) | 5 |
+| Unanswerable (abstention): 3 `multi-session`, 1 `knowledge-update`, 1 `single-session-user` | 5 |
+
+The source file is `longmemeval_oracle.json` from the benchmark's dataset page, `https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json`, linked from the LongMemEval repository. The copy it was made from has 500 questions and sha256 `821a2034d219ab45846873dd14c14f12cfe7776e73527a483f9dac095d38620c`. The same file rebuilds `quick.json` byte for byte. Only the chosen questions are kept (`longmemeval_data/short.json`, about 90 KB, with what the person said and nothing of the recorded replies); the full file isn't in the repository. With a downloaded copy, `LONGMEMEVAL_ORACLE=<path> uv run pytest tests/test_longmemeval_short.py` checks its sha256 and that it rebuilds `short.json` exactly. LongMemEval is © its authors, Wu et al., under the MIT license, in `longmemeval_data/LICENSE`.
+
+Thirty questions is still a sample: one answer moves the score about 3 points, and its 95% range is wide. Its scores aren't comparable with published LongMemEval scores, which use all 500 questions, their own judge and the full histories.
+
+The questions about what the assistant itself said (`single-session-assistant`, 56 of the 500) aren't in it. They ask about a reply recorded in the dataset, and a live app's replies are its own: the only way to play them would be to send the recorded replies as if the app had said them, and evalution sends only what the person said.
 
 A laptop that sleeps stops a run, and closing the lid sleeps it even with sleep blocked.
 

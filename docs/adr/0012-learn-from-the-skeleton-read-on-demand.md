@@ -36,3 +36,9 @@ A learn of a large multi-agent repository behind a company gateway made 35 areas
 - **The profile is fitted, never refused**: past its cap the heaviest areas' sections are left out of `profile.md` and named; Details is not in it. The writer's copy is capped near 8,000 tokens.
 - **An area's kept section is the one source**: every save writes back into it, so a refresh survives the next learn.
 - Folder and app summaries are gone.
+
+## Amended: facts first, and a learn is a job (2026-11-09, docs/plans/next-level.md C1, C10)
+
+- **Facts first, areas when needed.** "Useful early" is now the facts level: the code map, the skeleton, real use and at most one light call for the card's one line make a saved understanding by themselves (the card, a diagram from the skeleton's agents, tools and stores, the tools and state lists, `overview.state: "facts"`). A first learn stops there. The areas are learned when something asks: a person (Learn this area, Learn everything), the test writer about to rely on one (`read_understanding(area=...)` learns it and waits, bounded), or a target that sets `code.learn: full`. "Learn again" learns the facts and the areas learned before that moved.
+- **The first overview is gone.** Its calls went to a page nobody had read yet; the facts card stands in until an area's section is in, and the overview is written from the areas only then.
+- **A learn is a background job**, one per target, with its own record and progress (`project/learning.py`), not a chat turn: no wall-clock limit and no "say go on". It ends when its areas are done or their budgets spent; it outlives the chat; a Stop keeps what was learned; a server restart marks it interrupted and "Go on" starts a job that learns only what is left. The chat that asks for one says one line that points to What it learned.

@@ -12,6 +12,7 @@ from evalution.api.deps import Current, busy, invalid, local_only, not_found, ta
 from evalution.api.workspaces import Workspace
 from evalution.code import CodeError
 from evalution.project import hooks, knowledge, profile, skeleton_view, understanding
+from evalution.review import health
 from evalution.suite.store import list_sets
 from evalution.writer import learn
 
@@ -27,7 +28,12 @@ async def _understood(ws: Workspace, name: str) -> dict[str, Any]:
             {**a, "state": "due"} if a["state"] == "learning" else a for a in progress["areas"]
         ]
         found["progress"] = {**progress, "state": "stopped", "areas": areas}
-    return {**found, "knowledge": await asyncio.to_thread(knowledge.summary, runs, name)}
+    known = await asyncio.to_thread(knowledge.summary, runs, name)
+    out = {**found, "knowledge": known}
+    moved = await asyncio.to_thread(health.changes, runs.targets, runs, name, known=known)
+    if moved is not None:
+        out["changes"] = moved
+    return out
 
 
 def understanding_router(url: str) -> APIRouter:
@@ -52,22 +58,58 @@ def understanding_router(url: str) -> APIRouter:
         if code is None:
             raise busy("This app has no code folder, so there is no skeleton to show.")
         try:
-            found = await asyncio.to_thread(skeleton_view.current, targets, name, code)
+            return await skeleton_view.page(targets, name, code)
         except (CodeError, OSError) as exc:
             raise busy(f"Couldn't read the app's code: {exc}") from exc
-        used = await skeleton_view.uses(targets, name)
-        return skeleton_view.shown(found, used)
+
+    @router.post("/targets/{target}/learn", status_code=202)
+    async def start_learn(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Learn the app, in the background (docs/plans/next-level.md C10): ``{areas?, force?,
+        everything?}``. With nothing asked, the facts level and the areas learned before that
+        moved; ``areas``: those, whatever their weight; ``everything``: every area to learn, at
+        most 12 in one go. One learn per app: asked again while one goes, the answer is that one
+        (areas asked are added to it). The answer is the job."""
+        name = target_name(ws.targets, target)
+        areas = body.get("areas") or []
+        if not isinstance(areas, list) or not all(isinstance(a, str) and a for a in areas):
+            raise invalid("areas: a list of area ids")
+        force, everything = body.get("force", False), body.get("everything", False)
+        if not isinstance(force, bool) or not isinstance(everything, bool):
+            raise invalid("force and everything: true or false")
+        if ws.targets.code(name) is None and areas:
+            raise invalid("This app has no code folder, so it has no areas.")
+        try:
+            job = ws.agent.start_learn(name, areas, everything=everything, force=force)
+        except RuntimeError as exc:
+            raise busy(str(exc)) from exc
+        return job.view()
+
+    @router.get("/targets/{target}/learn")
+    async def get_learn(ws: Current, target: str) -> dict[str, Any] | None:
+        """The app's learn: the one going, else the last one, or ``null``. ``state``:
+        ``running``, ``done``, ``stopped`` (``interrupted`` when a server stopped under it) or
+        ``failed``; ``progress``: its stage and each area's agent; ``reply``: what it said."""
+        name = target_name(ws.targets, target)
+        job = await asyncio.to_thread(ws.agent.learns.get, name)
+        return job.view() if job else None
+
+    @router.post("/targets/{target}/learn/stop")
+    async def stop_learn(ws: Current, target: str) -> dict[str, Any] | None:
+        """Stop the app's learn; what it learned is kept, area by area."""
+        name = target_name(ws.targets, target)
+        job = await ws.agent.learns.stop(name)
+        return job.view() if job else None
 
     @router.post("/targets/{target}/areas/{area}/learn")
     async def learn_area(
         ws: Current, target: str, area: str, body: dict[str, Any]
     ) -> dict[str, Any]:
-        """The page's "Learn this area": one area learned, even one listed as weighing nothing.
-        One whose files and trace hits haven't moved since it was learned answers ``state:
-        current`` with when, and spends nothing, unless ``force`` ("Learn it again anyway").
-        ``session``: the test writer's session to learn in (a learn going there learns it before
-        its overview), else a new one on ``set`` (else the first set). The answer: the area as it
-        stood, and the session when a learn was asked for."""
+        """The page's "Learn this area": one area learned by a learn job, even one listed as
+        weighing nothing. One whose files and trace hits haven't moved since it was learned
+        answers ``state: current`` with when, and spends nothing, unless ``force`` ("Learn it
+        again anyway"). A learn going learns it before its overview. The answer: the area as it
+        stood, and the job when a learn was asked for (``session`` is kept for older pages, and
+        is ``null``)."""
         targets, agent = ws.targets, ws.agent
         name = target_name(targets, target)
         force = body.get("force", False)
@@ -80,23 +122,12 @@ def understanding_router(url: str) -> APIRouter:
         except (CodeError, OSError) as exc:
             raise busy(f"Couldn't read the app's code: {exc}") from exc
         if found["state"] == "current" and not force:
-            return {"area": found, "session": None}
-        if not agent.llm:
-            raise busy("No model is set up yet: choose one in Settings, Model.")
-        session_id = body.get("session")
+            return {"area": found, "session": None, "job": None}
         try:
-            if not isinstance(session_id, str) or not session_id:
-                sets = list_sets(targets.docs, name)
-                set_name = body.get("set") or (sets[0] if sets else None)
-                if not isinstance(set_name, str):
-                    raise invalid("set: this app has no test set")
-                session_id = (await agent.create(name, set_name))["id"]
-            session = await agent.learn_area(session_id, area, force)
-        except LookupError as exc:
-            raise not_found("Test writer session or test set") from exc
+            job = agent.start_learn(name, [area], force=force)
         except RuntimeError as exc:
             raise busy(str(exc)) from exc
-        return {"area": found, "session": session}
+        return {"area": found, "session": None, "job": job.view()}
 
     @router.post("/targets/{target}/understanding/steer")
     async def steer_understanding(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:

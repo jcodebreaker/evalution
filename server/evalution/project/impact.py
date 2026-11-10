@@ -1,8 +1,9 @@
 """What a code change means for an app's tests (docs/architecture.md, "Drift", the change card).
 
-The change is measured from the **last tested state** (:data:`TESTED_DOC`), not from
-the profile: the code's commit and hash map when a run started. :func:`record_run` keeps that
-state at every run's start, and stamps the run with ``commit`` and ``code`` (the hash of the map).
+The change is measured from the **last tested state** (the ``tested`` mark of
+:mod:`evalution.project.state`), not from the profile: the code's commit and hash map when a run
+started. :func:`record_run` keeps that state at every run's start, and stamps the run with
+``commit`` and ``code`` (the hash of the map).
 
 :class:`Watcher` looks in the background when Home is viewed, at most every
 :data:`CHECK_EVERY` seconds or when a run has ended: a code-only drift check, then
@@ -31,7 +32,7 @@ from evalution.code import Code, CodeError
 from evalution.core.case import Case
 from evalution.core.rules import judged_tries
 from evalution.llm import Caller, cut, fenced, json_answer
-from evalution.project import codemap, drift, isolating, pagemaps
+from evalution.project import codemap, drift, isolating, pagemaps, state
 from evalution.project.history import History
 from evalution.project.profile import (
     FINGERPRINT_DOC,
@@ -49,7 +50,8 @@ _logger = logging.getLogger(__name__)
 
 #: Seconds between checks of one app when Home is viewed.
 CHECK_EVERY = 300.0
-TESTED_DOC = "tested.json"
+#: Where the tested state was kept before :mod:`evalution.project.state`; read once, then left.
+TESTED_DOC = state.TESTED_DOC
 IMPACT_DOC = "impact.json"
 #: Run start states kept, for a full run that ends after the code moved on.
 RUN_STATES = 3
@@ -184,8 +186,19 @@ def by_map(targets: Targets, name: str, files: Sequence[str], diff: str) -> dict
 
 
 def _snapshot(code: Code) -> dict[str, Any]:
-    state = code.state()
-    return {**state, "code": fingerprint_hash(state["files"]), "at": time.time()}
+    taken = state.snapshot(code)
+    return {**taken, "code": fingerprint_hash(taken["hashes"])}
+
+
+def _tested(doc: Mapping[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """The tested mark, and the run start states kept with it."""
+    found = dict(doc.get("tested") or {})
+    runs = dict(found.pop("runs", None) or {})
+    return found or None, runs
+
+
+def _keep_tested(doc: dict[str, Any], tested: Mapping[str, Any], runs: Mapping[str, Any]) -> None:
+    doc["tested"] = {**tested, "runs": dict(runs)}
 
 
 def record_run(targets: Targets, name: str) -> dict[str, Any]:
@@ -196,15 +209,18 @@ def record_run(targets: Targets, name: str) -> dict[str, Any]:
         return {}
     try:
         taken = _snapshot(code)
-        with targets.guards.tested:
-            doc = read_doc(targets, name, TESTED_DOC) or {}
-            states = doc.get("runs") or {}
+
+        def keep(doc: dict[str, Any]) -> None:
+            tested, states = _tested(doc)
             states.pop(taken["code"], None)
             states[taken["code"]] = taken
-            doc["runs"] = dict(list(states.items())[-RUN_STATES:])
-            if (doc.get("tested") or {}).get("watch") != taken["watch"]:
-                doc["tested"] = taken
-            write_doc(targets, name, TESTED_DOC, doc)
+            if (tested or {}).get("rules") != taken["rules"]:
+                tested = taken
+            _keep_tested(doc, tested or taken, dict(list(states.items())[-RUN_STATES:]))
+            doc["seen"] = _seen(taken)
+
+        with targets.guards.tested:
+            state.update(targets, name, keep)
     except Exception:
         _logger.warning("impact: code state of %s not recorded", name, exc_info=True)
         return {}
@@ -229,14 +245,18 @@ def _settled(left: Sequence[str], change: Mapping[str, Any], played: bool) -> bo
     return not left and (played or not change.get("uncovered"))
 
 
-def _forward(doc: Mapping[str, Any], tested: dict, history: Sequence[Mapping[str, Any]]) -> dict:
+def _seen(taken: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: taken[k] for k in ("commit", "hashes", "rules", "at")}
+
+
+def _forward(states: Mapping[str, Any], tested: dict, history: Sequence[Mapping[str, Any]]) -> dict:
     """The tested state after full runs that ended since: the newest one's code."""
     for run in history:
         if float(run["started_at"]) <= float(tested.get("at") or 0):
             break
-        state = (doc.get("runs") or {}).get(run.get("code"))
-        if state and run.get("scope") == "all" and run.get("status") == "done" and _played(run):
-            return state
+        found = states.get(run.get("code"))
+        if found and run.get("scope") == "all" and run.get("status") == "done" and _played(run):
+            return found
     return tested
 
 
@@ -270,19 +290,22 @@ def _look(runs: History, name: str) -> dict[str, Any] | None:
     now = _snapshot(code)
     history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
     with targets.guards.tested:
-        doc = read_doc(targets, name, TESTED_DOC) or {}
-        tested = doc.get("tested")
-        if tested is None and not history:
+        kept, states = _tested(state.read(targets, name))
+        if kept is None and not history:
             return None
-        moved = _forward(doc, tested or now, history)
+        moved = _forward(states, kept or now, history)
         # Taken under other rules, or before runs were stamped: start from here.
-        tested = moved if moved.get("watch") == now["watch"] else now
-        if tested is not doc.get("tested"):
-            doc["tested"] = tested
-            write_doc(targets, name, TESTED_DOC, doc)
+        tested = moved if moved.get("rules") == now["rules"] else now
+
+        def keep(doc: dict[str, Any]) -> None:
+            if tested is not kept:
+                _keep_tested(doc, tested, states)
+            doc["seen"] = _seen(now)
+
+        state.update(targets, name, keep)
         stored = read_doc(targets, name, IMPACT_DOC) or {}
-    before, after = tested["files"], now["files"]
-    files = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    before, after = tested["hashes"], now["hashes"]
+    files = (state.between(tested, now) or state.NOTHING).files
     tests = {
         f"{slug}/{c.case}": cut(f"{c.name}: {c.about}" if c.about else c.name, TEST_LINE)
         for slug, cases in _all_cases(targets, name).items()
@@ -320,9 +343,11 @@ def _settle(runs: History, name: str, look: Mapping[str, Any], result: Mapping[s
             current, forward = None, played
     with targets.guards.tested:
         if forward:
-            doc = read_doc(targets, name, TESTED_DOC) or {}
-            doc["tested"] = now
-            write_doc(targets, name, TESTED_DOC, doc)
+
+            def keep(doc: dict[str, Any]) -> None:
+                _keep_tested(doc, now, _tested(doc)[1])
+
+            state.update(targets, name, keep)
         seen = dict(look["seen"])
         if look["files"] and result.get("cache", True):
             seen.pop(look["fingerprint"], None)
@@ -390,12 +415,15 @@ def card(
     left = [t for t in left if t in named]
     if _settled(left, change, played):
         return None
+    # The files as every other signal names them: since the tested mark, to the code last seen.
+    moved = state.since(targets, name, "tested")
+    files = moved.files if moved else change["files"]
     return {
         "summary": change.get("summary") or "",
         "areas": change.get("areas") or [],
         "uncovered": change.get("uncovered") or [],
-        "files": change["files"][:FILES_SHOWN],
-        "file_count": len(change["files"]),
+        "files": files[:FILES_SHOWN],
+        "file_count": len(files),
         "read": change.get("by") in ("model", "map"),
         "tests": [
             {"set": named[t][0], "case": named[t][1].case, "name": named[t][1].name} for t in left

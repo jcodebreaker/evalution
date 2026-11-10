@@ -1,4 +1,4 @@
-import { RotateCw, ThumbsDown, ThumbsUp, TriangleAlert } from "lucide-react";
+import { RotateCw, Square, ThumbsDown, ThumbsUp, TriangleAlert } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { api, appApi } from "../../lib/api";
 import { copy } from "../../lib/clipboard";
@@ -13,9 +13,18 @@ import { Connection } from "../connect/Connection";
 import { Card, CardHead, Chip, Screen, ScreenHead } from "../connect/kit";
 import { Fold } from "../shared/group";
 import { OutOfDate } from "../shared/KnowledgeUpdate";
-import { FirstPass, isFirstPass, LearnedAreas, LeftOut, learnState } from "./Areas";
+import {
+  FactsPill,
+  FirstPass,
+  isFacts,
+  isFirstPass,
+  LearnedAreas,
+  LeftOut,
+  learnState,
+} from "./Areas";
 import { ClaimText } from "./ClaimText";
 import { DiagramView } from "./Diagram";
+import { FocusChip } from "./FocusChip";
 import { LastChanges } from "./LastChanges";
 import { LastLearn } from "./LastLearn";
 import type { LearnAreaFn } from "./LearnArea";
@@ -23,9 +32,11 @@ import { Learning } from "./Learning";
 import { NodeCheck } from "./NodeCheck";
 import { Paths } from "./Paths";
 import { Priorities } from "./Priorities";
+import { changedSinceLearned } from "./ProjectCard";
 import { Suggested } from "./Suggested";
 import { apply } from "./steer";
 import { Tools } from "./Tools";
+import { goOnBody, useLearnJob } from "./use-learn-job";
 
 /** The sections a person reads: the overview's. An area's section and the Details are the
  * test writer's notes, kept for it, not shown unless the page lists the areas. */
@@ -113,7 +124,7 @@ function ClaimRow({ claim, onSteer }: { claim: Claim; onSteer: (steer: Steer) =>
  */
 export function AppView({
   target,
-  agent,
+  agent = null,
   onLearn,
   onLearnArea,
   onAdd,
@@ -121,15 +132,20 @@ export function AppView({
   onRemoved,
 }: {
   target: string;
-  /** The test writer's thread, while it may be learning this app. */
-  agent: AgentSession | null;
-  onLearn: () => void;
-  /** "Learn this area", for an area a learn didn't learn. */
+  /** The test writer's thread: an older server's learn ran in it. */
+  agent?: AgentSession | null;
+  /** "Learn" and "Learn again"; by default the page starts the app's learn job itself. */
+  onLearn?: () => void;
+  /** "Learn this area"; by default asked of the app's learn job. */
   onLearnArea?: LearnAreaFn;
   onAdd: (starters: string[]) => Promise<void>;
   onSaved: () => Promise<unknown>;
   onRemoved: () => void;
 }) {
+  const learnJob = useLearnJob(target);
+  const job = learnJob.job;
+  const learnAgain = onLearn ?? (() => void learnJob.start({}));
+  const learnArea = onLearnArea ?? learnJob.learnArea;
   const [load, reload] = useLoad(`understanding:${target}`, () => appApi.understanding(target));
   const [shown, setShown] = useState<UnderstandingView | null>(null);
   const [node, setNode] = useState<string | null>(null);
@@ -140,8 +156,10 @@ export function AppView({
   const loaded = ready(load);
   useEffect(() => setShown(loaded), [loaded]);
 
-  // While the writer works, what it learns shows up here.
-  const working = agent?.status === "working" && agent.target === target;
+  // While the app's learn job runs, what it learns shows up here (an older server's ran in the
+  // test writer's thread).
+  const older = agent?.status === "working" && agent.target === target && Boolean(agent.learn);
+  const working = learnJob.running || older;
   const messages = agent?.messages.length ?? 0;
   // A learn the understanding says is running: its areas land as it goes.
   const live = loaded?.progress?.state === "learning";
@@ -149,6 +167,11 @@ export function AppView({
   useEffect(() => {
     if (messages) void reload();
   }, [messages, reload]);
+  // The learn ended: what it saved is read once more.
+  const jobState = job?.state;
+  useEffect(() => {
+    if (jobState && jobState !== "running") void reload();
+  }, [jobState, reload]);
 
   // Opening the page is seeing what changed; a claim that wants the owner comes into view.
   const unseen = loaded?.knowledge.last ?? null;
@@ -196,12 +219,20 @@ export function AppView({
     window.setTimeout(() => setCopied(null), 1800);
   };
 
-  const learnButton = (
-    <Button variant="secondary" size="lg" disabled={working} onClick={onLearn}>
+  const learnButton = working ? (
+    <Button variant="secondary" size="lg" onClick={() => void learnJob.stop()}>
+      <Square />
+      Stop learning
+    </Button>
+  ) : (
+    <Button variant="secondary" size="lg" onClick={learnAgain}>
       <RotateCw />
       {shown?.version ? "Learn again" : "Learn"}
     </Button>
   );
+  const learnMenu = [
+    { label: "Learn everything", onClick: () => void learnJob.start({ everything: true }) },
+  ];
   const connection = (
     <Fold title="Connection">
       <Connection target={target} onSaved={onSaved} onRemoved={onRemoved} />
@@ -232,16 +263,29 @@ export function AppView({
   const areasShown = Boolean(progress?.areas.length);
   const session = agent?.target === target ? agent : null;
   const activity = working ? (
-    <Learning session={agent} onLearnArea={onLearnArea} areasShown={areasShown} />
+    <Learning
+      session={learnJob.running ? null : agent}
+      progress={learnJob.running ? job?.progress : undefined}
+      onLearnArea={learnArea}
+      areasShown={areasShown}
+    />
   ) : (
-    <LastLearn session={session} onLearnArea={onLearnArea} areasShown={areasShown} />
+    <LastLearn
+      session={job ? null : session}
+      usage={job?.usage ? [job.usage] : undefined}
+      progress={job?.progress}
+      onLearnArea={learnArea}
+      areasShown={areasShown}
+    />
   );
+  const goOn = () => void (job ? learnJob.start(goOnBody(job)) : learnAgain());
+  const moved = changedSinceLearned(shown);
   const status =
     card.status === "learning" ? (
       <Chip tone="tint">{working ? "Learning" : "Not learned"}</Chip>
-    ) : card.status === "out_of_date" ? (
+    ) : moved !== null || card.status === "out_of_date" ? (
       <Chip tone="warn">
-        {card.changes ? `Changed since learned · ${card.changes}` : "Changed since learned"}
+        {moved ? `Changed since learned · ${moved}` : "Changed since learned"}
       </Chip>
     ) : null;
   const tests =
@@ -340,8 +384,9 @@ export function AppView({
         <LearnedAreas
           progress={progress}
           busy={working}
-          onGoOn={onLearn}
-          onLearnArea={onLearnArea}
+          onGoOn={goOn}
+          onLearnArea={learnArea}
+          interrupted={job?.state === "stopped" && job.interrupted}
         />
       ) : (
         empty("No areas yet")
@@ -379,7 +424,10 @@ export function AppView({
             {learnButton}
             <MoreMenu
               label="More"
-              actions={[{ label: "Copy card", onClick: () => void copyCard() }]}
+              actions={[
+                ...(working ? [] : learnMenu),
+                { label: "Copy card", onClick: () => void copyCard() },
+              ]}
             />
           </>
         }
@@ -408,9 +456,15 @@ export function AppView({
       {nodes.length ? (
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card role="region" aria-label="Overview">
-            <CardHead title="How it works" />
+            <CardHead title="How it works">
+              <FocusChip target={target} onChange={() => void reload()} />
+            </CardHead>
             <div className="p-5 max-md:p-4">
-              {isFirstPass(shown) ? <FirstPass basis={shown.overview?.basis ?? null} /> : null}
+              {isFacts(shown) ? (
+                <FactsPill basis={shown.overview?.basis ?? null} />
+              ) : isFirstPass(shown) ? (
+                <FirstPass basis={shown.overview?.basis ?? null} />
+              ) : null}
               <DiagramView
                 diagram={shown.diagram}
                 name={card.name}
@@ -422,7 +476,9 @@ export function AppView({
           {picked ? <NodeCheck key={picked.id} node={picked} onSteer={steer} /> : null}
         </div>
       ) : null}
-      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
+      {error || learnJob.error ? (
+        <p className="m-0 text-sm text-fail">{error ?? learnJob.error}</p>
+      ) : null}
       <div
         role="tablist"
         aria-label="What it learned"

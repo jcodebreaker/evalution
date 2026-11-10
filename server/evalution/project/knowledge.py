@@ -6,7 +6,8 @@ The target's :data:`DOC` holds, beside the understanding:
 * **links**: for each claim and node, the files its evidence names, each with its hash when
   written. Traces and admin evidence link nothing, so such a claim is never stale from code.
 * **checked**: the commit what it knows was last checked at. Only commits move it: working-tree
-  churn stays on the change card.
+  churn stays on the change card. With ``detected`` and ``backlog_since`` it is the ``refreshed``
+  mark of :mod:`evalution.project.state`, kept there and laid over what :func:`load` gives.
 * **stale**: what a commit touched: ``direct`` (a linked file changed) or ``indirect`` (a linked
   file imports a changed one, within :data:`imports.HOPS` steps).
 * **flags**: what the owner steered and the model says moved. The owner's word stands; the claim
@@ -14,7 +15,9 @@ The target's :data:`DOC` holds, beside the understanding:
 
 :func:`refresh` is the one path. Detecting is free and always runs. A model call follows when the
 owner asked, or for a new commit when the app's updates are ``auto``: one light call per distinct
-change. A call that fails or does not read changes nothing and leaves everything stale.
+change. A call that fails or does not read changes nothing and leaves everything stale. One that
+succeeds moves the refreshed mark, and the learned mark for the files it covered (ADR 0005): what
+it knows is current for them, so they are no longer "changed since learned".
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from typing import Any
 from evalution.code import Code
 from evalution.llm import fenced, json_answer
 from evalution.project import impact, imports, understanding
+from evalution.project import state as code_marks
 from evalution.project.history import History
 from evalution.project.profile import read_doc, set_updates, updates, write_doc
 from evalution.suite.cases import slugify
@@ -116,9 +120,39 @@ def links(
     return out
 
 
+#: The fields of the refreshed mark (:mod:`evalution.project.state`) as they read here.
+REFRESHED = ("checked", "detected", "backlog_since")
+
+
 def load(targets: Targets, name: str) -> dict[str, Any]:
+    """The knowledge kept, with the refreshed mark laid over it."""
     found = read_doc(targets, name, DOC)
-    return found if isinstance(found, dict) else {}
+    if not isinstance(found, dict):
+        return {}
+    doc = {k: v for k, v in found.items() if k not in REFRESHED}
+    mark = code_marks.mark(targets, name, "refreshed") or {}
+    doc |= {"checked": mark.get("commit"), "detected": mark.get("detected")}
+    if mark.get("backlog_since"):
+        doc["backlog_since"] = mark["backlog_since"]
+    return doc
+
+
+def _save(targets: Targets, name: str, doc: Mapping[str, Any]) -> None:
+    """Keep *doc*: the refreshed mark in :mod:`evalution.project.state`, the rest here."""
+    commit = doc.get("checked")
+    before = code_marks.mark(targets, name, "refreshed") or {}
+    code_marks.move(
+        targets,
+        name,
+        "refreshed",
+        {
+            "commit": commit,
+            "detected": doc.get("detected"),
+            **({"backlog_since": doc["backlog_since"]} if doc.get("backlog_since") else {}),
+            "at": before.get("at") if before.get("commit") == commit else time.time(),
+        },
+    )
+    write_doc(targets, name, DOC, {k: v for k, v in doc.items() if k not in REFRESHED})
 
 
 def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -> dict[str, Any]:
@@ -141,7 +175,7 @@ def written(targets: Targets, name: str, code: Code, read: Iterable[str] = ()) -
             "seen": old.get("seen") or {},
             "seen_at": old.get("seen_at") or 0.0,
         }
-        write_doc(targets, name, DOC, state)
+        _save(targets, name, state)
     return state
 
 
@@ -219,7 +253,7 @@ def _detect(targets: Targets, name: str, code: Code, doc: Mapping[str, Any]) -> 
             if stale and not state.get("backlog_since"):
                 state["backlog_since"] = checked
             state["checked"] = head
-        write_doc(targets, name, DOC, state)
+        _save(targets, name, state)
     return {"head": head, "fresh": fresh}
 
 
@@ -377,6 +411,7 @@ def _apply(
         new = copy.deepcopy(doc)
         items = understanding.parts(new)
         gone: set[str] = set()
+        answered: set[str] = set()
         changed = flagged = 0
         for key, said in answer["claims"].items():
             entry, item = stale.get(key), items.get(key)
@@ -403,6 +438,7 @@ def _apply(
                 item["updated_from"] = head
                 flags.pop(key, None)
                 changed += 1
+            answered |= set(entry["files"])
             stale.pop(key)
         for section in new["sections"]:
             section["claims"] = [c for c in section["claims"] if f"claim:{c['id']}" not in gone]
@@ -445,15 +481,36 @@ def _apply(
             state.pop("backlog_since", None)
         if changed or flagged:
             state["last"] = {"commit": head, "at": now, "changed": changed, "flagged": flagged}
-        write_doc(targets, name, DOC, state)
+        _save(targets, name, state)
+        covered = _covered(code, since, head, answered, state["stale"], files)
+        code_marks.cover(targets, name, covered)
     return "updated" if changed or flagged else "checked"
+
+
+def _covered(
+    code: Code,
+    since: str | None,
+    head: str,
+    answered: set[str],
+    left: Mapping[str, Mapping[str, Any]],
+    files: Mapping[str, str],
+) -> dict[str, str | None]:
+    """The files a refresh brought what it knows up to date with (``path -> hash now``, ``None``
+    when gone): every watched file the commits it read changed, but those a claim still marked
+    rests on. A changed file no claim rests on has nothing left to update. When the commits cannot
+    be read, the files of the claims it answered."""
+    names = code.changed_between(since, head) if since and since != head else None
+    if names is None:
+        names = sorted(answered)
+    waiting = {f for entry in left.values() for f in entry["files"]}
+    return {f: files.get(f) for f in names if f not in waiting}
 
 
 def _fail(targets: Targets, name: str, fingerprint: str) -> None:
     with targets.guards.knowledge:
         state = load(targets, name)
         state["failed"] = {"fingerprint": fingerprint, "at": time.time()}
-        write_doc(targets, name, DOC, state)
+        _save(targets, name, state)
 
 
 async def _refresh(runs: History, name: str, asked: bool) -> str:
@@ -508,7 +565,7 @@ async def _refresh(runs: History, name: str, asked: bool) -> str:
             kept = load(targets, name)
             seen = {**(kept.get("seen") or {}), fingerprint: answer}
             kept["seen"] = dict(list(seen.items())[-SEEN:])
-            write_doc(targets, name, DOC, kept)
+            _save(targets, name, kept)
     try:
         return await asyncio.to_thread(
             _apply, targets, name, code, doc["version"], answer, head, since
@@ -562,7 +619,7 @@ async def choose(runs: History, name: str, mode: str) -> None:
                 if state.get("stale"):
                     state.setdefault("backlog_since", state.get("checked"))
                 state["checked"] = state["detected"] = head
-                write_doc(targets, name, DOC, state)
+                _save(targets, name, state)
     set_updates(targets, name, mode)
 
 
@@ -624,7 +681,7 @@ def saw(targets: Targets, name: str) -> None:
         state = load(targets, name)
         if state:
             state["seen_at"] = time.time()
-            write_doc(targets, name, DOC, state)
+            _save(targets, name, state)
 
 
 def undo(targets: Targets, name: str) -> None:

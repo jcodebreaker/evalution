@@ -4,7 +4,7 @@ LongMemEval (Wu et al., ICLR 2025, https://github.com/xiaowu0162/LongMemEval, MI
 with known answers about a person's chat history. :func:`install` writes its questions as cases
 of set ``longmemeval-<size>`` of a target, in the usual case format, so they play, are graded and
 are stored like any test. The questions of the sizes people run are in this repository, in
-``longmemeval/``, so they work offline; the full files are fetched into
+``longmemeval_data/``, so they work offline; the full files are fetched into
 ``<data_dir>/benchmarks/`` the first time they're needed. To change a bundled size, run
 :func:`bundle`.
 
@@ -31,6 +31,7 @@ import random
 import re
 import statistics
 from collections.abc import Iterable, Mapping
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ NAME = "longmemeval"
 _BASE = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/"
 #: Each size: the file it comes from, and how many questions it plays, spread across the kinds.
 SIZES: dict[str, tuple[str, int | None]] = {
+    "short": ("longmemeval_oracle.json", 30),
     "quick": ("longmemeval_oracle.json", 5),
     "oracle": ("longmemeval_oracle.json", None),
     "middle": ("longmemeval_s_cleaned.json", 10),
@@ -54,7 +56,8 @@ SIZES: dict[str, tuple[str, int | None]] = {
 }
 #: What each size is, as a person chooses between them.
 ABOUT = {
-    "quick": "A fixed sample of 5 questions with short histories",
+    "short": "A fixed sample of 30 questions, 5 of each kind and 5 unanswerable, short histories",
+    "quick": "A fixed sample of 5 questions with short histories, to check that a run works",
     "oracle": "Every question that can play, with short histories",
     "middle": "10 questions, then about 40 unrelated messages, with older turns folded early",
     "s": "The same questions among unrelated conversations, about 40 per question",
@@ -277,6 +280,17 @@ def _chosen(size: str, each: int | None, data_dir: Path) -> list[Mapping[str, An
 def size_of(size: str, each: int | None, data_dir: Path) -> tuple[int, int]:
     """How many questions a choice has, and how many messages they send."""
     chosen = _chosen(size, each, data_dir)
+    sent = sum(sum("message" in turn for turn in to_case(entry)["turns"]) for entry in chosen)
+    return len(chosen), sent
+
+
+@cache
+def bundled_size(size: str) -> tuple[int, int] | None:
+    """How many questions a size kept in this repository has, and how many messages they send;
+    ``None`` for a size that is downloaded."""
+    if not _bundled(size).exists():
+        return None
+    chosen = json.loads(_bundled(size).read_text())
     sent = sum(sum("message" in turn for turn in to_case(entry)["turns"]) for entry in chosen)
     return len(chosen), sent
 
@@ -580,12 +594,16 @@ def overview(target: str, docs: Docs, runs: Iterable[Mapping[str, Any]]) -> dict
     sizes = []
     for size in SIZES:
         slug = _slug(size)
+        kept = bundled_size(size)
         sizes.append(
             {
                 "size": size,
                 "set": slug,
                 "about": ABOUT[size],
                 "questions": len(case_stems(docs, target, slug)) or None,
+                # What the size holds before it is installed, for a size kept here.
+                "holds": kept[0] if kept else None,
+                "messages": kept[1] if kept else None,
             }
         )
     played = [run for run in runs if str(run.get("set")).startswith(NAME) and _got_going(run)]

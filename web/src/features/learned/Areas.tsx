@@ -51,6 +51,23 @@ export const isFirstPass = (understanding: UnderstandingView) =>
   understanding.progress?.overview === "first_pass" ||
   understanding.overview?.state === "first_pass";
 
+/** Only the facts are learned (C1): the card and the diagram come from the code and real use,
+ * and the areas are read when a test needs them. */
+export const isFacts = (understanding: UnderstandingView) =>
+  understanding.overview?.state === "facts" ||
+  (!understanding.overview && understanding.progress?.overview === "facts");
+
+/** "From the code and 12 conversations. Areas are read when a test needs them.", as a pill. */
+export function FactsPill({ basis }: { basis: string | null }) {
+  return (
+    <p className="m-0 mb-3">
+      <span className="inline-block rounded-full bg-sunk-2 px-2.5 py-0.5 text-[13px] text-ink-2">
+        From {basis ?? "the code"}. Areas are read when a test needs them.
+      </span>
+    </p>
+  );
+}
+
 /** "First pass" and what it rests on, while the overview is written from the skeleton alone. */
 export function FirstPass({ basis }: { basis: string | null }) {
   return (
@@ -63,34 +80,49 @@ export function FirstPass({ basis }: { basis: string | null }) {
   );
 }
 
-function Mark({ area }: { area: AreaView }) {
+function Mark({ area, label }: { area: AreaView; label?: string }) {
   const look = LOOK[area.state];
+  const said = label ?? look.said;
   if (look.dot === "learning") {
     return (
       <span
         role="img"
-        aria-label={look.said}
-        title={look.said}
+        aria-label={said}
+        title={said}
         className="inline-block size-2.5 shrink-0 animate-pulse rounded-full bg-tint align-middle"
       />
     );
   }
-  return <StatusDot state={look.dot} label={look.said} className="size-2.5" />;
+  return <StatusDot state={look.dot} label={said} className="size-2.5" />;
 }
 
-function AreaRow({ area, onLearnArea }: { area: AreaView; onLearnArea?: LearnAreaFn }) {
-  const look = LOOK[area.state];
+function AreaRow({
+  area,
+  onLearnArea,
+  waiting = false,
+}: {
+  area: AreaView;
+  onLearnArea?: LearnAreaFn;
+  /** A learn is going: an area due waits for it. Else it is read when a test needs it. */
+  waiting?: boolean;
+}) {
+  const look =
+    area.state === "due" && !waiting
+      ? { dot: "none" as const, said: "Not learned yet" }
+      : LOOK[area.state];
   const quiet = area.state === "due" || area.state === "listed" || area.state === "outside";
   const said =
     area.state === "current" && area.learned_at ? `Learned ${ago(area.learned_at)}` : look.said;
-  const asks = (area.state === "listed" || area.state === "outside") && onLearnArea;
+  const asks =
+    (area.state === "listed" || area.state === "outside" || (area.state === "due" && !waiting)) &&
+    onLearnArea;
   return (
     <li
       aria-label={area.title || area.id}
       data-state={area.state}
       className="flex min-h-[52px] flex-wrap items-center gap-x-3.5 gap-y-1 border-rule px-5 py-2.5 not-last:border-b max-md:px-4"
     >
-      <Mark area={area} />
+      <Mark area={area} label={look.said} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className={quiet ? "truncate text-ink-2" : "truncate"}>{area.title || area.id}</span>
         <span className="text-sm text-ink-3">
@@ -122,10 +154,13 @@ export function Stopped({
   progress,
   busy,
   onGoOn,
+  interrupted = false,
 }: {
   progress: LearnStateView;
   busy: boolean;
   onGoOn: () => void;
+  /** The server stopped under it. */
+  interrupted?: boolean;
 }) {
   const done = progress.areas.filter(learned).length;
   return (
@@ -134,7 +169,8 @@ export function Stopped({
       className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] bg-sunk px-3.5 py-2.5 text-sm text-ink-2"
     >
       <span className="min-w-0 flex-1">
-        Stopped after {done} of {count(progress.areas.length, "area")}; what was learned is kept.
+        {interrupted ? "The server stopped while it learned: " : "Stopped "}
+        after {done} of {count(progress.areas.length, "area")}; what was learned is kept.
       </span>
       <Button variant="secondary" size="sm" disabled={busy} onClick={onGoOn}>
         Go on
@@ -197,18 +233,21 @@ export function LearnedAreas({
   busy,
   onGoOn,
   onLearnArea,
+  interrupted = false,
 }: {
   progress: LearnStateView;
   /** A learn is running: "Go on" waits. */
   busy: boolean;
   onGoOn: () => void;
   onLearnArea?: LearnAreaFn;
+  /** The last learn was cut by a server that stopped. */
+  interrupted?: boolean;
 }) {
   if (!progress.areas.length && progress.state !== "stopped") return null;
   return (
     <section aria-label="Areas" className="flex flex-col gap-3">
       {progress.state === "stopped" ? (
-        <Stopped progress={progress} busy={busy} onGoOn={onGoOn} />
+        <Stopped progress={progress} busy={busy} onGoOn={onGoOn} interrupted={interrupted} />
       ) : null}
       {progress.areas.length ? (
         <Card>
@@ -217,7 +256,12 @@ export function LearnedAreas({
           </p>
           <ul className="m-0 list-none p-0">
             {progress.areas.map((area) => (
-              <AreaRow key={area.id} area={area} onLearnArea={onLearnArea} />
+              <AreaRow
+                key={area.id}
+                area={area}
+                onLearnArea={onLearnArea}
+                waiting={busy || progress.state === "learning"}
+              />
             ))}
           </ul>
         </Card>

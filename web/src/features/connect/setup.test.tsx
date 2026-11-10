@@ -211,3 +211,56 @@ it("a discovery that stopped says why and goes back to the field", async () => {
   fireEvent.click(within(needs).getByRole("button", { name: "Try another" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "Connect an app" })).toBeTruthy());
 });
+
+it("asks which agent to test from a pick list, which Connect does not wait on", async () => {
+  const ready = {
+    ...JOB,
+    status: "ready",
+    questions: [
+      { key: "chat", text: "Where does it take messages?", hint: "/chat" },
+      {
+        key: "focus",
+        text: "Which agent do you want to test?",
+        hint: "All of them",
+        choices: [
+          { value: "gamma", label: "gamma", where: "agents/gamma.yaml:1", uses: 4, tools: 2 },
+          { value: "*", label: "All of them", hint: "every agent" },
+        ],
+      },
+    ],
+  };
+  serve({
+    "POST /v1/targets/discover": { body: ready },
+    "GET /v1/targets/discover/d1": { body: ready },
+  });
+  render(
+    <ConnectView
+      first
+      onReady={async () => {}}
+      onLearn={() => {}}
+      onLearned={() => {}}
+      onAsk={async () => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "owner/repo#412" }));
+  fireEvent.submit(
+    screen
+      .getByLabelText("Folder, GitHub repository or address")
+      .closest("form") as HTMLFormElement,
+  );
+  const asked = await screen.findByText("Which agent do you want to test?");
+  const needs = asked.closest("form") as HTMLFormElement;
+  const gamma = within(needs).getByRole("button", { name: /gamma/ });
+  const all = within(needs).getByRole("button", { name: /All of them/ });
+  expect(all.getAttribute("aria-pressed")).toBe("true");
+  const connect = within(needs).getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+  expect(connect.disabled).toBe(true);
+  fireEvent.change(within(needs).getByLabelText("Where does it take messages?"), {
+    target: { value: "/chat" },
+  });
+  // The text question answered is enough: the pick list holds "All of them" unpicked.
+  expect(connect.disabled).toBe(false);
+  fireEvent.click(gamma);
+  expect(gamma.getAttribute("aria-pressed")).toBe("true");
+  expect(all.getAttribute("aria-pressed")).toBe("false");
+});

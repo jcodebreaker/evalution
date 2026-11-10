@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from evalution.config import load
-from evalution.project import impact
+from evalution.project import impact, state
 from evalution.project.profile import read_doc, set_updates
 from evalution.review.health import for_target
 from evalution.runs.runner import Runs
@@ -85,7 +85,7 @@ def _ran(runs, n, stamp, tests, scope="some"):
 
 def _stamp(runs):
     found = impact.record_run(runs.targets, "bot")
-    doc = read_doc(runs.targets, "bot", impact.TESTED_DOC)
+    doc = state.read(runs.targets, "bot")["tested"]
     return {**found, "at": doc["runs"][found["code"]]["at"] - 1}
 
 
@@ -132,7 +132,7 @@ def test_a_change_lives_from_the_tested_state_until_its_tests_ran(app, monkeypat
     _ran(runs, 2, second, ["a"])
     assert _card(runs) is None
     asyncio.run(impact.refresh(runs, "bot"))
-    tested = read_doc(runs.targets, "bot", impact.TESTED_DOC)["tested"]
+    tested = state.read(runs.targets, "bot")["tested"]
     assert tested["code"] == second["code"]
     assert read_doc(runs.targets, "bot", impact.IMPACT_DOC)["current"] is None
 
@@ -145,7 +145,7 @@ def test_a_change_lives_from_the_tested_state_until_its_tests_ran(app, monkeypat
     _edit(runs, "a = 3")
     asyncio.run(impact.refresh(runs, "bot"))
     assert _card(runs) is None
-    tested = read_doc(runs.targets, "bot", impact.TESTED_DOC)["tested"]
+    tested = state.read(runs.targets, "bot")["tested"]
     assert tested["code"] == second["code"]
 
 

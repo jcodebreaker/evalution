@@ -36,7 +36,8 @@ PROGRESS_DOC = "learn_progress.json"
 #: What a learn's progress says of itself, and of each of its areas.
 PROGRESS_STATES = ("learning", "done", "stopped")
 AREA_STATES = ("current", "learning", "done", "due", "listed", "failed", "outside")
-OVERVIEW_STATES = ("first_pass", "final")
+#: ``facts``: no area read yet, the card from the code's skeleton and real use alone (C1).
+OVERVIEW_STATES = ("facts", "first_pass", "final")
 
 
 def load(targets: Targets, name: str) -> dict[str, Any] | None:

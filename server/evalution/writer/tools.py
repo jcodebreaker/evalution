@@ -269,6 +269,9 @@ class Tools:
         self.runs = runs
         self.targets = runs.targets
         self._save = save
+        #: Learns an area of a target by a learn job and waits for it, bounded; ``None``: none
+        #: can be learned here (the agent sets it).
+        self.learn_area: Callable[[str, str], Awaitable[Any]] | None = None
 
     def _target(self, turn: AgentTurn) -> str:
         return str(turn.session["target"])
@@ -473,10 +476,56 @@ class Tools:
             or "(none yet)",
         )
 
-    async def read_understanding(self, turn: AgentTurn, _args: dict) -> Any:
+    async def read_understanding(self, turn: AgentTurn, args: dict) -> Any:
+        area = args.get("area")
+        if isinstance(area, str) and area.strip():
+            return await self._read_area(turn, area.strip())
         turn.read.append("Read what I understood")
         found = await asyncio.to_thread(understanding.written, self.targets, self._target(turn))
         return found or "(nothing saved yet)"
+
+    async def _read_area(self, turn: AgentTurn, what: str) -> Any:
+        """An area's sections, by its id, a file in it or a tool, prompt or store it holds: one
+        not learned from the code as it is now is learned first (docs/plans/next-level.md C1), by
+        a learn job, and waited for, bounded."""
+        from evalution.writer import learn  # learn imports this module
+
+        target = self._target(turn)
+        found = await learn.locate(self.targets, target, what)
+        if not found:
+            names = await asyncio.to_thread(learn.area_names, self.targets, target)
+            raise LookupError(
+                f"no area holds {what}"
+                + (f"; the areas are: {', '.join(names[:40])}" if names else "")
+            )
+        learning = [a for a in found if a["state"] != "current"]
+        said = ""
+        if learning and self.learn_area is not None:
+            turn.read.append(f"Learned the area {learning[0]['id']}")
+            for area in learning:
+                job = await self.learn_area(target, area["id"])
+            state = getattr(job, "state", None)
+            if state == "running":
+                said = "It is still being learned; what is known so far is below. "
+            elif getattr(job, "reply", None):
+                said = f"{job.reply} "
+        memory = await asyncio.to_thread(filememory.load, self.targets, target)
+        kept = memory.get("areas") or {}
+        turn.read.append(f"Read the area {found[0]['id']}")
+        return said + fenced(
+            f"what is understood of {what}",
+            json.dumps(
+                [
+                    {
+                        "area": a["id"],
+                        "sections": (kept.get(a["id"]) or {}).get("sections") or [],
+                        "nodes": (kept.get(a["id"]) or {}).get("nodes") or [],
+                    }
+                    for a in found[:4]
+                ],
+                ensure_ascii=False,
+            ),
+        )
 
     async def write_understanding(self, turn: AgentTurn, args: dict) -> Any:
         target = self._target(turn)

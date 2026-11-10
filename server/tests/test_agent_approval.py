@@ -623,9 +623,11 @@ def _learning(
         elif system == learn.OVERVIEW:
             sent["overview"].append(body)
             said = ("write_overview", OVERVIEW_ARGS)
-        elif system == learn.FIRST_OVERVIEW:
+        elif system == learn.FACTS:
             sent["first"].append(body)
-            said = ("write_overview", FIRST_ARGS)
+            said = json.dumps(
+                {"one_line": FIRST_ARGS["one_line"], "summary": FIRST_ARGS["summary"]}
+            )
         else:
             sent["writer"].append(body)
             said = script.pop(0)
@@ -665,10 +667,19 @@ def _learning(
     return agent, repo, sent, script
 
 
-async def _learn(agent: Agent, session_id: str) -> dict:
-    await agent.message(session_id, "Learn bot again.", learn=True)
-    await agent._tasks[session_id]
-    return await agent.get(session_id)
+async def _learn(
+    agent: Agent,
+    _session_id: str | None = None,
+    *,
+    everything: bool = True,
+    areas: tuple[str, ...] = (),
+    force: bool = False,
+) -> dict:
+    """A learn job of bot run to its end (by default "Learn everything", as every learn was
+    before the facts level), read as its session: what it said, its usage and its progress."""
+    job = agent.start_learn("bot", areas, everything=everything, force=force)
+    await agent.learns.wait("bot")
+    return agent_module.public(job.session)
 
 
 async def _say(agent: Agent, session_id: str, text: str) -> dict:
@@ -773,33 +784,34 @@ async def test_a_learn_is_split_into_areas_merged_and_kept(tmp_path, monkeypatch
 async def test_a_learn_is_measured_stage_by_stage(tmp_path, capsys) -> None:
     """The baseline a change to the learn is checked against: each stage's seconds and calls,
     tokens and characters, a call counted for the stage running when it was made. Since ADR 0012
-    the stages are the code map, the skeleton, the first overview (a first learn: one call from
-    the skeleton, by the light model), the areas and the overview: nothing is read in bulk, and no
-    folder is summarized."""
+    the stages are the code map, the skeleton, the facts card (a first learn: one call from the
+    skeleton, by the light model), the areas and the overview (the docs' summary is written for
+    it): nothing is read in bulk, and no folder is summarized."""
     agent, _repo, sent, _script = _learning(tmp_path, summarize=0.2, docs=True)
     sid = (await agent.create("bot", "main"))["id"]
     usage = (await _learn(agent, sid))["usage"][-1]
     stages = {s["stage"]: s for s in usage["stages"]}
-    assert list(stages) == ["code map", "skeleton", "first overview", "areas", "overview", "other"]
+    assert list(stages) == ["code map", "skeleton", "facts", "areas", "overview", "other"]
     calls = {name: s["calls"] for name, s in stages.items()}
     assert calls == {
         "code map": 0,
         "skeleton": 0,
-        "first overview": len(sent["first"]),
+        "facts": len(sent["first"]),
         "areas": len(sent["areas"]),
-        "overview": len(sent["overview"]),
-        "other": len(sent["docs"]),
+        "overview": len(sent["overview"]) + len(sent["docs"]),
+        "other": 0,
     }
     assert not sent["light"] and not sent["modules"] and not sent["app"]
-    assert calls["other"] == 1 and calls["first overview"] == usage["first_overview_calls"] == 1
-    assert usage["light_calls"] == 2, "the docs' summary and the first overview"
+    assert len(sent["docs"]) == 1 and calls["facts"] == usage["facts_calls"] == 1
+    assert usage["light_calls"] == 2, "the docs' summary and the facts card"
     assert calls["areas"] == sum(a["calls"] for a in usage["areas"]) == usage["areas_run"]
-    assert calls["overview"] == usage["overview_calls"] == 1
+    assert usage["overview_calls"] == 1
     assert usage["skeleton_entries"] > 0 and usage["slice_files"] == 0
     for key in ("calls", "tokens_in", "tokens_out", "chars_in", "chars_out"):
         assert sum(s[key] for s in stages.values()) == usage[key], key
     assert all(s["tokens_out"] == 5 * s["calls"] for s in stages.values())
     assert all((s["chars_in"] > 0) == bool(s["calls"]) for s in stages.values())
+    assert all(s["calls"] == 0 for s in stages.values() if s["stage"] in ("code map", "skeleton"))
     assert all(s["seconds"] >= 0 for s in stages.values())
     assert sum(s["seconds"] for s in stages.values()) <= usage["seconds"] + 0.05
 
@@ -1043,7 +1055,7 @@ async def test_a_file_no_grammar_reads_is_read_in_bulk_tried_again_then_named(tm
     assert usage["slice_files"] == 1 and [s["stage"] for s in usage["stages"]][:4] == [
         "code map",
         "skeleton",
-        "first overview",
+        "facts",
         "read",
     ]
 
@@ -1095,10 +1107,10 @@ def test_a_learn_reads_at_most_its_cap_best_first(tmp_path, monkeypatch) -> None
     assert slicing.choose(cmap, {}) == every[:2]
 
 
-async def test_a_learns_reading_has_its_own_time_not_the_chats(tmp_path, monkeypatch) -> None:
-    """The chat's 20 minutes start after the learn's reading: a reading longer than them isn't
-    cut; a reading past its own limit says what it kept."""
-    agent, _repo, _sent, script = _learning(tmp_path, summarize=0.4)
+async def test_a_learn_has_no_clock_of_the_chats(tmp_path, monkeypatch) -> None:
+    """A learn is a job of its own (docs/plans/next-level.md C10): the chat's 20 minutes don't
+    apply to it, and it never says "go on"."""
+    agent, _repo, _sent, _script = _learning(tmp_path, summarize=0.4)
     begin = learn.begin
 
     async def slow_begin(*args, **kwargs):
@@ -1107,18 +1119,11 @@ async def test_a_learns_reading_has_its_own_time_not_the_chats(tmp_path, monkeyp
 
     monkeypatch.setattr(learn, "begin", slow_begin)
     monkeypatch.setattr(agent_module, "MAX_SECONDS", 0.1)
-    monkeypatch.setattr(agent_module, "LEARN_SECONDS", 30)
-    sid = (await agent.create("bot", "main"))["id"]
-    script += ["Nothing to save."]
-    shown = await _learn(agent, sid)
+    shown = await _learn(agent)
     said = [m["text"] for m in shown["messages"] if m["role"] == "agent"]
-    assert not any("I stopped" in t for t in said), said
-
-    monkeypatch.setattr(agent_module, "LEARN_SECONDS", 0.1)
-    sid = (await agent.create("bot", "main"))["id"]
-    shown = await _learn(agent, sid)
-    assert shown["messages"][-1]["text"].startswith("I stopped learning after")
-    assert "The areas I finished are kept: say go on" in shown["messages"][-1]["text"]
+    assert said and said[-1].startswith("I've learned bot."), said
+    assert not any("go on" in t.lower() for t in said), said
+    assert agent.learns.get("bot").state == "done"
 
 
 async def test_an_openai_compatible_model_gets_no_cache_marks(tmp_path) -> None:

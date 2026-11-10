@@ -1,11 +1,12 @@
 import { count, tokens } from "../../lib/format";
-import type { AgentSession, LearnStage, TurnUsage } from "../../lib/schema";
+import type { AgentSession, LearnProgress, LearnStage, TurnUsage } from "../../lib/schema";
 import { LearnAreaButton, type LearnAreaFn } from "./LearnArea";
 
 /** The server's stage names, as a person reads them. */
 const NAMES: Record<string, string> = {
   "code map": "Code map",
   skeleton: "Skeleton",
+  facts: "Facts",
   read: "Read",
   modules: "Folder summaries",
   areas: "Areas",
@@ -43,18 +44,24 @@ export function lastLearn(usage: readonly TurnUsage[]): TurnUsage | null {
  * didn't learn (nothing in them the app uses), each with "Learn this area" (*onLearnArea*),
  * unless the page lists the areas itself (*areasShown*). */
 export function LastLearn({
-  session,
+  session = null,
+  usage,
+  progress,
   onLearnArea,
   areasShown = false,
 }: {
-  session: AgentSession | null;
+  /** An older server's learn, in the test writer's session. */
+  session?: AgentSession | null;
+  /** The learn job's usage and progress (C10). */
+  usage?: readonly TurnUsage[];
+  progress?: LearnProgress | null;
   onLearnArea?: LearnAreaFn;
   areasShown?: boolean;
 }) {
-  const found = session ? lastLearn(session.usage) : null;
+  const found = lastLearn(usage ?? session?.usage ?? []);
   const listed = areasShown
     ? []
-    : (session?.learn?.areas ?? []).filter((area) => area.state === "listed");
+    : ((progress ?? session?.learn)?.areas ?? []).filter((area) => area.state === "listed");
   if (!found && !listed.length) return null;
   return (
     <div className="flex flex-col gap-1.5 px-1">

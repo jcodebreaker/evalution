@@ -27,7 +27,7 @@ from evalution.targets import Targets
 
 PLAN_DOC = "benchmark_plan.json"
 _TURN_SECONDS = 180
-_SHORT = ("quick", "oracle")
+_SHORT = ("short", "quick", "oracle")
 
 INTENT = """\
 LongMemEval tests long-term memory. The same person tells an assistant things across many dated \
@@ -44,8 +44,9 @@ would not do, it only shows what survives a wipe.
 has one ongoing conversation per person.
 
 size: how long each question's history is.
-- "quick" or "oracle": about 11 messages, only the sessions holding the answer. "quick" is a \
-sample of 5 questions, "oracle" is all 444.
+- "short", "quick" or "oracle": about 10 messages, only the sessions holding the answer. \
+"short" is a fixed sample of 30 questions covering every kind, unanswerable ones included; \
+"quick" is 5 questions, only to check that a run works; "oracle" is all 444.
 - "s": 233 to 305 messages, among unrelated sessions.
 - "m": about 2,500 messages, among about 500 sessions.
 A short history is still in front of the model unless a break clears it, so with "same" only \

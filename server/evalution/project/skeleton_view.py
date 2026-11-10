@@ -13,10 +13,11 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from evalution.code import Code
-from evalution.project import codemap
+from evalution.project import areas, codemap, focus, imports
 from evalution.project.codemap import CodeMap
 from evalution.project.profile import read_doc, write_doc
 from evalution.project.skeleton import Entry, Skeleton, fingerprint_of, match, skeleton
@@ -132,4 +133,63 @@ def shown(found: Skeleton, used: dict[str, Any] | None) -> dict[str, Any]:
         ],
         "unseen": [dict(u) for u in hits.unseen],
         "window": window,
+    }
+
+
+# The one agent tested, on a platform that hosts many (next-level C7, C11)
+
+
+def focused(
+    targets: Targets, name: str, code: Code, found: Skeleton
+) -> tuple[str | None, set[str] | None]:
+    """*name*'s ``code.focus`` when an agent of *found* has that name, and the files the learn
+    covers for it (:func:`areas.agent_scope`; ``None``: every watched file, as when
+    ``code.include`` names them)."""
+    wanted = code.focus
+    if not wanted or not any(a.name == wanted for a in focus.agents(found.entries)):
+        return None, None
+    if code.include:
+        return wanted, None
+    prints = code.hashes()
+    edges = imports.kept_graph(targets, name, code.root, prints)
+    return wanted, areas.agent_scope(found.entries, edges, list(prints), wanted)
+
+
+def shown_for(
+    found: Skeleton, used: dict[str, Any] | None, wanted: str | None, scope: set[str] | None
+) -> dict[str, Any]:
+    """:func:`shown`, limited to the agent tested (*wanted*) and the files its learn covers
+    (*scope*): the other agents aren't listed, ``outside_agents`` says how many there are."""
+    entries, left = focus.limit(found.entries, wanted, scope)
+    page = shown(replace(found, entries=tuple(entries)), used)
+    return {**page, "focus": wanted, "outside_agents": left}
+
+
+async def page(targets: Targets, name: str, code: Code) -> dict[str, Any]:
+    """The skeleton as What it learned shows it, limited to the agent tested when there is one.
+
+    :raises CodeError: The code can't be read.
+    """
+    found = await asyncio.to_thread(current, targets, name, code)
+    used = await uses(targets, name)
+    wanted, scope = await asyncio.to_thread(focused, targets, name, code, found)
+    return shown_for(found, used, wanted, scope)
+
+
+async def agent_choices(targets: Targets, name: str, code: Code) -> dict[str, Any]:
+    """The agents *name*'s code defines, as connecting offers them (:func:`focus.choices`), most
+    used first, and the one tested now (``focus``; ``None``: all of them). ``asks``: whether
+    there are enough that connecting asks.
+
+    :raises CodeError: The code can't be read.
+    """
+    found = await asyncio.to_thread(current, targets, name, code)
+    used = await uses(targets, name)
+    hits = match(found, used).uses if used and used.get("sessions") else None
+    prints = await asyncio.to_thread(code.hashes)
+    edges = await asyncio.to_thread(imports.kept_graph, targets, name, code.root, prints)
+    return {
+        "focus": code.focus,
+        "asks": focus.asks(found.entries),
+        "choices": focus.choices(found.entries, edges, hits),
     }

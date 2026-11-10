@@ -16,7 +16,10 @@ steps the page shows as they go. In order:
    test message (:mod:`evalution.connect.probe`).
 4. **Verify**, without sending a chat message: the app answers, and its traces hold
    conversations (:func:`evalution.connect.connect.check`).
-5. **Code**: the folder itself; everything in it that is source is watched.
+5. **Code**: the folder itself; everything in it that is source is watched. When its skeleton
+   names more than :data:`focus.ASK_OVER` agents (a platform that hosts many), one more question
+   asks which one is tested, with the agents as ``choices`` (:func:`focus.choices`); the answer
+   is the target's ``code.focus``.
 
 What it could not tell becomes at most a couple of plain questions. ``.env`` is only ever read
 for the keys named here and by the adapters; a secret found there stays in this process until the
@@ -55,10 +58,14 @@ from evalution.connect.scrub import scrub_text
 from evalution.core import net
 from evalution.core.case import SLUG
 from evalution.llm import LLM, LLMError, cut
+from evalution.project import focus
+from evalution.project.skeleton import Skeleton, match
 from evalution.traces import setup
 from evalution.traces.base import is_ai
 from evalution.traces.builtin import TARGET_PREFIX, Builtin, SpanStore
 from evalution.traces.builtin import project as project_of
+from evalution.traces.profile import digest as trace_digest
+from evalution.traces.profile import recent_sessions
 
 _logger = logging.getLogger(__name__)
 
@@ -137,7 +144,13 @@ ARRIVAL_WINDOW = 3600.0
 QUESTIONS = {
     "port": ("Which port does it run on?", "8000"),
     "chat": ("Which address takes chat messages?", "/chat"),
+    "focus": (focus.QUESTION, focus.ALL_LABEL),
 }
+#: Questions with a default: left unanswered, the default holds ("All of them").
+OPTIONAL = frozenset({"focus"})
+#: Conversations read to say how often each agent was used, and the longest that may take.
+USE_SESSIONS = 50
+USE_SECONDS = 8.0
 
 
 # Reading the folder
@@ -359,6 +372,8 @@ class Job:
     traces: dict[str, Any] | None = None
     #: The repository the app was given by, cloned into *folder* before it is read.
     clone: repository.Address | None = None
+    #: A question's choices, by its key: ``[{value, label, hint, ...}]``.
+    choices: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def step(self, text: str) -> dict[str, str]:
         made = {"text": text, "state": "doing"}
@@ -376,12 +391,17 @@ class Job:
         if (port := str(answers.get("port") or "").strip()).isdigit():
             base = f"http://127.0.0.1:{port}"
         options = infos()[self.adapter].propose(base, self.options, answers)
+        code: dict[str, Any] | None = {"path": str(self.folder)} if self.folder else None
+        picked = str(answers.get("focus") or "").strip()
+        named = {c["value"] for c in self.choices.get("focus", ()) if c["value"] != focus.ALL}
+        if code is not None and picked in named:
+            code["focus"] = picked
         return {
             "name": self.name,
             "adapter": self.adapter,
             "options": options,
             "phoenix": dict(self.phoenix) if self.phoenix else None,
-            "code": {"path": str(self.folder)} if self.folder else None,
+            "code": code,
             "secrets": dict(self.secrets),
         }
 
@@ -396,13 +416,23 @@ class Job:
             "folder": str(self.folder) if self.folder else self.base,
             "status": self.status,
             "steps": self.steps,
-            "questions": [
-                {"key": k, "text": QUESTIONS[k][0], "hint": QUESTIONS[k][1]} for k in self.questions
-            ],
+            "questions": [self._question(k) for k in self.questions],
             "target": target,
             "traces": self.traces,
             "repository": self.clone.as_dict() if self.clone else None,
         }
+
+    def _question(self, key: str) -> dict[str, Any]:
+        made: dict[str, Any] = {"key": key, "text": QUESTIONS[key][0], "hint": QUESTIONS[key][1]}
+        if key in self.choices:
+            made["choices"] = self.choices[key]
+        return made
+
+    def missing(self, answers: dict[str, Any]) -> list[str]:
+        """The questions *answers* leaves open that must be answered."""
+        return [
+            k for k in self.questions if k not in OPTIONAL and not str(answers.get(k) or "").strip()
+        ]
 
 
 def folder_of(path: str) -> Path:
@@ -607,7 +637,43 @@ class Discoveries:
             await self._known(job, folder, *detected)
         else:
             await self._generic(job, await asyncio.to_thread(_files, folder))
+        await self._agents(job)
         await self._finish(job, await asyncio.to_thread(_files, folder))
+
+    async def _agents(self, job: Job) -> None:
+        """On a folder that hosts more than :data:`focus.ASK_OVER` agents, ask which one is
+        tested: the skeleton read with no model, the agents most used by its traces first."""
+        assert job.folder is not None
+        try:
+            found, edges = await asyncio.to_thread(focus.of_folder, job.folder)
+        except Exception:
+            _logger.warning("discover: %s's agents couldn't be read", job.id, exc_info=True)
+            return
+        if not focus.asks(found.entries):
+            return
+        count = len(focus.agents(found.entries))
+        job.step(f"Found {count} agents in the code")["state"] = "done"
+        uses = await self.agent_uses(job, found)
+        job.choices["focus"] = focus.choices(found.entries, edges, uses)
+        job.ask("focus")
+
+    async def agent_uses(self, job: Job, found: Skeleton) -> dict[str, int] | None:
+        """How often real traces touched each skeleton entry, from the conversations already in
+        evalution for this app; ``None`` when there are none."""
+        name = infos()[job.adapter].trace_project or job.name
+        source = Builtin(self.store, name.removeprefix(TARGET_PREFIX))
+        try:
+            groups = await asyncio.wait_for(
+                recent_sessions(source, "session.id", USE_SESSIONS), USE_SECONDS
+            )
+        except Exception:
+            _logger.warning("discover: %s's traces couldn't be read", job.id, exc_info=True)
+            return None
+        finally:
+            await source.close()
+        if not groups:
+            return None
+        return dict(match(found, trace_digest(groups)).uses)
 
     async def _clone(self, job: Job, cloning: dict[str, str]) -> bool:
         """Clone the repository *job* was given by into its folder, with the person's own git

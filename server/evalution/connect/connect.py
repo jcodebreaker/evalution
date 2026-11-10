@@ -141,6 +141,18 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
             ):
                 raise TargetError("code.area_parallel: a whole number from 1 to 32")
             block["code"]["area_parallel"] = area_parallel
+        focus = code.get("focus")
+        if focus is not None:
+            if not isinstance(focus, str):
+                raise TargetError("code.focus: an agent's name, or null for all of them")
+            if focus.strip():
+                block["code"]["focus"] = focus.strip()
+        learn = code.get("learn")
+        if learn is not None:
+            if learn not in ("on_demand", "full"):
+                raise TargetError("code.learn: on_demand or full")
+            if learn != "on_demand":
+                block["code"]["learn"] = learn
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
@@ -245,6 +257,8 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
             "include": list(conf.code.include),
             "summarize": conf.code.summarize,
             "area_model": conf.code.area_model,
+            "focus": conf.code.focus,
+            "learn": conf.code.learn,
         }
         if raw_code
         else None

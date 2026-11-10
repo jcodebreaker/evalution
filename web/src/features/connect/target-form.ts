@@ -31,6 +31,10 @@ export type Form = {
   /** Set in the config file only, like `include`. */
   summarize: number | null;
   area_model: string | null;
+  /** The one agent tested (`code.focus`), picked at connect or on What it learned; kept as is. */
+  focus: string | null;
+  /** When a learn reads the areas (`code.learn`), set in the config file only; kept as is. */
+  learn: string | null;
 };
 
 export type TextKey = { [K in keyof Form]: Form[K] extends string ? K : never }[keyof Form];
@@ -55,6 +59,8 @@ export const BLANK: Form = {
   include: [],
   summarize: null,
   area_model: null,
+  focus: null,
+  learn: null,
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
@@ -104,6 +110,8 @@ export function formOf(target: TargetDetail): Form {
     include: target.code?.include ?? [],
     summarize: target.code?.summarize ?? null,
     area_model: target.code?.area_model ?? null,
+    focus: target.code?.focus ?? null,
+    learn: target.code?.learn ?? null,
   };
 }
 
@@ -153,6 +161,8 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
           ...(form.include.length ? { include: form.include } : {}),
           ...(form.summarize !== null ? { summarize: form.summarize } : {}),
           ...(form.area_model !== null ? { area_model: form.area_model } : {}),
+          ...(form.focus !== null ? { focus: form.focus } : {}),
+          ...(form.learn !== null ? { learn: form.learn } : {}),
         }
       : null,
     secrets,

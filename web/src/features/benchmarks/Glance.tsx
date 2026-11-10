@@ -94,7 +94,13 @@ function howCalculated(key: MetricKey, run: Run): { lines: string; who: string }
 export function benchmarkName(set: string): string {
   const name = set.replace("longmemeval-", "");
   const size = name.replace("-same", "");
-  const word: Record<string, string> = { quick: "quick", oracle: "full", s: "S", m: "M" };
+  const word: Record<string, string> = {
+    short: "short",
+    quick: "quick",
+    oracle: "full",
+    s: "S",
+    m: "M",
+  };
   return `LongMemEval ${word[size] ?? size}${name === size ? "" : " · One conversation"}`;
 }
 

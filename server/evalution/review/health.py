@@ -9,6 +9,8 @@ and trend moves for reasons of its own and reads firmer than a few tests can sup
 * **Areas**: tests grouped by the understanding's priorities (a test made from a suggested test
   that names one), else by the library family of the template it was made from, else by test
   set.
+* **Changes** (:func:`changes`): what the code moved since it was learned, refreshed and tested,
+  in one signal, from the one record of those marks (:mod:`evalution.project.state`).
 * **Markers** on the trend: a run today's rules read differently from when it was played, the run
   whose system prompt hash differs from the run before, a
   drift change on the first run after it was seen, an understanding version written for a
@@ -26,7 +28,7 @@ from typing import Any
 from evalution.core.case import Case
 from evalution.core.judgement import Basis, Claim, Outcome, Route
 from evalution.core.rules import comparable, current, first_reason, judged_tries
-from evalution.project import drift, impact, knowledge, understanding
+from evalution.project import drift, impact, knowledge, state, understanding
 from evalution.project.history import History
 from evalution.results.record import (
     agent_models,
@@ -532,8 +534,8 @@ def attention(
     return [*broke, *again, *flaky, *stale, *errors, *failing, *blind, *routes][:ATTENTION]
 
 
-def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[str, Any]:
-    """:func:`health` of target *name* from what is stored now."""
+def _cases(targets: Targets, name: str) -> tuple[dict[str, list[Case]], dict[str, str]]:
+    """The app's own tests by set, and each set's title."""
     cases: dict[str, list[Case]] = {}
     titles: dict[str, str] = {}
     for slug in own_sets(targets.docs, name):
@@ -542,6 +544,62 @@ def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[
             cases[slug] = load_cases(targets.docs, name, slug)
         except CaseError:
             continue
+    return cases, titles
+
+
+def _mark_changes(mark: Mapping[str, Any] | None, moved: Any) -> dict[str, Any] | None:
+    """One mark for the page: where it stands and the files since, ``known`` false when that
+    cannot be said (no look at the code yet, or the commit is gone)."""
+    if mark is None:
+        return None
+    files = [] if not moved or moved.first else moved.files
+    return {
+        "commit": mark.get("commit"),
+        "at": mark.get("at"),
+        "files": files[: impact.FILES_SHOWN],
+        "file_count": len(files),
+        "known": moved is not None,
+    }
+
+
+def changes(
+    targets: Targets,
+    runs: History,
+    name: str,
+    *,
+    card: Mapping[str, Any] | bool | None = True,
+    known: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """What the code moved, as one signal for the page; ``None`` for an app with no code. Every
+    part comes from the one record of the marks: ``files`` since any mark, the code last seen
+    against each (``since``), the tests and areas of the change card, and the claims marked out
+    of date. *card*, *known*: :func:`impact.card` and :func:`knowledge.summary` when the caller
+    has them already (``True``: work the card out here)."""
+    if targets.conf(name).code is None:
+        return None
+    marks = state.read(targets, name)
+    code = targets.code(name)
+    moved = {m: state.since_marks(marks, m, code) for m in state.MARKS}
+    files = sorted({f for m in moved.values() if m and not m.first for f in m.files})
+    if card is True:
+        history = [run for run in runs.all(name) if not is_benchmark(run.get("set"))]
+        card = impact.card(targets, name, history, _cases(targets, name)[0])
+    shown = card if isinstance(card, Mapping) else None
+    known = known if known is not None else knowledge.summary(runs, name)
+    return {
+        "files": files[: impact.FILES_SHOWN],
+        "file_count": len(files),
+        "areas": list(shown["areas"]) if shown else [],
+        "claims": int(known.get("out_of_date") or 0),
+        "flagged": int(known.get("flagged") or 0),
+        "tests": list(shown["tests"]) if shown else [],
+        "since": {m: _mark_changes(marks.get(m), moved[m]) for m in state.MARKS},
+    }
+
+
+def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[str, Any]:
+    """:func:`health` of target *name* from what is stored now."""
+    cases, titles = _cases(targets, name)
     stored = understanding.load(targets, name)
     doc = understanding.overlay(stored, understanding.steers(targets, name)) if stored else None
     try:
@@ -560,8 +618,10 @@ def for_target(targets: Targets, runs: History, name: str, period: str) -> dict[
         period,
         time.time(),
     )
-    return {
-        **found,
-        "code_change": impact.card(targets, name, history, cases),
-        "knowledge": knowledge.summary(runs, name),
-    }
+    card = impact.card(targets, name, history, cases)
+    known = knowledge.summary(runs, name)
+    out = {**found, "code_change": card, "knowledge": known}
+    moved = changes(targets, runs, name, card=card, known=known)
+    if moved is not None:
+        out["changes"] = moved
+    return out

@@ -161,6 +161,8 @@ class Code:
         self.root = conf.path
         self.ignore = conf.ignore
         self.include = conf.include
+        #: The one agent tested (``code.focus``); ``None``: all of them.
+        self.focus = conf.focus
         self._digests: Digests = {} if digests is None else digests
         self._diffs: Diffs = {} if diffs is None else diffs
 

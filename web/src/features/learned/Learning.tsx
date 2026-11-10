@@ -82,15 +82,19 @@ function useNow(on: boolean) {
  * steps, newest first. *areasShown*: the page lists the areas itself, so the card keeps to its
  * stages and time. */
 export function Learning({
-  session,
+  session = null,
+  progress: given,
   onLearnArea,
   areasShown = false,
 }: {
-  session: AgentSession | null;
+  /** An older server's learn, in the test writer's session. */
+  session?: AgentSession | null;
+  /** The learn job's progress (C10): what the page follows now. */
+  progress?: LearnProgress | null;
   onLearnArea?: LearnAreaFn;
   areasShown?: boolean;
 }) {
-  const progress = session?.learn ?? null;
+  const progress = given ?? session?.learn ?? null;
   const now = useNow(Boolean(progress));
   if (progress) {
     return (

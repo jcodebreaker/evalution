@@ -33,6 +33,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from evalution.project import focus as focused
 from evalution.project.skeleton import KINDS, Entry
 
 #: How many areas a learn is split into, at least and at most, and how much one may hold.
@@ -184,7 +185,10 @@ def _paths(entry: Entry) -> list[str]:
 
 
 def agent_scope(
-    entries: Iterable[Entry], edges: Mapping[str, Iterable[str]], files: Collection[str]
+    entries: Iterable[Entry],
+    edges: Mapping[str, Iterable[str]],
+    files: Collection[str],
+    focus: str | None = None,
 ) -> set[str] | None:
     """The files of *files* that are the agent, with no model (next-level C7): those that hold
     its prompts, tools, model calls and agents (:data:`CORE`), what they import within
@@ -192,12 +196,21 @@ def agent_scope(
     routes, entry points and state that reach the core or are reached by it within as many, with
     what they import. ``None`` when the skeleton names no core (a language the code map reads
     thinly): then every file is in scope, as before. A web client calling its own ``api.get``, a
-    mobile project, migrations: none of them reach the agent's code, so none is in scope."""
+    mobile project, migrations: none of them reach the agent's code, so none is in scope.
+
+    *focus* (the target's ``code.focus``, next-level C11): the one agent tested on a platform
+    that hosts many. The core is then that agent's files alone (:func:`.focus.agent_files`: its
+    definition, its prompts, the tools it names), and the files defining the other agents stay
+    out even when something reaches them. A focus no agent has: as without one."""
     known = set(files)
     found = list(entries)
     core = {p for e in found if e.kind in CORE for p in _paths(e)} & known
     if not core:
         return None
+    others: set[str] = set()
+    if focus and (mine := focused.agent_files(focus, found) & known):
+        core = mine
+        others = {p for a in focused.agents(found) if a.name != focus for p in _paths(a)} - mine
     graph = {k: [v for v in vs if v in known] for k, vs in edges.items() if k in known}
     back: dict[str, set[str]] = {}
     for rel, hits in graph.items():
@@ -206,7 +219,7 @@ def agent_scope(
     near = core | _reach(graph, core) | _reach(back, core)
     linked = {p for e in found if e.kind not in CORE for p in _paths(e) if p in near}
     start = core | linked
-    return start | _reach(graph, start)
+    return (start | _reach(graph, start)) - others
 
 
 def _reach(edges: Mapping[str, Iterable[str]], start: Iterable[str]) -> set[str]:

@@ -16,7 +16,7 @@ from evalution.adapters import adapter_info, infos
 from evalution.code import SKIP_DIRS
 from evalution.config import ConfigError
 from evalution.core.case import Case
-from evalution.project import drift, library_fit
+from evalution.project import drift, focus, library_fit
 from evalution.project.history import History
 from evalution.project.profile import read_profile
 from evalution.project.understanding.steering import marks, overlay, steers
@@ -149,6 +149,146 @@ def build(written: Mapping[str, Any], found: Mapping[str, Any]) -> dict[str, Any
         "ask_seconds": median("seconds"),
     }
     return doc
+
+
+# The facts level (docs/plans/next-level.md C1): a card and a diagram from the skeleton alone
+
+
+#: Boxes the facts level draws of each kind past the agent and its tools.
+FACT_WORKERS = 6
+FACT_STORES = 4
+#: Tools the facts level's tools box names, the most used first.
+FACT_TOOLS = 20
+#: Names a facts claim lists before "and N more".
+FACT_NAMES = 8
+_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+_FACT_KINDS = ("entry", "prompt", "tool", "model", "route", "state", "agent")
+#: What each facts claim says, by the skeleton's kind.
+_FACT_SAID = (
+    ("tools", "tool", "It declares {n} tool{s}: {names}."),
+    ("prompts", "prompt", "It has {n} prompt{s}: {names}."),
+    ("state", "state", "It keeps state in {n} place{s}: {names}."),
+    ("routes", "route", "It is reached through {n} route{s}: {names}."),
+    ("models", "model", "It calls a model in {n} place{s}: {names}."),
+    ("agents", "agent", "It defines {n} agent{s}: {names}."),
+)
+
+
+def _slug(prefix: str, name: str, seen: set[str]) -> str:
+    base = f"{prefix}-{_SLUG.sub('-', name).strip('-.') or 'x'}"[:56]
+    out, n = base, 2
+    while out in seen:
+        out, n = f"{base}-{n}", n + 1
+    seen.add(out)
+    return out
+
+
+def _listed(names: Sequence[str]) -> str:
+    shown = ", ".join(names[:FACT_NAMES])
+    more = len(names) - FACT_NAMES
+    return shown + (f" and {more} more" if more > 0 else "")
+
+
+def _code(*paths: str) -> list[dict[str, str]]:
+    return [{"kind": "code", "ref": p} for p in dict.fromkeys(p for p in paths if p)]
+
+
+def _box(
+    node_id: str, kind: str, title: str, sub: str, paths: Sequence[str], tools: Sequence[str] = ()
+) -> dict[str, Any]:
+    return {
+        "id": node_id,
+        "kind": kind,
+        "title": title,
+        "sub": sub,
+        "tools": list(tools),
+        "evidence": _code(*paths),
+    }
+
+
+def from_facts(
+    entries: Sequence[Any],
+    uses: Mapping[str, int],
+    one_line: str,
+    summary: str = "",
+    holds: Callable[[str, str], bool] | None = None,
+    focused: str | None = None,
+) -> dict[str, Any]:
+    """An understanding from the facts alone, with no area read: the skeleton's *entries*
+    (:class:`evalution.project.skeleton.Entry`) and how often real use touched each (*uses*),
+    and the card's *one_line* and *summary*. The boxes: a person when the app has a route or an
+    entry point, the agent, its tools (the most used first, each one whose file *holds* its
+    name), the other agents as workers and its stores; claims naming its tools, prompts, stores,
+    routes and models, each citing a file. Checked and saved like any understanding. *focused*
+    (the target's ``code.focus``): the agent tested is the agent box and the other agents are
+    left out (:func:`evalution.project.focus.limit_nodes`)."""
+
+    def used(entry: Any) -> int:
+        return -int(uses.get(entry.id) or 0)
+
+    of = {kind: sorted((e for e in entries if e.kind == kind), key=used) for kind in _FACT_KINDS}
+    seen: set[str] = {"person", "agent", "tools"}
+    nodes: list[dict[str, Any]] = []
+    door = (of["route"] or of["entry"])[:1]
+    if door:
+        nodes.append(_box("person", "person", "A person", door[0].name, [door[0].path]))
+    agents = of["agent"]
+    if focused and any(a.name == focused for a in agents):
+        agents = [a for a in agents if a.name == focused]
+    first = (agents or of["prompt"] or of["model"] or of["entry"] or of["tool"] or of["route"])[:1]
+    models = sorted({e.model for e in of["model"] if e.model})
+    nodes.append(
+        _box(
+            "agent",
+            "agent",
+            agents[0].name if agents else "The agent",
+            ", ".join(models[:3]),
+            [e.path for e in first] or ["."],
+        )
+    )
+    tools = [t for t in of["tool"] if holds is None or holds(t.path, t.name)]
+    named = list(dict.fromkeys(t.name for t in tools))[:FACT_TOOLS]
+    if named:
+        cited = [t.path for t in tools if t.name in named]
+        sub = f"{len(of['tool'])} declared in the code"
+        nodes.append(_box("tools", "tools", "Tools", sub, cited, named))
+    for worker in agents[1 : FACT_WORKERS + 1]:
+        node_id = _slug("worker", worker.name, seen)
+        nodes.append(_box(node_id, "worker", worker.name, worker.model, [worker.path]))
+    for store in of["state"][:FACT_STORES]:
+        node_id = _slug("state", store.name, seen)
+        nodes.append(_box(node_id, "state", store.name, store.what, [store.path]))
+
+    claims = []
+    for key, kind, words in _FACT_SAID:
+        found = of[kind]
+        if not found:
+            continue
+        names = list(
+            dict.fromkeys(
+                f"{e.name} ({e.what})" if kind == "state" and e.what else e.name for e in found
+            )
+        )
+        plural = "" if len(found) == 1 else "s"
+        claims.append(
+            {
+                "id": f"facts-{key}",
+                "text": words.format(n=len(found), s=plural, names=_listed(names)),
+                "evidence": _code(*(e.path for e in found[:3])),
+            }
+        )
+    sections = [{"id": "what_it_is", "title": "What it is", "claims": claims}] if claims else []
+    nodes = [dict(n) for n in focus.limit_nodes(nodes, focused)[0]]
+    return {
+        "one_line": one_line,
+        "summary": summary,
+        "nodes": nodes,
+        "sections": sections,
+        "priorities": [],
+        "starters": [],
+        "step_labels": {},
+        "expected_paths": [],
+    }
 
 
 # Computed on every read
@@ -358,7 +498,7 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
             "written_at": 0,
             "fingerprint": "",
             "card": card,
-            "diagram": {"nodes": [], "edges": []},
+            "diagram": {"nodes": [], "edges": [], "outside_agents": 0},
             "paths": [],
             "sections": [],
             "priorities": [],
@@ -367,14 +507,18 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
             "progress": progress(targets, name),
             "profile": None,
         }
+    # On a platform that hosts many agents, the diagram draws only the one tested.
+    drawn, outside_agents = focus.limit_nodes(doc["nodes"], conf.code.focus if conf.code else None)
+    kept = {n["id"] for n in drawn}
     return {
         "version": doc["version"],
         "written_at": doc["written_at"],
         "fingerprint": doc["fingerprint"],
         "card": card,
         "diagram": {
-            "nodes": [{k: v for k, v in n.items() if k != "tools"} for n in doc["nodes"]],
-            "edges": doc["edges"],
+            "nodes": [{k: v for k, v in n.items() if k != "tools"} for n in drawn],
+            "edges": [e for e in doc["edges"] if e["from"] in kept and e["to"] in kept],
+            "outside_agents": outside_agents,
         },
         "paths": doc["paths"],
         "sections": doc["sections"],

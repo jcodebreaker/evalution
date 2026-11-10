@@ -194,8 +194,16 @@ TOOLS = [
     _tool(
         "read_understanding",
         "What you last saved with write_understanding, with the admin's marks on it "
-        "(verdict, fix, picked, selected), so you can keep ids.",
-        {},
+        "(verdict, fix, picked, selected), so you can keep ids. With area: what is understood "
+        "of one area of the code, named by its id, a file in it, or a tool, prompt, agent or "
+        "store it holds; before you write a test that relies on an area, ask for it: one not "
+        "learned yet is learned first (this can take a few minutes).",
+        {
+            "area": {
+                "type": "string",
+                "description": "An area's id, a file path, or a tool, prompt or store name",
+            }
+        },
         [],
     ),
     _tool(

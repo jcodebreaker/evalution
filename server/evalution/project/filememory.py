@@ -16,7 +16,9 @@ writer's own lookups. One document per target, :data:`DOC`, read and written who
 * **files**, **commit** and **clean**: the fingerprints of the watched files, the commit, and
   whether no watched file had uncommitted changes, when the understanding was last saved
   (:func:`learned`). What differs from them is what changed; the same commit on a tree clean then
-  and now is nothing changed, known without hashing a file (:func:`unmoved`).
+  and now is nothing changed, known without hashing a file (:func:`unmoved`). They are the
+  ``learned`` mark of :mod:`evalution.project.state`, kept there and laid over what :func:`load`
+  gives; :func:`save` never writes them here.
 
 A fingerprint is the file's hash as :meth:`evalution.code.Code.hashes` gives it, the one the
 knowledge links and the drift fingerprint use too: cached by size and time, so a learn that finds
@@ -30,15 +32,15 @@ import asyncio
 import json
 import logging
 import re
-import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
 from evalution.code import Code, CodeError
 from evalution.llm import fenced, json_answer
+from evalution.project import state
 from evalution.project.profile import read_doc, write_doc
+from evalution.project.state import Changes
 from evalution.targets import Targets
 
 _logger = logging.getLogger(__name__)
@@ -85,27 +87,34 @@ Answer with one JSON object and nothing else:
 "condition|order|refusal|prompt_rule|behaviour|other", "symbols": ["NAME"], "line": 12}]}]}"""
 
 
-@dataclass(frozen=True)
-class Changes:
-    """The watched files since the last learn. ``first``: there was none to compare with."""
-
-    changed: list[str]
-    added: list[str]
-    removed: list[str]
-    first: bool = False
-
-    def __bool__(self) -> bool:
-        return self.first or bool(self.changed or self.added or self.removed)
+#: The fields of the learned mark (:mod:`evalution.project.state`) as a learn reads them here.
+LEARNED = ("files", "commit", "clean", "watch", "learned_at")
 
 
 def load(targets: Targets, name: str) -> dict[str, Any]:
+    """What is remembered, with what the last learn saw of the code (the learned mark)."""
     found = read_doc(targets, name, DOC)
-    return found if isinstance(found, dict) and found.get("version") == VERSION else {}
+    if not isinstance(found, dict) or found.get("version") != VERSION:
+        return {}
+    memory = {k: v for k, v in found.items() if k not in LEARNED}
+    mark = state.mark(targets, name, "learned")
+    # A mark the first drift check took is not a learn: the first learn still reads everything.
+    if mark and mark.get("by") == "learn" and mark.get("hashes") is not None:
+        memory |= {
+            "files": dict(mark["hashes"]),
+            "commit": mark.get("commit"),
+            "clean": bool(mark.get("clean")),
+            "watch": mark.get("rules"),
+            "learned_at": mark.get("at"),
+        }
+    return memory
 
 
 def save(targets: Targets, name: str, memory: Mapping[str, Any]) -> None:
-    """Keep *memory*; callers hold ``targets.guards.knowledge`` around its load and save."""
-    write_doc(targets, name, DOC, {**memory, "version": VERSION})
+    """Keep *memory*, leaving out the learned mark, which only :func:`learned` moves; callers hold
+    ``targets.guards.knowledge`` around its load and save."""
+    kept = {k: v for k, v in memory.items() if k not in LEARNED}
+    write_doc(targets, name, DOC, {**kept, "version": VERSION})
 
 
 def changes(memory: Mapping[str, Any], files: Mapping[str, str]) -> Changes:
@@ -142,19 +151,8 @@ def learned(targets: Targets, name: str, code: Code) -> None:
     """The understanding was just saved on the code as it stands: the next learn compares with
     this."""
     with targets.guards.knowledge:
-        memory = load(targets, name)
-        save(
-            targets,
-            name,
-            {
-                **memory,
-                "files": code.hashes(),
-                "commit": code.commit(),
-                "clean": code.clean(),
-                "watch": code.watch(),
-                "learned_at": time.time(),
-            },
-        )
+        state.move(targets, name, "learned", {**state.snapshot(code, clean=True), "by": "learn"})
+        save(targets, name, load(targets, name))
 
 
 def unmoved(memory: Mapping[str, Any], code: Code) -> bool:

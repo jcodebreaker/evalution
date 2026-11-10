@@ -275,6 +275,25 @@ it("each row has a dot, a bold title, a line and its one action, which works", (
   ]);
 });
 
+it("the change row reads the one changes signal the learned page reads too", () => {
+  const health = HealthSchema.parse({
+    code_change: { areas: [], tests: [], file_count: 9, read: false },
+    changes: {
+      files: ["lib/b.py"],
+      file_count: 1,
+      areas: [],
+      tests: [{ set: "main", case: "a", name: "A" }],
+      since: { tested: { commit: "abc", files: ["lib/b.py"], file_count: 1 } },
+    },
+  });
+  const needs = rankNeeds({ runs: [], numbers: new Map(), detail: null, health, offer: false });
+  expect(needs.map((need) => need.kind)).toEqual(["change"]);
+  render(<NeedsYou needs={needs} context={context({ health })} />);
+  const change = screen.getByTestId("need-change");
+  expect(within(change).getByText("Code changed since the last run: 1 file")).toBeTruthy();
+  expect(within(change).getByText(/1 test affected/)).toBeTruthy();
+});
+
 it("says in one quiet line when nothing needs you", () => {
   render(<NeedsYou needs={[]} context={context()} />);
   expect(screen.getByTestId("needs-you-empty").textContent).toBe("Nothing needs you right now.");

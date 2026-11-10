@@ -129,7 +129,7 @@ function NeedItem({ need, context }: { need: Need; context: NeedsContext }) {
       ) : null;
     case "change":
       return health?.code_change ? (
-        <ChangeRow change={health.code_change} context={context} />
+        <ChangeRow change={health.code_change} changes={health.changes} context={context} />
       ) : null;
     case "knowledge":
       return health ? <KnowledgeRow need={need} health={health} context={context} /> : null;
@@ -215,16 +215,23 @@ function IsolationRow({
   );
 }
 
-/** What changed in the code since it was last tested: run the tests it touches. */
+/** What changed in the code since it was last tested: run the tests it touches. The files, areas
+ * and tests come from the one `changes` signal when the server sends it, so this row says what the
+ * learned page says; the card keeps the model's reading (summary, uncovered areas). */
 function ChangeRow({
   change,
+  changes,
   context,
 }: {
   change: NonNullable<Health["code_change"]>;
+  changes: Health["changes"];
   context: NeedsContext;
 }) {
   const { scope, going } = context;
-  const { areas, tests, uncovered, summary, file_count: files } = change;
+  const { uncovered, summary } = change;
+  const areas = changes?.areas ?? change.areas;
+  const tests = changes?.tests ?? change.tests;
+  const files = changes?.since.tested?.file_count ?? change.file_count;
   const [reading, setReading] = useState(false);
   const canRead = context.health?.knowledge.can_update ?? false;
   const read = () => {

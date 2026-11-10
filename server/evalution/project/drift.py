@@ -10,6 +10,12 @@ counts only once two checks in a row see it (a small sample can miss a tool or a
 a code change counts at once; :func:`check_code` is that part alone, reading no traces, for the
 Home page. A case whose expectations name a changed or removed tool, argument or
 prompt fact is stale (:func:`stale`).
+
+The code part is not kept in the fingerprint: the code as the profile was written from is the
+``learned`` mark of :mod:`evalution.project.state`, and the code as a check takes it is that
+document's ``seen``. What changed between them is worked out when :func:`read` is asked, so a
+refresh that moved the learned mark shows at once. The fingerprint keeps only a digest of the
+code, so a version written for changed code still says so.
 """
 
 from __future__ import annotations
@@ -22,7 +28,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from evalution.core.case import CONTEXT_CHECKS, Case
-from evalution.project.profile import FINGERPRINT_DOC, read_doc, write_doc
+from evalution.project import state
+from evalution.project.profile import FINGERPRINT_DOC, fingerprint_hash, read_doc, write_doc
 from evalution.targets import Targets
 from evalution.traces.profile import digest, fingerprint, recent_sessions
 
@@ -147,19 +154,68 @@ async def baseline(targets: Targets, name: str) -> dict[str, Any]:
     return taken
 
 
+def _mark(code: Mapping[str, Any]) -> dict[str, Any]:
+    """A code part as :func:`take` gives it, as a mark."""
+    return {
+        "commit": code.get("commit"),
+        "hashes": dict(code.get("files") or {}),
+        "rules": code.get("watch"),
+        "at": time.time(),
+    }
+
+
 def keep_baseline(targets: Targets, name: str, taken: Mapping[str, Any]) -> None:
-    """Keep *taken* as the fingerprint the profile stands for, and clear the drift."""
-    write_doc(targets, name, FINGERPRINT_DOC, taken)
+    """Keep *taken* as the fingerprint the profile stands for, and clear the drift. Its code part
+    becomes the learned mark; the fingerprint keeps a digest of it."""
+    code = taken.get("code")
+    kept = dict(taken)
+    if code:
+        kept["code"] = {"digest": fingerprint_hash(code.get("files") or {})}
+        now = _mark(code)
+        before = state.mark(targets, name, "learned") or {}
+
+        def put(doc: dict[str, Any]) -> None:
+            doc["learned"] = {**now, "by": before.get("by") or "check"}
+            doc["seen"] = now
+
+        state.update(targets, name, put)
+    write_doc(targets, name, FINGERPRINT_DOC, kept)
     write_doc(targets, name, DOC, {"checked_at": time.time(), "changes": []})
 
 
-def _same_watch(targets: Targets, name: str, old: dict, code: Mapping[str, Any] | None) -> dict:
-    """The fingerprint kept, its code part taken again when what is watched changed (one from
-    before everything was watched, or ``code.ignore`` moved): every file would read as changed."""
-    if code and (old.get("code") or {}).get("watch") != code.get("watch"):
-        old = {**old, "code": code}
-        write_doc(targets, name, FINGERPRINT_DOC, old)
-    return old
+def _traces(taken: Mapping[str, Any]) -> dict[str, Any]:
+    """A fingerprint without its code part: the code is compared through the marks."""
+    return {k: v for k, v in taken.items() if k != "code"}
+
+
+def _saw(targets: Targets, name: str, code: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep the code as this check took it; the marks after. The first look at the code of an app
+    whose fingerprint has none (connected later) is where its code is counted from."""
+    now = _mark(code)
+
+    def put(doc: dict[str, Any]) -> None:
+        if doc.get("learned") is None:
+            doc["learned"] = {**now, "by": "check"}
+        doc["seen"] = now
+
+    return state.update(targets, name, put)
+
+
+def _code_changes(marks: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The code change since learned, to the code last seen, as a drift entry; none when the
+    two cannot be compared."""
+    moved = state.since_marks(marks, "learned")
+    if not moved or moved.first:
+        return []
+    files = moved.files
+    return [
+        _change(
+            "code_changed",
+            f"{len(files)} watched file(s) changed",
+            files=files[:100],
+            since=(marks.get("learned") or {}).get("commit"),
+        )
+    ]
 
 
 def _counted(found: Sequence[Mapping[str, Any]], kept: Mapping[str, Any], now: float) -> list[dict]:
@@ -186,12 +242,12 @@ async def check_code(targets: Targets, name: str) -> None:
     old = read_doc(targets, name, FINGERPRINT_DOC)
     if code is None or old is None:
         return
-    state = await asyncio.to_thread(code.state)
-    old = _same_watch(targets, name, old, state)
-    last = read(targets, name)
+    taken = await asyncio.to_thread(code.state)
+    marks = _saw(targets, name, taken)
+    last = _stored(targets, name)
     changes = last.get("changes") or []
     now = time.time()
-    fresh = compare({"code": old.get("code")}, {"code": state})
+    fresh = _code_changes(marks)
     doc = {
         **last,
         "changes": [
@@ -211,11 +267,12 @@ async def check(targets: Targets, name: str) -> dict[str, Any]:
         await baseline(targets, name)
         return read(targets, name)
     _found, new = await take(targets, name, CHECK_SESSIONS)
-    old = _same_watch(targets, name, old, new.get("code"))
-    last = read(targets, name)
+    found = compare(_traces(old), _traces(new))
+    if new.get("code"):
+        found += _code_changes(_saw(targets, name, new["code"]))
+    last = _stored(targets, name)
     kept = {c["id"]: c for c in (last.get("changes") or [])}
     pending = set(last.get("pending") or [])
-    found = compare(old, new)
     confirmed = [
         c for c in found if c["kind"] == "code_changed" or c["id"] in kept or c["id"] in pending
     ]
@@ -239,8 +296,28 @@ async def check_quietly(targets: Targets, name: str) -> None:
         _logger.warning("drift: %s not checked", name, exc_info=True)
 
 
-def read(targets: Targets, name: str) -> dict[str, Any]:
+def _stored(targets: Targets, name: str) -> dict[str, Any]:
     return read_doc(targets, name, DOC) or {"checked_at": None, "changes": []}
+
+
+def read(targets: Targets, name: str) -> dict[str, Any]:
+    """The drift as the last check found it, its code change as the marks say now: since learned,
+    to the code last seen. Before any check took the code, as it was kept."""
+    doc = _stored(targets, name)
+    marks = state.read(targets, name)
+    if marks.get("seen") is None or marks.get("learned") is None:
+        return doc
+    changes = doc.get("changes") or []
+    was = next((c for c in changes if c["kind"] == "code_changed"), None)
+    fresh = [
+        {
+            **c,
+            "seen_at": (was or {}).get("seen_at") or marks["seen"].get("at"),
+            **({"summary": was["summary"]} if was and was.get("summary") else {}),
+        }
+        for c in _code_changes(marks)
+    ]
+    return {**doc, "changes": [*(c for c in changes if c["kind"] != "code_changed"), *fresh]}
 
 
 def note(targets: Targets, name: str, change: str, summary: str) -> dict[str, Any]:

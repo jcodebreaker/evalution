@@ -14,6 +14,7 @@ from evalution import code as code_module
 from evalution import llm
 from evalution.project import areas, profile, understanding
 from evalution.project.skeleton import Entry
+from evalution.writer import agent as agent_module
 from evalution.writer import areas as area_agents
 from evalution.writer import learn
 
@@ -200,8 +201,8 @@ async def test_a_repository_with_a_large_ui_learns_the_agent_alone(tmp_path) -> 
     assert (await learn.area_state(agent.targets, "bot", "ui"))["state"] == "outside"
     # Asked for, it is learned like any other.
     await agent.learn_area(sid, "ios")
-    await agent._tasks[sid]
-    assert _area_runs(await agent.get(sid)) == ["ios"]
+    await agent.learns.wait("bot")
+    assert _area_runs(agent_module.public(agent.learns.get("bot").session)) == ["ios"]
 
 
 async def test_a_first_learn_runs_at_most_so_many_areas_and_the_next_does_the_rest(

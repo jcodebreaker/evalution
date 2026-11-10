@@ -24,7 +24,14 @@ computes, :mod:`.steering` the admin's steers and the overlay, :mod:`.rendering`
 the card as text, :mod:`.store` the writes (each one renders the profile again).
 """
 
-from evalution.project.understanding.computed import NO_TOOLS, build, existing, paths, view
+from evalution.project.understanding.computed import (
+    NO_TOOLS,
+    build,
+    existing,
+    from_facts,
+    paths,
+    view,
+)
 from evalution.project.understanding.document import (
     AREA_PREFIX,
     DETAILS,
@@ -83,6 +90,7 @@ __all__ = [
     "details_of",
     "existing",
     "fit_profile",
+    "from_facts",
     "keep_progress",
     "load",
     "marks",

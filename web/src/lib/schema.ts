@@ -64,6 +64,10 @@ export const TargetDetailSchema = z.object({
       include: z.array(z.string()).default([]),
       summarize: z.number().nullable().default(null),
       area_model: z.string().nullable().default(null),
+      /** The one agent tested on a platform that hosts many; `null`: all of them. */
+      focus: z.string().nullable().default(null),
+      /** When a learn reads the areas: `on_demand` (the default) or `full`. */
+      learn: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),
@@ -173,6 +177,8 @@ export const BenchmarksSchema = z.object({
       set: z.string(),
       about: z.string(),
       questions: z.number().nullable(),
+      holds: z.number().nullable().default(null),
+      messages: z.number().nullable().default(null),
     }),
   ),
   runs: z.array(
@@ -290,7 +296,28 @@ export const DiscoverySchema = z.object({
   folder: z.string(),
   status: z.enum(["working", "ready", "failed"]),
   steps: z.array(z.object({ text: z.string(), state: z.enum(["doing", "done", "problem"]) })),
-  questions: z.array(z.object({ key: z.string(), text: z.string(), hint: z.string() })),
+  questions: z.array(
+    z.object({
+      key: z.string(),
+      text: z.string(),
+      hint: z.string(),
+      /** A pick list instead of a text box: "Which agent do you want to test?". */
+      choices: z
+        .array(
+          z.object({
+            value: z.string(),
+            label: z.string(),
+            hint: z.string().default(""),
+            /** Where it is defined: `agents/planner.yaml:1`; empty for "All of them". */
+            where: z.string().default(""),
+            /** How often real traces used it; `null` with no traces to go by. */
+            uses: z.number().nullable().default(null),
+            tools: z.number().default(0),
+          }),
+        )
+        .optional(),
+    }),
+  ),
   target: TargetDetailSchema.nullable().default(null),
   /** How to send the app's traces to evalution. */
   traces: z
@@ -319,6 +346,8 @@ export type TargetBody = {
     include?: string[];
     summarize?: number | null;
     area_model?: string | null;
+    focus?: string | null;
+    learn?: string | null;
   } | null;
   secrets: Record<string, string>;
 };
@@ -1773,6 +1802,8 @@ export const DiagramNodeSchema = z.object({
   sub: z.string().default(""),
   seen: z.boolean().default(true),
   evidence: z.array(EvidenceSchema).default([]),
+  /** The tool names the box stands for, when the server knows them. */
+  tools: z.array(z.string()).optional(),
   ...Steered,
 });
 export type DiagramNode = z.infer<typeof DiagramNodeSchema>;
@@ -1805,7 +1836,7 @@ export const LearnStateSchema = z.object({
   state: z.enum(["learning", "done", "stopped"]).nullable().default(null),
   started_at: z.number().nullable().default(null),
   areas: z.array(LearnedAreaSchema).default([]),
-  overview: z.enum(["first_pass", "final"]).nullable().default(null),
+  overview: z.enum(["facts", "first_pass", "final"]).nullable().catch(null).default(null),
 });
 export type LearnState = z.infer<typeof LearnStateSchema>;
 
@@ -1815,13 +1846,15 @@ export type LearnState = z.infer<typeof LearnStateSchema>;
  */
 export const UnderstandingSchema = z.object({
   knowledge: KnowledgeSchema.default(NO_KNOWLEDGE),
+  /** What the code moved, as Home sees it too; absent for an app with no code or an older server. */
+  changes: z.lazy(() => ChangesSchema).optional(),
   /** Where the latest learn stands; `null` from a server that doesn't say. */
   progress: LearnStateSchema.nullable().default(null),
   /** What the overview was written from: a first pass ("the code's skeleton and 12
    * conversations") until the areas are in, then final. */
   overview: z
     .object({
-      state: z.enum(["first_pass", "final"]).nullable().default(null),
+      state: z.enum(["facts", "first_pass", "final"]).nullable().catch(null).default(null),
       basis: z.string().nullable().default(null),
     })
     .nullable()
@@ -1862,8 +1895,10 @@ export const UnderstandingSchema = z.object({
           }),
         )
         .default([]),
+      /** Agents left out of the drawing because the target tests one (`code.focus`). */
+      outside_agents: z.number().default(0),
     })
-    .default({ nodes: [], edges: [] }),
+    .default({ nodes: [], edges: [], outside_agents: 0 }),
   /** `seen: false`: a path the code implies that real use never took. */
   paths: z
     .array(
@@ -2102,6 +2137,9 @@ export const HealthSchema = z.object({
     .nullable()
     .default(null),
   knowledge: KnowledgeSchema.default(NO_KNOWLEDGE),
+  /** What the code moved since it was learned, refreshed and tested: the one signal Home's change
+   * row and the learned page read. Absent for an app with no code or an older server. */
+  changes: z.lazy(() => ChangesSchema).optional(),
   /** The latest run: what it came to, from its checks, and the model's reading of it. */
   report: z
     .object({
@@ -2441,3 +2479,84 @@ export const VersionsNextSchema = VersionsSchema.extend({
   refs: z.array(VersionRefNextSchema).default([]),
 });
 export type VersionsNext = z.infer<typeof VersionsNextSchema>;
+
+/** One mark of what the code was (server `state.json`): where it stands and the files since.
+ * `known` is false when that cannot be said yet (no look at the code, or the commit is gone). */
+export const ChangeMarkSchema = z.object({
+  commit: z.string().nullable().default(null),
+  at: z.number().nullable().default(null),
+  files: z.array(z.string()).default([]),
+  file_count: z.number().default(0),
+  known: z.boolean().default(true),
+});
+export type ChangeMark = z.infer<typeof ChangeMarkSchema>;
+
+/** What the code moved, from one record of the learned, refreshed and tested marks, so the page's
+ * signals cannot disagree (docs/architecture.md, "What a code change means"). */
+export const ChangesSchema = z.object({
+  /** What moved since any mark, the first 20. */
+  files: z.array(z.string()).default([]),
+  file_count: z.number().default(0),
+  areas: z.array(z.string()).default([]),
+  /** Claims marked out of date, and flagged ones. */
+  claims: z.number().default(0),
+  flagged: z.number().default(0),
+  /** The tests the change card says to run. */
+  tests: z.array(z.object({ set: z.string(), case: z.string(), name: z.string() })).default([]),
+  since: z
+    .object({
+      learned: ChangeMarkSchema.nullable().default(null),
+      refreshed: ChangeMarkSchema.nullable().default(null),
+      tested: ChangeMarkSchema.nullable().default(null),
+    })
+    .default({ learned: null, refreshed: null, tested: null }),
+});
+export type Changes = z.infer<typeof ChangesSchema>;
+
+// ---- C10: a learn is a background job (appended; see docs/architecture.md "Knowing a target") ----
+
+/** A learn as the page follows it: one per app, in the background, never a chat turn. `stopped`
+ * with `interrupted`: a server stopped under it, and "Go on" asks a new one for what it asked. */
+export const LearnJobSchema = z.object({
+  id: z.string(),
+  target: z.string(),
+  state: z.enum(["running", "done", "stopped", "failed"]).catch("stopped"),
+  by: z.string().default("page"),
+  areas_asked: z.array(z.string()).catch([]).default([]),
+  everything: z.boolean().catch(false).default(false),
+  force: z.boolean().catch(false).default(false),
+  started: z.number().catch(0).default(0),
+  ended: z.number().nullable().catch(null).default(null),
+  stage: z.string().nullable().catch(null).default(null),
+  /** Its stage and each area's agent, as the live view draws it. */
+  progress: LearnProgressSchema.nullable().catch(null).default(null),
+  /** What it said when it ended (what the chat used to say). */
+  reply: z.string().nullable().catch(null).default(null),
+  error: z.string().nullable().catch(null).default(null),
+  interrupted: z.boolean().catch(false).default(false),
+  /** What it took, stage by stage. */
+  usage: TurnUsageSchema.nullable().catch(null).default(null),
+});
+export type LearnJob = z.infer<typeof LearnJobSchema>;
+
+/** What "Learn this area" answers now: the area as it stood, and the job when one was asked. */
+export const AreaLearnJobSchema = z.object({
+  area: AreaStateSchema,
+  job: LearnJobSchema.nullable().catch(null).default(null),
+});
+export type AreaLearnJob = z.infer<typeof AreaLearnJobSchema>;
+
+/** One agent a platform's code defines, to pick the one tested; `*` is "All of them". */
+export const FocusChoiceSchema =
+  DiscoverySchema.shape.questions.element.shape.choices.unwrap().element;
+export type FocusChoice = z.infer<typeof FocusChoiceSchema>;
+
+/** The agents a target's code defines (`GET /v1/targets/{t}/agents`) and the one tested now. */
+export const AgentChoicesSchema = z.object({
+  /** The one tested (`code.focus`); `null`: all of them. */
+  focus: z.string().nullable().default(null),
+  /** Enough agents that connecting asks which one. */
+  asks: z.boolean().default(false),
+  choices: z.array(FocusChoiceSchema).default([]),
+});
+export type AgentChoices = z.infer<typeof AgentChoicesSchema>;

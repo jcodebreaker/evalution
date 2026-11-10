@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Scope } from "../../lib/api";
+import { learnApi, type Scope } from "../../lib/api";
 import { useAgent } from "../writer/agent";
 
 /** The test writer as the page uses it: its thread, its panel, and learning a new app. */
@@ -42,19 +42,14 @@ export function useWriter(
     await agent.ask(text, run, learn);
     setWriterOpen(true);
   };
-  // An app just connected: once its test set is open, the test writer learns it.
+  // An app just connected: its learn job starts (the facts first, in seconds), in the
+  // background; the setup screen and What it learned follow it, not the chat.
   const [learn, setLearn] = useState<string | null>(null);
-  const { ask: askAgent, session: agentSession } = agent;
   useEffect(() => {
-    if (!learn || scope?.target !== learn) return;
-    if (agentSession && agentSession.target !== learn) return;
+    if (!learn) return;
     setLearn(null);
-    void askAgent(
-      `Learn ${learn}: build its profile from its recent traces and its code.`,
-      undefined,
-      true,
-    );
-  }, [learn, scope?.target, agentSession, askAgent]);
+    void learnApi.start(learn).catch(() => undefined);
+  }, [learn]);
 
   return {
     agent,

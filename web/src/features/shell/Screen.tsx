@@ -39,7 +39,6 @@ export function Screen({
   showRun,
   showGoing,
   openTest,
-  learnAgain,
 }: {
   place: Place;
   go: (next: Partial<Place>) => void;
@@ -57,7 +56,8 @@ export function Screen({
   showRun: (id: string) => void;
   showGoing: () => void;
   openTest: (id: string, inRun?: string) => void;
-  learnAgain: () => void;
+  /** Kept for the shell that passes it: What it learned starts its own learn job now. */
+  learnAgain?: () => void;
 }) {
   const {
     targets,
@@ -121,19 +121,9 @@ export function Screen({
   if (place.view === "app") {
     return (
       <AppView
+        // Learn, Learn again, Learn this area and Learn everything start the app's learn job,
+        // which the page follows by itself: not a turn of the test writer's chat.
         target={target}
-        agent={agent.session}
-        onLearn={learnAgain}
-        onLearnArea={async (area, force) => {
-          const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
-          const answer = await api.learnArea(target, area, {
-            session: agent.session?.target === target ? open : undefined,
-            set: set ?? undefined,
-            force,
-          });
-          if (answer.session) agent.adopt(answer.session);
-          return answer.area;
-        }}
         onAdd={async (starters) => {
           const open = agent.session?.status === "stopped" ? undefined : agent.session?.id;
           const session = await api.plan(target, starters, {

@@ -18,6 +18,7 @@ import type {
   AgentSession,
   DiscoveryView,
   IsolationView,
+  LearnJob,
   Target,
   TargetDetail,
   UnderstandingView,
@@ -31,7 +32,9 @@ import { UiOffer } from "../environment/UiOffer";
 import { useIsolation } from "../environment/use-isolation";
 import { type Standing, standing, stepTime } from "../environment/words";
 import { DiagramView } from "../learned/Diagram";
+import { useLearnJob } from "../learned/use-learn-job";
 import { Composer } from "../tests/Composer";
+import { FocusPick } from "./FocusPick";
 import { Card, CardHead, Chip, Screen, ScreenHead } from "./kit";
 import { ModelStep } from "./ModelStep";
 import { Probe } from "./Probe";
@@ -67,6 +70,7 @@ export function feedLines({
   understanding,
   writer,
   learned,
+  learning = null,
 }: {
   job: DiscoveryView | null;
   made: TargetDetail | null;
@@ -75,6 +79,8 @@ export function feedLines({
   understanding: UnderstandingView | null;
   writer: AgentSession | null;
   learned: boolean;
+  /** The app's learn job while it runs (C10): what the map lines follow. */
+  learning?: LearnJob | null;
 }): FeedLine[] {
   const lines: FeedLine[] = (job?.steps ?? []).map((step, index) => ({
     key: `find:${index}`,
@@ -102,7 +108,7 @@ export function feedLines({
     });
   }
   const progress = understanding?.progress;
-  const live = writer?.learn ?? null;
+  const live = (learning?.state === "running" ? learning.progress : null) ?? writer?.learn ?? null;
   if (live && !progress?.areas.length) {
     lines.push({
       key: "learn:skeleton",
@@ -426,19 +432,38 @@ export function SetupLive({
     () => appApi.understanding(name ?? ""),
   );
   const understanding = ready(understood);
-  const mapping = learning || understanding?.progress?.state === "learning";
+  // The app's learn is a job of its own (C10): the Map stage follows it, polled until it ends.
+  const learnJob = useLearnJob(name && modelChosen ? name : null);
+  const jobNow = learnJob.job;
+  useVisiblePoll(
+    learnJob.reload,
+    POLL_MS,
+    Boolean(name && modelChosen) && (!jobNow || jobNow.state === "running"),
+  );
+  const learningNow = learning || learnJob.running;
+  const learnedNow = learned || (jobNow?.state === "done" && !learningNow);
+  const mapping = learningNow || understanding?.progress?.state === "learning";
   useVisiblePoll(reload, POLL_MS, mapping);
-  const wasLearning = useRef(learning);
+  const wasLearning = useRef(learningNow);
   useEffect(() => {
-    if (wasLearning.current && !learning) void reload();
-    wasLearning.current = learning;
-  }, [learning, reload]);
+    if (wasLearning.current && !learningNow) void reload();
+    wasLearning.current = learningNow;
+  }, [learningNow, reload]);
 
   const checked = !!row?.checked;
   const isolation = iso.data;
   const proven = isolation?.status === "proven" && isolation.job?.state !== "running";
-  const done = learned && proven;
-  const lines = feedLines({ job, made, checked, isolation, understanding, writer, learned });
+  const done = learnedNow && proven;
+  const lines = feedLines({
+    job,
+    made,
+    checked,
+    isolation,
+    understanding,
+    writer,
+    learned: learnedNow,
+    learning: jobNow,
+  });
   const shown = stages({
     job,
     made,
@@ -447,12 +472,14 @@ export function SetupLive({
     understanding,
     modelChosen,
     learning: mapping,
-    learned,
+    learned: learnedNow,
   });
   const clock = useClock(!done && job?.status !== "failed");
 
   const asking = job?.status === "ready" && job.questions.length > 0 && !made;
-  const answered = job?.questions.every((q) => answers[q.key]?.trim()) ?? false;
+  // A question answered from a pick list (which agent to test) holds "All of them" unpicked.
+  const answered =
+    job?.questions.every((q) => q.choices?.length || answers[q.key]?.trim()) ?? false;
   const waiting = !!job?.traces && !job.traces.arriving && job.status === "ready" && !made;
   const stopped = job?.status === "failed" && !made;
   const repository = job?.repository ?? null;
@@ -538,20 +565,31 @@ export function SetupLive({
                       if (answered) onAnswer();
                     }}
                   >
-                    {job.questions.map((question) => (
-                      <div key={question.key} className="flex flex-col gap-1.5 text-sm">
-                        <label htmlFor={`question-${question.key}`}>{question.text}</label>
-                        <Input
-                          id={`question-${question.key}`}
-                          value={answers[question.key] ?? ""}
-                          onChange={(event) =>
-                            onAnswers({ ...answers, [question.key]: event.target.value })
-                          }
-                          placeholder={question.hint}
-                          autoComplete="off"
+                    {job.questions.map((question) =>
+                      question.choices?.length ? (
+                        <FocusPick
+                          key={question.key}
+                          label={question.text}
+                          choices={question.choices}
+                          value={answers[question.key]}
+                          disabled={busy}
+                          onPick={(value) => onAnswers({ ...answers, [question.key]: value })}
                         />
-                      </div>
-                    ))}
+                      ) : (
+                        <div key={question.key} className="flex flex-col gap-1.5 text-sm">
+                          <label htmlFor={`question-${question.key}`}>{question.text}</label>
+                          <Input
+                            id={`question-${question.key}`}
+                            value={answers[question.key] ?? ""}
+                            onChange={(event) =>
+                              onAnswers({ ...answers, [question.key]: event.target.value })
+                            }
+                            placeholder={question.hint}
+                            autoComplete="off"
+                          />
+                        </div>
+                      ),
+                    )}
                     <Button type="submit" className="self-end" disabled={!answered || busy}>
                       Connect
                     </Button>

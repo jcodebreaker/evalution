@@ -10,9 +10,13 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   (:mod:`evalution.llm`). It ends when the model ends its turn, on Stop, after
   :data:`MAX_STEPS` tool calls or :data:`MAX_SECONDS`, or when the model asks for the same call
   :data:`SAME_CALL_TIMES` times in a row. A person can always say go on.
-* **Learning** (the page's "Learn" and "Learn again", :mod:`evalution.writer.learn`) runs on a
-  transcript of its own: its brief and its steps, never the thread's earlier turns. The thread
-  keeps only what was asked and what the writer said. It calls no model when nothing changed.
+* **Learning** (the page's "Learn", "Learn again", "Learn this area" and "Learn everything",
+  connect's first learn, a chat's "learn it", :mod:`evalution.writer.learn`) is a background job
+  (:class:`evalution.project.learning.Learns`), not a chat turn: one per target, with no clock,
+  on a session of its own (its usage and failed steps), never the thread's. A chat that asks
+  for one answers one line that points to What it learned and goes on; the job outlives it. It
+  calls no model when nothing changed. The writer asking for an area
+  (``read_understanding(area=...)``) starts that area's learn and waits for it, bounded.
 * **Each step resends** the instructions and the transcript, so the call asks the provider to
   cache that prefix, a file read again unchanged is not sent again, and each turn's calls,
   characters, tokens and time are kept on the session (:mod:`evalution.writer.usage`).
@@ -49,7 +53,7 @@ from typing import Any
 from evalution.code import CodeError
 from evalution.config import ConfigError
 from evalution.llm import LLM, LLMError, Reply, cut, fenced
-from evalution.project import drift, understanding
+from evalution.project import drift, learning, understanding
 from evalution.project.profile import required_clean
 from evalution.runs.runner import Runs
 from evalution.suite.cases import CaseError, meaning_changes, parse_case
@@ -88,12 +92,13 @@ CUT_OFF = (
 FAILED_KEPT = 3
 FAILED_STEPS = 20
 FAILED_CHARS = 2_000
-#: How long one admin message may keep it working.
+#: How long one admin message may keep it working. A learn is a job of its own, with no clock.
 MAX_SECONDS = 20 * 60
-#: How long a learn's own work (the code map and reading the files) may take, apart from the 20
-#: minutes the chat gets after it: a big app's reading outlasted the chat's limit, was cut, and
-#: started over on "go on". What it read is kept as it goes, so going on picks up from there.
-LEARN_SECONDS = 60 * 60
+#: How long the writer waits for an area it asked for to be learned; past it, it goes on with
+#: what is known and the learn goes on by itself.
+AREA_WAIT_SECONDS = 8 * 60
+#: What a chat that asks for a learn says: the learn is a job, followed on What it learned.
+LEARNING_SAID = "Learning {target}. Follow it on What it learned."
 #: The same call this many times in a row is a loop: the last isn't run.
 SAME_CALL_TIMES = 3
 #: Activity lines the page gets: what the agent did last, newest at the end.
@@ -240,9 +245,9 @@ class Agent:
         self.tools = Tools(runs, self._save)
         self._live: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        #: The sessions whose learn is getting to its areas: one asked for an area meanwhile
-        #: learns it before its overview.
-        self._learning: set[str] = set()
+        #: Each target's learn, a background job.
+        self.learns = learning.Learns(self.targets, self._run_learn)
+        self.tools.learn_area = self._learn_for_writer
         self._lock = asyncio.Lock()
         #: Told of each tool call a session's loop makes, by session id: what follows a session
         #: on the page without its chat (:mod:`evalution.writer.pagelearn`).
@@ -301,10 +306,65 @@ class Agent:
     def learning(self, target: str) -> bool:
         """Whether a learn of *target* is going in this process: a learn's progress that says
         so with none going was cut with an earlier process."""
-        return any(
-            self.working(sid) and (self._live.get(sid) or {}).get("target") == target
-            for sid in self._learning
+        return self.learns.running(target)
+
+    def start_learn(
+        self,
+        target: str,
+        areas: tuple[str, ...] | list[str] = (),
+        *,
+        everything: bool = False,
+        force: bool = False,
+        by: str = "page",
+    ) -> learning.Job:
+        """Start a learn of *target* in the background, or answer the one going (an area asked
+        for meanwhile is learned by it before its overview).
+
+        :raises LookupError: No such target.
+        :raises RuntimeError: No model is set up.
+        """
+        if target not in self.targets.config.targets:
+            raise LookupError(target)
+        if not self.llm:
+            raise RuntimeError("No model is set up yet: choose one in Settings, Model.")
+        return self.learns.start(target, areas, everything=everything, force=force, by=by)
+
+    async def _run_learn(self, job: learning.Job) -> None:
+        """A learn job, on a session of its own: its usage (what ``learn --report`` reads), its
+        failed steps and its progress are kept there, never on a chat's."""
+        sets = await asyncio.to_thread(list_sets, self.targets.docs, job.target)
+        session = job.session
+        session.update(
+            {
+                "id": job.id,
+                "target": job.target,
+                "set": sets[0] if sets else "main",
+                "created_at": job.started,
+                "status": "working",
+                "messages": [],
+                "cases": [],
+                "history": [],
+                "learn_job": True,
+            }
         )
+        brief = f"Learn {job.target}: build its profile from its recent traces and its code."
+        await self._work(session, brief, True, job)
+        said = [m["text"] for m in session["messages"] if m["role"] == "agent"]
+        job.reply = said[-1] if said else None
+        if session.get("failed"):
+            job.error = str(session["failed"])
+
+    async def _learn_for_writer(self, target: str, area: str) -> learning.Job | None:
+        """The test writer needs *area*: it is learned by a job (the one going takes it), and the
+        writer waits for it, at most :data:`AREA_WAIT_SECONDS`."""
+        try:
+            self.start_learn(target, [area], by="writer")
+        except (LookupError, RuntimeError):
+            return None
+        return await self.learns.wait(target, AREA_WAIT_SECONDS)
+
+    async def close(self) -> None:
+        await self.learns.close()
 
     def working(self, session_id: str) -> bool:
         """Whether the session's loop is going."""
@@ -322,29 +382,45 @@ class Agent:
         :raises LookupError: No such session.
         """
         session = await self._session(session_id)
+        if learn:
+            await self._learn_from_chat(session, text)
+            return public(session)
         said = f"{text}\n\n(This is about run {run}.)" if run else text
-        await self._ask(session, text, said, learn=learn)
+        await self._ask(session, text, said)
         return public(session)
 
+    async def _learn_from_chat(self, session: dict[str, Any], text: str) -> None:
+        """A chat asks to learn its app: a learn job starts (or the one going answers), and the
+        chat says so in one line and goes on. Its thread keeps what was asked and said."""
+        target = str(session["target"])
+        session["asks"] = int(session.get("asks", 0)) + 1
+        say(session, "admin", text)
+        try:
+            self.start_learn(target, by="chat")
+            said = LEARNING_SAID.format(target=target)
+        except RuntimeError as exc:
+            said = str(exc)
+        say(session, "agent", said)
+        if self.working(str(session["id"])):
+            # Its loop is mid-turn: it reads this at its next step, not as a turn of its own.
+            session.setdefault("inbox", []).append(f"{text} ({said})")
+        else:
+            session["history"] += [
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": said, "tool_calls": []},
+            ]
+        await self._save(session)
+
     async def learn_area(self, session_id: str, area: str, force: bool = False) -> dict[str, Any]:
-        """The page's "Learn this area": a learn of *area* alone, even when it weighs nothing;
-        *force*: even when what it was learned from has not moved ("Learn it again anyway"). A
-        learn going in the session learns it before its overview.
+        """ "Learn this area" from a chat's session: a learn job of *area* alone, even when it
+        weighs nothing; *force*: even when what it was learned from has not moved. The learn
+        going learns it before its overview. The chat's session is answered as it is.
 
         :raises LookupError: No such session.
-        :raises RuntimeError: The session is busy with something else.
+        :raises RuntimeError: No model is set up.
         """
         session = await self._session(session_id)
-        if self.working(session_id):
-            progress = session.get("learn")
-            if session_id not in self._learning or not isinstance(progress, dict):
-                raise RuntimeError("The test writer is busy. Try again when it's done.")
-            progress.setdefault("asked", []).append({"id": area, "force": force})
-            await self._save(session)
-            return public(session)
-        session["learn_ask"] = {"area": area, "force": force}
-        said = f"Learn the area {area}{' again' if force else ''}."
-        await self._ask(session, said, said, learn=True)
+        self.start_learn(str(session["target"]), [area], force=force)
         return public(session)
 
     async def approve(self, session_id: str, plan_id: str) -> dict[str, Any]:
@@ -561,7 +637,15 @@ class Agent:
         )
         return reply
 
-    async def _work(self, session: dict[str, Any], text: str, learn_asked: bool = False) -> None:
+    async def _work(
+        self,
+        session: dict[str, Any],
+        text: str,
+        learn_asked: bool = False,
+        job: learning.Job | None = None,
+    ) -> None:
+        """One turn of *session* on *text*; *learn_asked*: a learn, on the session of its *job*
+        (what it asks for: areas, everything, force), with no clock."""
         thread: list[dict[str, Any]] = session["history"]
         _repair(thread)
         # What reached the inbox while it was idle (a plan changed on the page) comes first.
@@ -569,7 +653,6 @@ class Agent:
         # A learn starts from its brief alone, never from the thread's earlier turns (an earlier
         # learn's brief among them): the thread only gets what was asked and said, at the end.
         history = [{"role": "user", "content": asked}] if learn_asked else thread
-        area_ask = session.pop("learn_ask", None) if learn_asked else None
         if learn_asked:
             session.pop("code_seen", None)
             session.pop("learn", None)
@@ -581,8 +664,8 @@ class Agent:
         steps = 0
         last_call, same = None, 0
         output = ""
-        limit = asyncio.timeout(MAX_SECONDS)
-        learning = False
+        # A learn has no clock: it ends when its areas are done or their budgets are spent.
+        limit = asyncio.timeout(None if learn_asked else MAX_SECONDS)
         try:
             if not self.llm:
                 say(session, "agent", "No model is set up yet: choose one in Settings, Model.")
@@ -615,25 +698,24 @@ class Agent:
                         "light" if wanted == "light" and self.llm.model_id("light") else "strong"
                     )
                     _doing(session, "Reading the code")
-                    clock = asyncio.get_running_loop()
-                    limit.reschedule(clock.time() + LEARN_SECONDS)
-                    learning = True
-                    self._learning.add(session["id"])
-                    try:
-                        begun = await learn.begin(
-                            self.targets,
-                            turn,
-                            ask,
-                            chat,
-                            (area_key, "strong", light),
-                            usage.stage,
-                            asked=(area_ask["area"],) if area_ask else (),
-                            force=bool(area_ask and area_ask.get("force")),
-                        )
-                    finally:
-                        self._learning.discard(session["id"])
-                    learning = False
-                    limit.reschedule(clock.time() + MAX_SECONDS)
+
+                    def stage(name: str) -> None:
+                        usage.stage(name)
+                        if job is not None:
+                            # What a restart finds: the stage it was cut at.
+                            self.learns.stage(job)
+
+                    begun = await learn.begin(
+                        self.targets,
+                        turn,
+                        ask,
+                        chat,
+                        (area_key, "strong"),
+                        stage,
+                        asked=tuple(job.areas) if job else (),
+                        force=bool(job and job.force),
+                        everything=bool(job and job.everything),
+                    )
                     usage.note(begun.stats)
                     usage.areas = begun.areas
                     for area, steps_kept in begun.failed:
@@ -711,20 +793,14 @@ class Agent:
             session["status"] = "stopped"
             raise
         except Exception as exc:
-            if limit.expired() and learning:
-                minutes = round(LEARN_SECONDS / 60)
-                say(
-                    session,
-                    "agent",
-                    f"I stopped learning after {minutes} minutes. The areas I finished are kept: "
-                    "say go on to learn the rest.",
-                )
-            elif limit.expired():
+            if limit.expired():
                 minutes = round(MAX_SECONDS / 60)
                 say(session, "agent", f"I stopped after {minutes} minutes. Say go on.")
             else:
                 _logger.warning("agent: session %s failed", session["id"], exc_info=True)
                 say(session, "agent", f"Something went wrong: {cut(str(exc), 300)}")
+                if learn_asked:
+                    session["failed"] = cut(str(exc) or type(exc).__name__, 300)
             session["status"] = "idle"
         finally:
             usage.record(session)

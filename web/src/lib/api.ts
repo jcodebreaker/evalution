@@ -598,3 +598,43 @@ import {
   OutboundListSchema,
   UnderstandingViewSchema,
 } from "./schema";
+
+/** A learn as a background job (C10): start one (the facts, and the areas asked or every area),
+ * follow it, stop it. One per app: asking while one goes answers that one. */
+export const learnApi = {
+  start: (
+    target: string,
+    body: { areas?: readonly string[]; force?: boolean; everything?: boolean } = {},
+  ) => post(one(LearnJobSchema), `/v1/targets/${enc(target)}/learn`, body),
+  get: (target: string) => get(maybe(LearnJobSchema), `/v1/targets/${enc(target)}/learn`),
+  stop: (target: string) =>
+    post(maybe(LearnJobSchema), `/v1/targets/${enc(target)}/learn/stop`, {}),
+  /** "Learn this area": an area that hasn't moved says it's current and spends nothing unless
+   * `force` ("Learn it again anyway"). */
+  learnArea: (target: string, area: string, force?: boolean) =>
+    post(one(AreaLearnJobSchema), `/v1/targets/${enc(target)}/areas/${enc(area)}/learn`, {
+      force: Boolean(force),
+    }),
+};
+
+import { AreaLearnJobSchema, LearnJobSchema } from "./schema";
+
+/** The one agent tested on a platform that hosts many (`code.focus`). */
+export const focusApi = {
+  agents: (target: string) => get(one(AgentChoicesSchema), `/v1/targets/${enc(target)}/agents`),
+  /** Test one agent, or all of them (`null`): the target saved again with only that changed. */
+  setFocus: async (target: string, focus: string | null) => {
+    const saved = await api.target(target);
+    if (!saved.code) throw new Error("This app has no code folder.");
+    return call("PUT", `/v1/targets/${enc(target)}`, {
+      name: saved.name,
+      adapter: saved.adapter,
+      options: saved.options,
+      phoenix: saved.phoenix,
+      code: { ...saved.code, focus },
+      secrets: {},
+    }).then(one(TargetDetailSchema));
+  },
+};
+
+import { AgentChoicesSchema } from "./schema";
