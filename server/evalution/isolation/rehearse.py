@@ -4,9 +4,11 @@ The plan's stores are each a :class:`~evalution.isolation.drivers.Driver`. The r
 
 1. stops the app and keeps each planned store as it is now: the **starting state**, and its hash;
 2. starts the app and sends a probe carrying a canary, watching the folders the app uses here;
-3. stops it, and fails if the canary reached nothing planned, or if the app wrote outside the
-   plan: a file here no planned store covers, or (inside containers, where nothing can be
-   watched file by file) a place the canary turned up that no planned store holds;
+3. stops it, and refuses the plan if the app wrote into a writable folder it shares with the
+   person's own app (``shared``: putting that back would change the person's files); fails if
+   the canary reached nothing planned, or if the app wrote outside the plan: a file here no
+   planned store covers, or (inside containers, where nothing can be watched file by file) a
+   place the canary turned up that no planned store holds;
 4. puts every planned store back to the starting state and fails if its hash doesn't match;
 5. starts the app again and fails if the canary is still anywhere it can be looked for;
 6. always ends with the starting state put back and the app started, so a rehearsal leaves the
@@ -37,7 +39,9 @@ from evalution.isolation import observe
 from evalution.isolation.drivers import Driver
 from evalution.isolation.drivers.files import SIDECARS, FileStore
 
-__all__ = ["SIDECARS", "FileStore", "Rehearsal", "Runner", "Step", "rehearse", "scan_files"]
+__all__ = [
+    "SIDECARS", "FileStore", "Rehearsal", "Runner", "Step", "rehearse", "scan_files", "within",
+]  # fmt: skip
 
 
 class Runner(Protocol):
@@ -96,6 +100,9 @@ class Rehearsal:
     seconds: float = 0.0
     #: Put back with the app up: ``proven``, ``failed`` (it needs a restart), ``None`` untried.
     hot: str | None = None
+    #: Places in a folder the copy shares with the person's own app that the probe wrote: the
+    #: plan is refused, since putting them back would change the person's own files.
+    shared: list[str] = field(default_factory=list)
 
     def report(self) -> str:
         lines = [
@@ -111,6 +118,13 @@ class Rehearsal:
                 f"Unconfirmed (the probe didn't change them): {', '.join(self.unconfirmed)}"
             )
         failed = next((s for s in self.steps if not s.ok), None)
+        if self.shared:
+            lines.append(
+                "Refused: a test wrote into a folder your app shares with the copy "
+                f"({', '.join(self.shared)}). Putting it back would change your app's own files, "
+                "so no plan is proven while it is shared: mount it read-only, or give the copy "
+                "a folder of its own."
+            )
         lines.append(
             "Proven: the plan resets everything the probe reached."
             if self.ok
@@ -118,6 +132,13 @@ class Rehearsal:
             + (", ".join(self.leaks) or (failed.detail if failed else "") or "see above")
         )
         return "\n".join(lines)
+
+
+def within(place: str, shared: Sequence[str]) -> bool:
+    """Whether *place* (a path here, or ``container:where``) is inside one of *shared*: folders
+    here, or ``volume:NAME``."""
+    where = place if place.startswith("/") else place.partition(":")[2]
+    return any(where == s or where.startswith(s.rstrip("/") + "/") for s in shared if s)
 
 
 def scan_files(roots: Sequence[Path], canary: str) -> list[str]:
@@ -174,6 +195,7 @@ async def rehearse(
     *,
     ignore: Sequence[str] = (),
     hot: bool = False,
+    shared: Sequence[str] = (),
 ) -> Rehearsal:
     """Try the plan once on a running app (see the module's docstring).
 
@@ -182,6 +204,9 @@ async def rehearse(
     :param ignore: Places never counted as a leak, ``db.schema.table`` (the plan's traces).
     :param hot: Prove the put back with the app up too; *runner* is then a :class:`HotRunner`.
         Sends a second probe.
+    :param shared: Writable folders (or ``volume:NAME``) the copy shares with the person's own
+        app. The probe writing into one refuses the plan, whatever covers it: putting it back
+        would change the person's own files.
     """
     started_at = asyncio.get_running_loop().time()
     out = Rehearsal(ok=False)
@@ -238,6 +263,12 @@ async def rehearse(
         created, changed, _ = observe.diff(snap, after)
         moved = await digests()
         out.unconfirmed = [d.name for d in drivers if moved[d.name] == before[d.name]]
+        if shared:
+            into = [p for p in sorted({*created, *changed, *found}) if within(p, shared)]
+            if not step("the app wrote nothing into a folder shared with your app", not into,
+                        ", ".join(into)):  # fmt: skip
+                out.leaks, out.shared = list(into), into
+                return out
         reached = await holding()
         if not step("the probe reached a planned store", bool(reached), ", ".join(reached)):
             out.leaks = outside(found)

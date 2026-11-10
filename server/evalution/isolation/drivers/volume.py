@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from pathlib import Path
 
 from evalution.isolation.drivers.base import DockerError, Refused, docker
@@ -63,10 +64,16 @@ class VolumeStore:
     #: Put back with the services that mount it stopped, the rest of the copy left up.
     needs_stop = "services"
 
+    def _helper(self) -> str:
+        """A name for one throwaway container: the volume's, so it is evalution's own (``eval-*``)
+        like everything else it starts, and found with the copy if it were ever left."""
+        return f"{self.volume}-helper-{secrets.token_hex(4)}"
+
     def _run(self, *command: str, **kwargs) -> str:
         """Run *command* in a throwaway container with the volume at ``/v``."""
         return docker(
-            "run", "--rm", "-i", "--network", "none", "--label", "evalution.driver=volume",
+            "run", "--rm", "-i", "--name", self._helper(), "--network", "none",
+            "--label", "evalution.driver=volume",
             "-v", f"{self.volume}:/v", self.image, *command,
             **kwargs,
         )  # fmt: skip
@@ -104,7 +111,8 @@ class VolumeStore:
             if not name.startswith(("eval-", "eval_")) or not _NAME.match(name):
                 raise Refused(f"volume {name!r} isn't one of evalution's own")
         docker(
-            "run", "--rm", "--network", "none", "--label", "evalution.driver=volume",
+            "run", "--rm", "--name", self._helper(), "--network", "none",
+            "--label", "evalution.driver=volume",
             "-v", f"{source}:/from:ro", "-v", f"{into}:/v", self.image,
             "sh", "-c", f"{_EMPTY} && cp -a /from/. /v/",
         )  # fmt: skip

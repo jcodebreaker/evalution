@@ -118,6 +118,11 @@ class Plan:
     #: services a store needs stopped): ``proven``, ``failed`` (it needs a restart), or ``None``
     #: when it wasn't tried. A plan saved before this was kept reads ``None``: today's restart.
     hot: str | None = None
+    #: What the copy shares with the person's own app, as the last rehearsal's copy mounted it:
+    #: ``[{path, service, writable}]``, a folder of this computer (a bind mount) or
+    #: ``volume:NAME`` (a volume declared external). Always said; a plan is refused only when
+    #: the rehearsal's probe wrote into one that is writable.
+    shared: list[dict[str, Any]] = field(default_factory=list)
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
 

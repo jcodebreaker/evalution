@@ -81,6 +81,8 @@ class Mount:
     service: str
     source: str
     target: str
+    #: Whether the service may write in it (not mounted ``read_only``).
+    writable: bool = True
 
 
 @dataclass
@@ -249,7 +251,14 @@ def override_for(
     for name, service in services.items():
         for mount in service.get("volumes") or []:
             if mount.get("type") == "bind":
-                out.shared.append(Mount(name, mount.get("source", ""), mount.get("target", "")))
+                out.shared.append(
+                    Mount(
+                        name,
+                        mount.get("source", ""),
+                        mount.get("target", ""),
+                        writable=not mount.get("read_only", False),
+                    )
+                )
                 if str(mount.get("source", "")).endswith("docker.sock"):
                     out.notes.append(
                         f"{name} mounts the Docker socket: it can start containers on this "

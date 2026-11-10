@@ -122,7 +122,14 @@ def toy(tmp_path):
     elsewhere.mkdir(parents=True)
     hidden = elsewhere / "memory.db"
     port = _free_port()
-    proc = subprocess.Popen([sys.executable, str(app / "app.py"), str(port), str(hidden)])
+    # Not pytest's captured output: those are files in the system temp folder, held open by the
+    # toy, and the probe would watch that whole folder (and stop at its file limit) for them.
+    proc = subprocess.Popen(
+        [sys.executable, str(app / "app.py"), str(port), str(hidden)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     for _ in range(100):
         try:
             httpx.get(f"http://127.0.0.1:{port}/", timeout=0.2)

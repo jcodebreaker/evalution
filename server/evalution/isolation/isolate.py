@@ -546,6 +546,28 @@ def code_folder(config: Config, target: str) -> Path:
     return conf.code.path
 
 
+def shared_of(copy: Copy) -> list[dict[str, Any]]:
+    """What a started compose copy shares with the person's own app: ``[{path, service,
+    writable}]``, each bind mount (a folder here) and volume declared external (``volume:NAME``).
+    The Docker socket isn't a folder: it has a note of its own."""
+    started = copy.copy if isinstance(copy, ComposeCopy) else None
+    if started is None:
+        return []
+    return [
+        {"path": m.source, "service": m.service, "writable": m.writable}
+        for m in started.shared
+        if not m.source.endswith(".sock")
+    ]
+
+
+def shared_words(shared: list[dict[str, Any]]) -> str:
+    """*shared* as a person reads it: each path, its service, and whether it may be written."""
+    return ", ".join(
+        f"{s['path']} ({s['service']}, {'writable' if s.get('writable') else 'read-only'})"
+        for s in shared
+    )
+
+
 def summary(copy: Copy) -> str:
     """What the person is asked about before a probe goes to the copy."""
     if isinstance(copy, ProcessCopy):
@@ -562,9 +584,8 @@ def summary(copy: Copy) -> str:
     if started.fixed:
         lines.append(f"Still pointing outside the copy: {', '.join(started.fixed)}.")
     lines += started.notes
-    shared = [m.source for m in started.shared if not m.source.endswith(".sock")]
-    if shared:
-        lines.append(f"Shared with your app (not copied): {', '.join(shared)}.")
+    if shared := shared_of(copy):
+        lines.append(f"Shared with your app (not copied): {shared_words(shared)}.")
     return "\n".join(lines)
 
 
@@ -583,6 +604,10 @@ async def _rehearse_on(
     stage("rehearse")
     stage("prove")
     probe = prober(adapter, run)
+    # What the copy shares with the person's app is always said; a probe writing into a writable
+    # one refuses the plan.
+    plan.shared = shared_of(copy)
+    writable = [s["path"] for s in plan.shared if s.get("writable")]
     # Prove the put back with the app up too, when a run could use it (a third probe).
     how = hot.wanted(plan, drivers, copy)
     if isinstance(copy, ComposeCopy):
@@ -595,10 +620,12 @@ async def _rehearse_on(
         if pid is not None:
             opened = await asyncio.to_thread(observe.open_by, pid)
             runner.roots = observe.roots_for(folder, opened[0], [])
-    if how == "all":
-        result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude)
-    else:
-        result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude, hot=True)
+    more: dict[str, Any] = {}
+    if how != "all":
+        more["hot"] = True
+    if writable:
+        more["shared"] = writable
+    result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude, **more)
     return result, notes
 
 
@@ -613,6 +640,11 @@ def _proven(plan: Plan, result: Rehearsal) -> None:
 
 def _account(plan: Plan, result: Rehearsal, notes: list[str], where: str, left: list[str]) -> str:
     lines = [f"Rehearsed on {where} in {result.seconds:.0f}s:", result.report()]
+    if plan.shared:
+        lines.append(
+            f"Shared with your app (not copied): {shared_words(plan.shared)}. A test that writes "
+            "there changes your app's own files; the plan is refused if the rehearsal saw one."
+        )
     if notes:
         lines.append("Not reset by a driver:")
         lines += [f"- {n}" for n in notes]

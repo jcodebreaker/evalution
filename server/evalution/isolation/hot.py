@@ -20,8 +20,9 @@ from evalution.isolation.drivers.base import widest
 from evalution.isolation.launch import ComposeCopy, LaunchError, ProcessCopy
 from evalution.isolation.plan import Plan, holds_state
 
-#: Seconds a copy put back with its app up may take to answer its health call.
-ANSWER_SECONDS = 60
+#: Seconds a copy put back with its app up may take to answer its health call: short, so a
+#: rehearsal of an app that breaks under a hot put back falls back instead of sitting a minute.
+ANSWER_SECONDS = 15
 
 
 class NoAnswer(LaunchError):

@@ -355,7 +355,18 @@ def volume():
     try:
         _docker("volume", "create", "--label", "evalution.test=drivers", name)
         seed = "mkdir -p /v/index && echo hello > /v/index/a.txt && echo dot > /v/.config"
-        _docker("run", "--rm", "-v", f"{name}:/v", "alpine:3.20", "sh", "-c", seed)
+        _docker(
+            "run",
+            "--rm",
+            "--name",
+            f"{name}-seed",
+            "-v",
+            f"{name}:/v",
+            "alpine:3.20",
+            "sh",
+            "-c",
+            seed,
+        )
         yield name
     finally:
         _docker("volume", "rm", "-f", name, check=False)
@@ -375,7 +386,18 @@ def test_volume_round_trip(volume, tmp_path):
         f"echo {canary} > /v/index/memory.bin && echo changed > /v/index/a.txt"
         f" && rm /v/.config && echo {canary} > /v/.secret"
     )
-    _docker("run", "--rm", "-v", f"{volume}:/v", "alpine:3.20", "sh", "-c", change)
+    _docker(
+        "run",
+        "--rm",
+        "--name",
+        f"{volume}-change",
+        "-v",
+        f"{volume}:/v",
+        "alpine:3.20",
+        "sh",
+        "-c",
+        change,
+    )
     assert store.digest() != before
     assert sorted(store.holding(canary)) == [
         f"volume:{volume}/.secret",
@@ -388,7 +410,10 @@ def test_volume_round_trip(volume, tmp_path):
     print(f"\nvolume keep {keep_s:.2f}s, put_back {put_back_s:.2f}s")
     assert store.digest() == before
     assert store.holding(canary) == []
-    listing = _docker("run", "--rm", "-v", f"{volume}:/v", "alpine:3.20", "ls", "-A", "/v").stdout
+    listing = _docker(
+        "run", "--rm", "--name", f"{volume}-list", "-v", f"{volume}:/v", "alpine:3.20",
+        "ls", "-A", "/v",
+    ).stdout  # fmt: skip
     assert sorted(listing.split()) == [".config", "index"]
     store.drop_golden(tmp_path / "kept")
     assert _docker("volume", "inspect", store.golden, check=False).returncode != 0

@@ -415,20 +415,29 @@ async def test_without_hot_the_rehearsal_is_as_it_was(tmp_path) -> None:
 
 
 async def test_copies_start_together_three_at_a_time(config, monkeypatch, tmp_path) -> None:
+    """Deterministic: the copies' starts wait on a gate the test opens, so what is asserted is
+    how many start at once and in what order, never how long it took."""
     import asyncio
 
     going = {"now": 0, "most": 0}
+    started: list[int] = []
+    gate = asyncio.Event()
 
     class Slow:
         url = "http://127.0.0.1:9"
 
         def __init__(self, slot: int) -> None:
             self.slot = slot
+            self.up = False
 
         async def start(self) -> None:
+            if self.up:  # started again after its state was kept: not a copy starting
+                return
+            self.up = True
+            started.append(self.slot)
             going["now"] += 1
             going["most"] = max(going["most"], going["now"])
-            await asyncio.sleep(0.05)
+            await gate.wait()
             going["now"] -= 1
             if self.slot == 3:
                 raise isolated.LaunchError("slot 3 didn't start")
@@ -439,17 +448,30 @@ async def test_copies_start_together_three_at_a_time(config, monkeypatch, tmp_pa
     async def stores_on(*a: Any, **k: Any) -> list[Any]:
         return []
 
+    async def until(check: Any) -> None:
+        for _ in range(2000):
+            if check():
+                return
+            await asyncio.sleep(0.005)
+        raise AssertionError("never got there")
+
     monkeypatch.setattr(isolated, "copy_of", lambda spec, target, slot, *a, **k: Slow(slot))
     monkeypatch.setattr(isolated, "stores_on", stores_on)
     monkeypatch.setattr(isolated, "adapter_on", lambda *a, **k: FakeAdapter([]))
     monkeypatch.setattr(isolated, "work_folder", lambda *a: tmp_path / "work")
     monkeypatch.setattr(isolated, "plan_spec", lambda *a: {"kind": "process"})
     copies = isolated.Copies(config, "bot", isolated.Footing("proven", _plan(PG), 1))
-    began = asyncio.get_running_loop().time()
+    going_on = asyncio.create_task(copies.start(6))
+    # The first three start together, and no fourth starts while they are going.
+    await until(lambda: len(started) == 3)
+    for _ in range(10):
+        await asyncio.sleep(0.005)
+    assert started == [0, 1, 2] and going["now"] == 3
+    gate.set()
     with pytest.raises(isolated.LaunchError, match="slot 3"):
-        await copies.start(6)
+        await going_on
     assert going["most"] == 3
-    assert asyncio.get_running_loop().time() - began < 0.25  # two rounds, not six
+    assert started == [0, 1, 2, 3, 4, 5]
     # Every copy that was started is there for close, in slot order, the failed one too.
     assert [s.index for s in copies.slots] == [0, 1, 2, 3, 4, 5]
 

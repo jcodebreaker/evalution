@@ -28,6 +28,7 @@ def _view(ws: Workspace, name: str) -> dict[str, Any]:
         **isolating.view(ws.targets, name, ws.isolations),
         "outbound": _outbound(ws, name, plan),
         "put_back": _put_back(plan),
+        "shared": list(plan.shared) if plan is not None else [],
     }
 
 

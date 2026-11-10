@@ -211,3 +211,13 @@ def test_the_api_says_how_a_run_puts_the_copy_back(client, config) -> None:
     store.save(Plan(target="bot", stores=[db], status="proven"))
     said = client.get("/v1/targets/bot/isolation").json()["put_back"]
     assert said == {"hot": None, "app_holds_state": False, "restart": True}
+
+
+def test_the_api_names_what_the_copy_shares_with_the_app(client, config) -> None:
+    assert client.get("/v1/targets/bot/isolation").json()["shared"] == []  # no plan yet
+    shared = [
+        {"path": "/home/me/app/src", "service": "web", "writable": True},
+        {"path": "/home/me/app/config", "service": "web", "writable": False},
+    ]
+    PlanStore(config.data_dir).save(Plan(target="bot", status="proven", shared=shared))
+    assert client.get("/v1/targets/bot/isolation").json()["shared"] == shared
