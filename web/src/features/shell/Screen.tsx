@@ -76,7 +76,7 @@ export function Screen({
     runs,
     runLabel,
     scopeLabel,
-    going,
+    busy,
   } = workspace;
   const { agent, ask, setLearn, setWriterOpen, setWriterDraft } = writer;
   const { row, testRun, detail, reloadDetail, file, reloadFile, testLive } = shown;
@@ -188,7 +188,7 @@ export function Screen({
         lastRunAt={runs[0]?.started_at ?? null}
         tests={rows.length}
         stamp={runs[0]?.run ?? ""}
-        going={going !== null}
+        going={busy}
         runLabel={runLabel}
         onRunAll={runAll}
         onRunSome={runSome}
@@ -217,7 +217,7 @@ export function Screen({
         live={testLive}
         runLabel={runLabel}
         stale={row?.stale ?? null}
-        going={going !== null}
+        going={busy}
         back={
           fromRun
             ? { label: runLabel(place.run ?? ""), onClick: () => go({ case: null }) }
@@ -241,7 +241,7 @@ export function Screen({
         runs={runs}
         label={runLabel}
         scopeLabel={summary ? scopeLabel(summary) : ""}
-        going={going !== null}
+        going={busy}
         onBack={() => nav({ view: "runs" })}
         onBase={(id) => go({ base: id })}
         onTest={(id) => go({ case: id })}
@@ -268,9 +268,7 @@ export function Screen({
         label={runLabel}
         onOpen={(id, test) => go({ run: id, case: test })}
         {...benchmarks}
-        empty={
-          rows.length ? <RunAll going={going !== null} onGoing={showGoing} onRun={runAll} /> : null
-        }
+        empty={rows.length ? <RunAll going={busy} onGoing={showGoing} onRun={runAll} /> : null}
       />
     );
   }
@@ -279,7 +277,7 @@ export function Screen({
       scope={scope}
       rows={rows}
       passMarks={passMarks}
-      going={going !== null}
+      going={busy}
       onAsk={ask}
       onPassMarks={reloadSets}
       onGoing={showGoing}

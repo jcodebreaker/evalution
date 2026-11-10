@@ -44,6 +44,7 @@ from evalution.config import Config, ConfigError
 from evalution.isolation.launch import LaunchError, owner_gone, sweep
 from evalution.project import drift, isolating, knowledge, pagemaps
 from evalution.results.store import FolderUse
+from evalution.runs import isolated
 from evalution.storage import LOCAL, Database
 from evalution.storage.files import LocalFiles
 from evalution.traces.builtin import prune
@@ -182,6 +183,8 @@ def create_app(
             for task in daily:
                 task.cancel()
             await workspaces.close()
+            # The copies left running between runs go with the server.
+            await isolated.drop_all()
             use.release()
 
     app = FastAPI(title="evalution", lifespan=lifespan)

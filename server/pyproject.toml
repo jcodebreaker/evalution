@@ -37,6 +37,7 @@ dev = [
     "import-linter>=2.15",
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.6",
 ]
 postgres = ["evalution[postgres]"]
@@ -64,6 +65,11 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 norecursedirs = ["acceptance"]
+# No test may block the suite: the slowest takes under a minute, and one past this is stuck (a
+# browser that never answered, say). The thread method always fires, even with the event loop
+# stuck, and prints every thread's stack and the test's name before it ends the run.
+timeout = 120
+timeout_method = "thread"
 
 [tool.importlinter]
 root_package = "evalution"

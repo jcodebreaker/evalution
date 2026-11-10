@@ -9,7 +9,7 @@ import yaml
 
 from evalution.config import load
 from evalution.isolation import isolate as iso
-from evalution.isolation.launch import LaunchError
+from evalution.isolation.launch import ComposeCopy, LaunchError
 from evalution.isolation.lock import Busy, TargetLock
 from evalution.isolation.plan import Plan, PlanStore
 from evalution.runs import isolated
@@ -145,3 +145,33 @@ async def test_a_runs_copies_hold_the_lock_until_they_close(config, monkeypatch,
     await copies.close()
     with TargetLock(config.data_dir, "bot") as lock:
         assert lock.held
+
+
+async def test_a_copy_a_server_parked_goes_for_the_command_line_unless_a_run_holds_it(
+    config, fakes, monkeypatch
+) -> None:
+    """``evalution isolate`` or a rehearsal from the command line, while the server keeps the
+    target's copy up between runs: no run holds the lock, so the idle copy is taken down and the
+    new one starts; while a run holds it, the person is told so and nothing is touched."""
+    events: list[str] = []
+
+    class Parked(ComposeCopy):
+        def __init__(self) -> None:
+            self.project = "eval-bot-0"
+            self.copy = SimpleNamespace(url="http://127.0.0.1:9")
+
+        async def start(self) -> None:
+            events.append(f"start {self.project}")
+
+    async def down_idle(project: str, data_dir) -> bool:
+        events.append(f"down {project}")
+        return True
+
+    monkeypatch.setattr(iso, "copy_of", lambda *a, **k: Parked())
+    monkeypatch.setattr(iso, "down_idle", down_idle)
+    with TargetLock(config.data_dir, "bot"), pytest.raises(Busy, match="in use by another run"):
+        await iso.rehearse_plan(config, "bot", Plan(target="bot"))
+    assert events == []
+    plan = await iso.rehearse_plan(config, "bot", Plan(target="bot"))
+    assert plan.status == "proven"
+    assert events == ["down eval-bot-0", "start eval-bot-0"]

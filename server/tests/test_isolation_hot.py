@@ -489,3 +489,74 @@ def test_isolation_verify_is_run_or_every_try(tmp_path) -> None:
     assert with_verify("run").isolation.verify == "run"
     with pytest.raises(ConfigError, match=r"isolation\.verify"):
         with_verify("sometimes")
+
+
+# The copy stays up between runs ------------------------------------------------------------------
+
+
+@pytest.fixture
+def parked(rig, config, monkeypatch):
+    """Runs on the rig whose copies are parked at close; the images each copy runs are chosen."""
+    images = {"now": frozenset({("app", "sha256:one")})}
+
+    async def image_ids(copy):
+        return getattr(copy, "ran", images["now"])
+
+    monkeypatch.setattr(isolated, "image_ids", image_ids)
+
+    async def stores_on(plan, copy, *, roots=(), notes=None, seed=None, stage=None):
+        copy.ran = images["now"]  # what the started copy runs
+        return [MemoryDriver(rig.events, "postgres-app", "none", generation=True)]
+
+    monkeypatch.setattr(isolated, "stores_on", stores_on)
+
+    async def run(version: int = 1, slots: int = 1) -> isolated.Copies:
+        copies = isolated.Copies(config, "bot", isolated.Footing("proven", _plan(PG), version))
+        await copies.start(slots)
+        return copies
+
+    yield SimpleNamespace(run=run, images=images, events=rig.events)
+    isolated._PARKED.clear()
+
+
+async def test_a_second_run_reuses_the_copy_left_running(parked) -> None:
+    await (await parked.run()).close(keep=True)
+    assert "take down" not in parked.events
+    parked.events.clear()
+    second = await parked.run()
+    assert "copy start" not in parked.events and "take down" not in parked.events
+    assert "put_back postgres-app" in parked.events  # put back first, then played
+    assert second.slots[0].adapter is not None and second.slots[0].fresh
+    await second.close(keep=True)
+    assert "take down" not in parked.events
+
+
+async def test_new_image_ids_take_the_copy_down_and_start_a_new_one(parked) -> None:
+    await (await parked.run()).close(keep=True)
+    parked.events.clear()
+    parked.images["now"] = frozenset({("app", "sha256:two")})
+    await parked.run()
+    assert parked.events.index("take down") < parked.events.index("copy start")
+
+
+async def test_a_new_plan_version_takes_the_copy_down_and_starts_a_new_one(parked) -> None:
+    await (await parked.run(version=1)).close(keep=True)
+    parked.events.clear()
+    await parked.run(version=2)
+    assert parked.events.index("take down") < parked.events.index("copy start")
+
+
+async def test_two_copies_are_reused_slot_by_slot(parked) -> None:
+    await (await parked.run(slots=2)).close(keep=True)
+    parked.events.clear()
+    second = await parked.run(slots=2)
+    assert "copy start" not in parked.events and "take down" not in parked.events
+    assert [s.index for s in second.slots] == [0, 1]
+    await second.close(keep=True)
+
+
+async def test_the_server_stopping_takes_the_copy_down(parked) -> None:
+    await (await parked.run()).close(keep=True)
+    parked.events.clear()
+    await isolated.drop_all()
+    assert parked.events.count("take down") == 1 and not isolated._PARKED

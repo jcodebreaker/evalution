@@ -30,7 +30,7 @@ from evalution.runs.collect import Wanted, collect, own_spans
 from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.targets import Targets
-from evalution.traces import setup
+from evalution.traces import otlp, setup
 from evalution.traces.base import Span, SpanRead, SpanReader, nest
 from evalution.traces.builtin import Builtin, Received, SpanStore, project, prune, reader
 from evalution.traces.otlp import MAX_BODY
@@ -663,6 +663,134 @@ async def test_a_mirror_is_one_client_closed_with_its_target(tmp_path, monkeypat
     assert fresh is not sink and not fresh._client.is_closed
     await targets.close()
     assert fresh._client.is_closed
+
+
+async def _intake(store: SpanStore) -> httpx.AsyncClient:
+    """evalution's intake over *store*, played in this loop."""
+    from fastapi import FastAPI, Request
+
+    app = FastAPI()
+
+    @app.post("/v1/traces")
+    async def post(request: Request):
+        return await otlp.receive(request, store)
+
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://evalution")
+
+
+async def test_spans_of_a_target_with_phoenix_are_forwarded_to_it(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SHOP_PHOENIX_KEY", "k1")
+    shop = PhoenixConfig("http://phoenix:6006", "shop-prod", api_key_env="SHOP_PHOENIX_KEY")
+    sent: list[httpx.Request] = []
+
+    def phoenix(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200)
+
+    store = _store(tmp_path)
+    forward = otlp.Forward({"shop": shop}.get, transport=httpx.MockTransport(phoenix))
+    otlp.forward_with(store, forward)
+    marked = [(*GENAI[0][:5], {**GENAI[0][5], "evalution.run": "r1", "evalution.try": "2"})]
+    async with await _intake(store) as client:
+        doc = _otlp_json(marked, {"openinference.project.name": "evalution-shop"})
+        assert (await client.post("/v1/traces", json=doc)).status_code == 200
+        # A target with no Phoenix: kept, never forwarded.
+        other = _otlp_proto(GENAI[1:2], {"evalution.target": "plain"}).SerializeToString()
+        headers = {"Content-Type": "application/x-protobuf"}
+        assert (await client.post("/v1/traces", content=other, headers=headers)).status_code == 200
+        await forward.drain()
+    await forward.close()
+
+    assert len(sent) == 1
+    assert str(sent[0].url) == "http://phoenix:6006/v1/traces"
+    assert sent[0].headers["authorization"] == "Bearer k1"
+    assert sent[0].headers["content-type"] == "application/x-protobuf"
+    request = ExportTraceServiceRequest.FromString(sent[0].content)
+    [resource] = request.resource_spans
+    names = {a.key: a.value.string_value for a in resource.resource.attributes}
+    assert names["openinference.project.name"] == "shop-prod"
+    [span] = resource.scope_spans[0].spans
+    assert span.span_id.hex() == GENAI[0][0] and span.trace_id.hex() == TRACE
+    assert {"evalution.run", "evalution.try"} <= {a.key for a in span.attributes}
+    # evalution keeps them too.
+    assert [s.id for s in await _built_in_spans(store, "shop")] == [GENAI[0][0]]
+    assert [s.id for s in await _built_in_spans(store, "plain")] == [GENAI[1][0]]
+
+
+async def test_a_phoenix_that_fails_never_fails_the_intake(tmp_path, caplog) -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down")
+
+    store = _store(tmp_path)
+    shop = PhoenixConfig("http://phoenix:6006", "shop")
+    gone = httpx.MockTransport(down)
+    forward = otlp.Forward({"shop": shop}.get, transport=gone, backoff=(0.0, 0.0))
+    otlp.forward_with(store, forward)
+    async with await _intake(store) as client:
+        doc = _otlp_json(GENAI[:2], {"evalution.target": "shop"})
+        taken = await client.post("/v1/traces", json=doc)
+        await forward.drain()
+    await forward.close()
+    assert taken.status_code == 200 and "partialSuccess" not in taken.json()
+    assert len(await _built_in_spans(store, "shop")) == 2
+    # Tries run out: both spans counted, where the target's trace check reads them.
+    assert otlp.dropped(store, "shop") == 2 and otlp.dropped(store, "other") == 0
+    assert "2 spans not forwarded to Phoenix" in caplog.text
+
+
+async def test_a_phoenix_that_blips_still_gets_every_batch_once(tmp_path) -> None:
+    calls: list[str] = []
+    taken: list[bytes] = []
+
+    def blips(request: httpx.Request) -> httpx.Response:
+        calls.append("x")
+        if len(calls) == 1:
+            raise httpx.ConnectError("down")
+        if len(calls) in (2, 4):
+            return httpx.Response(503 if len(calls) == 2 else 429)
+        taken.append(request.content)
+        return httpx.Response(200)
+
+    shop = PhoenixConfig("http://phoenix:6006", "shop")
+    forward = otlp.Forward(
+        {"shop": shop}.get, transport=httpx.MockTransport(blips), backoff=(0.0,) * 6
+    )
+    for span in GENAI[:3]:
+        body = _otlp_proto([span], {"evalution.target": "shop"}).SerializeToString()
+        forward.offer(body, otlp.PROTOBUF, "", ["shop"])
+    await forward.drain()
+    await forward.close()
+    sent = [
+        ExportTraceServiceRequest.FromString(b).resource_spans[0].scope_spans[0].spans[0]
+        for b in taken
+    ]
+    assert [s.span_id.hex() for s in sent] == [s[0] for s in GENAI[:3]]
+    assert forward.dropped == {}
+
+
+async def test_a_full_forward_queue_counts_what_it_drops() -> None:
+    shop = PhoenixConfig("http://phoenix:6006", "shop")
+    forward = otlp.Forward(
+        {"shop": shop}.get, transport=httpx.MockTransport(lambda r: httpx.Response(200)), size=2
+    )
+    body = _otlp_proto(GENAI[:2], {"evalution.target": "shop"}).SerializeToString()
+    for _ in range(5):  # the worker hasn't run yet: two fit, three don't
+        forward.offer(body, otlp.PROTOBUF, "", ["shop", "shop"])
+    await forward.close()
+    assert forward.dropped == {"shop": 6}
+
+
+def test_a_phoenix_block_mirrors_runs_unless_it_says_not_to(tmp_path) -> None:
+    send = {"adapter": "http", "http": {"send": {"url": "x"}}}
+    file = tmp_path / "evalution.yaml"
+    targets = {
+        "on": {**send, "phoenix": {"url": "http://p"}},
+        "off": {**send, "phoenix": {"url": "http://p", "mirror": False}},
+    }
+    file.write_text(yaml.safe_dump({"targets": targets}))
+    config = load(file)
+    assert config.targets["on"].phoenix.mirror is True
+    assert config.targets["off"].phoenix.mirror is False
 
 
 def test_eval_traffic_keeps_its_marks() -> None:

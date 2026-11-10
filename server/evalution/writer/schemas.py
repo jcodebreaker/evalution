@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from evalution.core.case import PROOF_KEEPS, PROOF_PARTS
 from evalution.isolation.recipe import KINDS as RECIPE_KINDS
 from evalution.project import understanding
 from evalution.review.findings import SUSPECTS
@@ -60,6 +61,16 @@ PAGE_CHECKS = {
                 "type": "object",
                 "properties": {"question": {"type": "string"}, "turn": {"type": "integer"}},
                 "required": ["question"],
+            },
+        },
+        "proof": {
+            "type": "object",
+            "description": (
+                "What a try through the page keeps (default: screenshots always, video when it "
+                "fails): video always when the admin asks to see or record the page."
+            ),
+            "properties": {
+                part: {"type": "string", "enum": list(PROOF_KEEPS)} for part in PROOF_PARTS
             },
         },
     },

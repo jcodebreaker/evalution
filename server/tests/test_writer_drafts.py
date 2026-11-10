@@ -16,6 +16,7 @@ from evalution import llm
 from evalution.config import ModelConfig, load, save_page_target
 from evalution.runs.runner import Runs
 from evalution.storage import Database
+from evalution.suite import store
 from evalution.suite.cases import UI_NEEDS_PAGE
 from evalution.suite.store import save_set
 from evalution.targets import Targets
@@ -101,10 +102,34 @@ def test_the_instructions_draft_first_and_know_the_pages_checks() -> None:
     assert "the plan, the Assumed list and at most two sentences" in said
 
 
+def test_the_writer_picks_page_or_api_and_reads_the_code_before_assuming() -> None:
+    """A test plays through the page, the API or both, decided from what is asked; the names it
+    rests on (tools, a sub-agent's spawn tool, an element, the reply's place) come from the code,
+    and "Assumed:" holds only what the code can't tell."""
+    said = " ".join(INSTRUCTIONS.split())
+    assert (
+        "through the page (UI checks), through the API (tools, replies, memory, state), or both"
+        in said
+    )
+    assert "decide which from what is asked" in said
+    assert (
+        "before assuming a tool's name, the tool that spawns a sub-agent, an element's role, "
+        "name or test id, or where the replies show" in said
+    )
+    assert "read the code (list_code, read_code, walk_code; read_page_code" in said
+    assert "use the real names" in said
+    assert "only for what the code can't tell" in said
+    tools = {t["name"] for t in TOOLS}
+    assert {"list_code", "read_code", "walk_code", "read_page_code"} <= tools
+
+
 def test_the_plan_tool_describes_shows_hides_and_looks() -> None:
     reply = next(t for t in TOOLS if t["name"] == "reply")["parameters"]["properties"]
     page = reply["plan"]["properties"]["file"]["properties"]["page"]
-    assert set(page["properties"]) == {"shows", "hides", "looks"}
+    assert set(page["properties"]) == {"shows", "hides", "looks", "proof"}
+    proof = page["properties"]["proof"]["properties"]
+    assert set(proof) == {"screenshots", "video"}
+    assert proof["video"]["enum"] == ["always", "failed", "off"]
     element = page["properties"]["shows"]["items"]["properties"]
     assert set(element) == {"role", "name", "test_id", "text", "within", "count", "turn"}
     assert element["within"]["enum"] == ["reply", "page"]
@@ -191,3 +216,23 @@ async def test_a_draft_with_ui_checks_is_saved_with_no_page_map_and_its_card_say
     refused = await save_plan(agent.targets, session, "p2", api_only, None)
     assert isinstance(refused, str) and refused.startswith(f"Refused: {UI_NEEDS_PAGE}")
     assert "saved" not in api_only
+
+
+async def test_asked_to_record_the_page_the_draft_keeps_its_video(tmp_path) -> None:
+    """The writer knows a test through the page keeps screenshots and a video (``page.proof``),
+    and a plan asking for the video always is saved with it."""
+    said = " ".join(INSTRUCTIONS.split())
+    assert "a screenshot after every message and a video when it fails" in said
+    assert '"page": {"proof": {"video": "always"}}' in said
+    test = {**TEST, "page": {**TEST["page"], "proof": {"video": "always"}}}
+    draft = ("reply", {"text": SAID, "plan": {**PLAN, "file": test}})
+    agent = _agent(tmp_path, _model([draft, "Waiting for the admin."]))
+    sid = (await agent.create("bot", "main"))["id"]
+    await agent.message(sid, "record the run so I can see what the page did")
+    await agent._tasks[sid]
+    session = await agent._session(sid)
+    [(plan_id, plan)] = session["plans"].items()
+    saved = await save_plan(agent.targets, session, plan_id, plan, None)
+    assert isinstance(saved, dict)
+    case = store.load_case(agent.targets.docs, "bot", "main", saved["case"])
+    assert case.page_proof == {"video": "always"}

@@ -73,7 +73,9 @@ async def rehearse_plan(config: Config, target: str, plan: Plan) -> Plan:
     ``failed``, with the rehearsal's report. Imported when first used, so the writer loads
     without it."""
     from evalution.isolation.isolate import rehearse_plan as run
+    from evalution.runs.isolated import drop
 
+    await drop(config, target)  # a copy left running holds slot 0's name
     return await run(config, target, plan)
 
 

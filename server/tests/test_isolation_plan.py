@@ -110,6 +110,20 @@ def test_relay_probe_drafts_two_stores_and_leaves_traces_alone(tmp_path, pass_fo
     assert "engine/atrium/db/utils.py" not in cited, "only the kept stores' evidence"
 
 
+def test_the_apps_own_phoenix_is_never_a_store_to_put_back(tmp_path):
+    root = _project(tmp_path)
+    stores, found = _relay()
+    phoenix = "relay-evals-phoenix-1"
+    held = "volume:relay-evals_phoenix-data/phoenix.db"
+    found.append(containers.Found(phoenix, "volume", held))
+    stores.append(Store("volume", f"{phoenix}:{held}", ["found inside a container, by the probe"]))
+    stores.append(Store("volume", "volume:phoenix-data", ["deployment/compose.yaml:140"], ["x"]))
+    plan = draft_from(root, stores, found=found, target="relay-lite")
+    assert "volume:relay-evals_phoenix-data" in plan.exclude
+    assert len(plan.stores) == 2, plan.report
+    assert not any("phoenix" in loc for p in plan.stores for loc in [p.locator, *p.found_as])
+
+
 def test_plan_survives_a_json_round_trip(tmp_path):
     stores, found = _relay()
     plan = draft_from(_project(tmp_path), stores, found=found, target="relay-lite")

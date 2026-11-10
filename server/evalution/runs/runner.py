@@ -1463,7 +1463,8 @@ class Runs:
         doc["sessions"] = []
         try:
             if copies is not None:
-                left = await asyncio.shield(copies.close())
+                # Put back and left running for the next run (ADR 0009).
+                left = await asyncio.shield(copies.close(keep=True))
                 if left:
                     _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
         finally:

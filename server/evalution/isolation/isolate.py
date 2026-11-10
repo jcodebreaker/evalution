@@ -43,6 +43,7 @@ from evalution.isolation.launch import (
     ProcessCopy,
     _run,
     down,
+    down_idle,
     extras,
     guard,
 )
@@ -719,6 +720,8 @@ async def isolate(
         stage("start")
         stage("copy")
         if isinstance(copy, ComposeCopy):
+            # Held, the lock says no run plays on it: a copy still up is one a server parked.
+            await down_idle(copy.project, config.data_dir)
             await copy.start()
             pid = None
         else:
@@ -825,6 +828,8 @@ async def rehearse_plan(
     try:
         stage("start")
         stage("copy")
+        if isinstance(copy, ComposeCopy):
+            await down_idle(copy.project, config.data_dir)  # parked by a server: idle
         await copy.start()
         adapter = adapter_on(config, target, copy.url)
         run = f"isolation-rehearse-{secrets.token_hex(4)}"

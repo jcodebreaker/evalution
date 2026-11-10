@@ -146,3 +146,24 @@ async def test_a_runs_compose_copies_are_labelled_and_left_copies_swept_first(
     await copies.close()
     labels = sorted({OWNER_LABEL: owner_id(config.data_dir), RUN_LABEL: "r-1"}.items())
     assert events == ["sweep", f"start eval-shop-0 {labels}"]
+
+
+async def test_an_idle_copy_of_this_data_folders_evalution_is_taken_down_and_no_other(
+    docker, tmp_path: Path
+) -> None:
+    # A server of this data folder runs and parked its copy: its owner file is there, held.
+    server = "0123456789abcdef"
+    (tmp_path / "isolation" / "owners").mkdir(parents=True)
+    (tmp_path / "isolation" / "owners" / f"{server}.lock").write_text("")
+    docker.containers = [
+        ("eval-shop-0", server),
+        ("eval-shop-0", server),
+        ("eval-bare-0", ""),  # no owner label: not known to be evalution's
+        ("eval-other-0", "aaaaaaaaaaaaaaaa"),  # another data folder's
+    ]
+    assert await launch.down_idle("eval-shop-0", tmp_path)
+    for project in ("eval-bare-0", "eval-other-0", "eval-none-0"):
+        assert not await launch.down_idle(project, tmp_path)
+    assert docker.removed == ["eval-shop-0"]
+    with pytest.raises(LaunchError, match="isn't evalution's"):
+        await launch.down_idle("shop", tmp_path)

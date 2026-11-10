@@ -337,8 +337,8 @@ async def test_tries_the_end_of_run_check_finds_unheld_are_judged_again_as_not_j
         labels.append(label)
         return label
 
-    async def found_late(self) -> list[str]:
-        left = await close(self)
+    async def found_late(self, keep: bool = False) -> list[str]:
+        left = await close(self, keep)
         late = labels[-1]
         late["problem"] = "reset didn't hold: the end-of-run check found memory not put back"
         self.late.append(late)

@@ -40,6 +40,7 @@ export function App() {
     runLabel,
     testName,
     going,
+    busy,
     goingBenchmark,
     reloadBenchmarkRuns,
   } = workspace;
@@ -65,22 +66,22 @@ export function App() {
   }, [followTarget, followSet, go]);
 
   const runTest = (id: string, name: string) => {
-    if (scope && !going) setConfirm({ scope, test: { id, name } });
+    if (scope && !busy) setConfirm({ scope, test: { id, name } });
   };
   const runAll = () => {
-    if (scope && !going) setConfirm({ scope });
+    if (scope && !busy) setConfirm({ scope });
   };
   const runMore = (ids: readonly string[], tries: number) => {
-    if (scope && !going) setConfirm({ scope, cases: ids, tries });
+    if (scope && !busy) setConfirm({ scope, cases: ids, tries });
   };
   const runSome = (inSet: string, ids: readonly string[]) => {
-    if (target && !going) setConfirm({ scope: { target, set: inSet }, cases: ids });
+    if (target && !busy) setConfirm({ scope: { target, set: inSet }, cases: ids });
   };
   const runSet = (inSet: string) => {
     if (target) setConfirm({ scope: { target, set: inSet } });
   };
   const runOn = (inSet: string, ref: string) => {
-    if (target && !going) setConfirm({ scope: { target, set: inSet }, ref });
+    if (target && !busy) setConfirm({ scope: { target, set: inSet }, ref });
   };
   const showRun = (id: string) => go({ view: "runs", run: id, case: null, base: null });
   const showBenchmark = (id: string) => go({ view: "benchmarks", run: id, case: null, base: null });

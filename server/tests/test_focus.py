@@ -322,3 +322,52 @@ def test_a_save_from_the_page_keeps_code_learn_and_focus(client, tmp_path):
     assert kept["code"]["learn"] == "full" and kept["code"]["focus"] == "gamma"
     body["code"]["learn"] = "sometimes"
     assert client.put(f"/v1/targets/{name}", json=body).status_code in (400, 422)
+
+
+# What the test writer reads
+
+
+async def test_the_writer_reads_every_watched_file_whatever_the_focus(tmp_path) -> None:
+    """``code.focus`` and the learn's scope narrow what a learn understands, never what the
+    writer may read: a file outside the focused agent's scope is listed, read and walked like
+    any other. A secrets file stays out, as always."""
+    from evalution.targets import Targets
+    from evalution.writer.tools import AgentTurn, Tools
+
+    folder = _platform(tmp_path / "app")
+    (folder / "secrets.yaml").write_text("token: x\n")
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "targets": {
+                    "app": {
+                        "adapter": "http",
+                        "http": {},
+                        "code": {"path": "app", "focus": "alpha"},
+                    }
+                }
+            }
+        )
+    )
+    targets = Targets(load(tmp_path / "evalution.yaml"))
+    found, edges = focus.of_folder(folder)
+    scope = areas.agent_scope(found.entries, edges, [*found.prints], "alpha")
+    outside = ("agents/beta.yaml", "lib/retry.py", "web/client.ts")
+    assert targets.code("app").focus == "alpha"  # type: ignore[union-attr]
+    assert scope is not None and not set(outside) & scope
+
+    async def save(_session: dict) -> None:
+        return None
+
+    tools = Tools(SimpleNamespace(targets=targets), save)  # type: ignore[arg-type]
+    turn = AgentTurn({"target": "app"})
+    listed = await tools.list_code(turn, {"glob": "**"})
+    for path in outside:
+        assert path in listed
+        assert "Refused" not in (read := await tools.read_code(turn, {"path": path}))
+        assert path in read
+    walked = await tools.walk_code(turn, {"name": "again"})
+    assert "def again" in walked and "lib/retry.py" in turn.code_read
+    assert "secrets.yaml" not in listed
+    with pytest.raises(ValueError, match="secrets files are never read"):
+        await tools.read_code(turn, {"path": "secrets.yaml"})

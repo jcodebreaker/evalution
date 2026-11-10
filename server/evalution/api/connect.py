@@ -28,6 +28,7 @@ from evalution.config import ConfigError, TargetConfig
 from evalution.connect import connect, discover, probe
 from evalution.core.case import SLUG
 from evalution.project.profile import connection, update_connection
+from evalution.runs import isolated
 from evalution.runs.page.map import described, page_map_of, page_only
 from evalution.targets import Targets
 
@@ -284,6 +285,7 @@ def connect_router() -> APIRouter:
             with _changing(ws, name):
                 await asyncio.to_thread(connect.remove, targets.docs, targets.config.keys, name)
                 await targets.reload(name)
+                await isolated.drop(targets.config, name)  # its copy left running goes too
         return {"name": name, "removed": True, "kept": "Its sets, runs and profile stay on disk."}
 
     @router.post("/targets/{target}/check")

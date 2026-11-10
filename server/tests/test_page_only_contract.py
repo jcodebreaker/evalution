@@ -230,3 +230,48 @@ def test_nothing_shown_through_the_page_alone_fails_the_shown_check() -> None:
     beside = evidence.model_copy(update={"page": page.model_copy(update={"page_only": False})})
     found = _shown_check(beside, 1, Role.GUIDE)
     assert found is not None and found.outcome is Outcome.UNJUDGED, "an adapter's error: no reply"
+
+
+class _Shown:
+    """A page whose replies and Stop button are read from *looks*, one look per read of the
+    replies: what the page showed at each of the turn's looks."""
+
+    def __init__(self, looks: list[tuple[str, bool]]) -> None:
+        self.looks, self.at = looks, -1
+
+    @property
+    def first(self) -> "_Shown":
+        return self
+
+    def get_by_role(self, role: str, **_kw: Any) -> "_Shown":
+        return self
+
+    async def count(self) -> int:
+        return 1
+
+    async def inner_text(self, **_kw: Any) -> str:
+        self.at = min(self.at + 1, len(self.looks) - 1)
+        return self.looks[self.at][0]
+
+    async def is_visible(self) -> bool:
+        return self.looks[self.at][1]
+
+
+async def test_a_busy_sign_clearing_after_the_text_was_read_doesnt_end_the_turn() -> None:
+    """The replies are read, then the Stop button: when Stop is gone at a look whose text was
+    read just before the reply was drawn, the quiet time starts there, and the next look reads
+    the reply. The turn never ends on the text from before."""
+    pytest.importorskip("playwright", reason="the page extra: uv sync --extra page")
+    page = PageMap.model_validate({**ONLY, "busy": [{"role": "button", "name": "Stop"}]})
+    target = PageTarget(None, page.model_copy(update={"quiet_ms": 100}), COPY, name="chat")
+    shown = _Shown(
+        [
+            ("", True),
+            ("slow", True),
+            ("slow", False),  # Stop went as the reply was drawn, after the text was read
+            ("slow\nEcho: slow", False),
+        ]
+    )
+    session = Session("s", "session.id", "s", {"page": {}})
+    turn = await target._settled(shown, session, "slow", "", 0, time.time(), time.time() + 5)
+    assert (turn.error, turn.reply) == (None, "Echo: slow")

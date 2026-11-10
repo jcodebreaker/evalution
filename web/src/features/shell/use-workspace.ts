@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Scope } from "../../lib/api";
 import { api } from "../../lib/api";
-import { count, live, runNumbers } from "../../lib/format";
+import { count, live, playing, runNumbers } from "../../lib/format";
 import type { Place } from "../../lib/router";
 import type { RunSummary } from "../../lib/schema";
 import { POLL_MS, ready, useLoad, useVisiblePoll } from "../../lib/use-load";
@@ -79,6 +79,8 @@ export function useWorkspace(place: Place) {
 
   // The run going now, if any: followed until it settles, then the tests are read again.
   const going = runs.find(live) ?? null;
+  // A run can start once the one going stopped playing, while its write-up goes on.
+  const busy = runs.some(playing);
   useVisiblePoll(reloadRuns, POLL_MS, going !== null);
   const wasGoing = useRef(false);
   useEffect(() => {
@@ -108,6 +110,7 @@ export function useWorkspace(place: Place) {
     testName,
     scopeLabel,
     going,
+    busy,
     benchmarkRuns,
     goingBenchmark,
     reloadBenchmarkRuns,

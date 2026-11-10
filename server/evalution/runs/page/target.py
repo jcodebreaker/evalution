@@ -37,7 +37,11 @@ it is installed, else the system Chrome (``EVALUTION_CHROME``, or the usual plac
 Nothing is ever downloaded. A new browser context per session, and again on reset, so cookies,
 local storage and IndexedDB never carry from one try to the next. Headers are added only to
 requests for the copy's origin: the map's sign-in headers and the try's ``X-Evalution-Run`` and
-``X-Evalution-Try``. Any other origin the page reaches gets nothing added.
+``X-Evalution-Try``. Any other origin the page reaches gets nothing added. Each step the browser
+has no deadline of its own for (starting, opening a context or a page, closing) gets
+:data:`BROWSER_SECONDS`: a browser that takes longer is stuck, so it is closed (its driver killed
+when it won't close) and the try ends, not judged, saying so (:class:`BrowserStuck`); the next one
+starts a new browser.
 
 What the page did is recorded per try (:meth:`PageTarget.record`, a
 :class:`~evalution.core.evidence.PageRecord`): per turn, one for every ``send`` in order, when its
@@ -83,7 +87,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -163,6 +167,9 @@ VIEWPORT = {"width": 1280, "height": 720}
 VIDEO_BYTES = 50_000_000
 #: Seconds the browser gets to close a try's page and finish its video.
 VIDEO_SECONDS = 30.0
+#: Seconds the browser gets for a step with no deadline of its own: starting, opening a context or
+#: a page, closing one. Longer is stuck (:class:`BrowserStuck`).
+BROWSER_SECONDS = 30.0
 #: Why a page try has no video.
 NO_VIDEO = "video needs Playwright's ffmpeg: run `playwright install ffmpeg`"
 CUT_OFF = "the try was cut off before its video was finished"
@@ -209,6 +216,11 @@ _LANGUAGES = {
 
 class PageUnavailable(RuntimeError):
     """Page mode can't start here: no Playwright, or no browser. Says what to install."""
+
+
+class BrowserStuck(TargetGone):
+    """The browser didn't do a step in :data:`BROWSER_SECONDS`: it was closed, and the try ends,
+    not judged. Evalution's side, never the app's. Says which step."""
 
 
 def page_missing() -> str | None:
@@ -498,6 +510,8 @@ class PageTarget(Target):
         self._secrets = {s for s in secrets or () if len(s) >= _SCRUB_SHORTEST}
         self._copy = _origin(copy_page)
         self._lock = asyncio.Lock()
+        #: Playwright's driver, its handle and the browser, once launched (:meth:`_launched`).
+        self._driver: Any = None
         self._playwright: Any = None
         self._browser: Any = None
         #: Each session's context and its page, by the key ``Session.extra["page"]`` holds. The
@@ -550,23 +564,43 @@ class PageTarget(Target):
         async with self._lock:
             if self._browser is not None:
                 return self._browser
-            api = _api()
-            playwright = await api.async_playwright().start()
+            driver = _api().async_playwright()
+            try:
+                playwright = await asyncio.wait_for(driver.start(), BROWSER_SECONDS)
+            except TimeoutError as exc:
+                _kill_driver(driver)
+                raise BrowserStuck(f"Playwright didn't start in {BROWSER_SECONDS:g} s") from exc
             try:
                 own = Path(playwright.chromium.executable_path)
+                timeout = BROWSER_SECONDS * 1000
                 if await asyncio.to_thread(own.is_file):
-                    self._browser = await playwright.chromium.launch(headless=True)
+                    browser = await playwright.chromium.launch(headless=True, timeout=timeout)
                 elif (chrome := system_chrome()) is not None:
-                    self._browser = await playwright.chromium.launch(
-                        headless=True, executable_path=chrome
+                    browser = await playwright.chromium.launch(
+                        headless=True, executable_path=chrome, timeout=timeout
                     )
                 else:
                     raise PageUnavailable(NO_BROWSER)
             except BaseException:
-                await playwright.stop()
+                if not await _closed(playwright.stop()):
+                    _kill_driver(driver)
                 raise
-            self._playwright = playwright
-            return self._browser
+            self._driver, self._playwright, self._browser = driver, playwright, browser
+            return browser
+
+    async def _step[T](self, step: Awaitable[T], what: str) -> T:
+        """*step*, one the browser has no deadline of its own for, in :data:`BROWSER_SECONDS`.
+
+        :raises BrowserStuck: It took longer: the browser is closed first, so the next try starts
+            a new one.
+        """
+        try:
+            return await asyncio.wait_for(step, BROWSER_SECONDS)
+        except TimeoutError as exc:
+            said = f"the browser didn't {what} in {BROWSER_SECONDS:g} s"
+            _logger.warning("evals: %s; closing it", said)
+            await self.dispose_browser()
+            raise BrowserStuck(said) from exc
 
     def _context_options(self) -> dict[str, Any]:
         """The browser context's locale and time zone, from the test person where they read."""
@@ -629,9 +663,12 @@ class PageTarget(Target):
         kept (:meth:`blocked`): a map looked at or tried never sends anything."""
         await self._drop(session)
         added = self._headers(session)
-        browser = await self._launched()
         key = f"{session.id}:{secrets.token_hex(4)}"
-        context, page = await self._context(browser, key)
+        try:
+            context, page = await self._context(await self._launched(), key)
+        except BrowserStuck:
+            # Closed by now: a new browser gets one more go, and a stuck one again ends the try.
+            context, page = await self._context(await self._launched(), key)
         record = _Record()
         self._open[key] = (context, page)
         self._records[key] = record
@@ -641,16 +678,16 @@ class PageTarget(Target):
         async def add(route: Any) -> None:
             await route.continue_(headers={**route.request.headers, **added})
 
-        await context.route(self._on_copy, add)
+        await self._step(context.route(self._on_copy, add), "add the copy's headers")
         await self._sign_in(context, page, session)
         if self.page.sign_in.form is not None:
             # The form was filled on a page of its own: the try's page, and its video, start
             # signed in, sharing the context's cookies and storage.
             signed_in = page
-            page = await context.new_page()
+            page = await self._step(context.new_page(), "open a page")
             self._open[key] = (context, page)
             self._listen(page, record)
-            await signed_in.close()
+            await self._step(signed_in.close(), "close the sign-in page")
         if looking:
             blocked = self._blocked.setdefault(key, [])
 
@@ -663,7 +700,7 @@ class PageTarget(Target):
                 await route.abort()
 
             # Routes added later run first: this one sees every request before the headers do.
-            await context.route("**/*", only_reads)
+            await self._step(context.route("**/*", only_reads), "hold the page to reading")
         return page
 
     async def _context(self, browser: Any, key: str) -> tuple[Any, Any]:
@@ -674,14 +711,16 @@ class PageTarget(Target):
             folder = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="evalution-video-"))
             context = None
             try:
-                context = await browser.new_context(
-                    **options, record_video_dir=str(folder), record_video_size=VIEWPORT
+                context = await self._step(
+                    browser.new_context(
+                        **options, record_video_dir=str(folder), record_video_size=VIEWPORT
+                    ),
+                    "open a context that records video",
                 )
-                page = await context.new_page()
+                page = await self._step(context.new_page(), "open a page")
             except Exception as exc:
-                if context is not None:
-                    with contextlib.suppress(Exception):
-                        await context.close()
+                if context is not None and self._browser is browser:
+                    await _closed(context.close())
                 await asyncio.to_thread(shutil.rmtree, folder, True)
                 if not isinstance(exc, _api().Error) or "ffmpeg" not in str(exc):
                     raise
@@ -691,8 +730,13 @@ class PageTarget(Target):
                 self._ffmpeg = True
                 self._videos[key] = folder
                 return context, page
-        context = await browser.new_context(**options)
-        return context, await context.new_page()
+        context = await self._step(browser.new_context(**options), "open a context")
+        try:
+            return context, await self._step(context.new_page(), "open a page")
+        except Exception:
+            if self._browser is browser:
+                await _closed(context.close())
+            raise
 
     def _secret(self, value: str) -> None:
         if len(value) >= _SCRUB_SHORTEST:
@@ -873,7 +917,8 @@ class PageTarget(Target):
         if sign_in.cookie is not None:
             value = self._filled(sign_in.cookie.value, session)
             url = self.page.url
-            await context.add_cookies([{"name": sign_in.cookie.name, "value": value, "url": url}])
+            cookie = {"name": sign_in.cookie.name, "value": value, "url": url}
+            await self._step(context.add_cookies([cookie]), "set the sign-in cookie")
         elif sign_in.form is not None:
             form = sign_in.form
             await self._goto(page, form.url)
@@ -1052,7 +1097,7 @@ class PageTarget(Target):
             raise TargetGone("the session's page isn't open")
         context, page = found
         if page is None:
-            page = await context.new_page()
+            page = await self._step(context.new_page(), "open a page")
             self._open[key] = (context, page)
             if (record := self._records.get(key)) is not None:
                 self._listen(page, record)
@@ -1069,8 +1114,9 @@ class PageTarget(Target):
         self._blocked.pop(key, None)
         folder = self._videos.pop(key, None)
         try:
-            if found is not None:
-                await found[0].close()
+            if found is not None and not await _closed(found[0].close()):
+                _logger.warning("evals: the browser didn't close a context in time; closing it")
+                await self.dispose_browser()
         finally:
             if folder is not None:
                 await asyncio.to_thread(shutil.rmtree, folder, True)
@@ -1411,7 +1457,7 @@ class PageTarget(Target):
         quiet = self.page.quiet_ms / 1000
         sent = time.time()
         last, changed, stirred, seen = before, sent, False, False
-        text, reply, busy_now = before, None, False
+        text, reply, busy_now, was_busy = before, None, False, False
         while True:
             now = time.time()
             try:
@@ -1426,8 +1472,11 @@ class PageTarget(Target):
                 # Redrawn while it was read: the next look reads it whole. The deadline holds.
                 _logger.debug("evals: the page of %s was read mid-change", session.id)
                 busy_now, changed = False, now
-            if busy_now or text != last:
+            # A busy sign that just cleared starts the quiet time: the text was read before it
+            # cleared, and may not hold the reply yet.
+            if busy_now or was_busy or text != last:
                 last, changed = text, now
+            was_busy = busy_now
             stirred = stirred or busy_now or reply is not None
             waited = stirred or now - sent >= self.page.catch_up_seconds
             if not busy_now and now - changed >= quiet and waited:
@@ -1705,23 +1754,25 @@ class PageTarget(Target):
             await self.inner.dispose()
 
     async def dispose_browser(self) -> None:
-        """Close the browser and every context in it; the inner adapter stays as it is."""
-        for context, _ in list(self._open.values()):
-            with contextlib.suppress(Exception):
-                await context.close()
+        """Close the browser and every context in it; the inner adapter stays as it is. Each close
+        gets :data:`BROWSER_SECONDS`; once one doesn't end in time, the browser is stuck and
+        Playwright's driver is killed, which takes the browser down with it."""
+        contexts = [context for context, _ in self._open.values()]
         self._open.clear()
         self._records.clear()
+        browser, self._browser = self._browser, None
+        playwright, self._playwright = self._playwright, None
+        driver, self._driver = self._driver, None
+        stuck = False
+        for context in contexts:
+            stuck = stuck or not await _closed(context.close())
         for folder in list(self._videos.values()):
             await asyncio.to_thread(shutil.rmtree, folder, True)
         self._videos.clear()
-        if self._browser is not None:
-            with contextlib.suppress(Exception):
-                await self._browser.close()
-            self._browser = None
-        if self._playwright is not None:
-            with contextlib.suppress(Exception):
-                await self._playwright.stop()
-            self._playwright = None
+        if browser is not None and not stuck:
+            stuck = not await _closed(browser.close())
+        if playwright is not None and (stuck or not await _closed(playwright.stop())):
+            _kill_driver(driver)
 
     # The rest is the inner adapter's; page-only, the contract's defaults: none of it
 
@@ -1769,6 +1820,31 @@ TRIED = frozenset(
         "busy",
     }
 )
+
+
+async def _closed(step: Awaitable[Any]) -> bool:
+    """Whether *step*, a close, ended in :data:`BROWSER_SECONDS`. What it raised is the closed
+    thing's own: it is closed either way."""
+    try:
+        await asyncio.wait_for(step, BROWSER_SECONDS)
+    except TimeoutError:
+        return False
+    except Exception:
+        _logger.debug("evals: a close in the browser failed", exc_info=True)
+    return True
+
+
+def _kill_driver(driver: Any) -> None:
+    """Kill Playwright's driver (*driver*, from ``async_playwright()``), which a stuck browser
+    keeps from stopping; the browser it started exits with it, as its pipe closes. Playwright has
+    no public way to do this."""
+    with contextlib.suppress(Exception):
+        transport = driver._connection._transport  # noqa: SLF001
+        # Its reader says the connection closed: known, and nobody is left to hear it.
+        transport.on_error_future.add_done_callback(
+            lambda said: said.cancelled() or said.exception()
+        )
+        transport._proc.kill()  # noqa: SLF001
 
 
 def _quoted(value: str) -> str:

@@ -34,6 +34,7 @@ from typing import Any, Literal
 from evalution.isolation.containers import Found
 from evalution.isolation.discover import Store
 from evalution.isolation.observe import Observation
+from evalution.traces.base import TRACE_STORE
 
 #: The shape of a saved plan; a newer one is refused rather than misread.
 FORMAT = 1
@@ -303,7 +304,9 @@ def draft_from(
       was found under it, a SQLite file and its sidecars, the files written in one folder.
     * Env names of a kind attach to the store of that kind only when there is one; with several,
       which moves which is left for the model, and the report says so.
-    * A table of traces, and the rest of its schema, goes in ``exclude``.
+    * A table of traces, and the rest of its schema, goes in ``exclude``; so does the app's own
+      trace store (a service, container or volume named for it, :data:`TRACE_STORE`), never a
+      store to put back.
     * Hosted and in-process stores are kept unconfirmed, since no probe can see them.
     """
     folder = folder.resolve()
@@ -318,6 +321,10 @@ def draft_from(
     by_locator = {s.locator: s for s in stores}
     for locator, f in finds.items():
         origin = by_locator.get(locator) or Store(f.kind, locator, [_CONTAINER_NOTE])
+        volume_name = f.where.split("/", 1)[0] if f.kind == "volume" else ""
+        if TRACE_STORE.search(f.container) or TRACE_STORE.search(volume_name):
+            _add(plan.exclude, [volume_name or locator])  # the app's trace store: kept
+            continue
         if f.kind == "volume":
             volume = f.where.split("/", 1)[0].removeprefix("volume:")
             short = next(
@@ -343,7 +350,12 @@ def draft_from(
             build.compose.add(store.id)
             build.merge(store, origin)
 
-    rest = [s for s in stores if s.locator not in finds]
+    rest = [
+        s
+        for s in stores
+        if s.locator not in finds
+        and not (s.locator.startswith(("service:", "volume:")) and TRACE_STORE.search(own_name(s)))
+    ]
     # Files on this computer the probe saw: one per file, sidecars and folders merged.
     for s in rest:
         if s.kind not in _FILES or s.locator.startswith(_NAMES) or not s.seen:

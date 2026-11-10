@@ -12,11 +12,12 @@ from dataclasses import replace
 from evalution.adapters import add_folder, build, forget
 from evalution.adapters.base import Target
 from evalution.code import Code, Diffs, Digests
-from evalution.config import Config, TargetConfig, load
+from evalution.config import Config, PhoenixConfig, TargetConfig, load
 from evalution.core.case import SLUG
 from evalution.results.store import RunSink
 from evalution.storage import Database, Docs
 from evalution.storage.files import Files, LocalFiles
+from evalution.traces import otlp
 from evalution.traces.base import TraceSource
 from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.mirror import mirror_of
@@ -60,6 +61,9 @@ class Targets:
         self.files: Files | None = LocalFiles(config.data_dir) if folders else None
         #: The spans apps sent this workspace (docs/architecture.md, "Traces").
         self.store = SpanStore(self.docs.database, self.docs.workspace)
+        #: What the store is sent also goes to the target's Phoenix, when it has one.
+        self.forward = otlp.Forward(self._phoenix)
+        otlp.forward_with(self.store, self.forward)
         self._sources: dict[str, TraceSource] = {}
         self._sinks: dict[str, RunSink] = {}
         self._digests: Digests = {}
@@ -75,6 +79,10 @@ class Targets:
         if found is None or not SLUG.match(name):
             raise LookupError(f"no target {name}")
         return found
+
+    def _phoenix(self, name: str) -> PhoenixConfig | None:
+        found = self.config.targets.get(name)
+        return found.phoenix if found is not None else None
 
     def adapter(self, name: str) -> Target:
         return build(self.conf(name), self.docs.workspace)
@@ -121,6 +129,7 @@ class Targets:
             await sink.close()
 
     async def close(self) -> None:
+        await self.forward.close()
         for source in self._sources.values():
             await source.close()
         for sink in self._sinks.values():

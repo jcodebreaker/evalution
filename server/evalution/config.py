@@ -144,14 +144,15 @@ class PhoenixConfig:
     """A target's Phoenix project.
 
     :param public_url: Where the browser reaches Phoenix, for trace links (default ``url``).
-    :param mirror: Also write finished runs to it as datasets and experiments.
+    :param mirror: Also write finished runs to it as datasets and experiments (on unless the
+        block says ``mirror: false``).
     """
 
     url: str
     project: str = "default"
     api_key_env: str | None = None
     public_url: str | None = None
-    mirror: bool = False
+    mirror: bool = True
     keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
 
 
@@ -401,7 +402,7 @@ def target_config(
             project=str(p.get("project") or "default"),
             api_key_env=p.get("api_key_env"),
             public_url=(str(p["public_url"]).rstrip("/") if p.get("public_url") else None),
-            mirror=bool(p.get("mirror", False)),
+            mirror=bool(p.get("mirror", True)),
             keys=keys,
         )
     code = None

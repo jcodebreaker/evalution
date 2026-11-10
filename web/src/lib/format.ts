@@ -95,6 +95,10 @@ export function callLabel(call: Record<string, unknown>): string {
 export const live = (run: Pick<RunSummary, "status" | "analyzing">) =>
   run.status === "running" || run.analyzing;
 
+/** Whether *run* keeps another from starting: only while it plays. Its write-up (`analyzing`)
+ * doesn't, since the server starts a new run alongside it. */
+export const playing = (run: Pick<RunSummary, "status">) => run.status === "running";
+
 /** How far a going run is, in tests when the server says, else in tries. */
 export function progressText(run: Pick<RunSummary, "progress">, unit = "tests"): string {
   const { tests_done, tests_total, done, total } = run.progress;

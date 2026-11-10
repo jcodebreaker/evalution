@@ -1,7 +1,7 @@
-"""A mirror of finished runs in a target's Phoenix (on when its ``phoenix.mirror`` is true), written
-once a run ends, over Phoenix's REST v1 only. The set is a dataset (one example per case), the run
-an experiment, each try a repetition, each grade an evaluation linked to the try's trace. A mirror
-failure is logged and never fails the run.
+"""A mirror of finished runs in a target's Phoenix (on unless its ``phoenix.mirror`` is false),
+written once a run ends, over Phoenix's REST v1 only. The set is a dataset (one example per
+case), the run an experiment, each try a repetition, each grade an evaluation linked to the try's
+trace. A mirror failure is logged and never fails the run.
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ class PhoenixStore:
 
 
 def mirror_of(conf: PhoenixConfig | None) -> PhoenixStore | None:
-    """Where a target's finished runs are mirrored, when its ``phoenix.mirror`` is true."""
+    """Where a target's finished runs are mirrored, unless its ``phoenix.mirror`` is false."""
     if conf is None or not conf.mirror:
         return None
     return PhoenixStore(conf.url, conf.keys.get(conf.api_key_env))

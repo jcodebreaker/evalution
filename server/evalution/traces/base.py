@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -22,6 +23,10 @@ from typing import Any, Protocol
 import httpx
 
 _logger = logging.getLogger(__name__)
+
+#: A compose service, container or volume that is an app's own trace store (Phoenix): its traces
+#: are evidence, never a store a copy of the app puts back.
+TRACE_STORE = re.compile(r"(^|[._-])(phoenix|arize)([._-]|$)", re.IGNORECASE)
 
 MAX_SPANS = 20_000
 #: Spans of any kind read at most in one :meth:`SpanReader.spans`, however few are AI spans.

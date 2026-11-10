@@ -38,7 +38,13 @@ from evalution.core.evidence import VIDEO, Failure
 from evalution.isolation.launch import free_port
 from evalution.runs.page import target as page_target
 from evalution.runs.page.map import PageMap
-from evalution.runs.page.target import NO_VIDEO, PageFiles, PageTarget, system_chrome
+from evalution.runs.page.target import (
+    NO_VIDEO,
+    BrowserStuck,
+    PageFiles,
+    PageTarget,
+    system_chrome,
+)
 from evalution.storage.files import LocalFiles
 
 
@@ -102,8 +108,14 @@ function html(text) {
   const safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return safe.replace(/\\*\\*(.+?)\\*\\*/g, "<b>$1</b>");
 }
+// Looks go out every 100 ms and may come back out of order, or from before the app took the
+// message: only the newest is drawn, and Stop stays until a look taken after the send answered.
+let asked = 0, drawn = 0, sending = false, sentAt = 0;
 async function render() {
+  const look = ++asked;
   const data = await (await fetch("/api/messages/" + encodeURIComponent(session))).json();
+  if (look < drawn) return;
+  drawn = look;
   const log = document.getElementById("log");
   let answers = 0;
   log.innerHTML = data.messages.filter(m => !(data.hide && m.role === "assistant")).map(m => {
@@ -111,7 +123,8 @@ async function render() {
     const dropped = mine && data.drop_from !== null && answers++ >= data.drop_from;
     return "<p>" + html(dropped ? "Couldn't load this reply" : m.text) + "</p>";
   }).join("");
-  document.getElementById("send").textContent = data.busy ? "Stop" : label;
+  const busy = data.busy || sending || look <= sentAt;
+  document.getElementById("send").textContent = busy ? "Stop" : label;
 }
 setInterval(render, 100); render();
 document.getElementById("f").addEventListener("submit", async (event) => {
@@ -119,8 +132,14 @@ document.getElementById("f").addEventListener("submit", async (event) => {
   const box = document.getElementById("box"), message = box.value;
   box.value = "";
   document.getElementById("send").textContent = "Stop";
-  await fetch("/api/send", {method: "POST", headers: {"Content-Type": "application/json"},
-                            body: JSON.stringify({session, message})});
+  sending = true;
+  try {
+    await fetch("/api/send", {method: "POST", headers: {"Content-Type": "application/json"},
+                              body: JSON.stringify({session, message})});
+  } finally {
+    sending = false;
+    sentAt = asked;
+  }
 });
 </script></body></html>"""
 
@@ -173,6 +192,8 @@ class ChatApp:
         self.frozen: dict[str, tuple[float, dict[str, Any]]] = {}
         self.messages: dict[str, list[dict[str, Any]]] = {}
         self.busy: set[str] = set()
+        #: How many messages the page was last given to draw, by session.
+        self.drawn: dict[str, int] = {}
         #: ``(path, headers)`` of every request a browser made.
         self.seen: list[tuple[str, dict[str, str]]] = []
         self.app = FastAPI()
@@ -190,9 +211,11 @@ class ChatApp:
             return HTMLResponse(text.replace("OTHER", other))
 
         @self.app.get("/api/messages/{session:path}")
-        async def messages(session: str) -> dict[str, Any]:
+        async def messages(session: str, request: Request) -> dict[str, Any]:
             said = self.messages.get(session, [])
             busy = session in self.busy
+            if "mozilla" in request.headers.get("user-agent", "").lower():
+                self.drawn[session] = len(said)
             return {"messages": said, "busy": busy, "drop_from": self.drop_from, "hide": self.hide}
 
         @self.app.get("/api/state/{session:path}")
@@ -286,6 +309,24 @@ class Watching(Inner):
     async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
         self.watched.append(since)
         return await self._reply(session, since, deadline)
+
+
+class Drawn(Watching):
+    """The same, and its turn ends once the page was given the reply to draw: what the page
+    then shows doesn't wait on how busy this computer is."""
+
+    def __init__(self, chat: ChatApp) -> None:
+        super().__init__(chat.url)  # type: ignore[attr-defined]
+        self.chat = chat
+
+    async def watch(self, session: Session, since: float, *, deadline: float) -> Turn:
+        turn = await super().watch(session, since, deadline=deadline)
+        said = len(self.chat.messages.get(session.id, []))
+        while time.time() < deadline:
+            if self.chat.drawn.get(session.id, 0) >= said:
+                break
+            await asyncio.sleep(0.05)
+        return turn
 
 
 @pytest.fixture
@@ -566,9 +607,18 @@ async def test_close_and_cancel_need_only_the_sessions_fields(chat) -> None:
 async def test_a_try_records_what_the_page_did(chat, tmp_path) -> None:
     chat.noisy = True
     files = LocalFiles(tmp_path)
-    target = _page_target(chat, Watching(chat.url))
+    target = _page_target(chat, Drawn(chat))
     try:
         session = await target.open("r")
+        # What the page wrote as it opened, before the try starts: its error, warning and
+        # uncaught error, and the request that failed.
+        opened = target._record_of(session)
+        assert opened is not None
+        until = time.time() + 20
+        while time.time() < until:
+            if len(opened.console) >= 3 and opened.failed:
+                break
+            await asyncio.sleep(0.05)
         target.begin(session, PageFiles(files, "run-1", "a-case", 1))
         t0 = time.time()
         await target.send(session, "hello", deadline=time.time() + 20)
@@ -733,3 +783,59 @@ async def test_without_ffmpeg_a_try_plays_on_and_says_why_it_has_no_video(
     assert turn.error is None and turn.shown == "Echo: hello"
     assert target._ffmpeg is False
     assert found.files == ("turn-1.png",) and found.video_missing == NO_VIDEO
+
+
+async def _never(*_: object, **__: object) -> None:
+    await asyncio.Event().wait()
+
+
+async def test_a_browser_stuck_opening_a_context_is_closed_and_a_new_one_opens_it(
+    chat, monkeypatch
+) -> None:
+    """Under load the browser has left ``new_context`` unanswered for good: in
+    :data:`BROWSER_SECONDS` that browser is closed, and a new one opens the context."""
+    monkeypatch.setattr(page_target, "BROWSER_SECONDS", 5.0)
+    target = _page_target(chat, Watching(chat.url))
+    try:
+        stuck = await target._launched()
+        monkeypatch.setattr(stuck, "new_context", _never)
+        t0 = time.time()
+        session = await target.open("r")
+        assert time.time() - t0 < 30 and target._browser not in (None, stuck)
+        gone = time.time() + 10
+        while stuck.is_connected():
+            assert time.time() < gone, "the stuck browser was never closed"
+            await asyncio.sleep(0.1)
+        turn = await target.send(session, "hello", deadline=time.time() + 20)
+    finally:
+        await target.dispose()
+    assert turn.error is None and turn.shown == "Echo: hello"
+
+
+async def test_a_browser_stuck_twice_ends_the_open_soon_and_says_where(chat, monkeypatch) -> None:
+    monkeypatch.setattr(page_target, "BROWSER_SECONDS", 5.0)
+    from playwright.async_api import Browser
+
+    monkeypatch.setattr(Browser, "new_context", _never)
+    inner = Watching(chat.url)
+    target = _page_target(chat, inner)
+    t0 = time.time()
+    try:
+        with pytest.raises(BrowserStuck, match="didn't open a context that records video"):
+            await target.open("r")
+    finally:
+        await target.dispose()
+    assert time.time() - t0 < 40 and target._browser is None and inner.closed
+
+
+async def test_a_browser_that_never_closes_has_its_driver_killed(chat, monkeypatch) -> None:
+    monkeypatch.setattr(page_target, "BROWSER_SECONDS", 5.0)
+    target = _page_target(chat, Watching(chat.url))
+    await target.open("r")
+    driver = target._driver._connection._transport._proc
+    for context, _ in target._open.values():
+        monkeypatch.setattr(context, "close", _never)
+    t0 = time.time()
+    await target.dispose()
+    assert time.time() - t0 < 30 and target._browser is None and not target._open
+    await asyncio.wait_for(driver.wait(), 10)

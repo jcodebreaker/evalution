@@ -13,20 +13,29 @@ The target comes from the resource attribute ``evalution.target``, else
 ``openinference.project.name`` (which :func:`phoenix.otel.register` sets, with or without the
 ``evalution-`` prefix); else ``default``, which every target reads, finding its own by session
 and trace id.
+
+A target with a ``phoenix`` block also gets every span it is sent forwarded to its Phoenix
+(:class:`Forward`): the same spans as OTLP protobuf, under the target's project, in the
+background, so the intake is never slowed or failed by it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import re
+import time
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import Any
+from weakref import WeakKeyDictionary
 
+import httpx
 from fastapi import Request, Response
+from google.protobuf.json_format import ParseDict, ParseError
 from google.protobuf.message import DecodeError
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
@@ -36,6 +45,8 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import Span as ProtoSpan
 from sqlalchemy.exc import SQLAlchemyError
 
+from evalution.config import PhoenixConfig
+from evalution.core import net
 from evalution.traces.base import with_events
 from evalution.traces.builtin import (
     DEFAULT_TARGET,
@@ -359,6 +370,212 @@ def _error(status: int, message: str, binary: bool) -> Response:
     return Response(body, status_code=status, media_type=JSON)
 
 
+# Forwarding to a target's Phoenix
+
+#: Requests waiting to be forwarded, enough for a busy run; past this, a new one is dropped.
+FORWARD_QUEUE = 1_000
+_IDS = ("traceId", "spanId", "parentSpanId")
+
+
+def _hex_ids(span: dict[str, Any]) -> None:
+    """OTLP JSON's hex ids as the base64 protobuf's JSON mapping reads them, in place."""
+    for item in (span, *(span.get("links") or [])):
+        for key in _IDS:
+            if isinstance(item.get(key), str):
+                item[key] = base64.b64encode(bytes.fromhex(item[key])).decode()
+
+
+def as_proto(body: bytes, content_type: str, encoding: str = "") -> ExportTraceServiceRequest:
+    """A request's body as OTLP protobuf, whichever encoding it came in.
+
+    :raises Refused: It can't be read.
+    """
+    if encoding == "gzip":
+        body = _gunzip(body)
+    if content_type == PROTOBUF:
+        try:
+            return ExportTraceServiceRequest.FromString(body)
+        except DecodeError as exc:
+            raise Refused(400, "not an OTLP trace request") from exc
+    try:
+        doc = json.loads(body)
+        for resource in doc.get("resourceSpans") or []:
+            for scope in resource.get("scopeSpans") or []:
+                for span in scope.get("spans") or []:
+                    _hex_ids(span)
+        return ParseDict(doc, ExportTraceServiceRequest(), ignore_unknown_fields=True)
+    except (ParseError, ValueError, TypeError, AttributeError, RecursionError) as exc:
+        raise Refused(400, "not an OTLP trace request") from exc
+
+
+def for_project(request: ExportTraceServiceRequest, target: str, project: str) -> bytes:
+    """*target*'s spans in *request*, each resource named as Phoenix's *project*."""
+    out = ExportTraceServiceRequest()
+    for resource in request.resource_spans:
+        if _target(_proto_attributes(resource.resource.attributes)) != target:
+            continue
+        kept = out.resource_spans.add()
+        kept.CopyFrom(resource)
+        attrs = kept.resource.attributes
+        for n in reversed(range(len(attrs))):
+            if attrs[n].key == PROJECT_ATTRIBUTE:
+                del attrs[n]
+        named = attrs.add()
+        named.key = PROJECT_ATTRIBUTE
+        named.value.string_value = project
+    return out.SerializeToString()
+
+
+#: Seconds between tries of one batch Phoenix didn't take: about a minute in all, then it's dropped.
+BACKOFF = (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+#: At most one warning about dropped spans this often, in seconds.
+WARN_EVERY = 60.0
+#: Seconds :meth:`Forward.close` waits for what is queued to be sent.
+FLUSH_SECONDS = 5.0
+
+#: A batch to forward: the body as received, and each target's Phoenix and span count in it.
+_Batch = tuple[bytes, str, str, dict[str, tuple[PhoenixConfig, int]]]
+
+
+class _Retry(Exception):
+    """Phoenix may take the batch if it is sent again."""
+
+
+class Forward:
+    """Spans a target is sent, forwarded to its Phoenix (when *phoenix* gives one for it) in the
+    background: a queue sized for a busy run, one worker, each batch tried again with *backoff*
+    on a network error, a 5xx or a 429. A batch is dropped only when the queue is full or its
+    tries run out, counted per target in :attr:`dropped` (no span content is ever logged)."""
+
+    def __init__(
+        self,
+        phoenix: Callable[[str], PhoenixConfig | None],
+        transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        size: int = FORWARD_QUEUE,
+        backoff: tuple[float, ...] = BACKOFF,
+    ) -> None:
+        self._phoenix = phoenix
+        self._transport = transport
+        self._size = size
+        self._backoff = backoff
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._queue: asyncio.Queue[_Batch]
+        self._task: asyncio.Task[None] | None = None
+        self._client: httpx.AsyncClient | None = None
+        #: Spans not forwarded, by target.
+        self.dropped: dict[str, int] = {}
+        self._warned = -WARN_EVERY
+
+    def offer(self, body: bytes, content_type: str, encoding: str, targets: Iterable[str]) -> None:
+        """Forward *body*'s spans of each of *targets* (one entry per span) that has a Phoenix,
+        later."""
+        counts: dict[str, int] = {}
+        for t in targets:
+            counts[t] = counts.get(t, 0) + 1
+        wanted = {t: (c, n) for t, n in counts.items() if (c := self._phoenix(t)) is not None}
+        if not wanted:
+            return
+        loop = asyncio.get_running_loop()
+        if self._loop is not loop:
+            self._loop, self._queue = loop, asyncio.Queue(self._size)
+            self._client = net.client(timeout=10, transport=self._transport)
+            self._task = loop.create_task(self._work(self._queue, self._client))
+        try:
+            self._queue.put_nowait((body, content_type, encoding, wanted))
+        except asyncio.QueueFull:
+            for target, (_, n) in wanted.items():
+                self._drop(target, n)
+
+    def _drop(self, target: str, spans: int) -> None:
+        self.dropped[target] = self.dropped.get(target, 0) + spans
+        now = time.monotonic()
+        if now - self._warned >= WARN_EVERY:
+            self._warned = now
+            _logger.warning(
+                "traces: %d spans not forwarded to Phoenix so far (%s)",
+                sum(self.dropped.values()),
+                ", ".join(f"{t}: {n}" for t, n in sorted(self.dropped.items())),
+            )
+
+    async def _work(self, queue: asyncio.Queue[_Batch], client: httpx.AsyncClient) -> None:
+        while True:
+            body, content_type, encoding, wanted = await queue.get()
+            try:
+                try:
+                    request = await asyncio.to_thread(as_proto, body, content_type, encoding)
+                except Refused:
+                    request = None
+                for target, (conf, n) in wanted.items():
+                    if request is None or not await self._deliver(client, request, target, conf):
+                        self._drop(target, n)
+            finally:
+                queue.task_done()
+
+    async def _deliver(
+        self,
+        client: httpx.AsyncClient,
+        request: ExportTraceServiceRequest,
+        target: str,
+        conf: PhoenixConfig,
+    ) -> bool:
+        """Whether Phoenix took *target*'s spans of *request*, tried again as long as that may
+        help."""
+        body = for_project(request, target, conf.project)
+        key = conf.keys.get(conf.api_key_env)
+        headers = {"Content-Type": PROTOBUF}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        for wait in (*self._backoff, None):
+            try:
+                response = await client.post(f"{conf.url}/v1/traces", content=body, headers=headers)
+                if response.status_code == 429 or response.status_code >= 500:
+                    raise _Retry
+                return response.is_success
+            except (httpx.TransportError, _Retry):
+                if wait is None:
+                    return False
+                await asyncio.sleep(wait)
+            except Exception:
+                return False
+        return False
+
+    async def drain(self) -> None:
+        """Wait until what was offered on this loop is sent or dropped."""
+        if self._loop is asyncio.get_running_loop():
+            await self._queue.join()
+
+    async def close(self, flush: float = FLUSH_SECONDS) -> None:
+        """Send what is queued for up to *flush* seconds, then stop."""
+        if self._task is not None and self._loop is asyncio.get_running_loop():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._queue.join(), flush)
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            if self._client is not None:
+                await self._client.aclose()
+        self._loop = self._task = self._client = None
+
+
+#: The forwarder of each store's targets, set by whoever knows their config (:class:`Targets`).
+_FORWARDS: WeakKeyDictionary[SpanStore, Forward] = WeakKeyDictionary()
+
+
+def forward_with(store: SpanStore, forward: Forward | None) -> None:
+    """Spans received into *store* are also offered to *forward* (``None``: to none)."""
+    if forward is None:
+        _FORWARDS.pop(store, None)
+    else:
+        _FORWARDS[store] = forward
+
+
+def dropped(store: SpanStore, target: str) -> int:
+    """Spans received into *store* for *target* that never reached its Phoenix."""
+    forward = _FORWARDS.get(store)
+    return forward.dropped.get(target, 0) if forward is not None else 0
+
+
 async def receive(request: Request, store: SpanStore) -> Response:
     """Take one OTLP request into *store*."""
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -370,6 +587,11 @@ async def receive(request: Request, store: SpanStore) -> Response:
         body = await _body(request)
         rows, rejected = await asyncio.to_thread(decode, body, content_type, encoding)
         await asyncio.to_thread(store.add, rows)
+        if (forward := _FORWARDS.get(store)) is not None:
+            try:
+                forward.offer(body, content_type, encoding, (r.target for r in rows))
+            except Exception as exc:
+                _logger.warning("traces: spans not forwarded: %s", type(exc).__name__)
     except Refused as exc:
         return _error(exc.status, exc.message, binary)
     except SQLAlchemyError as exc:

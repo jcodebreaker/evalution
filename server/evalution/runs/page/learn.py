@@ -3,9 +3,10 @@ test writer's page tools do to the page, and the check a run makes of an approve
 plays.
 
 Every function here works on a copy of the app the target's proven isolation plan starts
-(:class:`~evalution.runs.isolated.Copies`, one slot), and takes it down again, its stores put
-back, however it ends. Without a proven plan nothing here runs (:func:`refusal`): a page is never
-opened on a person's own app.
+(:class:`~evalution.runs.isolated.Copies`, one slot), and puts its stores back however it
+ends, leaving it running for the next look or run while the code and plan stay the same.
+Without a proven plan nothing here runs (:func:`refusal`): a page is never opened on a
+person's own app.
 
 * :func:`look` opens a page signed in as a proposed ``sign_in`` says, and returns its
   accessibility snapshot. Nothing is clicked or typed.
@@ -113,14 +114,16 @@ class OnCopy:
 
 @contextlib.asynccontextmanager
 async def on_copy(config: Config, target: str, capabilities: Capabilities) -> AsyncIterator[OnCopy]:
-    """A copy of *target* started from its proven plan, put back and taken down when done.
+    """A copy of *target* started from its proven plan (or the one left running, when it runs
+    the same images under the same plan version), put back and left running when done.
 
     :raises RuntimeError: It can't be (:func:`refusal`, in words).
     """
     if (why := refusal(config, target, capabilities)) is not None:
         raise RuntimeError(why)
     found = isolated.footing(config, target, capabilities)
-    copies = isolated.Copies(config, target, found)
+    # Labelled with this server as its owner, so a copy left running is swept if it stops.
+    copies = isolated.Copies(config, target, found, run="page-learn")
     try:
         await copies.start(1)
         slot = copies.slots[0]
@@ -131,7 +134,7 @@ async def on_copy(config: Config, target: str, capabilities: Capabilities) -> As
             inner = make(config.targets[target])
         yield OnCopy(config, target, inner, slot.copy.url, copies)
     finally:
-        await copies.close()
+        await copies.close(keep=True)
 
 
 def scaffold(url: str, sign_in: Any) -> PageMap:

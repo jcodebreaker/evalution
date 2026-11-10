@@ -14,7 +14,10 @@ cheap one between (each store's shape, and a database made again since the try b
 ``isolation.verify`` is ``every_try``. A store that differs, or can't be put back, leaves the try
 unjudged: "reset didn't hold: <store>". When the end-of-run hash doesn't hold, the tries checked
 only cheaply since the last full hash are marked so too (:attr:`Copies.late`). After the run,
-however it ends, every store is put back, the databases' kept copies are dropped and every copy is
+however it ends, every store is put back. A compose copy then stays up, parked for the target's
+next run or page look (``close(keep=True)``), which reuses it slot by slot while it runs the same
+image ids under the same plan version; else, and when the target is removed or rehearsed again or
+the server stops (:func:`drop`, :func:`drop_all`), its databases' kept copies are dropped and it is
 taken down.
 
 The target's test setup (:mod:`evalution.isolation.setup`) says how many copies play side by
@@ -77,6 +80,7 @@ from evalution.isolation.launch import (
     OWNER_LABEL,
     RUN_LABEL,
     LaunchError,
+    down_idle,
     free_port,
     owner_gone,
     owner_id,
@@ -263,6 +267,7 @@ async def rehearse_again(config: Config, target: str, found: Footing) -> Footing
     taken afresh) or failed; what a run then stands on. Sends one probe message."""
     plan = found.plan
     assert plan is not None
+    await drop(config, target)  # the rehearsal starts slot 0's copy under the same name
     try:
         plan = await rehearse_plan(config, target, plan, slot=0)
     except Busy:
@@ -426,6 +431,8 @@ class Copies:
         #: Held from :meth:`start` to :meth:`close`: no other run or rehearsal of the target,
         #: here or from the command line, starts copies meanwhile.
         self.lock = TargetLock(config.data_dir, target)
+        #: Copies parked by an earlier run beyond the slots this one plays: parked again at close.
+        self.spare: list[Slot] = []
 
     @property
     def reset(self) -> str:
@@ -449,17 +456,24 @@ class Copies:
         # What a server that stopped left of its copies goes first: it would hold their names.
         data_dir = self.config.data_dir
         await sweep(lambda owner: owner_gone(data_dir, owner))
-        if self.spans is not None and self.intake is None:
-            self.intake = await Intake.start(self.spans)
-            self.env = trace_env(self.config, self.target, self.intake.url)
         # Settings that reach outside the copy start empty, unless the person allowed them.
         shut = await asyncio.to_thread(
             outbound.blocked_for, self.config.data_dir, self.target, self.spec
         )
+        parked = await self._reattach(shut)
+        reuse = {s.index: s for s in parked.slots} if parked is not None else {}
+        if parked is not None:
+            self.intake, self.env = parked.intake, dict(parked.env)
+            self.spare = [s for i, s in sorted(reuse.items()) if i >= slots]
+        if self.spans is not None and self.intake is None:
+            self.intake = await Intake.start(self.spans)
+            self.env = trace_env(self.config, self.target, self.intake.url)
         at_once = asyncio.Semaphore(STARTING_AT_ONCE)
 
         async def one(index: int) -> bool:
             async with at_once:
+                if index in reuse and await self._reuse_slot(reuse[index]):
+                    return await self._point(reuse[index])
                 return await self._start_slot(index, seed, shut)
 
         # Each one to its end, so none is left starting behind a failed one.
@@ -482,6 +496,10 @@ class Copies:
             copy.labels = {OWNER_LABEL: owner_id(self.config.data_dir), RUN_LABEL: self.run}
         slot = Slot(index, copy, work)
         self.slots.append(slot)
+        if isinstance(copy, ComposeCopy):
+            # Another process's parked copy (this one's were reused or taken down): idle, as
+            # the lock held says, so it goes.
+            await down_idle(copy.project, self.config.data_dir)
         await slot.copy.start()
         roots = roots_of(slot.copy, self.spec)
         slot.drivers = await stores_on(
@@ -504,6 +522,12 @@ class Copies:
             slot.fresh = await _digests(slot.drivers) == slot.before
         except (DockerError, OSError):
             slot.fresh = False
+        return await self._point(slot)
+
+    async def _point(self, slot: Slot) -> bool:
+        """Point an adapter at *slot*'s copy, playing as the setup's test person; whether it took
+        the person."""
+        index = slot.index
         # Through the app's page too, when the target has a page map (ADR 0010).
         slot.adapter = on_page(
             self.config.targets[self.target],
@@ -514,6 +538,55 @@ class Copies:
         took = await play_as(slot.adapter, self.setup.person)
         _watch_opens(slot)
         return took
+
+    async def _reattach(self, shut: dict[str, str]) -> _Parked | None:
+        """The copies an earlier run or look of the target left running, when this one can play
+        on them: they run the image ids this one would start (the same code version, or the
+        version asked for) under the same isolation plan version. Else they are taken down here
+        and ``None`` comes back, for new ones to start."""
+        parked = _PARKED.pop(_key(self.config, self.target), None)
+        if parked is None:
+            return None
+        # The plan version is checked too: a changed plan names other stores to put back, so a
+        # copy kept under the old one has the wrong starting state kept.
+        same = parked.version == self.version and (parked.intake is not None or self.spans is None)
+        if same:
+            probe = copy_of(
+                self.spec, self.target, 0, parked.slots[0].work, env={**shut, **self.version_env}
+            )
+            try:
+                want = await image_ids(probe)
+                same = bool(want) and want == await image_ids(parked.slots[0].copy)
+            except (LaunchError, DockerError, OSError, ValueError) as exc:
+                _logger.warning("evals: %s: images not compared: %s", self.target, exc)
+                same = False
+        if same:
+            return parked
+        left = await _down_parked(parked)
+        if left:
+            _logger.warning("evals: %s left behind: %s", self.target, ", ".join(left))
+        return None
+
+    async def _reuse_slot(self, slot: Slot) -> bool:
+        """Put a parked *slot*'s stores back, as :meth:`restore` does, and take it for this run;
+        whether it could be. One that can't is taken down, for a new one to start in its place."""
+        slot.restores, slot.since_hash = 0, []
+        try:
+            await self._pause(slot)
+            for driver, kept in slot.kept:
+                await asyncio.to_thread(driver.put_back, kept)
+            try:
+                await self._resume(slot)
+            except NoAnswer as exc:
+                await self._fall_back(slot, exc)
+            slot.fresh = await _digests(slot.drivers) == slot.before
+        except Exception as exc:  # a new copy starts in its place
+            _logger.warning("evals: %s: parked copy not put back, so new: %s", self.target, exc)
+            with contextlib.suppress(Exception):
+                await _down(slot)
+            return False
+        self.slots.append(slot)
+        return True
 
     def unrestored(self) -> dict[str, Any]:
         """A try's ``isolation`` when its copy isn't put back before it: a test's later try, when
@@ -661,18 +734,23 @@ class Copies:
                     self.late.append(label)
         slot.since_hash = []
 
-    async def close(self) -> list[str]:
+    async def close(self, keep: bool = False) -> list[str]:
         """Put every store back, check it whole when tries since the last full hash were checked
         only cheaply (:meth:`_end_check`), drop the databases' kept copies and take every copy
         down, each step tried whatever the one before did, then let the target's lock go. What
-        was left behind, in words."""
+        was left behind, in words.
+
+        *keep*: leave each compose copy put back running instead, parked for the target's next
+        run or look (:meth:`start` reuses it), with the trace intake its containers send to."""
         try:
-            return await self._close()
+            return await self._close(keep)
         finally:
             self.lock.release()
 
-    async def _close(self) -> list[str]:
+    async def _close(self, keep: bool = False) -> list[str]:
         left: list[str] = []
+        keep = keep and all(isinstance(s.copy, ComposeCopy) for s in self.slots)
+        parked: list[Slot] = []
         for slot in self.slots:
             if slot.adapter is not None:
                 # What it holds goes with the copy: a client, or the page's browser.
@@ -684,6 +762,12 @@ class Copies:
                     for driver, kept in slot.kept:
                         await asyncio.to_thread(driver.put_back, kept)
                     await self._end_check(slot)
+                if keep:
+                    # Put back, it stays up: what was stopped for the put back starts again.
+                    await self._resume(slot, "all")
+                    slot.adapter = None
+                    parked.append(slot)
+                    continue
             except Exception as exc:  # the copy goes anyway: it is evalution's own
                 _logger.warning("evals: %s not put back: %s", self.target, exc)
                 for label in slot.since_hash:  # nothing can vouch for the cheap checks now
@@ -691,20 +775,90 @@ class Copies:
                         label["problem"] = f"{DIDNT_HOLD}: the end-of-run put back failed ({exc})"
                         self.late.append(label)
                 slot.since_hash = []
-            for driver, kept in slot.kept:
-                drop = getattr(driver, "drop_golden", None)
-                if drop is not None:
-                    with contextlib.suppress(Exception):
-                        await asyncio.to_thread(drop, kept)
-            try:
-                left += await take_down(slot.copy)
-            except (LaunchError, DockerError, OSError) as exc:
-                left.append(f"{getattr(slot.copy, 'project', slot.copy)}: {exc}")
-            await asyncio.to_thread(shutil.rmtree, slot.work / "kept", True)
-        if self.intake is not None:
+            left += await _down(slot)
+        if keep:
+            parked += self.spare
+        else:
+            for slot in self.spare:
+                left += await _down(slot)
+        self.spare = []
+        if parked:
+            parked.sort(key=lambda s: s.index)
+            _PARKED[_key(self.config, self.target)] = _Parked(
+                parked, self.intake, dict(self.env), self.version
+            )
+        elif self.intake is not None:
             await self.intake.close()
-            self.intake = None
+        self.intake = None
         return left
+
+
+@dataclass
+class _Parked:
+    """Copies of a target left running between runs: their slots (stores put back, starting
+    state kept), the trace intake they send to, its settings, and the plan version they were
+    kept under."""
+
+    slots: list[Slot]
+    intake: Intake | None
+    env: dict[str, str]
+    version: int | None
+
+
+#: The copies parked in this server process, by data folder and target.
+_PARKED: dict[tuple[Path, str], _Parked] = {}
+
+
+def _key(config: Config, target: str) -> tuple[Path, str]:
+    return (Path(config.data_dir).resolve(), target)
+
+
+async def image_ids(copy: Copy) -> frozenset[tuple[str, str]]:
+    """Each service's image id a compose copy runs (started) or would start from (not)."""
+    if not isinstance(copy, ComposeCopy):
+        return frozenset()
+    return frozenset((i.service, i.id) for i in await copy.images())
+
+
+async def _down(slot: Slot) -> list[str]:
+    """Drop *slot*'s databases' kept copies and take its copy down; what was left behind."""
+    left: list[str] = []
+    for driver, kept in slot.kept:
+        drop = getattr(driver, "drop_golden", None)
+        if drop is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(drop, kept)
+    try:
+        left += await take_down(slot.copy)
+    except (LaunchError, DockerError, OSError) as exc:
+        left.append(f"{getattr(slot.copy, 'project', slot.copy)}: {exc}")
+    await asyncio.to_thread(shutil.rmtree, slot.work / "kept", True)
+    return left
+
+
+async def _down_parked(parked: _Parked) -> list[str]:
+    left: list[str] = []
+    for slot in parked.slots:
+        left += await _down(slot)
+    if parked.intake is not None:
+        await parked.intake.close()
+    return left
+
+
+async def drop(config: Config, target: str) -> list[str]:
+    """Take down *target*'s parked copies, if any: it was removed, or its plan is rehearsed
+    again. What was left behind."""
+    parked = _PARKED.pop(_key(config, target), None)
+    return await _down_parked(parked) if parked is not None else []
+
+
+async def drop_all() -> list[str]:
+    """Take down every parked copy: the server stops."""
+    left: list[str] = []
+    while _PARKED:
+        _, parked = _PARKED.popitem()
+        left += await _down_parked(parked)
+    return left
 
 
 async def _version(copy: Copy, checkout: Checkout, code: str | None) -> Version:

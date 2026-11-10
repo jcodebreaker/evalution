@@ -71,7 +71,7 @@ from evalution.judging.steps import EXTRA_OK, Step
 from evalution.runs.collect import Wanted, collect, read_spans
 from evalution.runs.leftover import leftover
 from evalution.runs.page.map import PageMapBroken
-from evalution.runs.page.target import PageFiles, PageTarget
+from evalution.runs.page.target import BrowserStuck, PageFiles, PageTarget
 from evalution.traces.base import Span, TraceSource
 from evalution.traces.view import TraceView, answered_at, build
 
@@ -263,6 +263,9 @@ async def play_try(
                 last_end = said.ended
     except _TryEnded:
         pass
+    except BrowserStuck as exc:
+        # Evalution's browser, not the app: the try isn't judged, and says which step stuck.
+        _ended(played, Failure.ADAPTER, str(exc))
     except TargetGone:
         _ended(played, Failure.UNREACHABLE, "the app's session went away")
     except UNREACHABLE_ERRORS as exc:

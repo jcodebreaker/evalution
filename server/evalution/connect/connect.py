@@ -34,6 +34,7 @@ from evalution.core import net
 from evalution.core.case import SLUG
 from evalution.storage import Docs
 from evalution.suite.store import list_sets, save_set
+from evalution.traces import otlp
 from evalution.traces.builtin import SpanStore, reader
 from evalution.traces.profile import recent_sessions
 
@@ -392,6 +393,8 @@ async def check(conf: TargetConfig, overlay: dict[str, str], store: SpanStore) -
         phoenix = part(
             False, "No answer in time", sessions_seen=0, has_llm_spans=False, reached=False
         )
+    # Spans sent here for the target that never reached its own Phoenix (traces/otlp.py).
+    phoenix["phoenix_dropped"] = otlp.dropped(store, conf.name)
     return {
         "adapter": adapter,
         "phoenix": phoenix,

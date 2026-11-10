@@ -517,6 +517,29 @@ async def sweep(gone: Callable[[str], bool]) -> list[str]:
     return removed
 
 
+async def down_idle(project: str, data_dir: Path) -> bool:
+    """Take *project* down when it is evalution's own idle copy: named ``eval-*``, its containers
+    all carrying one :data:`OWNER_LABEL` of an evalution of *data_dir* (running or not). Only for
+    a caller holding the target's lock (:class:`~evalution.isolation.lock.TargetLock`): no run
+    plays on it then, so it is one a server parked between runs. One without the label, or
+    another data folder's, is left, and its start says it is already running. Whether it was
+    taken down."""
+    owners = (await _owners()).get(guard(project))
+    if not owners or len(owners) != 1:
+        return False
+    if not _known(data_dir, next(iter(owners))):
+        return False
+    await down(project)
+    return True
+
+
+def _known(data_dir: Path, owner: str) -> bool:
+    """Whether *owner* is an evalution of *data_dir*, running or not: its owner file is there."""
+    if not _OWNER.match(owner):
+        return False
+    return (Path(data_dir).resolve() / "isolation" / "owners" / f"{owner}.lock").is_file()
+
+
 def _created(value: str) -> float:
     """Seconds since the epoch of Docker's ``Created`` (nanoseconds, ``Z``)."""
     head, _, rest = value.partition(".")
