@@ -30,8 +30,8 @@ export function ConnectView({
   first: boolean;
   /** The app is saved: the page follows it, on this screen. */
   onReady: (name: string) => Promise<unknown>;
-  /** There's a model to learn it with. */
-  onLearn: (name: string) => void;
+  /** There's a model to learn it with: starts the learn; what it rejects with is said. */
+  onLearn: (name: string) => unknown;
   onLearned: () => void;
   /** The test writer's thread: it learns the app, and says when it's done. */
   writer?: AgentSession | null;
@@ -60,7 +60,10 @@ export function ConnectView({
   useEffect(() => {
     if (name && modelChosen && !learning.current) {
       learning.current = true;
-      onLearn(name);
+      // A learn that didn't start says why: the stages would wait on it for good.
+      Promise.resolve(onLearn(name)).catch((failure: unknown) =>
+        setError(errorText(failure, "Couldn't start learning the app. Reload to try again.")),
+      );
     }
   }, [name, modelChosen, onLearn]);
 
@@ -114,10 +117,27 @@ export function ConnectView({
   const waiting = !!job?.traces && !job.traces.arriving;
   useEffect(() => {
     if (!id || status !== "working") return;
+    // One read at a time, and none heard once this one ends: an older "working" never comes
+    // back over "ready" on a slow clone.
+    let asking = false;
+    let over = false;
     const timer = window.setInterval(() => {
-      appApi.discovery(id).then(setJob, () => setError(UNREACHABLE));
+      if (asking) return;
+      asking = true;
+      appApi
+        .discovery(id)
+        .then(
+          (found) => over || setJob(found),
+          () => over || setError(UNREACHABLE),
+        )
+        .finally(() => {
+          asking = false;
+        });
     }, POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      over = true;
+      window.clearInterval(timer);
+    };
   }, [id, status]);
   const finishRef = useRef(finish);
   finishRef.current = finish;

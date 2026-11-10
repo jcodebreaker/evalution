@@ -6,7 +6,10 @@ import type { Agent } from "./agent";
 import { askedText, screenContext, withContext } from "./context";
 import { WriterPanel } from "./WriterPanel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 const at = (next: Partial<Place>): Place => ({
   target: "cartly",
@@ -71,10 +74,10 @@ function fakeAgent(ask: Agent["ask"]): Agent {
   };
 }
 
-function panel(ask: Agent["ask"], context: ReturnType<typeof screenContext>) {
+function panel(ask: Agent["ask"], context: ReturnType<typeof screenContext>, target = "cartly") {
   render(
     <WriterPanel
-      target="cartly"
+      target={target}
       agent={fakeAgent(ask)}
       runs={[]}
       runLabel={(run) => run}
@@ -124,5 +127,47 @@ describe("the assistant's composer", () => {
       null,
     );
     expect(screen.queryByRole("button", { name: "Remove context" })).toBeNull();
+  });
+});
+
+describe("what was typed and not sent", () => {
+  const field = () =>
+    screen.getByLabelText("Ask about your runs, traces or tests") as HTMLTextAreaElement;
+
+  it("comes back when the panel opens again, for its own app only, and goes once sent", async () => {
+    const ask = vi.fn(async () => {});
+    panel(ask, null);
+    fireEvent.change(field(), { target: { value: "Why is the second try slower" } });
+    cleanup();
+    panel(ask, null);
+    expect(field().value).toBe("Why is the second try slower");
+    cleanup();
+    panel(ask, null, "other");
+    expect(field().value).toBe("");
+    cleanup();
+    panel(ask, null);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(ask).toHaveBeenCalled());
+    await waitFor(() => expect(field().value).toBe(""));
+    cleanup();
+    panel(ask, null);
+    expect(field().value).toBe("");
+  });
+
+  it("is kept in the panel alone when the browser's storage can't be used", () => {
+    const failing = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    panel(
+      vi.fn(async () => {}),
+      null,
+    );
+    fireEvent.change(field(), { target: { value: "Still here" } });
+    expect(field().value).toBe("Still here");
+    expect(failing).toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 });

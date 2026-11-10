@@ -49,6 +49,7 @@ type RunLike = Pick<RunSummary, "status" | "analyzing" | "interrupted">;
 
 /** How a run came out in a word, and its colour: "Passed", "Failed", "Stopped early". */
 export function runState(run: RunLike, found: Tally): { word: string; tone: Tone; dot: Outcome } {
+  if (run.status === "queued") return { word: "Queued", tone: "neutral", dot: "none" };
   if (run.status === "running") return { word: "Running", tone: "tint", dot: "none" };
   if (run.analyzing) return { word: "Analyzing", tone: "tint", dot: "none" };
   if (run.interrupted) return { word: "Interrupted", tone: "neutral", dot: "none" };
@@ -81,7 +82,10 @@ export function runLine(
     "status" | "analyzing" | "interrupted" | "stop_reason" | "progress" | "scope" | "cases"
   >,
   found: Tally,
+  /** For a queued run, the label of the run it waits for ("Run 8"), when known. */
+  after: string | null = null,
 ): string {
+  if (run.status === "queued") return queuedWords(after);
   if (live(run)) return run.analyzing ? "Analyzing what went wrong" : progressText(run);
   const some =
     run.scope === "some" && run.cases.length ? ` · ${count(run.cases.length, "test")}` : "";
@@ -91,6 +95,10 @@ export function runLine(
   if (run.status === "stopped") return why ? `Stopped: ${why}` : `Stopped${some}`;
   return `${tallyWords(found)}${some}`;
 }
+
+/** A queued run in a line: "Queued · after Run 8", or that it waits for the app. */
+export const queuedWords = (after: string | null) =>
+  after ? `Queued · after ${after}` : "Queued · plays when the app is free";
 
 /** How long a run took, roughly: "35 s", "6 min"; `null` while it goes, or when nothing says. */
 export function took(run: Pick<RunSummary, "started_at" | "ended_at">): string | null {

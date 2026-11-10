@@ -21,7 +21,14 @@ from evalution.accounts.settings import (
     PUBLIC_URL_ENV,
 )
 from evalution.api.app import create_app
-from evalution.config import ConfigError, PhoenixConfig, load, page_model, page_targets
+from evalution.config import (
+    ConfigError,
+    PhoenixConfig,
+    load,
+    page_model,
+    page_targets,
+    save_page_target,
+)
 from evalution.connect import connect, probe
 from evalution.core import net
 from evalution.results.store import RunLock
@@ -115,6 +122,75 @@ def test_create_check_edit_delete(client, tmp_path) -> None:
     assert "shop" not in _saved(tmp_path)
     assert list_sets(docs, "shop") == ["main"]
     assert client.get("/v1/targets/shop").status_code == 404
+
+
+def test_a_save_from_the_page_keeps_what_the_form_doesnt_show(client, tmp_path) -> None:
+    """Mirroring off, where the browser reaches Phoenix, how many areas a learn reads at once,
+    the case slots and the test accounts: none is in the Details form, and a save keeps each."""
+    made = client.post("/v1/targets", json=_body(api_key=PROXY))
+    assert made.status_code == 201, made.text
+    docs = Database.open(tmp_path / "data").docs()
+    block = page_targets(docs)["shop"]
+    block["phoenix"].update(mirror=False, public_url="https://phoenix.example.test")
+    block["code"].update(area_parallel=4, summarize=0.5, area_model="light", include=["src/**"])
+    block.update(max_parallel=3, page_accounts=[{"email": "a@example.test", "password_env": "P"}])
+    save_page_target(docs, "shop", block)
+    extras = {
+        "phoenix": {"mirror": False, "public_url": "https://phoenix.example.test"},
+        "code": {
+            "area_parallel": 4,
+            "summarize": 0.5,
+            "area_model": "light",
+            "include": ["src/**"],
+        },
+        "top": {
+            "max_parallel": 3,
+            "page_accounts": [{"email": "a@example.test", "password_env": "P"}],
+        },
+    }
+
+    def stored() -> dict:
+        return page_targets(Database.open(tmp_path / "data").docs())["shop"]
+
+    def kept(saved: dict) -> None:
+        for key, value in extras["phoenix"].items():
+            assert saved["phoenix"][key] == value, key
+        for key, value in extras["code"].items():
+            assert saved["code"][key] == value, key
+        for key, value in extras["top"].items():
+            assert saved[key] == value, key
+        assert saved["api_key_env"] == "targets/shop/api_key"
+
+    with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as again:
+        view = again.get("/v1/targets/shop").json()
+        # What the page reads back is what it may send: no key of the block its adapter refuses.
+        assert view["options"] == {"url": "http://127.0.0.1:1", "assistant_id": "agent"}
+        assert view["phoenix"]["mirror"] is False
+        assert view["code"]["area_parallel"] == 4
+        # The page sends back what it read.
+        sent = again.put("/v1/targets/shop", json={**view, "secrets": {}})
+        assert sent.status_code == 200, sent.text
+        kept(stored())
+        # A form that sends only what it shows keeps the rest too.
+        assert again.put("/v1/targets/shop", json=_body()).status_code == 200
+        kept(stored())
+        assert load(tmp_path / "evalution.yaml").targets["shop"].phoenix.mirror is False
+        # Said, even as null, it is what the body says; a new Phoenix drops where it was reached.
+        body = _body()
+        body["phoenix"] = {"url": "http://127.0.0.1:2", "project": "shop", "mirror": True}
+        body["code"] = {"path": "app", "area_parallel": None, "summarize": 0.25}
+        assert again.put("/v1/targets/shop", json=body).status_code == 200
+        saved = stored()
+        assert "mirror" not in saved["phoenix"] and "public_url" not in saved["phoenix"]
+        assert "area_parallel" not in saved["code"] and saved["code"]["summarize"] == 0.25
+        assert saved["code"]["area_model"] == "light" and saved["max_parallel"] == 3
+        # Another adapter takes the old one's options away, never the rest.
+        moved = {**_http_body(), "phoenix": None, "code": None}
+        assert again.put("/v1/targets/shop", json=moved).status_code == 200
+        saved = stored()
+        assert "url" not in saved and "assistant_id" not in saved and "api_key_env" not in saved
+        assert "phoenix" not in saved and "code" not in saved
+        assert saved["max_parallel"] == 3 and saved["page_accounts"]
 
 
 def test_bad_bodies_are_refused_without_echo(client) -> None:

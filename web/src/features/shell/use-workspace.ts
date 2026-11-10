@@ -78,7 +78,7 @@ export function useWorkspace(place: Place) {
   };
 
   // The run going now, if any: followed until it settles, then the tests are read again.
-  const going = runs.find(live) ?? null;
+  const going = runs.find(playing) ?? runs.find(live) ?? null;
   // A run can start once the one going stopped playing, while its write-up goes on.
   const busy = runs.some(playing);
   useVisiblePoll(reloadRuns, POLL_MS, going !== null);

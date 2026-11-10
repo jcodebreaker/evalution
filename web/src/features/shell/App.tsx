@@ -175,9 +175,11 @@ export function App() {
               playing
                 ? {
                     label: `${playingLabel} · ${
-                      playing.analyzing
-                        ? "Analyzing"
-                        : progressText(playing, going ? "tests" : "questions")
+                      playing.status === "queued"
+                        ? "Queued"
+                        : playing.analyzing
+                          ? "Analyzing"
+                          : progressText(playing, going ? "tests" : "questions")
                     }`,
                     onOpen: () => {
                       if (going) showGoing();
@@ -228,7 +230,20 @@ export function App() {
         ) : null}
 
         {confirm ? (
-          <RunConfirm target={confirm} onClose={() => setConfirm(null)} onStarted={started} />
+          <RunConfirm
+            target={confirm}
+            known={
+              // The set on screen: its runs and tests are here already, read again by their polls.
+              scope && confirm.scope.target === scope.target && confirm.scope.set === scope.set
+                ? {
+                    runs: ready(workspace.runsLoad) ? runs : undefined,
+                    rows: ready(workspace.cases) ? rows : undefined,
+                  }
+                : {}
+            }
+            onClose={() => setConfirm(null)}
+            onStarted={started}
+          />
         ) : null}
       </div>
     </OpenEnvironment.Provider>

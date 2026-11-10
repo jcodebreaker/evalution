@@ -324,6 +324,36 @@ describe("A test's page", () => {
     history: [{ run: "20261108-162620-839b", at: 1794155180, verdict: "fail" }],
   });
 
+  it("opens at the try the page's address names, and keeps a try picked there", async () => {
+    vi.spyOn(api, "testPlan").mockResolvedValue(refused());
+    const asked = vi.spyOn(api, "tryResult").mockResolvedValue(TryResultSchema.parse(refused()));
+    vi.spyOn(api, "finding").mockRejectedValue(new Error("none"));
+    const onTry = vi.fn();
+    render(
+      <TestView
+        scope={{ target: "relay-lite", set: "page-stress" }}
+        appName="relay-lite"
+        id="code-block"
+        file={{ status: "ready", data: file }}
+        run="20261108-162620-839b"
+        live={false}
+        runLabel={() => "Run 9"}
+        stale={null}
+        going={false}
+        onRun={vi.fn()}
+        onRunResult={vi.fn()}
+        onAsk={vi.fn()}
+        onEdited={vi.fn()}
+        shownTry={2}
+        onTry={onTry}
+      />,
+    );
+    await waitFor(() =>
+      expect(asked).toHaveBeenCalledWith("20261108-162620-839b", "code-block", 2),
+    );
+    expect(onTry).not.toHaveBeenCalled();
+  });
+
   function open(onRun = vi.fn()) {
     vi.spyOn(api, "testPlan").mockResolvedValue(refused());
     vi.spyOn(api, "tryResult").mockResolvedValue(TryResultSchema.parse(refused()));

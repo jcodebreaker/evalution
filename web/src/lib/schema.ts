@@ -54,6 +54,8 @@ export const TargetDetailSchema = z.object({
       url: z.string(),
       project: z.string(),
       public_url: z.string().optional(),
+      /** Finished runs are written to it as datasets and experiments too (on by default). */
+      mirror: z.boolean().default(true),
     })
     .nullable()
     .default(null),
@@ -64,6 +66,8 @@ export const TargetDetailSchema = z.object({
       include: z.array(z.string()).default([]),
       summarize: z.number().nullable().default(null),
       area_model: z.string().nullable().default(null),
+      /** Areas a learn reads at once; `null`: the default. */
+      area_parallel: z.number().nullable().default(null),
       /** The one agent tested on a platform that hosts many; `null`: all of them. */
       focus: z.string().nullable().default(null),
       /** When a learn reads the areas: `on_demand` (the default) or `full`. */
@@ -339,13 +343,14 @@ export type TargetBody = {
   adapter: string;
   options: Record<string, unknown>;
   /** The app's own Phoenix, read too; `null` when evalution's own traces are all it has. */
-  phoenix: { url: string; project: string } | null;
+  phoenix: { url: string; project: string; public_url?: string; mirror?: boolean } | null;
   code: {
     path: string;
     ignore: string[];
     include?: string[];
     summarize?: number | null;
     area_model?: string | null;
+    area_parallel?: number | null;
     focus?: string | null;
     learn?: string | null;
   } | null;
@@ -938,7 +943,11 @@ export const RunSummarySchema = z.object({
   /** When it ended; `null` while it goes, or from an older server. */
   ended_at: z.number().nullable().catch(null).default(null),
   environment: EnvironmentSchema.default({ where: "local", name: null }),
-  status: z.enum(["running", "done", "stopped", "failed"]),
+  /** `queued`: asked for while another run played (here or in another process); it plays when
+   * that one ends, and Stop takes it off. */
+  status: z.enum(["queued", "running", "done", "stopped", "failed"]),
+  /** When a queued run was asked for; `null` for one that never waited, or an older server. */
+  queued_at: z.number().nullable().catch(null).default(null),
   /** Why a failed run stopped, as a kind (`version_not_built`, `app_not_ready`, ...) and in words;
    * older servers don't say. */
   failure: z.string().nullable().catch(null).default(null),

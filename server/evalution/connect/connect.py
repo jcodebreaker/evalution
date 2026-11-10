@@ -111,6 +111,11 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
         }
         if public := _text(phoenix, "public_url", "phoenix", required=False):
             block["phoenix"]["public_url"] = public
+        mirror = phoenix.get("mirror")
+        if mirror is not None and not isinstance(mirror, bool):
+            raise TargetError("phoenix.mirror: true or false")
+        if mirror is False:
+            block["phoenix"]["mirror"] = False
         if PHOENIX_SECRET in have:
             block["phoenix"]["api_key_env"] = _ref(name, PHOENIX_SECRET)
 
@@ -157,6 +162,47 @@ def parse(name: str, body: dict[str, Any], stored: set[str]) -> tuple[dict, dict
     elif code not in (None, {}) and not isinstance(code, dict):
         raise TargetError("code: {path, ignore, include}")
     return block, {_ref(name, k): v for k, v in changes.items()}
+
+
+def _owned(info: AdapterInfo | None) -> set[str]:
+    """The keys of a target's block that *info*'s adapter writes from the form's options."""
+    if info is None:
+        return set()
+    return (
+        set(info.options)
+        | {f"{key}_env" for key in info.secrets}
+        | set(info.block({}, {key: "" for key in info.secrets}))
+    )
+
+
+#: What a target's block holds beside its adapter's options, edited by the form as a whole.
+_FORM_KEYS = ("adapter", "phoenix", "code")
+
+
+def keep_unsent(
+    block: dict[str, Any], body: dict[str, Any], stored: dict[str, Any], was: str
+) -> None:
+    """Keep in *block* (just parsed from *body*) what *stored*, the block saved before, holds and
+    *body* leaves out, as a form that doesn't show it sends it: a key of the block that neither
+    adapter (*was*, before, nor the new one) writes from its options (``page``,
+    ``page_accounts``, ``max_parallel``); the Phoenix and code settings *body* doesn't name
+    (``mirror``, ``public_url`` while ``url`` stays, ``area_parallel``, ``focus``, ``learn``...).
+    A setting named, even as ``null``, is what *body* says; a ``phoenix`` or ``code`` of
+    ``null`` takes it all away."""
+    owned = _owned(adapter_info(block["adapter"])) | _owned(adapter_info(was))
+    for key, value in stored.items():
+        if key not in _FORM_KEYS and key not in owned and key not in block:
+            block[key] = value
+    for section in ("phoenix", "code"):
+        given, old, new = body.get(section), stored.get(section), block.get(section)
+        if not isinstance(given, dict) or not isinstance(old, dict) or not isinstance(new, dict):
+            continue
+        for key, value in old.items():
+            if key in given or key in new or key == "api_key_env":
+                continue
+            if section == "phoenix" and key == "public_url" and new.get("url") != old.get("url"):
+                continue  # Where the browser reaches another Phoenix isn't known.
+            new[key] = value
 
 
 def _secrets(info: AdapterInfo, given: Any) -> dict[str, str | None]:
@@ -244,10 +290,19 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
     block = conf.options
     info = adapter_info(conf.adapter)
     options = info.page_options(block) if info else flat_options(block)
-    options = {k: v for k, v in options.items() if not k.endswith("_env")}
+    # Only what the form edits and sends back: the rest of the block is kept on save.
+    options = {
+        k: v
+        for k, v in options.items()
+        if not k.endswith("_env") and (info is None or k in info.options)
+    }
     phoenix = None
     if conf.phoenix:
-        phoenix = {"url": conf.phoenix.url, "project": conf.phoenix.project}
+        phoenix = {
+            "url": conf.phoenix.url,
+            "project": conf.phoenix.project,
+            "mirror": conf.phoenix.mirror,
+        }
         if conf.phoenix.public_url:
             phoenix["public_url"] = conf.phoenix.public_url
     raw_code = block.get("code") if isinstance(block.get("code"), dict) and conf.code else None
@@ -258,6 +313,7 @@ def view(conf: TargetConfig, managed: bool) -> dict[str, Any]:
             "include": list(conf.code.include),
             "summarize": conf.code.summarize,
             "area_model": conf.code.area_model,
+            "area_parallel": conf.code.area_parallel,
             "focus": conf.code.focus,
             "learn": conf.code.learn,
         }

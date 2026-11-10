@@ -1,4 +1,14 @@
-import { count, live, percent, score, seconds, signed, tokens, when } from "../../lib/format";
+import {
+  count,
+  live,
+  percent,
+  queuedAfter,
+  score,
+  seconds,
+  signed,
+  tokens,
+  when,
+} from "../../lib/format";
 import type { CaseRow, RunDetail, RunSummary } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { PAGE_ONLY_RUN } from "../../lib/verdict";
@@ -8,7 +18,7 @@ import { Delta, type DeltaTone } from "../shared/kit";
 import { Centered, Page } from "../shared/layout";
 import { Comparison, MORE_TRIES } from "./Comparison";
 import { Scores } from "./Details";
-import { parts, runState, type Tally, tally, took } from "./outcome";
+import { parts, queuedWords, runState, type Tally, tally, took } from "./outcome";
 import { Progress } from "./Progress";
 import { Card, Chip, Notice, PartsBar, Pill, Ring, Swatch } from "./parts";
 import { Results } from "./Results";
@@ -58,6 +68,7 @@ export function RunView({
   }
   const run = load.data;
   const isLive = live(run);
+  const after = queuedAfter(runs, run);
   const found = tally(
     run.totals,
     run.cases.map((row) => row.verdict),
@@ -78,7 +89,11 @@ export function RunView({
       />
       <div className="grid items-start gap-5 min-[1180px]:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-5">
-          {isLive ? (
+          {run.status === "queued" ? (
+            <Notice tone="neutral" data-testid="queued-run">
+              {`${queuedWords(after ? label(after) : null)}. Stop takes it off the queue.`}
+            </Notice>
+          ) : isLive ? (
             <Progress run={run} onTest={onTest} />
           ) : (
             <>
@@ -177,7 +192,7 @@ function RunHeader({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {run.status === "running" ? (
+        {run.status === "running" || run.status === "queued" ? (
           <Button variant="secondary" onClick={() => void onStop(run.run)}>
             Stop
           </Button>

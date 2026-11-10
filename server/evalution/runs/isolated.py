@@ -91,7 +91,7 @@ from evalution.isolation.plan import Plan, PlanStore, hashes, not_put_back, stal
 from evalution.isolation.setup import Setup, SetupError, person_name, seed_path, setup_for
 from evalution.results.record import isolation, run_isolation
 from evalution.runs.page.map import page_map_of
-from evalution.runs.page.target import Missing, on_page, page_lacks
+from evalution.runs.page.target import Missing, PageBrowser, browser_key, on_page, page_lacks
 from evalution.suite.cases import CaseError
 from evalution.traces import otlp, setup
 from evalution.traces.builtin import TARGET_PREFIX, SpanStore
@@ -303,6 +303,9 @@ class Slot:
     #: Containers left running while the copy is stopped: a driver works in them.
     keep_up: list[str] = field(default_factory=list)
     adapter: Target | None = None
+    #: The browser its page target plays in, when the target has a page map: kept with the copy
+    #: while it is parked, so the next run on it launches none; closed with the copy.
+    browser: PageBrowser | None = None
     #: Stores the plan names that no driver resets, in words.
     notes: list[str] = field(default_factory=list)
     #: How far the copy stops while it is put back (:mod:`evalution.isolation.hot`): ``all``
@@ -528,12 +531,22 @@ class Copies:
         """Point an adapter at *slot*'s copy, playing as the setup's test person; whether it took
         the person."""
         index = slot.index
+        conf = self.config.targets[self.target]
+        # The browser kept with a parked copy plays on while the copy and the page map are the
+        # same; another map, or none, closes it.
+        key = browser_key(conf, slot.copy.url)
+        if slot.browser is not None and slot.browser.key != key:
+            await slot.browser.close()
+            slot.browser = None
+        if key is not None and slot.browser is None:
+            slot.browser = PageBrowser(key)
         # Through the app's page too, when the target has a page map (ADR 0010).
         slot.adapter = on_page(
-            self.config.targets[self.target],
+            conf,
             adapter_on(self.config, self.target, slot.copy.url),
             slot.copy.url,
             index,
+            browser=slot.browser,
         )
         took = await play_as(slot.adapter, self.setup.person)
         _watch_opens(slot)
@@ -753,9 +766,11 @@ class Copies:
         parked: list[Slot] = []
         for slot in self.slots:
             if slot.adapter is not None:
-                # What it holds goes with the copy: a client, or the page's browser.
+                # What it holds goes: a client, the page's contexts. The page's browser stays
+                # with a copy kept for the next run, and goes with it (_down).
+                let_go = getattr(slot.adapter, "let_go", None)
                 with contextlib.suppress(Exception):
-                    await slot.adapter.dispose()
+                    await (let_go() if keep and let_go is not None else slot.adapter.dispose())
             try:
                 if slot.kept:
                     await self._pause(slot, "all")
@@ -821,8 +836,13 @@ async def image_ids(copy: Copy) -> frozenset[tuple[str, str]]:
 
 
 async def _down(slot: Slot) -> list[str]:
-    """Drop *slot*'s databases' kept copies and take its copy down; what was left behind."""
+    """Close *slot*'s page browser, drop its databases' kept copies and take its copy down; what
+    was left behind."""
     left: list[str] = []
+    if slot.browser is not None:
+        browser, slot.browser = slot.browser, None
+        with contextlib.suppress(Exception):
+            await browser.close()
     for driver, kept in slot.kept:
         drop = getattr(driver, "drop_golden", None)
         if drop is not None:

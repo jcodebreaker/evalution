@@ -19,6 +19,9 @@ export type Place = {
   run: string | null;
   case: string | null;
   base: string | null;
+  /** The try a test's page shows (`1`, `2`...); none: the one it picks. Cleared whenever the
+   * screen, the test or the run changes. */
+  try?: string | null;
 };
 
 const VIEWS: View[] = [
@@ -31,7 +34,7 @@ const VIEWS: View[] = [
   "connect",
   "model",
 ];
-const KEYS = ["target", "set", "view", "run", "case", "base"] as const;
+const KEYS = ["target", "set", "view", "run", "case", "base", "try"] as const;
 /** Places links from before the App screen still name. */
 const OLD: Record<string, View> = {
   understanding: "app",
@@ -53,6 +56,7 @@ function read(): Place {
     run: params.get("run"),
     case: params.get("case"),
     base: params.get("base"),
+    try: params.get("try"),
   };
 }
 
@@ -92,6 +96,9 @@ export function usePlace() {
   const go = useCallback((next: Partial<Place>, replace = false) => {
     setPlace((now) => {
       const merged = { ...now, ...next };
+      // A try belongs to its test in its run: another one opens at its own default.
+      const moved = merged.view !== now.view || merged.case !== now.case || merged.run !== now.run;
+      if (moved && !("try" in next)) merged.try = null;
       write(merged, replace);
       return merged;
     });

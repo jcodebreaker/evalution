@@ -114,3 +114,83 @@ it("a recent folder connects at once, and the technical form stays under Details
     }),
   );
 });
+
+it("reads the folder one answer at a time: a slow one is never asked over", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const working = { id: "d1", folder: "/c/cartly", status: "working", steps: [], questions: [] };
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init: RequestInit = {}) => {
+        if (init.method === "POST") {
+          const headers = { "content-type": "application/json" };
+          return new Response(JSON.stringify(working), { status: 200, headers });
+        }
+        if (!path.startsWith("/v1/targets/discover/d1")) {
+          return new Response("{}", {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        reads += 1;
+        return new Promise<Response>(() => {}); // a slow clone: this read never answers
+      }),
+    );
+    connect();
+    const field = screen.getByLabelText("Folder, GitHub repository or address");
+    fireEvent.change(field, { target: { value: "/c/cartly" } });
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Folder, GitHub repository or address")).toBeNull(),
+    );
+    vi.advanceTimersByTime(700 * 5);
+    expect(reads).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("says so when learning the app couldn't start, instead of waiting on it", async () => {
+  const ready = {
+    id: "d1",
+    folder: "/c/cartly",
+    status: "ready",
+    steps: [],
+    questions: [],
+    target: { name: "cartly", adapter: "http", options: {} },
+  };
+  serve({
+    "POST /v1/targets/discover": { body: ready },
+    "GET /v1/targets/discover/d1": { body: ready },
+    "POST /v1/targets/discover/d1/accept": { body: { name: "cartly", adapter: "http" } },
+    "GET /v1/targets": { body: { data: [] } },
+    "GET /v1/settings/model": {
+      body: {
+        provider: "anthropic",
+        base_url: "https://api.anthropic.test",
+        strong: "strong-model",
+        light: "light-model",
+        key_set: true,
+        source: "page",
+      },
+    },
+  });
+  const onLearn = vi.fn(async () => {
+    throw new Error("the server said no");
+  });
+  render(
+    <ConnectView
+      first
+      onReady={async () => {}}
+      onLearn={onLearn}
+      onLearned={() => {}}
+      onAsk={async () => {}}
+    />,
+  );
+  const field = screen.getByLabelText("Folder, GitHub repository or address");
+  fireEvent.change(field, { target: { value: "/c/cartly" } });
+  fireEvent.submit(field.closest("form") as HTMLFormElement);
+  await waitFor(() => expect(onLearn).toHaveBeenCalledWith("cartly"));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't start learning/);
+});

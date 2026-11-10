@@ -34,7 +34,9 @@ New chat only when mapped.
 
 One browser per page target, so one per copy, launched on first use: Playwright's own Chromium when
 it is installed, else the system Chrome (``EVALUTION_CHROME``, or the usual place on a Mac).
-Nothing is ever downloaded. A new browser context per session, and again on reset, so cookies,
+Nothing is ever downloaded. A copy parked between runs keeps its browser (:class:`PageBrowser`),
+so the next run on it launches none while the copy and the page map stay the same; it is closed
+with the copy. A new browser context per session, and again on reset, so cookies,
 local storage and IndexedDB never carry from one try to the next. Headers are added only to
 requests for the copy's origin: the map's sign-in headers and the try's ``X-Evalution-Run`` and
 ``X-Evalution-Try``. Any other origin the page reaches gets nothing added. Each step the browser
@@ -77,6 +79,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import difflib
+import hashlib
 import importlib.util
 import json
 import logging
@@ -130,6 +133,7 @@ from evalution.runs.page.map import (
     PageMap,
     PageMapBroken,
     Proof,
+    as_block,
     fill_urls,
     page_map_of,
     page_only,
@@ -333,12 +337,18 @@ def page_capabilities(inner: Capabilities, page: PageMap) -> Capabilities:
 
 
 def on_page(
-    target: TargetConfig, adapter: Target, copy_url: str, slot: int = 0, page: PageMap | None = None
+    target: TargetConfig,
+    adapter: Target,
+    copy_url: str,
+    slot: int = 0,
+    page: PageMap | None = None,
+    browser: PageBrowser | None = None,
 ) -> Target:
     """*adapter*, played through the target's page on the copy at *copy_url* when it has a page
-    map (or *page*, a map being learned, in its place), signing in as slot *slot*'s test account;
-    else *adapter* as it is. A target reached through its page alone (``adapter: page``) is played
-    by the page target with no inner adapter: *adapter*, its stand-in, plays nothing.
+    map (or *page*, a map being learned, in its place), signing in as slot *slot*'s test account,
+    in *browser* when given (kept with the copy); else *adapter* as it is. A target reached
+    through its page alone (``adapter: page``) is played by the page target with no inner
+    adapter: *adapter*, its stand-in, plays nothing.
 
     :raises ConfigError: The target's page map, or its ``page_accounts``, doesn't read.
     """
@@ -368,6 +378,7 @@ def on_page(
         secrets=[value for value in told if value],
         name=target.name,
         trace_attribute=target.trace_attribute,
+        browser=browser,
     )
 
 
@@ -458,6 +469,82 @@ def _api() -> Any:
     return async_api
 
 
+class PageBrowser:
+    """A page target's browser: Playwright's driver, its handle and the browser, launched on
+    first use and closed by :meth:`close`. Kept with a copy parked between runs, so the run after
+    reuses it (each session still gets a context of its own).
+
+    :param key: What it was launched for: the copy's address and the page map
+        (:func:`browser_key`); another one needs another browser.
+    """
+
+    def __init__(self, key: str = "") -> None:
+        self.key = key
+        self.driver: Any = None
+        self.playwright: Any = None
+        self.browser: Any = None
+        self._lock = asyncio.Lock()
+
+    async def launched(self) -> Any:
+        """The browser, launched on first use, and again once the one kept has gone away.
+
+        :raises PageUnavailable: No Playwright, or no browser to launch.
+        """
+        async with self._lock:
+            if self.browser is not None:
+                if self.browser.is_connected():
+                    return self.browser
+                await self.close()  # it went away while kept: its driver goes too
+            driver = _api().async_playwright()
+            try:
+                playwright = await asyncio.wait_for(driver.start(), BROWSER_SECONDS)
+            except TimeoutError as exc:
+                _kill_driver(driver)
+                raise BrowserStuck(f"Playwright didn't start in {BROWSER_SECONDS:g} s") from exc
+            try:
+                own = Path(playwright.chromium.executable_path)
+                timeout = BROWSER_SECONDS * 1000
+                if await asyncio.to_thread(own.is_file):
+                    browser = await playwright.chromium.launch(headless=True, timeout=timeout)
+                elif (chrome := system_chrome()) is not None:
+                    browser = await playwright.chromium.launch(
+                        headless=True, executable_path=chrome, timeout=timeout
+                    )
+                else:
+                    raise PageUnavailable(NO_BROWSER)
+            except BaseException:
+                if not await _closed(playwright.stop()):
+                    _kill_driver(driver)
+                raise
+            self.driver, self.playwright, self.browser = driver, playwright, browser
+            return browser
+
+    async def close(self, stuck: bool = False) -> None:
+        """Close the browser and stop Playwright, each in :data:`BROWSER_SECONDS`; when one
+        doesn't end in time (or *stuck* says a close in it already didn't), Playwright's driver is
+        killed, which takes the browser down with it."""
+        browser, self.browser = self.browser, None
+        playwright, self.playwright = self.playwright, None
+        driver, self.driver = self.driver, None
+        if browser is not None and not stuck:
+            stuck = not await _closed(browser.close())
+        if playwright is not None and (stuck or not await _closed(playwright.stop())):
+            _kill_driver(driver)
+
+
+def browser_key(target: TargetConfig, copy_url: str) -> str | None:
+    """What a browser for *target*'s page on the copy at *copy_url* is launched for: the copy's
+    address and the page map. ``None`` when it has no page map to play through."""
+    try:
+        page = page_map_of(target)
+    except ConfigError:
+        return None
+    if page is None:
+        return None
+    made = json.dumps(as_block(page), sort_keys=True)
+    return f"{copy_url} {hashlib.sha256(made.encode()).hexdigest()[:16]}"
+
+
 class PageTarget(Target):
     """*inner*, played with the app's page open on evalution's copy; or, with no *inner*, the app
     reached through its page alone (see the module's docstring).
@@ -469,6 +556,8 @@ class PageTarget(Target):
     :param element_seconds: How long an element the map names may take to show.
     :param name: The target's name, when there is no *inner* to take it from.
     :param trace_attribute: The span attribute a page-only session's id is found by.
+    :param browser: The browser to play in, kept with the copy beyond this target
+        (:meth:`let_go` leaves it open); else one of its own.
     :raises ConfigError: An *inner* adapter, and a map that doesn't say how the page shows the
         conversation it opened (``open_session``).
     """
@@ -485,6 +574,7 @@ class PageTarget(Target):
         element_seconds: float = ELEMENT_SECONDS,
         name: str | None = None,
         trace_attribute: str = "session.id",
+        browser: PageBrowser | None = None,
     ) -> None:
         self.inner = inner
         self.name = inner.name if inner is not None else name or "page"
@@ -509,11 +599,8 @@ class PageTarget(Target):
         self.element_seconds = element_seconds
         self._secrets = {s for s in secrets or () if len(s) >= _SCRUB_SHORTEST}
         self._copy = _origin(copy_page)
-        self._lock = asyncio.Lock()
         #: Playwright's driver, its handle and the browser, once launched (:meth:`_launched`).
-        self._driver: Any = None
-        self._playwright: Any = None
-        self._browser: Any = None
+        self._held = browser if browser is not None else PageBrowser()
         #: Each session's context and its page, by the key ``Session.extra["page"]`` holds. The
         #: page is ``None`` once a try's was closed to finish its video, until the next turn.
         self._open: dict[str, tuple[Any, Any]] = {}
@@ -557,36 +644,19 @@ class PageTarget(Target):
     # The browser
 
     async def _launched(self) -> Any:
-        """The browser, launched on first use.
+        """The browser, launched on first use (:meth:`PageBrowser.launched`).
 
         :raises PageUnavailable: No Playwright, or no browser to launch.
         """
-        async with self._lock:
-            if self._browser is not None:
-                return self._browser
-            driver = _api().async_playwright()
-            try:
-                playwright = await asyncio.wait_for(driver.start(), BROWSER_SECONDS)
-            except TimeoutError as exc:
-                _kill_driver(driver)
-                raise BrowserStuck(f"Playwright didn't start in {BROWSER_SECONDS:g} s") from exc
-            try:
-                own = Path(playwright.chromium.executable_path)
-                timeout = BROWSER_SECONDS * 1000
-                if await asyncio.to_thread(own.is_file):
-                    browser = await playwright.chromium.launch(headless=True, timeout=timeout)
-                elif (chrome := system_chrome()) is not None:
-                    browser = await playwright.chromium.launch(
-                        headless=True, executable_path=chrome, timeout=timeout
-                    )
-                else:
-                    raise PageUnavailable(NO_BROWSER)
-            except BaseException:
-                if not await _closed(playwright.stop()):
-                    _kill_driver(driver)
-                raise
-            self._driver, self._playwright, self._browser = driver, playwright, browser
-            return browser
+        return await self._held.launched()
+
+    @property
+    def _browser(self) -> Any:
+        return self._held.browser
+
+    @property
+    def _driver(self) -> Any:
+        return self._held.driver
 
     async def _step[T](self, step: Awaitable[T], what: str) -> T:
         """*step*, one the browser has no deadline of its own for, in :data:`BROWSER_SECONDS`.
@@ -1753,26 +1823,34 @@ class PageTarget(Target):
         if self.inner is not None:
             await self.inner.dispose()
 
+    async def let_go(self) -> None:
+        """What :meth:`dispose` does, but the browser stays open for the next target given it:
+        the copy it plays on is parked. Every context in it is closed; one that doesn't close in
+        time closes the browser too."""
+        if not await self._close_contexts():
+            await self._held.close(stuck=True)
+        if self.inner is not None:
+            await self.inner.dispose()
+
     async def dispose_browser(self) -> None:
         """Close the browser and every context in it; the inner adapter stays as it is. Each close
         gets :data:`BROWSER_SECONDS`; once one doesn't end in time, the browser is stuck and
         Playwright's driver is killed, which takes the browser down with it."""
+        await self._held.close(stuck=not await self._close_contexts())
+
+    async def _close_contexts(self) -> bool:
+        """Close every context this target opened, and drop their videos; whether each closed in
+        time."""
         contexts = [context for context, _ in self._open.values()]
         self._open.clear()
         self._records.clear()
-        browser, self._browser = self._browser, None
-        playwright, self._playwright = self._playwright, None
-        driver, self._driver = self._driver, None
         stuck = False
         for context in contexts:
             stuck = stuck or not await _closed(context.close())
         for folder in list(self._videos.values()):
             await asyncio.to_thread(shutil.rmtree, folder, True)
         self._videos.clear()
-        if browser is not None and not stuck:
-            stuck = not await _closed(browser.close())
-        if playwright is not None and (stuck or not await _closed(playwright.stop())):
-            _kill_driver(driver)
+        return not stuck
 
     # The rest is the inner adapter's; page-only, the contract's defaults: none of it
 

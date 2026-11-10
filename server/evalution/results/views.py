@@ -267,6 +267,9 @@ def summary(run: Mapping[str, Any]) -> dict[str, Any]:
         # ``page_only`` (its page alone, every reply what the page showed); a run stored before
         # this was kept says nothing, and reads as it did.
         **({"plays": run["plays"]} if run.get("plays") else {}),
+        # When a run asked for while another played was queued; a run that never waited says
+        # nothing.
+        **({"queued_at": run["queued_at"]} if run.get("queued_at") else {}),
         "case_ids": list(run["cases"]),
         "tests": [_run_test(run, k, c) for k, c in run["cases"].items()],
         "analyzing": bool(run.get("analyzing")),

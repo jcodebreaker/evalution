@@ -3,12 +3,13 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
-import { live, progressText, tokens, when } from "../../lib/format";
+import { live, progressText, queuedAfter, tokens, when } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { benchmarkName } from "../benchmarks/Glance";
 import { Dot, Meter, PageHead } from "../shared/kit";
 import { Centered, Page } from "../shared/layout";
+import { queuedWords } from "./outcome";
 import { Card } from "./parts";
 import { RUN_COLUMNS, RunColumns, RunRow } from "./RunRow";
 import { VersionChip, versionChip } from "./Version";
@@ -39,7 +40,8 @@ export function versionsOf(runs: RunSummary[]): string[] {
 }
 
 /** What a going run plays now, in a line: "2 of 3 tests · Adds to the cart once · try 1 · grading". */
-export function goingWords(run: RunSummary): string {
+export function goingWords(run: RunSummary, after: string | null = null): string {
+  if (run.status === "queued") return queuedWords(after);
   if (run.analyzing) return "Analyzing what went wrong";
   const current = run.progress.current;
   return [
@@ -53,20 +55,33 @@ export function goingWords(run: RunSummary): string {
 }
 
 /** The run playing now: how far it is, what it plays, and Stop and Open. */
-function LiveRun({ run, label, onOpen }: { run: RunSummary; label: string; onOpen: () => void }) {
+function LiveRun({
+  run,
+  label,
+  after,
+  onOpen,
+}: {
+  run: RunSummary;
+  label: string;
+  after: string | null;
+  onOpen: () => void;
+}) {
   const [stopping, setStopping] = useState(false);
   const { done, total } = run.progress;
   return (
-    <Card aria-label={`${label}, playing`} data-testid="live-run">
+    <Card
+      aria-label={`${label}, ${run.status === "queued" ? "queued" : "playing"}`}
+      data-testid="live-run"
+    >
       <div className="flex flex-wrap items-center gap-4 p-5">
         <Dot verdict="go" />
         <b className="font-semibold">{label}</b>
         <VersionChip version={run.version} />
         <div className="min-w-0 flex-[1_1_200px]">
           <Meter value={total ? done / total : 0} tone="go" label={`${done} of ${total} tries`} />
-          <p className="m-0 mt-1.5 truncate text-sm text-ink-3">{goingWords(run)}</p>
+          <p className="m-0 mt-1.5 truncate text-sm text-ink-3">{goingWords(run, after)}</p>
         </div>
-        {run.status === "running" ? (
+        {run.status === "running" || run.status === "queued" ? (
           <Button
             variant="secondary"
             disabled={stopping}
@@ -156,6 +171,10 @@ export function RunsView({
   // A benchmark run that stopped before playing anything has nothing behind it.
   const played = benchmarks.filter((run) => live(run) || run.tests.some((test) => test.tries));
   const going = runs.filter(live);
+  const after = (run: RunSummary) => {
+    const before = queuedAfter(runs, run);
+    return before ? label(before) : null;
+  };
   if (!places.length && !played.length && !only) {
     return (
       <Centered>
@@ -201,6 +220,7 @@ export function RunsView({
           key={run.run}
           run={run}
           label={label(run.run)}
+          after={after(run)}
           onOpen={() => onOpen(run.run, null)}
         />
       ))}
@@ -219,6 +239,7 @@ export function RunsView({
                     key={run.run}
                     run={run}
                     label={label(run.run)}
+                    after={after(run)}
                     onOpen={() => onOpen(run.run, null)}
                   />
                 ))}

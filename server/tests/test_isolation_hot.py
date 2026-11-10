@@ -560,3 +560,107 @@ async def test_the_server_stopping_takes_the_copy_down(parked) -> None:
     parked.events.clear()
     await isolated.drop_all()
     assert parked.events.count("take down") == 1 and not isolated._PARKED
+
+
+# The page's browser stays with a parked copy ---------------------------------------------------
+
+PAGE_MAP = {
+    "url": "{copy_page}/chat",
+    "ready": {"role": "textbox", "name": "Message"},
+    "actions": {
+        "type": {"fill": {"role": "textbox", "name": "Message"}},
+        "send": {"click": {"role": "button", "name": "Send"}},
+    },
+    "replies": {"in": {"role": "log", "name": "Messages"}},
+}
+
+
+class FakeBrowser:
+    """A browser that says when it was closed."""
+
+    def __init__(self, events: list[str], n: int) -> None:
+        self.events, self.n, self.open = events, n, True
+
+    def is_connected(self) -> bool:
+        return self.open
+
+    async def close(self) -> None:
+        self.open = False
+        self.events.append(f"browser {self.n} closed")
+
+
+@pytest.fixture
+def paged(parked, config, monkeypatch):
+    """The parked rig's target played through its page alone, in browsers that are only counted."""
+    from dataclasses import replace
+
+    from evalution.runs.page import target as page_target
+
+    launched: list[FakeBrowser] = []
+
+    class Chromium:
+        executable_path = __file__  # a file that is there: Playwright's own Chromium
+
+        async def launch(self, **_: Any) -> FakeBrowser:
+            launched.append(FakeBrowser(parked.events, len(launched) + 1))
+            parked.events.append(f"browser {len(launched)} launched")
+            return launched[-1]
+
+    class Playwright:
+        chromium = Chromium()
+
+        async def stop(self) -> None:
+            return None
+
+    class Driver:
+        async def start(self) -> Playwright:
+            return Playwright()
+
+    monkeypatch.setattr(
+        page_target, "_api", lambda: SimpleNamespace(async_playwright=Driver, Error=Exception)
+    )
+    bot = config.targets["bot"]
+
+    def mapped(page: dict[str, Any]) -> None:
+        options = {**bot.options, "adapter": "page", "page": page}
+        config.targets["bot"] = replace(bot, adapter="page", options=options)
+
+    mapped(PAGE_MAP)
+
+    async def run_once(**kwargs: Any) -> isolated.Copies:
+        """A run whose page target opens its browser, as a page try would."""
+        copies = await parked.run(**kwargs)
+        for slot in copies.slots:
+            await slot.adapter._launched()
+        return copies
+
+    yield SimpleNamespace(run=run_once, launched=launched, mapped=mapped, parked=parked)
+    config.targets["bot"] = bot
+
+
+async def test_two_runs_on_a_parked_copy_launch_the_browser_once(paged) -> None:
+    first = await paged.run()
+    await first.close(keep=True)
+    assert len(paged.launched) == 1 and paged.launched[0].open, "kept with the copy"
+    second = await paged.run()
+    assert len(paged.launched) == 1, "the second run launched another browser"
+    assert second.slots[0].adapter._browser is paged.launched[0]
+    await second.close(keep=True)
+    # The server stopping takes the browser down with the copy.
+    await isolated.drop_all()
+    assert not paged.launched[0].open
+
+
+async def test_a_replaced_copy_or_a_changed_map_launches_a_new_browser(paged) -> None:
+    await (await paged.run()).close(keep=True)
+    # New images: the copy is taken down, and its browser with it.
+    paged.parked.images["now"] = frozenset({("app", "sha256:two")})
+    await (await paged.run()).close(keep=True)
+    assert len(paged.launched) == 2 and not paged.launched[0].open and paged.launched[1].open
+    # The same copy, another page map: another browser.
+    paged.mapped({**PAGE_MAP, "url": "{copy_page}/other"})
+    await (await paged.run()).close(keep=True)
+    assert len(paged.launched) == 3 and not paged.launched[1].open and paged.launched[2].open
+    # A run that doesn't keep its copy closes its browser.
+    await (await paged.run()).close()
+    assert not paged.launched[2].open and len(paged.launched) == 3

@@ -41,7 +41,7 @@ export function Screen({
   openTest,
 }: {
   place: Place;
-  go: (next: Partial<Place>) => void;
+  go: (next: Partial<Place>, replace?: boolean) => void;
   nav: (next: Partial<Place>) => void;
   workspace: Workspace;
   writer: Writer;
@@ -78,7 +78,7 @@ export function Screen({
     scopeLabel,
     busy,
   } = workspace;
-  const { agent, ask, setLearn, setWriterOpen, setWriterDraft } = writer;
+  const { agent, ask, startLearn, setWriterOpen, setWriterDraft } = writer;
   const { row, testRun, detail, reloadDetail, file, reloadFile, testLive } = shown;
 
   const setSummary = setList.find((entry) => entry.set === set) ?? null;
@@ -101,7 +101,7 @@ export function Screen({
           await reloadTargets();
           nav({ target: name, set: null, view: "connect" });
         }}
-        onLearn={setLearn}
+        onLearn={startLearn}
         onLearned={() => nav({ view: "app" })}
         writer={agent.session}
         onFirstTest={() => nav({ view: "tests" })}
@@ -225,6 +225,8 @@ export function Screen({
         }
         onRun={(name) => runTest(place.case ?? "", name)}
         onRunResult={(id) => go({ run: id })}
+        shownTry={place.try && Number(place.try) > 0 ? Number(place.try) : null}
+        onTry={(n) => go({ try: n === null ? null : String(n) }, true)}
         onAsk={(text, run) => void ask(text, run)}
         onEdited={() => {
           void reloadFile();

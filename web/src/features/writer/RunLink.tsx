@@ -18,7 +18,8 @@ export function RunLink({
   onClick: () => void;
 }) {
   let state: string | null = null;
-  if (summary?.analyzing) state = "Analyzing";
+  if (summary?.status === "queued") state = "Queued";
+  else if (summary?.analyzing) state = "Analyzing";
   else if (summary?.status === "running")
     state = `${summary.progress.done} of ${summary.progress.total} tries`;
   else if (summary?.status === "done")

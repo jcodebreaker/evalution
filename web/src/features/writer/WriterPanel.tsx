@@ -1,5 +1,5 @@
 import { ArrowUp, History, Square, SquarePen, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { ago } from "../../lib/format";
@@ -25,6 +25,40 @@ const STARTERS = [
   "Which test should I write next?",
   "Where are the tokens going?",
 ];
+
+const UNSENT = "evalution.writer.unsent";
+
+/** What was typed for *target*'s writer and not sent: kept in this browser, so closing the
+ * panel, or the page, loses none of it. Storage that can't be read keeps nothing. */
+function readUnsent(target: string | null): string {
+  try {
+    return localStorage.getItem(`${UNSENT}:${target ?? ""}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function keepUnsent(target: string | null, text: string): void {
+  try {
+    if (text) localStorage.setItem(`${UNSENT}:${target ?? ""}`, text);
+    else localStorage.removeItem(`${UNSENT}:${target ?? ""}`);
+  } catch {
+    // Kept only while the panel is open, then.
+  }
+}
+
+/** The reply field's text for *target*: what was left unsent there comes back on reopen. */
+function useUnsent(target: string | null): [string, (text: string) => void] {
+  const [typed, setTyped] = useState(() => ({ target, text: readUnsent(target) }));
+  const set = useCallback(
+    (text: string) => {
+      setTyped({ target, text });
+      keepUnsent(target, text);
+    },
+    [target],
+  );
+  return [typed.target === target ? typed.text : readUnsent(target), set];
+}
 
 /** The app's earlier chats, latest first. */
 function PastChats({
@@ -103,12 +137,12 @@ export function WriterPanel({
 }) {
   const { session, queued } = agent;
   const [past, setPast] = useState(false);
-  const [text, setText] = useState("");
+  const [text, setText] = useUnsent(target);
   useEffect(() => {
     if (!draft) return;
     setText(draft);
     onDrafted();
-  }, [draft, onDrafted]);
+  }, [draft, onDrafted, setText]);
   // The chip removed, for this screen: a new screen brings its own.
   const [dropped, setDropped] = useState<string | null>(null);
   const attached = context && context.key !== dropped ? context : null;

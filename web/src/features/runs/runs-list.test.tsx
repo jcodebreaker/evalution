@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
-import { CaseRowSchema, RunDetailSchema, RunSummarySchema } from "../../lib/schema";
+import { CaseRowSchema, EstimateSchema, RunDetailSchema, RunSummarySchema } from "../../lib/schema";
 import { Results } from "./Results";
+import { RunConfirm } from "./RunConfirm";
 import { RunsView } from "./RunsView";
 import { RunView } from "./RunView";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const run = (fields: Record<string, unknown>) =>
@@ -126,4 +128,143 @@ it("puts the scores with their changes in the rail, and no way back of its own",
   expect(scores.getByText("−0.11")).toBeTruthy();
   expect(scores.getByText("±0%")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Runs" })).toBeNull();
+});
+
+it("lists a queued run, after the run that plays, and stops it off the queue", () => {
+  const stop = vi.spyOn(api, "stop").mockResolvedValue(run({ run: "r16" }));
+  const queued = run({ run: "r16", status: "queued", started_at: 200, queued_at: 200 });
+  expect(queued.status).toBe("queued");
+  expect(queued.queued_at).toBe(200);
+  render(
+    <RunsView
+      runs={[queued, run({ run: "r15", status: "running", started_at: 150 }), run({ run: "r14" })]}
+      label={(id) => `Run ${id.slice(1)}`}
+      empty={null}
+      onOpen={vi.fn()}
+    />,
+  );
+  const card = within(screen.getByRole("region", { name: "Run 16, queued" }));
+  expect(card.getByText("Queued · after Run 15")).toBeTruthy();
+  fireEvent.click(card.getByRole("button", { name: "Stop" }));
+  expect(stop).toHaveBeenCalledWith("r16");
+  const row = within(screen.getByRole("button", { name: /^Run 16/ }));
+  expect(row.getByText("Queued · after Run 15")).toBeTruthy();
+});
+
+it("starts a run while another plays as queued, not as an error, and shows it queued", async () => {
+  const answer = {
+    run: "r16",
+    target: "relay-lite",
+    set: "main",
+    started_at: 200,
+    queued_at: 200,
+    status: "queued",
+    pass_marks: { tools: 0.8, reply: 0.7 },
+    totals: { passed: 0, cases: 1, tools: null, reply: null, median_seconds: 0, tokens: 0 },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      path.startsWith("/v1/evals/runs") && !path.includes("?")
+        ? new Response(JSON.stringify(answer), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
+    ),
+  );
+  const onStarted = vi.fn();
+  const estimate = EstimateSchema.parse({
+    token: "t",
+    cases: 1,
+    tries: 1,
+    chats: 1,
+    plays: [{ how: "api", cases: ["a"], seconds: 5, text: "" }],
+  });
+  render(
+    <RunConfirm
+      target={{
+        scope: { target: "relay-lite", set: "main" },
+        test: { id: "a", name: "A" },
+        estimate,
+      }}
+      onClose={vi.fn()}
+      onStarted={onStarted}
+    />,
+  );
+  const go = await screen.findByRole("button", { name: "Run 1 test" });
+  await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(go);
+  await waitFor(() => expect(onStarted).toHaveBeenCalled());
+  expect(onStarted.mock.calls[0]?.[0].status).toBe("queued");
+  expect(screen.queryByText(/Couldn't start/)).toBeNull();
+  cleanup();
+  render(
+    <RunView
+      load={{
+        status: "ready",
+        data: RunDetailSchema.parse({ ...answer, cases: [] }),
+      }}
+      runs={[
+        RunSummarySchema.parse(answer),
+        run({ run: "r15", status: "running", started_at: 150 }),
+      ]}
+      label={(id) => `Run ${id.slice(1)}`}
+      scopeLabel="All tests"
+      going={true}
+      onBase={vi.fn()}
+      onTest={vi.fn()}
+      onRunTest={vi.fn()}
+      onRunMore={vi.fn()}
+      onStop={async () => {}}
+      onAnalyze={async () => {}}
+    />,
+  );
+  expect(screen.getByText("Queued")).toBeTruthy();
+  expect(screen.getByTestId("queued-run").textContent).toMatch(/^Queued · after Run 15/);
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
+it("reads no runs or tests again when the screen holds the set's already", async () => {
+  const runs = vi.spyOn(api, "runs");
+  const cases = vi.spyOn(api, "cases");
+  const estimate = EstimateSchema.parse({
+    token: "t",
+    cases: 2,
+    tries: 2,
+    chats: 2,
+    plays: [{ how: "api", cases: ["a", "b"], seconds: 5, text: "" }],
+  });
+  render(
+    <RunConfirm
+      target={{ scope: { target: "relay-lite", set: "main" }, estimate }}
+      known={{
+        runs: [
+          run({ run: "r1", started_at: 1 }),
+          run({
+            run: "r2",
+            started_at: 2,
+            totals: {
+              passed: 1,
+              cases: 2,
+              tools: null,
+              reply: null,
+              median_seconds: 6,
+              tokens: 9000,
+            },
+          }),
+        ],
+        rows: [
+          CaseRowSchema.parse({ case: "a", name: "A", verdict: "fail", tries: ["failed"] }),
+          CaseRowSchema.parse({ case: "b", name: "B", verdict: "pass", tries: ["passed"] }),
+        ],
+      }}
+      onClose={vi.fn()}
+      onStarted={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText(/as run 2 spent/)).toBeTruthy();
+  expect(screen.getByText("Failing").parentElement?.textContent).toMatch(/Failing\s*1/);
+  expect(runs).not.toHaveBeenCalled();
+  expect(cases).not.toHaveBeenCalled();
 });

@@ -73,6 +73,8 @@ export function TestView({
   onRunResult,
   onAsk,
   onEdited,
+  shownTry,
+  onTry,
 }: {
   scope: Scope;
   /** What the tested app is called in the steps. */
@@ -94,6 +96,10 @@ export function TestView({
   onAsk: (text: string, run?: string) => void;
   /** The file was saved: read the test again. */
   onEdited: () => void;
+  /** The try shown, when the page's address holds it (`null`: the one the server picks), and
+   * how a pick is kept there; without them, the screen keeps its own. */
+  shownTry?: number | null;
+  onTry?: (n: number | null) => void;
 }) {
   const test = ready(file);
   // The plan follows the file: an edited test is worded again.
@@ -102,7 +108,9 @@ export function TestView({
     fingerprint ? `plan:${scope.target}/${scope.set}/${id}:${fingerprint}` : null,
     () => api.testPlan(scope, id),
   );
-  const [tryN, setTryN] = useState<number | null>(null);
+  const [ownTry, setOwnTry] = useState<number | null>(null);
+  const tryN = shownTry !== undefined ? shownTry : ownTry;
+  const setTryN = onTry ?? setOwnTry;
   const [tab, setTab] = useState<TestTab | null>(null);
   const [work, setWork] = useState<Work>("steps");
   const [picked, setPicked] = useState<number | null>(null);
@@ -114,7 +122,11 @@ export function TestView({
   // A try asked for in another run, shown once that run's result is, at the step asked for.
   const jump = useRef<{ key: string; n: number; span: string | null } | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  // Opened at a try (a link, a reload, Back), the page keeps it; only another test or run resets.
+  const opened = useRef(key);
   useEffect(() => {
+    if (opened.current === key) return;
+    opened.current = key;
     const to = jump.current?.key === key ? jump.current : null;
     jump.current = null;
     setTryN(to?.n ?? null);
@@ -122,7 +134,7 @@ export function TestView({
     setPicked(null);
     setFocus(to?.span ?? null);
     setPending(to?.span ?? null);
-  }, [key]);
+  }, [key, setTryN]);
   const [result, reloadResult] = useLoad(run ? `compare:${run}:${id}:${tryN ?? ""}` : null, () =>
     api.tryResult(run ?? "", id, tryN),
   );

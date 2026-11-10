@@ -92,8 +92,26 @@ export function callLabel(call: Record<string, unknown>): string {
   return `${name}${arg}${times}`;
 }
 
+/** Whether *run* hasn't settled: queued, playing, or being written up. */
 export const live = (run: Pick<RunSummary, "status" | "analyzing">) =>
-  run.status === "running" || run.analyzing;
+  run.status === "running" || run.status === "queued" || run.analyzing;
+
+/** The run *run* waits for while queued: the one playing, else the one queued before it; `null`
+ * when it isn't queued, or waits for a run this list doesn't hold (another app's, the CLI's). */
+export function queuedAfter(
+  runs: readonly Pick<RunSummary, "run" | "status" | "started_at" | "queued_at">[],
+  run: Pick<RunSummary, "run" | "status">,
+): string | null {
+  if (run.status !== "queued") return null;
+  const line = [
+    ...runs.filter((each) => each.status === "running"),
+    ...runs
+      .filter((each) => each.status === "queued")
+      .sort((a, b) => (a.queued_at ?? a.started_at) - (b.queued_at ?? b.started_at)),
+  ];
+  const at = line.findIndex((each) => each.run === run.run);
+  return at > 0 ? (line[at - 1]?.run ?? null) : null;
+}
 
 /** Whether *run* keeps another from starting: only while it plays. Its write-up (`analyzing`)
  * doesn't, since the server starts a new run alongside it. */

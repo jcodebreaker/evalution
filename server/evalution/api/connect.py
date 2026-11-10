@@ -81,19 +81,6 @@ def _view(targets: Targets, name: str) -> dict[str, Any]:
     }
 
 
-def _keep_focus(block: dict[str, Any], body: dict[str, Any], kept: dict[str, Any]) -> None:
-    """A body whose ``code`` leaves ``focus`` or ``learn`` out keeps the one stored (a form that
-    doesn't show it); ``focus: null`` clears it (all of the agents again), ``learn: null`` sets
-    the default (``on_demand``)."""
-    given = body.get("code")
-    old = kept.get("code") if isinstance(kept.get("code"), dict) else {}
-    if not isinstance(given, dict) or not isinstance(block.get("code"), dict):
-        return
-    for key in ("focus", "learn"):
-        if key not in given and isinstance(old.get(key), str):
-            block["code"][key] = old[key]
-
-
 def _adapter_row(name: str) -> dict[str, Any]:
     """An adapter as the form draws it."""
     info = infos()[name]
@@ -259,10 +246,10 @@ def connect_router() -> APIRouter:
                 stored = connect.stored_keys(targets.config.keys, name)
                 moved = connect.moved_secrets(targets.conf(name), body, stored)
                 block, changes = _parse(targets, name, body, stored - moved)
-                # The page map and its test accounts aren't edited in the form: they stay.
-                kept = targets.conf(name).options
-                block.update({k: kept[k] for k in ("page", "page_accounts") if k in kept})
-                _keep_focus(block, body, kept)
+                # What the form doesn't show stays: the page map, its test accounts, mirroring...
+                connect.keep_unsent(
+                    block, body, targets.conf(name).options, targets.conf(name).adapter
+                )
                 dropped = connect.left_behind(name, moved, changes)
                 changes = {**connect.forgotten(name, moved), **changes}
                 was = targets.conf(name).adapter

@@ -45,6 +45,7 @@ const firstLine = (text: string | null) => text?.split("\n")[0]?.trim() || null;
 
 /** A run in one line: what it came to, or why it stopped. */
 export function runReason(run: RunSummary): string {
+  if (run.status === "queued") return "Queued";
   if (live(run)) return run.analyzing ? "Analyzing" : `Playing: ${progressText(run)}`;
   if (run.interrupted) return "Interrupted: the server restarted";
   const why = firstLine(run.stop_reason) ?? run.tests.find((test) => test.reason)?.reason ?? null;

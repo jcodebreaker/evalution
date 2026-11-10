@@ -43,19 +43,15 @@ export function useWriter(
     setWriterOpen(true);
   };
   // An app just connected: its learn job starts (the facts first, in seconds), in the
-  // background; the setup screen and What it learned follow it, not the chat.
-  const [learn, setLearn] = useState<string | null>(null);
-  useEffect(() => {
-    if (!learn) return;
-    setLearn(null);
-    void learnApi.start(learn).catch(() => undefined);
-  }, [learn]);
+  // background; the setup screen and What it learned follow it, not the chat. A learn that
+  // couldn't start is the caller's to say.
+  const startLearn = useCallback((name: string) => learnApi.start(name), []);
 
   return {
     agent,
     agentMessages,
     ask,
-    setLearn,
+    startLearn,
     writerOpen,
     setWriterOpen,
     mode,

@@ -37,10 +37,13 @@ export function RunColumns() {
 export function RunRow({
   run,
   label,
+  after = null,
   onOpen,
 }: {
   run: RunSummary;
   label: string;
+  /** For a queued run, the label of the run it waits for. */
+  after?: string | null;
   onOpen: () => void;
 }) {
   const found = tally(
@@ -49,7 +52,7 @@ export function RunRow({
   );
   const state = runState(run, found);
   const going = live(run);
-  const line = runLine(run, found);
+  const line = runLine(run, found, after);
   return (
     <button
       type="button"

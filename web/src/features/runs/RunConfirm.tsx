@@ -262,42 +262,58 @@ export function estimateWords(estimate: Estimate, spent: Spent | null): string {
 /** What the set's last full run spent: its number, its tests and its tokens. */
 type Spent = { n: number; cases: number; tokens: number };
 
-/** The tokens the set's latest finished run of all its tests spent, to say what this one may. */
-function useSpent(scope: Scope, whole: boolean): Spent | null {
+/** What the latest finished run of all the set's tests spent, of *runs* (the set's). */
+function spentOf(runs: readonly RunSummary[]): Spent | null {
+  const numbers = runNumbers(runs);
+  const last = runs
+    .filter((run) => run.status === "done" && run.scope === "all" && run.totals.tokens > 0)
+    .sort((a, b) => b.started_at - a.started_at)[0];
+  const n = last ? numbers.get(last.run) : undefined;
+  return last && n ? { n, cases: last.totals.cases, tokens: last.totals.tokens } : null;
+}
+
+/** The tokens the set's latest finished run of all its tests spent, to say what this one may:
+ * from *known*, the set's runs the screen holds already, else read. */
+function useSpent(
+  scope: Scope,
+  whole: boolean,
+  known: readonly RunSummary[] | undefined,
+): Spent | null {
   const [spent, setSpent] = useState<Spent | null>(null);
   const { target, set } = scope;
+  const have = known !== undefined;
   useEffect(() => {
     setSpent(null);
-    if (!whole) return;
+    if (!whole || have) return;
     let cancelled = false;
     api.runs({ target, set }).then(
       (runs) => {
-        if (cancelled) return;
-        const numbers = runNumbers(runs);
-        const last = runs
-          .filter((run) => run.status === "done" && run.scope === "all" && run.totals.tokens > 0)
-          .sort((a, b) => b.started_at - a.started_at)[0];
-        const n = last ? numbers.get(last.run) : undefined;
-        if (last && n) setSpent({ n, cases: last.totals.cases, tokens: last.totals.tokens });
+        if (!cancelled) setSpent(spentOf(runs));
       },
       () => undefined,
     );
     return () => {
       cancelled = true;
     };
-  }, [target, set, whole]);
-  return spent;
+  }, [target, set, whole, have]);
+  if (!whole) return null;
+  return known !== undefined ? spentOf(known) : spent;
 }
 
 /** Which of the set's tests a run of the whole set plays. */
 type Which = "all" | "failing" | "changed";
 
 /** The set's tests with their latest verdicts and stale marks, for a run of the whole set. */
-function useRows(scope: Scope, whole: boolean): CaseRow[] {
+function useRows(
+  scope: Scope,
+  whole: boolean,
+  known: readonly CaseRow[] | undefined,
+): readonly CaseRow[] {
   const [rows, setRows] = useState<CaseRow[]>([]);
   const { target, set } = scope;
+  const have = known !== undefined;
   useEffect(() => {
-    if (!whole) return;
+    if (!whole || have) return;
     let cancelled = false;
     api.cases({ target, set }).then(
       (found) => {
@@ -308,8 +324,8 @@ function useRows(scope: Scope, whole: boolean): CaseRow[] {
     return () => {
       cancelled = true;
     };
-  }, [target, set, whole]);
-  return rows;
+  }, [target, set, whole, have]);
+  return known ?? rows;
 }
 
 /** Tries per test, one more or one fewer, from 1 to 20. */
@@ -359,16 +375,23 @@ export type RunTarget = {
   ref?: string;
 };
 
+/** What the screen holds already of the set a run plays: its runs and its tests, so the dialog
+ * doesn't read them again. */
+export type Known = { runs?: readonly RunSummary[]; rows?: readonly CaseRow[] };
+
 /**
  * Every run starts behind this confirm, on what the server estimates. Run uses up the estimate's
  * token, so nothing starts unconfirmed.
  */
 export function RunConfirm({
   target,
+  known = {},
   onClose,
   onStarted,
 }: {
   target: RunTarget;
+  /** The set's runs and tests as the screen holds them, when it shows that set. */
+  known?: Known;
   onClose: () => void;
   onStarted: (run: RunSummary) => void;
 }) {
@@ -388,10 +411,10 @@ export function RunConfirm({
   /** Tries per test, picked here; each test's own when `undefined`. */
   const [triesPicked, setTries] = useState<number | undefined>(target.tries);
   const whole = !target.test && !target.cases;
-  const rows = useRows(target.scope, whole);
+  const rows = useRows(target.scope, whole, known.rows);
   const failing = rows.filter((row) => row.verdict === "fail" || row.verdict === "flaky");
   const touched = rows.filter((row) => row.stale);
-  const spent = useSpent(target.scope, whole && which === "all" && !triesPicked);
+  const spent = useSpent(target.scope, whole && which === "all" && !triesPicked, known.runs);
 
   const given = !!target.estimate;
   const { target: name, set } = target.scope;

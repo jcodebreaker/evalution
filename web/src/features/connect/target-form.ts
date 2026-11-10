@@ -23,6 +23,12 @@ export type Form = {
   ownPhoenix: boolean;
   phoenixUrl: string;
   project: string;
+  /** Where the browser reaches that Phoenix (`phoenix.public_url`), and the `url` it was given
+   * for: set in the config file only, kept while the url stays. */
+  publicUrl: string;
+  publicFor: string;
+  /** Write finished runs to it too (`phoenix.mirror`); set in the config file only, kept as is. */
+  mirror: boolean;
   phoenixKey: string;
   codePath: string;
   ignore: string;
@@ -31,6 +37,9 @@ export type Form = {
   /** Set in the config file only, like `include`. */
   summarize: number | null;
   area_model: string | null;
+  /** Areas a learn reads at once (`code.area_parallel`), set in the config file only, like
+   * `include`. */
+  area_parallel: number | null;
   /** The one agent tested (`code.focus`), picked at connect or on What it learned; kept as is. */
   focus: string | null;
   /** When a learn reads the areas (`code.learn`), set in the config file only; kept as is. */
@@ -53,12 +62,16 @@ export const BLANK: Form = {
   ownPhoenix: false,
   phoenixUrl: "http://127.0.0.1:6006",
   project: "default",
+  publicUrl: "",
+  publicFor: "",
+  mirror: true,
   phoenixKey: "",
   codePath: "",
   ignore: "",
   include: [],
   summarize: null,
   area_model: null,
+  area_parallel: null,
   focus: null,
   learn: null,
 };
@@ -105,11 +118,15 @@ export function formOf(target: TargetDetail): Form {
     ownPhoenix: target.phoenix !== null,
     phoenixUrl: target.phoenix?.url ?? BLANK.phoenixUrl,
     project: target.phoenix?.project ?? BLANK.project,
+    publicUrl: target.phoenix?.public_url ?? "",
+    publicFor: target.phoenix?.public_url ? target.phoenix.url : "",
+    mirror: target.phoenix?.mirror ?? true,
     codePath: target.code?.path ?? "",
     ignore: target.code?.ignore.join(", ") ?? "",
     include: target.code?.include ?? [],
     summarize: target.code?.summarize ?? null,
     area_model: target.code?.area_model ?? null,
+    area_parallel: target.code?.area_parallel ?? null,
     focus: target.code?.focus ?? null,
     learn: target.code?.learn ?? null,
   };
@@ -135,8 +152,15 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
       ...keep,
       send: { ...record(keep.send), method: form.method, url: form.url.trim(), body },
       reply: form.reply.trim() || "$",
+      // What the form doesn't show of the poll (its reply, interval, failed_when...) stays.
       done: form.poll.trim()
-        ? { poll: { url: form.poll.trim(), until: form.until.trim() } }
+        ? {
+            poll: {
+              ...record(record(keep.done).poll),
+              url: form.poll.trim(),
+              until: form.until.trim(),
+            },
+          }
         : "response",
     };
   } else {
@@ -153,7 +177,17 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
     name: form.name.trim(),
     adapter: form.adapter,
     options,
-    phoenix: own ? { url: form.phoenixUrl.trim(), project: form.project.trim() } : null,
+    phoenix: own
+      ? {
+          url: form.phoenixUrl.trim(),
+          project: form.project.trim(),
+          // Where the browser reached the Phoenix it was given for: another one isn't known.
+          ...(form.publicUrl && form.phoenixUrl.trim() === form.publicFor
+            ? { public_url: form.publicUrl }
+            : {}),
+          ...(form.mirror ? {} : { mirror: false }),
+        }
+      : null,
     code: form.codePath.trim()
       ? {
           path: form.codePath.trim(),
@@ -161,6 +195,7 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
           ...(form.include.length ? { include: form.include } : {}),
           ...(form.summarize !== null ? { summarize: form.summarize } : {}),
           ...(form.area_model !== null ? { area_model: form.area_model } : {}),
+          ...(form.area_parallel !== null ? { area_parallel: form.area_parallel } : {}),
           ...(form.focus !== null ? { focus: form.focus } : {}),
           ...(form.learn !== null ? { learn: form.learn } : {}),
         }

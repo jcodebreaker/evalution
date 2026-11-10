@@ -70,6 +70,7 @@ async def test_a_run_asked_for_while_one_plays_is_queued_then_played(make_rig, m
         await runs.start(token)
     second = await runs.start(token, queue=True)
     assert second["status"] == "queued" and second["run"] != first["run"]
+    assert second["queued_at"] == second["started_at"]
     assert runs.load(second["run"])["status"] == "queued"
     assert runs.queued() == [second["run"]]
     await runs.wait()
