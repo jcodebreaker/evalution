@@ -82,7 +82,7 @@ function shownLine(shown: Compare, state: Layer): string {
   const at = turns.find(({ step }) => step.page?.check?.outcome === wanted);
   const page = at?.step.page;
   if (at && page && state === "fail") {
-    if (page.part) return `Turn ${at.n}'s reply showed only in part`;
+    if (page.part?.shown) return `Turn ${at.n}'s reply showed only in part`;
     if ((page.shown ?? page.instead).trim()) return `Turn ${at.n} showed something else`;
     return `Turn ${at.n}'s reply never showed`;
   }
@@ -186,7 +186,7 @@ export function breakCells(shown: Compare): BreakCell[] | null {
 export function turnShown(page: StepPage): { state: Outcome; text: string } {
   const said = shownWords(page);
   if (said.held === false) {
-    return { state: "fail", text: page.part ? "Shown only in part" : "Not shown" };
+    return { state: "fail", text: page.part?.shown ? "Shown only in part" : "Not shown" };
   }
   if (page.check?.outcome === "unjudged") return { state: "unjudged", text: "Nothing to show" };
   const at = page.shown_at === null ? "" : ` at ${seconds(page.shown_at, true)}`;

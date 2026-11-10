@@ -82,7 +82,9 @@ class AgentTurn:
     async def take(self, targets: Targets) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.taken is None:
             name = str(self.session["target"])
-            self.taken = await drift.take(targets, name, drift.PROFILE_SESSIONS)
+            self.taken = await drift.take(
+                targets, name, drift.PROFILE_SESSIONS, seconds=drift.TRACE_SECONDS
+            )
         return self.taken
 
 

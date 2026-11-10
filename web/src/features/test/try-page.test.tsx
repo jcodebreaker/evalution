@@ -2,7 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
-import { CaseFileViewSchema, CompareSchema, TryResultSchema } from "../../lib/schema";
+import {
+  CaseFileViewSchema,
+  CompareSchema,
+  StepPageSchema,
+  TryResultSchema,
+} from "../../lib/schema";
 import { clock, PageFilm } from "./PageFilm";
 import { Steps } from "./Steps";
 import { TestView } from "./TestView";
@@ -209,6 +214,32 @@ describe("Where it broke", () => {
     expect(breakCells(shown)?.find((cell) => cell.layer === "shown")?.line).toBe(
       "Turn 1's reply showed only in part",
     );
+  });
+
+  it("doesn't call a reply shown in part when none of it showed", () => {
+    const page = {
+      shown: null,
+      instead: "Remember my dog is Biscuit. Noted, turn 1. What did I tell you?",
+      check: { outcome: "failed" as const },
+      part: { shown: "", missing: "my dog is called Biscuit" },
+    };
+    const shown = table({
+      outcome: "failed",
+      passed: false,
+      layers: { stored: "absent", answered: "pass", shown: "fail" },
+      page: { shown_alone: "fail", health: { outcome: "passed" }, without_page: "passed" },
+      steps: [
+        {
+          kind: "say",
+          message: "What did I tell you?",
+          actual: { passed: true, reply: "my dog is called Biscuit" },
+          page,
+        },
+      ],
+    });
+    const line = breakCells(shown)?.find((cell) => cell.layer === "shown")?.line;
+    expect(line).not.toContain("in part");
+    expect(turnShown(StepPageSchema.parse(page)).text).toBe("Not shown");
   });
 
   it("says only the layers there are for a try through the API", () => {

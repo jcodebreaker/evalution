@@ -26,7 +26,7 @@ import logging
 import secrets
 import shutil
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -272,6 +272,61 @@ async def clear_extras(project: str) -> list[str]:
     if volumes:
         await _run("docker", "volume", "rm", *volumes, limit=120)
     return named + [f"volume:{v}" for v in volumes]
+
+
+#: What ``docker ps`` and ``docker volume ls`` say of each: its name, its compose project, and
+#: whether a driver of evalution's made it.
+_MADE_BY = '{{.Name}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "evalution.driver"}}'
+
+
+def _made_by_app(out: str, project: str) -> list[str]:
+    """The names in *out* (lines of :data:`_MADE_BY`) named after *project* that neither compose
+    nor a driver of evalution's made: what the app started for itself."""
+    found = []
+    for line in out.splitlines():
+        name, compose, driver = [*line.split("\t"), "", ""][:3]
+        if _owned(name.strip(), project) and not compose.strip() and not driver.strip():
+            found.append(name.strip())
+    return sorted(found)
+
+
+async def app_made(project: str) -> list[str]:
+    """What the app started for itself in the copy: containers and volumes named after it
+    (``<project>-...``) outside its compose project, a volume as ``volume:NAME``. A person's host
+    container its engine starts, say, with that host's home volume. Never a service of the copy, a
+    volume compose made, or a driver's kept copy."""
+    project = guard(project)
+    code, out, err = await _run(
+        "docker", "ps", "-a", "--filter", f"name={project}", "--format",
+        _MADE_BY.replace("{{.Name}}", "{{.Names}}"),
+    )  # fmt: skip
+    if code != 0:
+        raise DockerError(f"the copy's containers couldn't be listed: {err.strip()}")
+    boxes = _made_by_app(out, project)
+    code, out, err = await _run(
+        "docker", "volume", "ls", "--filter", f"name={project}", "--format", _MADE_BY
+    )
+    if code != 0:
+        raise DockerError(f"the copy's volumes couldn't be listed: {err.strip()}")
+    return boxes + [f"volume:{v}" for v in _made_by_app(out, project)]
+
+
+async def clear_app_made(project: str, keep: Collection[str] = ()) -> list[str]:
+    """Remove what the app started for itself in the copy (:func:`app_made`) but *keep*, which it
+    had in its starting state: containers first, then their volumes. What was removed.
+
+    :raises DockerError: Something there couldn't be removed.
+    """
+    made = [m for m in await app_made(project) if m not in keep]
+    boxes = [m for m in made if not m.startswith("volume:")]
+    volumes = [m.removeprefix("volume:") for m in made if m.startswith("volume:")]
+    for args in (["rm", "-f", "-v", *boxes], ["volume", "rm", "-f", *volumes]):
+        if len(args) > 3:  # something to remove
+            code, _, err = await _run("docker", *args, limit=120)
+            if code != 0:
+                said = err.strip()
+                raise DockerError(f"what the app started in {project} wasn't removed: {said}")
+    return made
 
 
 async def take_down(copy: Copy) -> list[str]:

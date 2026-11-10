@@ -253,21 +253,14 @@ def _parent(path: str) -> str:
 
 #: The file that stands for a package, by language.
 _FRONTS = ("__init__.py", "index.ts", "index.js", "mod.rs")
-#: An agent by what makes it, not only by its name: built by a call to an agent's class or
-#: factory (``Agent(...)``, ``create_react_agent(...)``), a class named for one
-#: (``PlannerAgent``), or one an agent's settings or instructions define.
-_AGENT_MADE = re.compile(r"agents?$", re.I)
 
 
 def _starts(entry: Entry) -> bool:
     """Whether *entry* starts the agent's scope: a prompt, tool or model call, or an agent that
-    is one (:data:`_AGENT_MADE`), not a name that only says "agent" (``AgentCache``,
-    ``_SUBAGENT_STATUSES``, ``AgentStore``)."""
+    is one (:func:`.focus.is_agent`)."""
     if entry.kind != "agent":
         return entry.kind in CORE
-    if entry.what in ("definition", "class"):
-        return entry.what == "definition" or bool(_AGENT_MADE.search(entry.name))
-    return bool(_AGENT_MADE.search(entry.what.rsplit(".", 1)[-1]))
+    return focused.is_agent(entry)
 
 
 def _reach(edges: Mapping[str, Iterable[str]], start: Iterable[str]) -> set[str]:

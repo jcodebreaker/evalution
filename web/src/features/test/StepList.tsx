@@ -232,7 +232,7 @@ export function Thumb({ entry, wide }: { entry: Entry; wide?: boolean }) {
 
 /** What the page showed of a reply, in a few words. */
 export function frameWords(entry: Entry): string {
-  if (entry.status === "failed") return entry.part ? "Shown only in part" : "Not shown";
+  if (entry.status === "failed") return entry.part?.shown ? "Shown only in part" : "Not shown";
   if (entry.status === "unjudged") return "Nothing to show";
   return entry.shown_at === null ? "Shown" : `Shown at ${seconds(entry.shown_at, true)}`;
 }

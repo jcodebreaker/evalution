@@ -100,3 +100,54 @@ async def test_the_copies_intake_keeps_spans_where_runs_read_them(tmp_path):
         assert await _built_in_spans(store, "app")
     finally:
         await intake.close()
+
+
+async def test_the_copies_intake_takes_unnamed_spans_as_its_targets_and_forwards_them(tmp_path):
+    """Seen on a real chat app: its compose file doesn't pass ``OTEL_RESOURCE_ATTRIBUTES`` to
+    the engine, so the copy's spans came in as ``default`` and never reached the app's own
+    Phoenix, while the run's mirrored experiment linked to them there. Every span a run's intake
+    takes is its copy's: it is that target's, whatever the app named it."""
+    import httpx
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+        ExportTraceServiceRequest,
+    )
+
+    from evalution.config import PhoenixConfig
+    from evalution.storage import Database
+    from evalution.traces import otlp
+    from evalution.traces.builtin import SpanStore
+    from tests.test_traces import GENAI, _built_in_spans, _otlp_json
+
+    sent: list[httpx.Request] = []
+
+    def phoenix(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200)
+
+    store = SpanStore(Database.open(tmp_path / "data"), "local")
+    forward = otlp.Forward(
+        {"app": PhoenixConfig("http://phoenix:6006", "default")}.get,
+        transport=httpx.MockTransport(phoenix),
+    )
+    otlp.forward_with(store, forward)
+    intake = await isolated.Intake.start(store, "app")
+    try:
+        async with httpx.AsyncClient() as client:
+            unnamed = await client.post(f"{intake.url}/v1/traces", json=_otlp_json(GENAI[:1]))
+            named = await client.post(
+                f"{intake.url}/v1/traces",
+                json=_otlp_json(GENAI[1:2], {"openinference.project.name": "default"}),
+            )
+        assert unnamed.status_code == named.status_code == 200
+        await forward.drain()
+    finally:
+        await intake.close()
+        await forward.close()
+    assert sorted(s.id for s in await _built_in_spans(store, "app")) == sorted(
+        [GENAI[0][0], GENAI[1][0]]
+    )
+    assert len(sent) == 2
+    for request in sent:
+        [resource] = ExportTraceServiceRequest.FromString(request.content).resource_spans
+        names = {a.key: a.value.string_value for a in resource.resource.attributes}
+        assert names["openinference.project.name"] == "default"

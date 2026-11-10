@@ -85,6 +85,27 @@ def test_three_agents_or_fewer_are_not_asked_about(tmp_path) -> None:
     assert not focus.asks(found.entries)
 
 
+def test_names_that_only_say_agent_are_not_offered(tmp_path) -> None:
+    """Seen on a real chat app: 51 "agents", of them ``_SUBAGENT_TERMINAL_STATUSES``,
+    ``AgentCache`` and ``DEFAULT_PI_AGENT_DIR``. Only an agent that is one is offered, as the
+    learn's scope already decides (``AgentStore`` is not; ``PlannerAgent`` is)."""
+    app = _platform(tmp_path / "app", NAMES[:3])
+    (app / "runner.py").write_text(
+        "from pathlib import Path\n\n"
+        '_SUBAGENT_TERMINAL_STATUSES = frozenset({"done", "failed"})\n'
+        'DEFAULT_PI_AGENT_DIR = Path.home() / ".pi"\n'
+        "AGENT_KIND = 3\n\n\n"
+        "class AgentCache:\n    pass\n\n\n"
+        "class AgentStore:\n    pass\n\n\n"
+        "class PlannerAgent:\n    pass\n"
+    )
+    found, _ = focus.of_folder(app)
+    assert sorted(a.name for a in focus.agents(found.entries)) == sorted(
+        [*NAMES[:3], "PlannerAgent"]
+    )
+    assert focus.asks(found.entries)
+
+
 # The learn's scope
 
 

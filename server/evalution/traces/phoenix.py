@@ -4,9 +4,10 @@ spans mean is :mod:`evalution.traces.view`'s.
 
 Calls used:
 
-* ``GET /v1/projects/{project}/spans?start_time=&end_time=&limit=&cursor=[&trace_id=]``: spans
-  in a time window, paged by ``next_cursor``. Every filter is also applied here, so a Phoenix
-  that ignores ``trace_id`` still gives the right answer.
+* ``GET /v1/projects/{project}/spans?start_time=&end_time=&limit=&cursor=[&trace_id=]
+  [&span_kind=...]``: spans in a time window, paged by ``next_cursor``; AI spans alone by their
+  kinds when only those are wanted. Every filter is also applied here, so a Phoenix that ignores
+  ``trace_id`` or ``span_kind`` still gives the right answer.
 * ``GET /v1/projects/{project}``: whether the project exists (the connection check). A
   project that does not exist (404) reads as no spans.
 * ``/redirects/traces/{trace_id}``: the browser link to a trace (no Phoenix-internal id).
@@ -26,9 +27,12 @@ import httpx
 
 from evalution.config import PhoenixConfig
 from evalution.core import net
-from evalution.traces.base import Span, SpanReader, kind_of, nest, with_events
+from evalution.traces.base import AI_KINDS, Span, SpanReader, is_ai, kind_of, nest, with_events
 
 PAGE = 1_000
+#: A page of AI spans alone: a model call's span is big, so a read that stops at a number of them
+#: stops near it.
+AI_PAGE = 100
 
 
 def _epoch(value: Any) -> float:
@@ -81,16 +85,18 @@ class Phoenix(SpanReader):
         )
 
     async def own_pages(
-        self, start: float, end: float, trace_id: str | None
+        self, start: float, end: float, trace_id: str | None, ai_only: bool = False
     ) -> AsyncIterator[list[Span]]:
         """This project's spans only, newest first."""
         params: dict[str, Any] = {
             "start_time": _iso(start),
             "end_time": _iso(end),
-            "limit": PAGE,
+            "limit": AI_PAGE if ai_only else PAGE,
         }
         if trace_id:
             params["trace_id"] = trace_id
+        if ai_only:
+            params["span_kind"] = sorted(AI_KINDS)
         while True:
             response = await self._client.get(
                 f"/v1/projects/{self.conf.project}/spans", params=params
@@ -100,7 +106,11 @@ class Phoenix(SpanReader):
             response.raise_for_status()
             page = response.json()
             rows = page.get("data") or []
-            yield [s for s in map(span_of, rows) if not trace_id or s.trace_id == trace_id]
+            yield [
+                s
+                for s in map(span_of, rows)
+                if (not trace_id or s.trace_id == trace_id) and (not ai_only or is_ai(s))
+            ]
             cursor = page.get("next_cursor")
             if not cursor or not rows:
                 return

@@ -903,16 +903,57 @@ def _write_private(path: Path, text: str) -> None:
 
 async def _settled(project: str, seconds: float) -> bool:
     """Whether every container of *project* is running, and healthy where it has a check, within
-    *seconds*. One that ran and exited cleanly (a one-off job) counts as settled."""
+    *seconds*. One that ran and exited cleanly (a one-off job) counts as settled. One whose check
+    Docker hasn't run yet (it waits the check's interval first, seconds after the app is up) is
+    healthy once its own check passes, run in it here (:func:`_passes`)."""
     label = f"label=com.docker.compose.project={project}"
     deadline = time.monotonic() + seconds
+    checks: dict[str, list[str] | None] = {}
     while time.monotonic() < deadline:
-        _, out, _ = await _run(_docker(), "ps", "-a", "--filter", label, "--format", "{{.Status}}")
-        states = out.splitlines()
-        if states and all(_ready(s) for s in states):
+        _, out, _ = await _run(
+            _docker(), "ps", "-a", "--filter", label, "--format", "{{.Names}}\t{{.Status}}"
+        )
+        rows = [line.partition("\t")[::2] for line in out.splitlines() if line.strip()]
+        ready = bool(rows)
+        for name, status in rows:
+            if ready and not _ready(status):
+                ready = await _passes(name, status, checks)
+        if ready:
             return True
         await asyncio.sleep(0.5)
     return False
+
+
+def _health_test(test: object) -> list[str] | None:
+    """A container's health check (Docker's ``Config.Healthcheck.Test``) as a command to run in
+    it; ``None`` when it has none."""
+    if not isinstance(test, list) or len(test) < 2:
+        return None
+    kind, *args = (str(t) for t in test)
+    if kind == "CMD-SHELL":
+        return ["sh", "-c", " ".join(args)]
+    return args if kind == "CMD" else None
+
+
+async def _passes(name: str, status: str, checks: dict[str, list[str] | None]) -> bool:
+    """Whether container *name*, up with its health check not yet run by Docker (*status* says
+    ``health: starting``), passes that check now, run in it as Docker would. *checks*: each
+    container's check, read once."""
+    if not status.startswith("Up") or "health: starting" not in status:
+        return False
+    if name not in checks:
+        _, out, _ = await _run(
+            _docker(), "inspect", "--format", "{{json .Config.Healthcheck}}", name
+        )
+        try:
+            checks[name] = _health_test((json.loads(out or "null") or {}).get("Test"))
+        except (ValueError, AttributeError):
+            checks[name] = None
+    test = checks[name]
+    if test is None:
+        return False
+    code, _, _ = await _run(_docker(), "exec", name, *test, limit=10)
+    return code == 0
 
 
 def _ready(status: str) -> bool:

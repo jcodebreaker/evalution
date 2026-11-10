@@ -193,6 +193,21 @@ def rig(config, monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(isolated, "take_down", take_down)
+    # What the app started for itself in the copy: a test adds to it as the app would.
+    by_app: list[str] = []
+
+    async def app_made(project):
+        return list(by_app)
+
+    async def clear_app_made(project, keep=()):
+        gone = [m for m in by_app if m not in keep]
+        if gone:
+            events.append(f"remove {','.join(gone)}")
+        by_app[:] = [m for m in by_app if m in keep]
+        return gone
+
+    monkeypatch.setattr(isolated, "app_made", app_made)
+    monkeypatch.setattr(isolated, "clear_app_made", clear_app_made)
 
     async def copies(plan: Plan, drivers: list[Any], **config_fields: Any) -> isolated.Copies:
         made["drivers"] = drivers
@@ -207,7 +222,7 @@ def rig(config, monkeypatch, tmp_path):
         events.clear()
         return out
 
-    return SimpleNamespace(events=events, copies=copies)
+    return SimpleNamespace(events=events, copies=copies, by_app=by_app)
 
 
 # B1: put back without stopping the app ----------------------------------------------------------
@@ -230,9 +245,25 @@ async def test_a_volume_stops_only_the_services_that_mount_it(rig) -> None:
     vol.volume = "eval-bot-0_data"  # type: ignore[attr-defined]
     copies = await rig.copies(_plan(PG), [vol])
     copies.slots[0].fresh = False
-    await copies.restore(0)
+    label = await copies.restore(0)
     assert rig.events[:3] == ["stop worker", "put_back volume-data", "resume"]
     assert "pause" not in rig.events
+    # Said on the try: what was stopped, and the store that can't be put back under it.
+    assert label["note"] == (
+        "worker stopped and started while it was put back: volume-data can't be put back while "
+        "a service mounting it runs."
+    )
+
+
+def test_a_try_says_why_its_put_back_stopped_the_app(tmp_path) -> None:
+    pg = PostgresStore("eval-bot-0-postgres-1", "app", "postgres")
+    file = FileStore(tmp_path / "app.db")
+    file.store_id = "file-app"  # type: ignore[attr-defined]
+    assert hot.why_stopped(_plan(PG), [pg], "none") is None
+    assert "didn't try one" in str(hot.why_stopped(_plan(PG, hot_=None), [pg], "all"))
+    assert "broke under one" in str(hot.why_stopped(_plan(PG, hot_="failed"), [pg], "all"))
+    assert "file-app can't be put back under it" in str(hot.why_stopped(_plan(PG), [file], "all"))
+    assert "own memory" in str(hot.why_stopped(_plan(PG, MEMORY), [pg], "all"))
 
 
 async def test_a_plan_not_proven_hot_stops_and_starts_the_whole_copy(rig) -> None:
@@ -256,7 +287,55 @@ async def test_an_app_that_doesnt_answer_falls_back_to_a_restart_for_the_rest_of
     rig.events.clear()
     second = await copies.restore(0)
     assert rig.events[:3] == ["pause", "put_back postgres-app", "resume"]
-    assert "answers" not in rig.events and "note" not in second
+    assert "answers" not in rig.events
+    assert "didn't answer after a put back with it up earlier" in second["note"]
+
+
+# What the app started for itself goes with each put back -----------------------------------------
+
+
+HOST = "eval-bot-0-host-1a2b"
+
+
+async def test_a_put_back_removes_what_the_app_started_since_the_starting_state(rig) -> None:
+    rig.by_app.append("eval-bot-0-cache")  # there when the starting state was kept: stays
+    db = MemoryDriver(rig.events, "postgres-app", "none", generation=True)
+    copies = await rig.copies(_plan(PG), [db])
+    copies.slots[0].fresh = False
+    # A person's host its engine started in a try, holding a token the database won't have.
+    rig.by_app += [HOST, f"volume:{HOST.replace('host', 'home')}"]
+    label = await copies.restore(0)
+    assert rig.events[0] == f"remove {HOST},volume:eval-bot-0-home-1a2b"
+    assert rig.events.index(rig.events[0]) < rig.events.index("put_back postgres-app")
+    assert rig.by_app == ["eval-bot-0-cache"] and label["problem"] is None
+
+
+async def test_what_the_app_started_that_wont_go_leaves_the_try_unheld(rig, monkeypatch) -> None:
+    db = MemoryDriver(rig.events, "postgres-app", "none", generation=True)
+    copies = await rig.copies(_plan(PG), [db])
+    copies.slots[0].fresh = False
+
+    async def stuck(project, keep=()):
+        raise iso.DockerError("container is in use")
+
+    monkeypatch.setattr(isolated, "clear_app_made", stuck)
+    label = await copies.restore(0)
+    assert label["problem"].startswith("reset didn't hold: DockerError: container is in use")
+
+
+def test_only_what_neither_compose_nor_a_driver_made_is_the_apps() -> None:
+    listed = "\n".join(
+        [
+            "eval-bot-0-engine-1\teval-bot-0\t",  # a service of the copy
+            "eval-bot-0_data_golden\t\tvolume",  # a driver's kept copy
+            "eval-bot-0_data-helper-ab12\t\tvolume",  # a driver's throwaway container
+            f"{HOST}\t\t",
+            "eval-bot-0-home-1a2b\t\t",
+            "eval-bot-01-host-ff\t\t",  # another copy's
+            "bot-host-1a2b\t\t",  # the person's own
+        ]
+    )
+    assert iso._made_by_app(listed, "eval-bot-0") == ["eval-bot-0-home-1a2b", HOST]
 
 
 # B3: no put back before a slot's first try -------------------------------------------------------
@@ -525,10 +604,39 @@ async def test_a_second_run_reuses_the_copy_left_running(parked) -> None:
     parked.events.clear()
     second = await parked.run()
     assert "copy start" not in parked.events and "take down" not in parked.events
-    assert "put_back postgres-app" in parked.events  # put back first, then played
+    # The run that parked it put it back: it is taken as it is, nothing stopped or started.
+    assert not {"pause", "resume", "put_back postgres-app"} & set(parked.events)
+    assert "digest postgres-app" in parked.events and "answers" in parked.events
     assert second.slots[0].adapter is not None and second.slots[0].fresh
     await second.close(keep=True)
     assert "take down" not in parked.events
+
+
+async def test_a_parked_copy_changed_since_is_put_back_before_it_is_reused(parked) -> None:
+    first = await parked.run()
+    await first.close(keep=True)
+    first.slots[0].drivers[0].content = "written while parked"  # type: ignore[attr-defined]
+    parked.events.clear()
+    second = await parked.run()
+    assert "copy start" not in parked.events and "put_back postgres-app" in parked.events
+    assert second.slots[0].fresh
+
+
+async def test_a_parked_copy_the_app_started_something_in_is_put_back(parked, rig) -> None:
+    await (await parked.run()).close(keep=True)
+    rig.by_app.append(HOST)
+    parked.events.clear()
+    await parked.run()
+    assert parked.events.index(f"remove {HOST}") < parked.events.index("put_back postgres-app")
+
+
+async def test_a_parked_copy_that_doesnt_answer_is_put_back_and_started(parked) -> None:
+    first = await parked.run()
+    await first.close(keep=True)
+    first.slots[0].copy.answer = False  # type: ignore[attr-defined]
+    parked.events.clear()
+    await parked.run()
+    assert "put_back postgres-app" in parked.events and "resume" in parked.events
 
 
 async def test_new_image_ids_take_the_copy_down_and_start_a_new_one(parked) -> None:

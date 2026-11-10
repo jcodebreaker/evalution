@@ -5,9 +5,12 @@ app: one per slot, ``eval-<target>-<slot>``, started once per run (:class:`Copie
 stores, as the plan names them, are kept once as the **starting state**, with their hashes. Before
 every try the copy is stopped as far as its stores need (:mod:`evalution.isolation.hot`: not at
 all for a database, the services mounting a volume, else the whole copy; the whole copy unless the
-plan's rehearsal proved less), every store is put back, the copy is started again, and every store
-is checked against the starting state. A slot's first try needs no put back when the copy, started
-again after keeping, still hashes as kept and nothing opened a session on it since.
+plan's rehearsal proved less), what the app started for itself in the copy since the starting
+state was kept is removed (a person's host its engine started: named after the copy, outside its
+compose project, :func:`~evalution.isolation.isolate.app_made`), every store is put back, the copy
+is started again, and every store is checked against the starting state. A slot's first try needs
+no put back when the copy, started again after keeping, still hashes as kept and nothing opened a
+session on it since.
 
 The check is a full hash after a slot's first put back and once more at the end of the run, and a
 cheap one between (each store's shape, and a database made again since the try began), unless
@@ -16,9 +19,10 @@ unjudged: "reset didn't hold: <store>". When the end-of-run hash doesn't hold, t
 only cheaply since the last full hash are marked so too (:attr:`Copies.late`). After the run,
 however it ends, every store is put back. A compose copy then stays up, parked for the target's
 next run or page look (``close(keep=True)``), which reuses it slot by slot while it runs the same
-image ids under the same plan version; else, and when the target is removed or rehearsed again or
-the server stops (:func:`drop`, :func:`drop_all`), its databases' kept copies are dropped and it is
-taken down.
+image ids under the same plan version: as it is, with nothing stopped or started, when it answers,
+hashes as kept and the app started nothing in it since; else put back first. Otherwise, and
+when the target is removed or rehearsed again or the server stops (:func:`drop`,
+:func:`drop_all`), its databases' kept copies are dropped and it is taken down.
 
 The target's test setup (:mod:`evalution.isolation.setup`) says how many copies play side by
 side, whether a copy is put back before every try or only before each test's first, what each
@@ -64,6 +68,8 @@ from evalution.isolation.isolate import (
     ComposeCopy,
     Copy,
     adapter_on,
+    app_made,
+    clear_app_made,
     code_folder,
     copy_of,
     off_copy,
@@ -313,6 +319,9 @@ class Slot:
     how: str = "all"
     #: The services stopped when :attr:`how` is ``services``: those mounting a kept volume.
     services: list[str] = field(default_factory=list)
+    #: Why every put back stops the whole copy from now on, when the app didn't answer after one
+    #: with it up (:meth:`Copies._fall_back`).
+    fell_back: str | None = None
     #: Nothing has opened a session on the copy since its starting state was kept: the next
     #: try needs no put back.
     fresh: bool = False
@@ -323,6 +332,9 @@ class Slot:
     #: The labels of tries checked only cheaply since the last full hash that held: the
     #: end-of-run hash marks them when it doesn't hold.
     since_hash: list[dict[str, Any]] = field(default_factory=list)
+    #: What the app had started for itself in the copy when its starting state was kept
+    #: (:func:`~evalution.isolation.isolate.app_made`): every put back removes anything else.
+    made: list[str] = field(default_factory=list)
 
 
 class CopyLost(TargetGone):
@@ -344,12 +356,14 @@ class Intake:
         return f"http://127.0.0.1:{self.port}"
 
     @classmethod
-    async def start(cls, spans: SpanStore) -> Intake:
+    async def start(cls, spans: SpanStore, target: str | None = None) -> Intake:
+        """*target*: whose every span sent here is, whatever the app names it (its compose file
+        may not pass ``OTEL_RESOURCE_ATTRIBUTES`` on), so they are forwarded as its own too."""
         app = FastAPI()
 
         @app.post("/v1/traces")
         async def post_traces(request: Request) -> Response:
-            return await otlp.receive(request, spans)
+            return await otlp.receive(request, spans, target)
 
         port = free_port()
         settings = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
@@ -469,7 +483,7 @@ class Copies:
             self.intake, self.env = parked.intake, dict(parked.env)
             self.spare = [s for i, s in sorted(reuse.items()) if i >= slots]
         if self.spans is not None and self.intake is None:
-            self.intake = await Intake.start(self.spans)
+            self.intake = await Intake.start(self.spans, self.target)
             self.env = trace_env(self.config, self.target, self.intake.url)
         at_once = asyncio.Semaphore(STARTING_AT_ONCE)
 
@@ -518,6 +532,8 @@ class Copies:
         for i, driver in enumerate(slot.drivers):
             await asyncio.to_thread(driver.keep, work / "kept" / str(i))
             slot.kept.append((driver, work / "kept" / str(i)))
+        if isinstance(slot.copy, ComposeCopy):
+            slot.made = await app_made(slot.copy.project)
         await self._resume(slot, "all")
         # Started again, the copy is as kept unless the app wrote as it started: only then does
         # its first try play without a put back.
@@ -581,18 +597,24 @@ class Copies:
         return None
 
     async def _reuse_slot(self, slot: Slot) -> bool:
-        """Put a parked *slot*'s stores back, as :meth:`restore` does, and take it for this run;
-        whether it could be. One that can't is taken down, for a new one to start in its place."""
+        """Take a parked *slot* for this run; whether it could be. The run that parked it put it
+        back, so it is taken as it is when it still is (:meth:`_as_kept`): nothing stops or starts.
+        Else its stores are put back, as :meth:`restore` does. One that can't be is taken down,
+        for a new one to start in its place."""
         slot.restores, slot.since_hash = 0, []
         try:
-            await self._pause(slot)
-            for driver, kept in slot.kept:
-                await asyncio.to_thread(driver.put_back, kept)
-            try:
-                await self._resume(slot)
-            except NoAnswer as exc:
-                await self._fall_back(slot, exc)
-            slot.fresh = await _digests(slot.drivers) == slot.before
+            if await self._as_kept(slot):
+                slot.fresh = True
+            else:
+                await self._pause(slot)
+                await self._clear_made(slot)
+                for driver, kept in slot.kept:
+                    await asyncio.to_thread(driver.put_back, kept)
+                try:
+                    await self._resume(slot)
+                except NoAnswer as exc:
+                    await self._fall_back(slot, exc)
+                slot.fresh = await _digests(slot.drivers) == slot.before
         except Exception as exc:  # a new copy starts in its place
             _logger.warning("evals: %s: parked copy not put back, so new: %s", self.target, exc)
             with contextlib.suppress(Exception):
@@ -600,6 +622,30 @@ class Copies:
             return False
         self.slots.append(slot)
         return True
+
+    async def _as_kept(self, slot: Slot) -> bool:
+        """Whether parked *slot*'s copy is as its starting state was kept: it answers, every store
+        hashes as kept, and the app started nothing for itself since. Reads only."""
+        copy = slot.copy
+        if not isinstance(copy, ComposeCopy) or not await copy.answers(hot.ANSWER_SECONDS):
+            return False
+        try:
+            if set(await app_made(copy.project)) - set(slot.made):
+                return False
+            return await _digests(slot.drivers) == slot.before
+        except (DockerError, OSError):
+            return False
+
+    async def _clear_made(self, slot: Slot) -> None:
+        """Remove what the app started for itself in *slot*'s copy since its starting state was
+        kept (a person's host its engine started, say): it holds what the put back takes away.
+
+        :raises DockerError: Something there couldn't be removed.
+        """
+        if isinstance(slot.copy, ComposeCopy):
+            removed = await clear_app_made(slot.copy.project, slot.made)
+            if removed:
+                _logger.info("evals: %s: removed what the app started: %s", self.target, removed)
 
     def unrestored(self) -> dict[str, Any]:
         """A try's ``isolation`` when its copy isn't put back before it: a test's later try, when
@@ -639,7 +685,9 @@ class Copies:
             label = isolation("proven", self.version, None, ids, None, reset=self.reset)
             return {**label, "check": "kept"}
         started = time.monotonic()
-        problem = note = None
+        problem = None
+        # Said of every try whose put back stopped the app, with the store that made it.
+        note = slot.fell_back or hot.why_stopped(self.plan, slot.drivers, slot.how, slot.services)
         full = self.verify == "every_try" or slot.restores == 0
         before: dict[str, str | None] = {}
         if not full:
@@ -649,6 +697,7 @@ class Copies:
                 full = True  # what was there can't be told: the full hash says
         try:
             await self._pause(slot)
+            await self._clear_made(slot)
             for driver, kept in slot.kept:
                 await asyncio.to_thread(driver.put_back, kept)
         except (Refused, DockerError, OSError) as exc:
@@ -696,6 +745,10 @@ class Copies:
         """
         _logger.warning("evals: %s: %s; restarting it from now on", self.target, why)
         slot.how = "all"
+        slot.fell_back = (
+            "The app was stopped and started: it didn't answer after a put back with it up earlier "
+            "in this run."
+        )
         try:
             await self._pause(slot, "all")
             await self._resume(slot, "all")
@@ -774,6 +827,7 @@ class Copies:
             try:
                 if slot.kept:
                     await self._pause(slot, "all")
+                    await self._clear_made(slot)
                     for driver, kept in slot.kept:
                         await asyncio.to_thread(driver.put_back, kept)
                     await self._end_check(slot)

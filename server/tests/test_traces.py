@@ -9,6 +9,7 @@ import logging
 import subprocess
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -31,11 +32,19 @@ from evalution.runs.runner import Runs
 from evalution.storage import Database
 from evalution.targets import Targets
 from evalution.traces import otlp, setup
-from evalution.traces.base import Span, SpanRead, SpanReader, nest
+from evalution.traces import phoenix as profile_reader
+from evalution.traces.base import AI_KINDS, Span, SpanRead, SpanReader, nest
 from evalution.traces.builtin import Builtin, Received, SpanStore, project, prune, reader
 from evalution.traces.otlp import MAX_BODY
 from evalution.traces.phoenix import Phoenix, span_of
-from evalution.traces.profile import conversations, digest, render
+from evalution.traces.profile import (
+    MAX_AI_SPANS,
+    conversations,
+    digest,
+    fingerprint,
+    recent_sessions,
+    render,
+)
 from evalution.traces.view import build, helper_of
 
 
@@ -87,12 +96,12 @@ async def test_one_trace_source_gone_loses_only_its_own_spans() -> None:
     request = httpx.Request("GET", "http://x")
 
     class Gone(SpanReader):
-        async def own_pages(self, start, end, trace_id=None):
+        async def own_pages(self, start, end, trace_id=None, ai_only=False):
             raise httpx.ConnectError("gone", request=request)
             yield []
 
     class Has(SpanReader):
-        async def own_pages(self, start, end, trace_id=None):
+        async def own_pages(self, start, end, trace_id=None, ai_only=False):
             yield []
 
     gone, kept = Gone(), Gone()
@@ -181,6 +190,21 @@ def test_the_digest_is_per_ask_and_leaves_out_eval_traffic() -> None:
     assert list(made["tools"]) == ["search"] and made["tools"]["search"]["offered"]
     assert "1 of 3 asks used no tools" in render(made)
     assert [a["tools"] for a in made["per_ask"]] == [["search"], ["search"], []]
+
+
+def test_a_fingerprint_taken_without_traces_has_nothing_to_compare() -> None:
+    """A learn that gave up on the traces keeps a fingerprint with none: the next check read the
+    delegation share moving from 0 and said the shape changed."""
+    unread = fingerprint(digest([]))
+    seen = {
+        **unread,
+        "sessions": 7,
+        "shapes": {"sequences": {"search": 5}, "delegated_share": 0.95, "max_depth": 2},
+    }
+    assert drift.compare(unread, seen) == []
+    # Control: two fingerprints that both saw sessions still show the move.
+    before = {**seen, "shapes": {**seen["shapes"], "delegated_share": 0.1}}
+    assert [c["kind"] for c in drift.compare(before, seen)] == ["shape_changed"]
 
 
 async def test_drift_needs_two_checks_in_a_row(monkeypatch, tmp_path) -> None:
@@ -442,6 +466,59 @@ async def test_plain_spans_do_not_count_against_a_read() -> None:
     await phoenix.close()
 
 
+async def test_a_digest_asks_for_ai_spans_alone_and_reads_a_bounded_number() -> None:
+    """Catches a digest that reads a store flooded with HTTP spans whole, or every model call's
+    big span back two weeks: the learn waited 11 s on such a store."""
+    asked: list[httpx.QueryParams] = []
+    llm = {"openinference.span.kind": "LLM", "session.id": "s1"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.params)
+        page = int(request.url.params.get("cursor") or 0)
+        rows = [
+            {**_phoenix_row(f"{page:08x}{n:08x}", None, "llm", n, 1, llm), "span_kind": "LLM"}
+            for n in range(profile_reader.AI_PAGE)
+        ]
+        return httpx.Response(200, json={"data": rows, "next_cursor": str(page + 1)})
+
+    phoenix = Phoenix(PhoenixConfig("http://phoenix"), transport=httpx.MockTransport(handler))
+    found = await recent_sessions(phoenix, "session.id", 50)
+    assert all(sorted(p.get_list("span_kind")) == sorted(AI_KINDS) for p in asked)
+    assert {p["limit"] for p in asked} == {str(profile_reader.AI_PAGE)}
+    assert sum(map(len, found)) == MAX_AI_SPANS, "it stops at its budget, not at 14 days"
+    await phoenix.close()
+
+
+async def test_a_store_that_kinds_no_span_as_ai_is_read_whole() -> None:
+    """``gen_ai.*`` spans a Phoenix files as UNKNOWN: asking for AI kinds finds none."""
+    chat = {"gen_ai.operation.name": "chat", "gen_ai.conversation.id": "c1"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get_list("span_kind"):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(200, json={"data": [_phoenix_row(MODEL, None, "chat", 1, 1, chat)]})
+
+    phoenix = Phoenix(PhoenixConfig("http://phoenix"), transport=httpx.MockTransport(handler))
+    found = await recent_sessions(phoenix, "session.id", 5)
+    assert [{s.id for s in rows} for rows in found] == [{MODEL}]
+    await phoenix.close()
+
+
+async def test_a_learn_goes_on_without_traces_that_take_too_long(monkeypatch, caplog) -> None:
+    async def slow(*_args):
+        await asyncio.sleep(5)
+        return []
+
+    monkeypatch.setattr(drift, "recent_sessions", slow)
+    targets = SimpleNamespace(
+        source=lambda _n: object(), trace_attribute=lambda _n: "session.id", code=lambda _n: None
+    )
+    began = time.time()
+    found, _taken = await drift.take(targets, "bot", 50, seconds=0.05)
+    assert time.time() - began < 1 and found["sessions"] == 0
+    assert "not read" in found["unread"] and "not read" in caplog.text
+
+
 async def test_otlp_over_protobuf_and_json_with_gzip_and_limits(tmp_path) -> None:
     named = {"evalution.target": "shop"}
     binary = {"Content-Type": "application/x-protobuf"}
@@ -539,6 +616,62 @@ def test_an_agent_wrapped_on_one_session_is_not_a_helper() -> None:
     assert helper_of(child[2], {s.id: s for s in child}) == "kid"
 
 
+def test_an_agents_own_model_calls_are_its_steps_whatever_session_they_carry() -> None:
+    """A real chat app's shape: the model's client stamps its own session on each model call, so
+    the agent's every reply and tool call read a second time as a helper's."""
+
+    def span(id_, kind, parent, session, at, **attrs):
+        return Span(id_, "t", parent, id_, kind, at, at + 0.5, "OK", nest(attrs | session))
+
+    app, sdk = {"session.id": "conversation"}, {"session.id": "model-client"}
+
+    def asks(tool: str) -> str:
+        return json.dumps({"content": [{"type": "tool_use", "name": tool, "input": {"text": "x"}}]})
+
+    spans = [
+        span("round", "AGENT", None, app, 0.0),
+        span("agent", "AGENT", "round", app, 0.1, **{"gen_ai.agent.name": "acme-chat-agent"}),
+        span("ask", "LLM", "agent", sdk, 0.2, **{"output.value": asks("mcp__app__remember")}),
+        span("remember", "TOOL", "agent", app, 1.0, **{"tool.name": "memory_remember"}),
+        span("reply", "LLM", "agent", sdk, 2.0, **{"output.value": '{"content": "Noted."}'}),
+        # Control: a helper started by a tool, in a session of its own, is still a helper.
+        span("start", "TOOL", "agent", app, 3.0, **{"tool.name": "spawn_helper"}),
+        span("kid", "AGENT", "start", {"session.id": "child"}, 3.1),
+        span("kid_ask", "LLM", "kid", {"session.id": "kid-client"}, 3.2, **{"output.value": "ok"}),
+    ]
+    view = build(spans, 0.0)
+    actors = {(step["span"], step["actor"]) for step in view.trajectory}
+    assert {("remember", "assistant"), ("reply", "assistant")} <= actors
+    assert {span for span, actor in actors if actor == "helper"} == {"kid_ask"}
+    assert {c.name: c.helper for c in view.calls} == {"memory_remember": None, "spawn_helper": None}
+    assert [c["helper"] for c in view.context] == [None, None, "kid"]
+
+
+def test_a_models_tool_calls_are_not_what_it_said() -> None:
+    """A real chat app's model answers in tool-use blocks; read as text, each tool call showed twice
+    in the trajectory: once called, once said."""
+
+    def span(id_, kind, parent, at, **attrs):
+        return Span(id_, "t", parent, id_, kind, at, at + 0.5, "OK", nest(attrs))
+
+    def answered(*blocks) -> dict:
+        return {"output.value": json.dumps({"content": list(blocks)})}
+
+    use = {"type": "tool_use", "name": "mcp__app__memory_search", "input": {"query": "teal"}}
+    spans = [
+        span("agent", "AGENT", None, 0.0),
+        span("ask", "LLM", "agent", 0.1, **answered(use)),
+        span("search", "TOOL", "agent", 1.0, **{"tool.name": "memory_search"}),
+        span("both", "LLM", "agent", 2.0, **answered({"type": "text", "text": "Looking."}, use)),
+        span("reply", "LLM", "agent", 3.0, **answered({"type": "text", "text": "It's teal."})),
+    ]
+    steps = [(s["span"], s["kind"], s["text"]) for s in build(spans, 0.0).trajectory]
+    said = [(span, text) for span, kind, text in steps if kind == "said"]
+    assert said == [("both", "Looking."), ("reply", "It's teal.")]
+    assert [span for span, kind, _ in steps if kind == "called"] == ["search"]
+    assert not any("mcp__app" in text for _, _, text in steps)
+
+
 async def test_a_quiet_read_spaces_out_and_still_settles(monkeypatch) -> None:
     """Each read costs the whole window: an app sending nothing isn't asked every 2 s for 20 s."""
     monkeypatch.setattr(collect_module, "_POLL", 0.01)
@@ -569,7 +702,7 @@ class _Spans(SpanReader):
     def __init__(self, spans) -> None:
         self.held = spans
 
-    async def own_pages(self, start, end, trace_id):
+    async def own_pages(self, start, end, trace_id, ai_only=False):
         yield [s for s in self.held if start <= s.start <= end]
 
     def trace_url(self, trace_id):

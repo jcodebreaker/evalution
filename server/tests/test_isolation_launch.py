@@ -169,6 +169,34 @@ async def test_down_refuses_anything_not_named_eval(name, monkeypatch):
         guard(name)
 
 
+async def test_a_restarted_service_is_settled_once_its_own_check_passes(monkeypatch):
+    """Docker runs a service's health check only after its interval: the copy doesn't wait for
+    that, it runs the check itself, in the container, as Docker would."""
+    calls: list[tuple[str, ...]] = []
+    check = "curl -fsS http://127.0.0.1:8000/health"
+    listed = (
+        "eval-x-0-db-1\tUp 9 minutes (healthy)\neval-x-0-app-1\tUp 2 seconds (health: starting)\n"
+    )
+
+    async def run(*args, **kwargs):
+        calls.append(args[1:])
+        if args[1] == "ps":
+            return 0, listed, ""
+        if args[1] == "inspect":
+            return 0, json.dumps({"Test": ["CMD-SHELL", check]}), ""
+        execs = sum(c[0] == "exec" for c in calls)
+        return (1 if execs == 1 else 0), "", ""  # not up yet, then up
+
+    monkeypatch.setattr(launch, "_run", run)
+    monkeypatch.setattr(launch, "_docker", lambda: "docker")
+    assert await launch._settled("eval-x-0", 5)
+    ran = [c for c in calls if c[0] == "exec"]
+    assert ran == [("exec", "eval-x-0-app-1", "sh", "-c", check)] * 2
+    assert [c[0] for c in calls].count("inspect") == 1  # read once
+    assert launch._health_test(["CMD", "pg_isready"]) == ["pg_isready"]
+    assert launch._health_test(["NONE"]) is None and launch._health_test(None) is None
+
+
 async def test_env_values_are_scrubbed_from_what_compose_prints(tmp_path):
     env = tmp_path / ".env"
     env.write_text(f"API_KEY={SECRET}\nexport OTHER='{SECRET}-2'\nSHORT=1\n")

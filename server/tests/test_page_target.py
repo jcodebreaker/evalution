@@ -181,6 +181,10 @@ class ChatApp:
         self.hide = False
         #: The app never says it's done: the page says Stop for good.
         self.never_idle = False
+        #: As an app behind a sign-in proxy that lets a request naming no one in as its one local
+        #: person: a message lands in the conversation of the person ``X-Person`` names, else in
+        #: the local person's, whatever conversation the page has open.
+        self.local_person = False
         self.rename = False
         #: The page writes an error, a warning and an uncaught error, and asks for what isn't there.
         self.noisy = False
@@ -232,6 +236,8 @@ class ChatApp:
                 return JSONResponse({"ok": False}, status_code=self.send_status)
             body = await request.json()
             session, message = body["session"], body["message"]
+            if self.local_person:
+                session = request.headers.get("x-person", "the local person")
             self.frozen[session] = (time.time() + self.lag, self._state(session))
             said = self.messages.setdefault(session, [])
             said.append({"role": "user", "text": message, "at": time.time()})
@@ -547,6 +553,39 @@ async def test_a_renamed_send_is_the_page_maps_failure(chat) -> None:
         assert not [p for p, _ in chat.seen if p == "/api/send"]
     finally:
         await target.dispose()
+
+
+class Identified(Watching):
+    """The same, naming its session's person in a header of its own, as a proxy would."""
+
+    def page_headers(self, session: Session) -> dict[str, str]:
+        return {"X-Person": session.id}
+
+
+NO_SIGN_IN = {k: v for k, v in MAP.items() if k != "sign_in"}
+
+
+@pytest.mark.parametrize("inner", [Identified, Watching])
+async def test_the_page_sends_as_the_person_whose_conversation_the_adapter_watches(
+    chat, inner
+) -> None:
+    """An app behind a sign-in proxy: a request naming no one is its one local person, so a page
+    signed in as nobody sent into that person's chat, and the adapter waited on its own in vain."""
+    chat.local_person = True
+    target = PageTarget(inner(chat.url), PageMap.model_validate(NO_SIGN_IN), chat.url)
+    try:
+        session = await target.open("r")
+        turn = await target.send(
+            session, "hello", deadline=time.time() + (20 if inner is Identified else 3)
+        )
+    finally:
+        await target.dispose()
+    if inner is Identified:
+        assert turn.error is None, turn.error
+        assert turn.shown == "Echo: hello" and "the local person" not in chat.messages
+        assert all(h.get("x-person") == session.id for _, h in chat.seen)
+    else:
+        assert turn.error == "no reply in time" and "the local person" in chat.messages
 
 
 async def test_headers_reach_the_copy_and_never_another_origin(chat, other) -> None:

@@ -40,6 +40,8 @@ DOC = "drift.json"
 CHECK_SESSIONS = 10
 #: Sessions a profile refresh reads.
 PROFILE_SESSIONS = 50
+#: The longest a learn or a save waits on the traces; past it, it goes on without them.
+TRACE_SECONDS = 10.0
 #: A move in the share of sessions with delegated work that counts as a shape change.
 SHAPE_SHARE = 0.25
 KINDS = (
@@ -53,15 +55,30 @@ KINDS = (
 
 
 async def take(
-    targets: Targets, name: str, sessions: int, *, with_code: bool = True
+    targets: Targets,
+    name: str,
+    sessions: int,
+    *,
+    with_code: bool = True,
+    seconds: float | None = None,
 ) -> tuple[dict[str, Any], dict]:
-    """``(digest, fingerprint)`` of *name* now. Without traces those parts are empty; without
+    """``(digest, fingerprint)`` of *name* now. Without traces those parts are empty, and so they
+    are when the traces took longer than *seconds*: the digest's ``unread`` then says so. Without
     *with_code*, the code part is left out, which saves hashing every file."""
     source = targets.source(name)
     groups = []
+    unread = None
     if source is not None:
-        groups = await recent_sessions(source, targets.trace_attribute(name), sessions)
+        try:
+            groups = await asyncio.wait_for(
+                recent_sessions(source, targets.trace_attribute(name), sessions), seconds
+            )
+        except TimeoutError:
+            _logger.warning("%s's traces took over %s seconds and were not read", name, seconds)
+            unread = f"its traces took over {seconds:g} seconds and were not read"
     found = digest(groups)
+    if unread:
+        found["unread"] = unread
     taken = fingerprint(found)
     code = targets.code(name) if with_code else None
     if code is not None:
@@ -76,11 +93,12 @@ def _change(kind: str, detail: str, key: str | None = None, **extra: Any) -> dic
 
 def compare(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The typed changes from fingerprint *old* to *new*. Trace parts are compared only when
-    the new one saw sessions; tools and their arguments only by what both offered the model (a
+    both saw sessions (one taken with no traces, as by a learn that gave up on them, has nothing
+    to compare); tools and their arguments only by what both offered the model (a
     tool merely not called lately is not gone); the prompt only by the main agent's, and only
     when its usual one is none of the variants seen before."""
     changes: list[dict[str, Any]] = []
-    if new.get("sessions"):
+    if new.get("sessions") and old.get("sessions"):
         before, after = old.get("tools") or {}, new.get("tools") or {}
         if new.get("tools_offered_known") and old.get("tools_offered_known"):
             changes += [

@@ -38,9 +38,11 @@ Nothing is ever downloaded. A copy parked between runs keeps its browser (:class
 so the next run on it launches none while the copy and the page map stay the same; it is closed
 with the copy. A new browser context per session, and again on reset, so cookies,
 local storage and IndexedDB never carry from one try to the next. Headers are added only to
-requests for the copy's origin: the map's sign-in headers and the try's ``X-Evalution-Run`` and
-``X-Evalution-Try``. Any other origin the page reaches gets nothing added. Each step the browser
-has no deadline of its own for (starting, opening a context or a page, closing) gets
+requests for the copy's origin: the inner adapter's own headers for its session's person
+(``page_headers``, so the page sends as the person whose conversation the adapter waits on), the
+map's sign-in headers, and the try's ``X-Evalution-Run`` and ``X-Evalution-Try``. Any other
+origin the page reaches gets nothing added. Each step the browser has no deadline of its own for
+(starting, opening a context or a page, closing) gets
 :data:`BROWSER_SECONDS`: a browser that takes longer is stuck, so it is closed (its driver killed
 when it won't close) and the try ends, not judged, saying so (:class:`BrowserStuck`); the next one
 starts a new browser.
@@ -720,9 +722,16 @@ class PageTarget(Target):
         return _PLACEHOLDER.sub(one, text)
 
     def _headers(self, session: Session) -> dict[str, str]:
-        """What every request to the copy's origin carries for *session*."""
+        """What every request to the copy's origin carries for *session*: the inner adapter's
+        own headers for its person (:meth:`~evalution.adapters.base.Target.page_headers`), so the
+        page plays the person whose conversation the adapter waits on, then the map's sign-in
+        headers over them."""
+        own = getattr(self.inner, "page_headers", None)
+        added = {str(k): str(v) for k, v in (own(session) if own is not None else {}).items()}
+        for value in added.values():
+            self._secret(value)  # a proxy's secret, say: never in what the try keeps
         sign_in = self.page.sign_in.headers or {}
-        added = {name: self._filled(value, session) for name, value in sign_in.items()}
+        added |= {name: self._filled(value, session) for name, value in sign_in.items()}
         added[RUN_HEADER] = str(session.extra.get("run", ""))
         added[TRY_HEADER] = str(session.extra.get("try", ""))
         return added

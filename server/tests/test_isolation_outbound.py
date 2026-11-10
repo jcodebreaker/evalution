@@ -37,6 +37,7 @@ MAIL = "hunter2-smtp-password"
         ("OPENAI_API_KEY", None),
         ("ANTHROPIC_API_KEY", None),
         ("LLM_API_KEY", None),
+        ("LITELLM_API_KEY", None),
         ("OTEL_EXPORTER_OTLP_HEADERS", None),
         ("EVALUTION_TOKEN", None),
         ("SECRET_KEY", None),
@@ -75,6 +76,25 @@ def _compose_app(folder: Path) -> Path:
         "# a comment\nDEBUG=1\n"
     )
     return folder
+
+
+def test_a_name_the_compose_file_requires_is_not_blanked(tmp_path) -> None:
+    """Seen on a real chat app: ``${APP_VAULT_KEY:?Set it in .env}`` set empty made compose
+    refuse the file, so no copy could start at all. A name compose requires is the app's own:
+    it can't start without it."""
+    folder = tmp_path / "app"
+    folder.mkdir()
+    (folder / "compose.yaml").write_text(
+        "services:\n  api:\n    image: app:latest\n    env_file: [.env]\n    environment:\n"
+        "      VAULT_KEY: ${APP_VAULT_KEY:?Set APP_VAULT_KEY in .env}\n"
+        "      PROXY: ${APP_PROXY_SECRET?}\n"
+        "      SMTP_PASSWORD: ${SMTP_PASSWORD:-}\n"
+    )
+    (folder / ".env").write_text(
+        f"APP_VAULT_KEY=v\nAPP_PROXY_SECRET=p\nSTRIPE_SECRET_KEY={LIVE}\nSMTP_PASSWORD=x\n"
+    )
+    spec = iso.launch_spec(folder, {})
+    assert outbound.blocked(spec, set()) == {"SMTP_PASSWORD": "", "STRIPE_SECRET_KEY": ""}
 
 
 def test_a_compose_apps_stripe_key_starts_its_copy_empty(tmp_path) -> None:

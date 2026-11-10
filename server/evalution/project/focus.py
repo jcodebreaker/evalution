@@ -13,6 +13,7 @@ No model anywhere: the skeleton, the imports, and what real use touched.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -45,11 +46,28 @@ def _own(name: str, entries: Iterable[Entry]) -> set[str]:
     return {p for e in entries if e.kind == "agent" and e.name == name for p in _paths(e)}
 
 
+#: An agent by what makes it, not only by its name: built by a call to an agent's class or
+#: factory (``Agent(...)``, ``create_react_agent(...)``), a class named for one
+#: (``PlannerAgent``), or one an agent's settings or instructions define.
+_AGENT_MADE = re.compile(r"agents?$", re.I)
+
+
+def is_agent(entry: Entry) -> bool:
+    """Whether *entry* is an agent that is one (:data:`_AGENT_MADE`), not a name that only says
+    "agent" (``AgentCache``, ``_SUBAGENT_STATUSES``, ``AgentStore``, ``DEFAULT_AGENT_DIR``)."""
+    if entry.kind != "agent":
+        return False
+    if entry.what in ("definition", "class"):
+        return entry.what == "definition" or bool(_AGENT_MADE.search(entry.name))
+    return bool(_AGENT_MADE.search(entry.what.rsplit(".", 1)[-1]))
+
+
 def agents(entries: Iterable[Entry]) -> list[Entry]:
-    """The agent definitions, one per name (the first of a name, in the skeleton's order)."""
+    """The agent definitions that are one (:func:`is_agent`), one per name (the first of a name,
+    in the skeleton's order)."""
     seen: dict[str, Entry] = {}
     for e in entries:
-        if e.kind == "agent" and e.name not in seen:
+        if is_agent(e) and e.name not in seen:
             seen[e.name] = e
     return list(seen.values())
 

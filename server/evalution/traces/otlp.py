@@ -576,8 +576,27 @@ def dropped(store: SpanStore, target: str) -> int:
     return forward.dropped.get(target, 0) if forward is not None else 0
 
 
-async def receive(request: Request, store: SpanStore) -> Response:
-    """Take one OTLP request into *store*."""
+def owned_by(body: bytes, content_type: str, encoding: str, owner: str) -> bytes:
+    """*body* as OTLP protobuf with every resource named *owner*'s (``evalution.target``),
+    whatever it named itself.
+
+    :raises Refused: It can't be read.
+    """
+    request = as_proto(body, content_type, encoding)
+    for resource in request.resource_spans:
+        attrs = resource.resource.attributes
+        for n in reversed(range(len(attrs))):
+            if attrs[n].key == TARGET_ATTRIBUTE:
+                del attrs[n]
+        named = attrs.add()
+        named.key = TARGET_ATTRIBUTE
+        named.value.string_value = owner
+    return request.SerializeToString()
+
+
+async def receive(request: Request, store: SpanStore, owner: str | None = None) -> Response:
+    """Take one OTLP request into *store*. *owner*: the target every span of it is, whatever
+    it is named (a run's own intake, which only its copy of the app sends to)."""
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     encoding = request.headers.get("content-encoding", "").strip().lower()
     binary = content_type != JSON
@@ -585,6 +604,9 @@ async def receive(request: Request, store: SpanStore) -> Response:
         if content_type not in (PROTOBUF, JSON):
             raise Refused(415, "send application/x-protobuf or application/json")
         body = await _body(request)
+        if owner is not None:
+            body = await asyncio.to_thread(owned_by, body, content_type, encoding, owner)
+            content_type, encoding = PROTOBUF, ""
         rows, rejected = await asyncio.to_thread(decode, body, content_type, encoding)
         await asyncio.to_thread(store.add, rows)
         if (forward := _FORWARDS.get(store)) is not None:

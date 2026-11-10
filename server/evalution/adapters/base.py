@@ -343,6 +343,13 @@ class Target(ABC):
         """The turn something else sent in *session* at *since*, as :meth:`send` returns it."""
         raise NotImplementedError(f"{self.name} can't wait on a turn it didn't send")
 
+    def page_headers(self, session: Session) -> dict[str, str]:
+        """The headers that make a request to the app *session*'s person, as this adapter sends
+        them: the app's page played beside it (ADR 0010) carries them, so what the page sends
+        lands in the conversation :meth:`watch` waits on. Empty when the adapter names no one
+        that way; the page then signs in only as its map says."""
+        return {}
+
     async def reset(self, session: Session) -> None:
         raise NotImplementedError(f"{self.name} can't reset a session")
 

@@ -46,6 +46,9 @@ FIRST_WINDOW_HOURS = 1
 PAGE_CAP = 40
 #: Pages read at most per page counted: pages with no AI span don't count, up to this many.
 FLOOD_PAGES = 4
+#: AI spans read at most for a digest, newest first. A model call's span carries its whole
+#: context (often 100 KB or more), so this, not the page count, is what bounds a read's time.
+MAX_AI_SPANS = 300
 _HEADING = re.compile(r"^\s*(#{1,4}\s+.+|<[A-Za-z_][\w-]*>)\s*$")
 _SEQ_LEN = 8
 #: How much of a system prompt's start the digest keeps, to match it to the code's prompts.
@@ -84,14 +87,29 @@ async def recent_sessions(
     """The *sessions* newest conversations' spans (see :func:`conversations`), oldest span
     first in each. Reads back from now in growing windows until it has found that many, read
     :data:`LOOKBACK_HOURS`, or read *max_pages* pages holding AI spans, so a project flooded with
-    other spans still yields its conversations (:data:`FLOOD_PAGES` bounds the reading)."""
+    other spans still yields its conversations (:data:`FLOOD_PAGES` bounds the reading), and no
+    more than :data:`MAX_AI_SPANS` AI spans.
+
+    Only AI spans are asked for, so a store flooded with HTTP spans isn't read whole. A store that
+    kinds no span as AI (``gen_ai.*`` spans it files as unknown) is read again with every span."""
+    spans = await _recent_ai(source, attribute, sessions, max_pages, ai_only=True)
+    if not spans:
+        spans = await _recent_ai(source, attribute, sessions, max_pages, ai_only=False)
+    groups = conversations(spans, attribute).values()
+    newest = sorted(groups, key=lambda rows: max(s.end for s in rows), reverse=True)
+    return [sorted(rows, key=lambda s: s.start) for rows in newest[:sessions]]
+
+
+async def _recent_ai(
+    source: TraceSource, attribute: str, sessions: int, max_pages: int, *, ai_only: bool
+) -> list[Span]:
     now = time.time()
     oldest, end, window = now - LOOKBACK_HOURS * 3600, now, FIRST_WINDOW_HOURS * 3600.0
     spans: list[Span] = []
     pages = read = 0
     while end > oldest and pages < max_pages and read < max_pages * FLOOD_PAGES:
         start = max(oldest, end - window)
-        async with contextlib.aclosing(source.pages(start, end)) as found:
+        async with contextlib.aclosing(source.pages(start, end, ai_only=ai_only)) as found:
             async for page in found:
                 ours = [s for s in page if is_ai(s)]
                 spans += ours
@@ -99,12 +117,12 @@ async def recent_sessions(
                 pages += bool(ours)
                 if pages >= max_pages or read >= max_pages * FLOOD_PAGES:
                     break
-        if len(conversations(spans, attribute)) >= sessions:
+                if len(spans) >= MAX_AI_SPANS:
+                    break
+        if len(spans) >= MAX_AI_SPANS or len(conversations(spans, attribute)) >= sessions:
             break
         end, window = start, window * 2
-    groups = conversations(spans, attribute).values()
-    newest = sorted(groups, key=lambda rows: max(s.end for s in rows), reverse=True)
-    return [sorted(rows, key=lambda s: s.start) for rows in newest[:sessions]]
+    return spans
 
 
 def _shape(value: Any) -> Any:

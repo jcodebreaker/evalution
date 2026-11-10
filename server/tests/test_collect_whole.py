@@ -15,7 +15,7 @@ class _Spans(SpanReader):
     def __init__(self, spans) -> None:
         self.held = spans
 
-    async def own_pages(self, start, end, trace_id):
+    async def own_pages(self, start, end, trace_id, ai_only=False):
         yield [s for s in self.held if start <= s.start <= end]
 
     def trace_url(self, trace_id):

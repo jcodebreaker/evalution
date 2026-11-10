@@ -25,7 +25,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from evalution.config import PhoenixConfig
 from evalution.storage.database import Database, upsert
 from evalution.storage.spans import spans
-from evalution.traces.base import Span, SpanReader, TraceError, TraceSource, kind_of, nest
+from evalution.traces.base import (
+    Span,
+    SpanReader,
+    TraceError,
+    TraceSource,
+    is_ai,
+    kind_of,
+    nest,
+)
 from evalution.traces.phoenix import Phoenix
 
 PAGE = 1_000
@@ -173,13 +181,13 @@ class Builtin(SpanReader):
             raise TraceError(f"the trace store can't be read: {type(exc).__name__}") from exc
 
     async def own_pages(
-        self, start: float, end: float, trace_id: str | None
+        self, start: float, end: float, trace_id: str | None, ai_only: bool = False
     ) -> AsyncIterator[list[Span]]:
         before = None
         while True:
             rows = await self._read(self.store.page, self.target, start, end, trace_id, before)
             if rows:
-                yield [_span(row) for row in rows]
+                yield [s for s in map(_span, rows) if not ai_only or is_ai(s)]
             if len(rows) < PAGE:
                 return
             before = (rows[-1].started, rows[-1].id)

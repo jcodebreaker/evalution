@@ -1360,6 +1360,8 @@ async def _begin(
         reply = f"I've learned {name} from its code. Check what I understood."
     if said := left_out_said(left_out):
         reply += f" {said}"
+    if unread := found.get("unread"):
+        reply += f" Learned without real use: {unread}."
     fit = saved.get("profile") or {}
     if fit.get("left_out"):
         reply += (

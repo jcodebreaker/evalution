@@ -236,19 +236,28 @@ def _tools_asked(span: Span) -> int:
     return max(_tools_named(messages), _tools_named(_parsed(get(span.attrs, "output.value"))))
 
 
+def _said(content: Any) -> str:
+    """The text of a model's output *content*, its tool calls left out: those are steps of their
+    own."""
+    if isinstance(content, list):
+        content = [c for c in content if not (isinstance(c, dict) and c.get("type") in _TOOL_PARTS)]
+    return flat_text(content)
+
+
 def output_text(span: Span) -> str:
-    """What a span answered: the assistant messages of an LLM span, else ``output.value``."""
+    """What a span answered: the assistant messages of an LLM span, else ``output.value``. A
+    model's tool calls are not what it said."""
     messages = _messages(span, "llm.output_messages", "gen_ai.output.messages", "gen_ai.completion")
-    said = "\n".join(flat_text(m.get("content")) for m in messages)
+    said = "\n".join(_said(m.get("content")) for m in messages)
     if said.strip():
         return said
     out = _parsed(get(span.attrs, "output.value"))
     if isinstance(out, dict):
         choices = out.get("choices")
         if isinstance(choices, list) and choices:
-            return flat_text((choices[0] or {}).get("message", {}).get("content"))
+            return _said((choices[0] or {}).get("message", {}).get("content"))
         if isinstance(out.get("content"), (list, str)):
-            return flat_text(out["content"])
+            return _said(out["content"])
     return flat_text(out) if out is not None else ""
 
 
@@ -400,13 +409,14 @@ def _agents_above(span: Span, by_id: Mapping[str, Span]) -> list[Span]:
 
 def _crossed_at(span: Span, by_id: Mapping[str, Span]) -> Span | None:
     """The nearest of *span* and those above it that began delegated work: it names a parent
-    session, or its parent is in another session or, not sharing a session, another trace."""
+    session, or its parent is in another session or, not sharing a session, another trace. An
+    agent's own model call is its step, whatever session the model's client stamps on it."""
     name = SESSION_ATTRIBUTES[0]
     for at in (span, *ancestors(span, by_id)):
         above = by_id.get(at.parent or "")
         if parent_session_of(at):
             return at
-        if above is None:
+        if above is None or (at.kind == "LLM" and above.kind == "AGENT"):
             continue
         mine, theirs = session_of(at, name), session_of(above, name)
         if (mine and theirs and mine != theirs) or (

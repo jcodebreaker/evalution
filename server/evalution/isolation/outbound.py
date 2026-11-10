@@ -46,6 +46,7 @@ CREDENTIAL = ("_KEY", "_SECRET", "_TOKEN")
 #: Words of a name that is the model provider's: the app needs it to answer at all.
 MODEL = frozenset({"OPENAI", "ANTHROPIC", "CLAUDE", "GEMINI", "MISTRAL", "COHERE", "GROQ",
                    "TOGETHER", "OPENROUTER", "DEEPSEEK", "OLLAMA", "BEDROCK", "VERTEX", "LLM",
+                   "LITELLM",
                    "MODEL", "MODELS", "EMBEDDING", "EMBEDDINGS", "HF", "HUGGINGFACE"})  # fmt: skip
 #: Words of a name that is evalution's own (its traces), or the app's own: it reaches nothing
 #: outside the copy, and the app may not start without it.
@@ -119,19 +120,50 @@ def _compose_names(files: list[Path]) -> list[str]:
     return names
 
 
+def _required(files: list[Path]) -> set[str]:
+    """The names compose files require (``${NAME:?message}``, ``${NAME?}``), and the service
+    settings set from one: set empty, compose refuses the file and no copy starts, so they are
+    the app's own."""
+    names: set[str] = set()
+    for file in files:
+        try:
+            text = file.read_text(encoding="utf-8")
+            data = yaml.safe_load(text) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        names.update(_REQUIRED.findall(text))
+        services = data.get("services") if isinstance(data, dict) else None
+        for service in (services or {}).values():
+            env = service.get("environment") if isinstance(service, dict) else None
+            if isinstance(env, list):
+                env = dict(str(e).partition("=")[::2] for e in env)
+            for key, value in (env or {}).items() if isinstance(env, dict) else ():
+                if isinstance(value, str) and _REQUIRED.search(value):
+                    names.add(str(key))
+    return names
+
+
+#: A compose file's interpolation of a name it requires.
+_REQUIRED = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):?\?")
+
+
 def found(spec: dict[str, Any]) -> list[Outbound]:
     """The settings a copy started as *spec* says (:func:`~evalution.isolation.isolate.launch_spec`)
-    would have that reach a service outside it, by name, each once, in name order."""
+    would have that reach a service outside it, by name, each once, in name order. A name the
+    compose files require isn't one (:func:`_required`)."""
     names: list[str] = []
+    required: set[str] = set()
     if spec.get("kind") == "compose":
-        names += _compose_names([Path(f) for f in spec.get("files") or []])
+        files = [Path(f) for f in spec.get("files") or []]
+        names += _compose_names(files)
+        required = _required(files)
         if spec.get("env_file"):
             names += env_names(Path(spec["env_file"]))
     names += [str(k) for k in (spec.get("env") or {})]
     out: dict[str, Outbound] = {}
     for name in names:
         kind = kind_of(name)
-        if kind is not None and _NAME.match(name):
+        if kind is not None and name not in required and _NAME.match(name):
             out.setdefault(name, Outbound(name, kind))
     return [out[n] for n in sorted(out)]
 

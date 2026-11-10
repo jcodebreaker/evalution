@@ -221,9 +221,10 @@ class TraceSource(Protocol):
     """Where a target's spans are read from."""
 
     def pages(
-        self, start: float, end: float, *, trace_id: str | None = None
+        self, start: float, end: float, *, trace_id: str | None = None, ai_only: bool = False
     ) -> AsyncIterator[list[Span]]:
-        """The spans that started in ``[start, end]`` (of trace *trace_id*), a page at a time."""
+        """The spans that started in ``[start, end]`` (of trace *trace_id*; AI spans alone with
+        *ai_only*), a page at a time."""
         ...
 
     async def spans(
@@ -278,21 +279,24 @@ class SpanReader:
     also: Sequence[SpanReader] = ()
 
     def own_pages(
-        self, start: float, end: float, trace_id: str | None
+        self, start: float, end: float, trace_id: str | None, ai_only: bool = False
     ) -> AsyncIterator[list[Span]]:
-        """This source's spans only."""
+        """This source's spans only; with *ai_only*, its AI spans alone, asked of the source
+        itself where it can filter them, so a store flooded with other spans isn't read whole."""
         raise NotImplementedError
 
     async def pages(
-        self, start: float, end: float, *, trace_id: str | None = None
+        self, start: float, end: float, *, trace_id: str | None = None, ai_only: bool = False
     ) -> AsyncIterator[list[Span]]:
-        """The spans that started in ``[start, end]`` (of trace *trace_id*), a page at a time."""
+        """The spans that started in ``[start, end]`` (of trace *trace_id*; AI spans alone with
+        *ai_only*), a page at a time."""
         seen: set[str] = set()
         sources = [self, *self.also]
         failed: list[httpx.HTTPError] = []
         for source in sources:
             try:
-                async with contextlib.aclosing(source.own_pages(start, end, trace_id)) as pages:
+                found = source.own_pages(start, end, trace_id, ai_only)
+                async with contextlib.aclosing(found) as pages:
                     async for page in pages:
                         fresh = [s for s in page if s.id not in seen]
                         seen.update(s.id for s in fresh)
