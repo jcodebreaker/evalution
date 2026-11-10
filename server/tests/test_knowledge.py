@@ -171,6 +171,36 @@ def test_the_graph_reads_each_language_and_never_fails(tmp_path) -> None:
     assert imports.graph(tmp_path, hashed, cache)[0] == edges
 
 
+def test_a_module_named_in_a_string_is_an_edge_when_it_exists_and_only_then(tmp_path) -> None:
+    files = {
+        "app/registry.py": (
+            '"""Harnesses, loaded by name."""\n'
+            "import importlib\n"
+            'HARNESSES = {"claude": "app.harnesses.claude_exec:Runner", "pi": "pi_exec"}\n'
+            'RUNNER = importlib.import_module("app.harnesses.pi_exec")\n'
+            'SCRIPT = "app/tools/_runner.py"\n'
+            'OTHER = ["os.path", "not.a.module", "logging.config", "x.y"]\n'
+            'SAID = "see app.harnesses.claude_exec for more"\n'
+        ),
+        "app/harnesses/claude_exec.py": "",
+        "app/harnesses/pi_exec.py": "",
+        "app/tools/_runner.py": "",
+        "a/x/y.py": "",
+        "b/x/y.py": "",
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    hashed = {rel: f"h{n}" for n, rel in enumerate(files)}
+    edges, _ = imports.graph(tmp_path, hashed, {})
+    # Not a bare name, not a sentence, not a name two files could be.
+    assert edges["app/registry.py"] == [
+        "app/harnesses/claude_exec.py",
+        "app/harnesses/pi_exec.py",
+        "app/tools/_runner.py",
+    ]
+
+
 def test_reach_stops_at_the_bound() -> None:
     edges = {"a": ["b"], "b": ["c"], "c": ["d"], "d": ["a"]}
     assert imports.reach(edges, ["a"]) == {"b", "c"}

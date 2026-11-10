@@ -437,3 +437,103 @@ def test_model_calls_say_their_model_or_where_it_comes_from() -> None:
         ("ChatOpenAI", "gpt-4o", "", "client"),
         ("gpt-4.1-mini", "gpt-4.1-mini", "chat_model", "setting"),
     }
+
+
+NESTED = """\
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/top")
+def top():
+    return 1
+
+
+def register_routes(router, mcp):
+    @router.get("/me/mood", response_model=dict)
+    async def get_mood():
+        def inner():
+            return 2
+
+        return inner()
+
+    @router.put(
+        "/me/mood",
+    )
+    async def put_mood():
+        return 3
+
+    @mcp.tool()
+    def search_notes(query: str):
+        return query
+
+    def helper():
+        return 4
+
+    return helper
+"""
+
+
+def test_routes_and_tools_registered_inside_a_factory_are_found() -> None:
+    found = _found({"routes.py": NESTED})
+    routes = {(e.name, e.inside) for e in found.of("route")}
+    assert routes == {
+        ("GET /top", "top"),
+        ("GET /me/mood", "get_mood"),
+        ("PUT /me/mood", "put_mood"),
+    }
+    assert {(e.name, e.args) for e in found.of("tool")} == {("search_notes", ("query",))}
+    names = {d.name for d in _map({"routes.py": NESTED}).defs.values()}
+    assert "inner" not in names and "helper" not in names, "only what registers is a definition"
+
+
+NOT_PROMPTS = {
+    "app/ui.tsx": (
+        "export const ACCENT_BUTTON =\n"
+        '  "inline-flex h-8 items-center gap-1.5 rounded-full bg-tint px-3.5 text-[13px] '
+        "font-medium text-white transition-[filter] hover:brightness-110 focus-visible:outline-2 "
+        'focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60";\n'
+        "const glassActionClassName =\n"
+        '  "absolute right-2 top-2 flex items-center justify-center rounded-md border '
+        "border-white/10 bg-black/40 p-1.5 text-white/80 backdrop-blur-sm transition-opacity "
+        'hover:bg-black/60 hover:text-white group-hover:opacity-100 opacity-0";\n'
+    ),
+    "app/legal.py": (
+        'LICENSE_TEXT = """Copyright (c) 2025 Made Up Ltd. Permission is hereby granted, free of '
+        "charge, to any person obtaining a copy of this software, to deal in the Software without "
+        'restriction. THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND."""\n'
+        'FOOTER = """This assistant may make mistakes. Nothing here is legal, medical or financial '
+        "advice and no warranty is given; check anything important. All rights reserved by the "
+        'makers, who accept no liability for any use of what it writes."""\n'
+    ),
+    "app/errors.py": (
+        'CLI_MISSING_HINT = """The claude command was not found on PATH. Install it with npm '
+        "install -g the-cli, then run the-cli login once and start the engine again; set "
+        'CLI_PATH to point at it if it lives somewhere else, and check the logs for more."""\n'
+        'PROMPT_TIMEOUT_ERR = f"{ENV} must be a positive finite number of seconds"\n'
+        'PROMPT_CACHE_ENV = "APP_PROMPT_CACHE_1H"\n'
+        'SYSTEMD_UNIT = "app-host.service"\n'
+        'SYSTEM_PROMPT = "You answer questions about the weather, briefly."\n'
+        "class AgentNotFoundError(Exception):\n    pass\n"
+        "class PlannerAgent:\n    pass\n"
+    ),
+    "AGENTS.md": "# Working in this repo\nRun the tests first.",
+    "CLAUDE.md": "# Claude\nUse uv.",
+    ".claude/agents/reviewer.md": "# Reviewer\nReview diffs.",
+    ".agents/skills/release/SKILL.md": "# Release\nCut a release.",
+    "bundle/skills/decks/SKILL.md": "# Decks\nMake decks.",
+    "bundle/AGENTS.md": "# Bundle agent\nYou write decks.",
+    "app/loader.py": 'SKILL = "SKILL.md"\nINSTRUCTIONS_FILE = "AGENTS.md"\n',
+}
+
+
+def test_markup_legal_text_error_messages_and_coding_assistant_notes_are_not_prompts() -> None:
+    found = _found(NOT_PROMPTS)
+    assert {(e.name, e.path) for e in found.of("prompt")} == {
+        ("SYSTEM_PROMPT", "app/errors.py"),
+        # Loaded by the app's own code: what its agents are told.
+        ("SKILL.md", "bundle/skills/decks/SKILL.md"),
+        ("AGENTS.md", "bundle/AGENTS.md"),
+    }
+    assert {e.name for e in found.of("agent")} == {"PlannerAgent"}

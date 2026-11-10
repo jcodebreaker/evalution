@@ -122,14 +122,9 @@ def toy(tmp_path):
     elsewhere.mkdir(parents=True)
     hidden = elsewhere / "memory.db"
     port = _free_port()
-    # Not pytest's captured output: those are files in the system temp folder, held open by the
-    # toy, and the probe would watch that whole folder (and stop at its file limit) for them.
-    proc = subprocess.Popen(
-        [sys.executable, str(app / "app.py"), str(port), str(hidden)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    # The toy inherits pytest's output, which may be files held open in the system temp folder:
+    # the probe watches those files alone, never that folder (test_isolation_observe_limits.py).
+    proc = subprocess.Popen([sys.executable, str(app / "app.py"), str(port), str(hidden)])
     for _ in range(100):
         try:
             httpx.get(f"http://127.0.0.1:{port}/", timeout=0.2)

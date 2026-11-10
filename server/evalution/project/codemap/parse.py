@@ -30,7 +30,7 @@ import tree_sitter_python
 import tree_sitter_typescript
 
 #: Bumped when what a parse gives changes, so cached maps are made again.
-VERSION = 4
+VERSION = 6
 SIG_CHARS = 160
 REFS_PER_FILE = 3_000
 #: A string this long, held in a module-level name, is taken for a prompt whatever its name.
@@ -45,6 +45,7 @@ _PROMPTISH = re.compile(r"prompt|instruction|system|persona|template", re.IGNORE
 _AGENTISH = re.compile(r"agent|assistant|planner|orchestrat", re.IGNORECASE)
 _STATEISH = re.compile(r"memory|store|state|session|cache|history|repo(sitory)?$|db$", re.I)
 _TOOLISH = re.compile(r"tool", re.IGNORECASE)
+_RAISED = re.compile(r"(Error|Exception|Warning|Fault)$")
 _ROUTE_CALL = re.compile(r"^(get|post|put|patch|delete|route|api_route|websocket)$")
 _ROUTE_DECORATOR = re.compile(r"\.(get|post|put|patch|delete|route|api_route|websocket)\(")
 _AGENT_FILE = re.compile(r"agent|prompt|skill|instruction|system|claude|persona", re.IGNORECASE)
@@ -107,7 +108,10 @@ def _sig(text: str) -> str:
 
 
 def _named_kind(base: str, name: str) -> str:
-    """What a class or name is to the app, by its name."""
+    """What a class or name is to the app, by its name; an error is none of them, whatever its
+    name holds (``AgentNotFoundError``)."""
+    if base == "class" and _RAISED.search(name):
+        return "class"
     if _AGENTISH.search(name) and base in ("class", "constant", "variable"):
         return "agent"
     if _STATEISH.search(name) and base in ("class", "constant", "variable"):
@@ -203,11 +207,18 @@ class _Tree:
 
     def _function(self, node: Any, cls: str | None, scopes: tuple) -> str | None:
         name = self._text(node.child_by_field_name("name"))
-        if not name or "function" in scopes:
+        if not name:
             return None
         decorators = self._decorators(node)
         said = " ".join(decorators)
-        if any(_ROUTE_DECORATOR.search(d) for d in decorators):
+        routes = any(_ROUTE_DECORATOR.search(d) for d in decorators)
+        if "function" in scopes and not (
+            # A route or tool registered inside a factory (``def register_routes(router):``),
+            # one level down: what the app serves, though no module-level name holds it.
+            scopes == ("function",) and (routes or _TOOLISH.search(said))
+        ):
+            return None
+        if routes:
             kind = "route"
         elif _TOOLISH.search(said):
             kind = "tool"

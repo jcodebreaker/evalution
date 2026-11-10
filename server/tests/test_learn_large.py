@@ -137,17 +137,21 @@ async def test_a_learn_whose_sections_pass_the_cap_saves_and_says_how_many_are_i
 # C7: the agent, not the whole repository.
 
 
-def test_the_agents_scope_starts_from_its_core_and_follows_imports_two_hops() -> None:
+def test_the_agents_scope_is_its_core_and_the_helpers_it_imports() -> None:
     entries = [
         Entry("prompt", "SYSTEM", "agent/prompts.py", 1),
         Entry("tool", "search", "agent/tools.py", 3, places=("agent/settings.yaml:4",)),
+        Entry("model", "messages.create", "agent/run.py", 7),
         Entry("route", "POST /chat", "server/routes.py", 9),
+        Entry("state", "sessions", "server/sessions.py", 4),
+        Entry("entry", "create_app", "server/main.py", 1),
         Entry("route", "GET /items", "ui/page.tsx", 2),
         Entry("state", "users", "migrations/0001.sql", 1),
     ]
     edges = {
-        "server/routes.py": ["agent/run.py"],
-        "agent/run.py": ["agent/prompts.py", "agent/tools.py"],
+        "server/main.py": ["server/routes.py"],
+        "server/routes.py": ["agent/run.py", "server/sessions.py"],
+        "agent/run.py": ["agent/prompts.py", "agent/tools.py", "agent/util.py"],
         "agent/tools.py": ["lib/http.py"],
         "lib/http.py": ["lib/retry.py"],
         "lib/retry.py": ["lib/far.py"],
@@ -157,17 +161,76 @@ def test_the_agents_scope_starts_from_its_core_and_follows_imports_two_hops() ->
     files |= {"agent/settings.yaml", "migrations/0001.sql", "ios/App.swift"}
     found = areas.agent_scope(entries, edges, files)
     assert found == {
+        # Where its prompts, tools and model calls are.
         "agent/prompts.py",
         "agent/tools.py",
         "agent/settings.yaml",
-        "lib/http.py",
-        "lib/retry.py",
-        # The route reaches the core through run.py: it and what it imports are the agent.
-        "server/routes.py",
         "agent/run.py",
-    }
+        # What they import, one step: the second only through a file that is itself the core.
+        "agent/util.py",
+        "lib/http.py",
+    }, "routes, sessions and the app's entry point do not start a scope"
     # No core named: every file, as before.
-    assert areas.agent_scope(entries[2:], edges, files) is None
+    assert areas.agent_scope(entries[3:], edges, files) is None
+
+
+def test_the_scope_keeps_a_packages_front_its_tool_registry_and_helpers_in_its_folders() -> None:
+    tools = [Entry("tool", f"t{n}", f"agent/tools/t{n}.py", 1) for n in range(3)]
+    entries = [
+        *tools,
+        Entry("agent", "AgentCache", "server/cache.py", 1, what="class"),
+        Entry("agent", "_SUBAGENT_STATES", "server/states.py", 1, what="frozenset"),
+        Entry("agent", "PlannerAgent", "agent/planner.py", 1, what="class"),
+        Entry("route", "POST /tools", "server/routes.py", 1),
+    ]
+    edges = {
+        "agent/manager.py": [e.path for e in tools],
+        "server/routes.py": [e.path for e in tools],
+        "agent/tools/t0.py": ["lib/mcp_client.py"],
+        "lib/mcp_client.py": ["agent/tools/_schema.py", "lib/far.py"],
+        "agent/tools/__init__.py": ["lib/everything.py"],
+    }
+    files = {p for p in [*edges, *(h for hs in edges.values() for h in hs)]}
+    files |= {e.path for e in entries}
+    found = areas.agent_scope(entries, edges, files)
+    assert found == {
+        *(e.path for e in tools),
+        "agent/planner.py",
+        "lib/mcp_client.py",
+        # A helper's import, in a folder of the agent's own.
+        "agent/tools/_schema.py",
+        # The package's front, not what it imports.
+        "agent/tools/__init__.py",
+        # What imports three of its tools runs them; a route that does only serves them.
+        "agent/manager.py",
+    }, "a name that only says agent starts nothing"
+
+
+def test_a_folder_with_one_subfolder_is_split_below_it() -> None:
+    sizes = {f"server/pkg/{c}/m{k}.py": 10 for c in "abcdefgh" for k in range(5)}
+    parts = areas.partition(sizes)
+    assert [a.folders for a in parts] == [(f"server/pkg/{c}",) for c in "abcdefgh"]
+    assert [a.id for a in parts] == [f"server-pkg-{c}" for c in "abcdefgh"]
+    # A file of its own at a level stops the descent there: it is an area with the rest.
+    with_top = areas.partition({**sizes, "server/main.py": 10})
+    assert sorted(f for a in with_top for f in a.files) == sorted([*sizes, "server/main.py"])
+    assert len(with_top) > 1
+
+
+def test_an_outside_area_never_takes_the_name_of_an_area_learned_in_pieces() -> None:
+    pieces = [areas.Area("server.1", ("server",), ("server/a.py",), 0, (), "server")]
+    pieces.append(areas.Area("server.2", ("server",), ("server/b.py",), 0, (), "server"))
+    taken = {a.id for a in pieces}
+    beyond = areas.outside(["server.py", "server/x.py", "web/a.ts"], taken)
+    assert [a.id for a in beyond] == ["root", "server~outside", "web"]
+
+
+def test_an_area_of_prompts_tools_and_agents_weighs_more_than_one_of_plumbing() -> None:
+    core = [Entry("prompt", "SYSTEM", "a.py", 1), Entry("tool", "search", "a.py", 2)]
+    plumbing = [Entry("state", f"s{n}", "b.py", n) for n in range(5)]
+    assert areas.weight(core, {}) > areas.weight(plumbing, {})
+    assert areas.weight(core, {core[1].id: 4}) == areas.weight(core, {}) + 4, "uses add as before"
+    assert areas.weight([], {}) == 0
 
 
 #: A repository where the agent is a small part: a web client of 30 files calling its own

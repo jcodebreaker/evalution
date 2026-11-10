@@ -29,6 +29,7 @@ def _view(ws: Workspace, name: str) -> dict[str, Any]:
         "outbound": _outbound(ws, name, plan),
         "put_back": _put_back(plan),
         "shared": list(plan.shared) if plan is not None else [],
+        "unread": [dict(u) for u in plan.unread] if plan is not None else [],
     }
 
 

@@ -22,7 +22,11 @@ from evalution.core.version import Checkout
 
 READ_CAP = 64_000
 LIST_CAP = 500
-HASH_CAP = 2_000
+#: A safety ceiling on the files watched, and so mapped and parsed (ADR 0012): above the largest
+#: repositories measured (3,923 files under the watch rules), so the agent's scope is chosen from
+#: all of them. Past it, the files kept are those whose paths say most of an agent
+#: (:func:`relevance`), never the first by name.
+HASH_CAP = 10_000
 HASH_SIZE = 1_000_000
 DIFF_CAP = 60_000
 #: Lines of context around each change: with no whole files sent beside it, a reader of the diff
@@ -145,6 +149,26 @@ def _source(rel: str) -> bool:
     )
 
 
+#: Path words of an agent's own files: past :data:`HASH_CAP`, files that say these go first.
+_AGENT_PATH = re.compile(
+    r"agent|prompt|tool|skill|llm|model|harness|runner|executor|instruction|persona|assistant|"
+    r"chat|memory|mcp|graph|chain",
+    re.IGNORECASE,
+)
+_CODE_SUFFIXES = frozenset(
+    {".py", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".md", ".mdx"}
+    | {".yaml", ".yml", ".json", ".toml"}
+)
+
+
+def relevance(rel: str) -> tuple[int, bool, int, str]:
+    """How a file ranks when not all can be watched, best first: the more its path says of an
+    agent the better, then code and settings before the rest, then the shallower; the name last,
+    only to break ties."""
+    said = min(len(_AGENT_PATH.findall(rel)), 3)
+    return (-said, Path(rel).suffix.lower() not in _CODE_SUFFIXES, rel.count("/"), rel)
+
+
 def _digest(path: Path) -> str | None:
     """Short hash of a text file; ``None`` for a binary or one that does not read."""
     try:
@@ -165,6 +189,8 @@ class Code:
         self.focus = conf.focus
         self._digests: Digests = {} if digests is None else digests
         self._diffs: Diffs = {} if diffs is None else diffs
+        #: What git listed last as not ignored, so reading one of them asks git nothing more.
+        self._unignored: frozenset[str] = frozenset()
 
     def allowed(self, rel: str) -> bool:
         return (
@@ -184,7 +210,9 @@ class Code:
             raise CodeError(f"{path}: not a path inside the code folder")
         if is_secret(rel):
             raise CodeError(f"{path}: secrets files are never read")
-        if not self.allowed(rel) or self._git("check-ignore", "-q", "--", rel) is not None:
+        if not self.allowed(rel) or (
+            rel not in self._unignored and self._git("check-ignore", "-q", "--", rel) is not None
+        ):
             raise CodeError(f"{path}: not part of the target's source")
         target = (self.root / rel).resolve()
         if not target.is_relative_to(self.root) or not target.is_file():
@@ -202,36 +230,20 @@ class Code:
         """Every file of the folder, relative and sorted: from git, else a walk."""
         listed = self._git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
         if listed is not None:
-            return sorted(set(filter(None, listed.split("\0"))))
+            found = sorted(set(filter(None, listed.split("\0"))))
+            self._unignored = frozenset(found)
+            return found
         found: list[str] = []
         for folder, dirs, names in os.walk(self.root):
             dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith("."))
             found += [(Path(folder) / n).relative_to(self.root).as_posix() for n in sorted(names)]
         return found
 
-    def files(self, cap: int) -> list[str]:
-        """Readable files, relative and sorted, at most *cap*."""
+    def _eligible(self) -> tuple[list[str], int]:
+        """Every file the watch rules take that can be read, sorted, and how many of those are
+        over :data:`HASH_SIZE`."""
         found: list[str] = []
-        for rel in self._listed():
-            if not self.allowed(rel):
-                continue
-            path = self.root / rel
-            try:
-                small = path.is_file() and path.stat().st_size <= HASH_SIZE
-            except OSError:
-                continue
-            if small and path.resolve().is_relative_to(self.root):
-                found.append(rel)
-                if len(found) >= cap:
-                    return found
-        return found
-
-    def left_out(self, cap: int | None = None) -> dict[str, int]:
-        """What the watch rules take but :meth:`files` leaves out, counted: ``past_cap``, files
-        past the first *cap*, and ``too_large``, those over :data:`HASH_SIZE`. Nothing is said
-        of a file the rules leave out (tests, build output, secrets): that is by choice."""
-        cap = HASH_CAP if cap is None else cap
-        kept = past = large = 0
+        large = 0
         for rel in self._listed():
             if not self.allowed(rel):
                 continue
@@ -242,13 +254,27 @@ class Code:
                 small = path.stat().st_size <= HASH_SIZE
             except OSError:
                 continue
-            if not small:
-                large += 1
-            elif kept < cap:
-                kept += 1
+            if small:
+                found.append(rel)
             else:
-                past += 1
-        return {"past_cap": past, "too_large": large}
+                large += 1
+        return found, large
+
+    def files(self, cap: int) -> list[str]:
+        """Readable files, relative and sorted, at most *cap*: past it, those that rank first
+        (:func:`relevance`), never the first by name."""
+        found, _ = self._eligible()
+        if len(found) <= cap:
+            return found
+        return sorted(sorted(found, key=relevance)[:cap])
+
+    def left_out(self, cap: int | None = None) -> dict[str, int]:
+        """What the watch rules take but :meth:`files` leaves out, counted: ``past_cap``, files
+        past *cap*, and ``too_large``, those over :data:`HASH_SIZE`. Nothing is said of a file
+        the rules leave out (tests, build output, secrets): that is by choice."""
+        cap = HASH_CAP if cap is None else cap
+        found, large = self._eligible()
+        return {"past_cap": max(0, len(found) - cap), "too_large": large}
 
     def list(self, pattern: str = "**") -> tuple[list[str], int]:
         """Readable files matching glob *pattern*, at most :data:`LIST_CAP`, and how many more

@@ -24,7 +24,7 @@ DOC = "imports.json"
 #: Steps through imports that still count as resting on a file.
 HOPS = 2
 #: Bumped when what is read out of a file changes, so old cache entries are not used.
-_RULES = "1"
+_RULES = "2"
 _PARSE_CAP = 300_000
 _JS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
 _MD = (".md", ".mdx")
@@ -38,6 +38,14 @@ _GO_PATH = re.compile(r'^\s*(?:[\w.]+\s+)?"([^"\n]{1,300})"', re.M)
 _GO_MODULE = re.compile(r"^\s*module\s+(\S+)", re.M)
 _MD_LINK = re.compile(r"\]\(([^)\s#]{1,300})")
 _MD_CODE = re.compile(r"`([^`\s]{1,300}\.\w{1,8})`")
+#: A module loaded by name, not imported (a harness or executor in a registry, an
+#: ``importlib.import_module`` argument): a string that is a whole dotted module path, perhaps
+#: with ``:attribute``, or a whole relative path to a Python file. It is an edge only when it
+#: names one file of the repository, by two parts of its path or more (:meth:`_Files.named`).
+DYNAMIC = "named:"
+_NAMED_MODULE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?::[A-Za-z_][\w.]*)?")
+_NAMED_FILE = re.compile(r"(?:[\w.-]+/)+[\w-]+\.py")
+_NAMED_CAP = 100
 
 
 def _no_js_comments(text: str) -> str:
@@ -53,19 +61,28 @@ def _no_js_comments(text: str) -> str:
     return "\n".join(kept)
 
 
+def _named(value: object) -> bool:
+    return isinstance(value, str) and bool(
+        _NAMED_MODULE.fullmatch(value) or _NAMED_FILE.fullmatch(value)
+    )
+
+
 def _python_specs(text: str) -> list[str]:
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return []
     found = []
+    named = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found += [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             module = "." * node.level + (node.module or "")
             found += [f"{module}:{alias.name}" for alias in node.names]
-    return found
+        elif isinstance(node, ast.Constant) and _named(node.value):
+            named.append(DYNAMIC + node.value)
+    return found + named[:_NAMED_CAP]
 
 
 def specs(rel: str, text: str) -> list[str]:
@@ -97,6 +114,7 @@ class _Files:
         self.modules = modules
         self.by_name: dict[str, list[str]] = defaultdict(list)
         self.by_folder: dict[str, list[str]] = defaultdict(list)
+        self._python_seen: dict[tuple[str, str], list[str]] = {}
         for rel in self.known:
             path = PurePosixPath(rel)
             self.by_name[path.name].append(rel)
@@ -114,6 +132,13 @@ class _Files:
         return [str(c) for c in candidates if str(c) in self.known][:1]
 
     def python(self, rel: str, spec: str) -> list[str]:
+        # What a spec means depends on the importing file's folder alone: asked once per folder.
+        key = (posixpath.dirname(rel), spec)
+        if key not in self._python_seen:
+            self._python_seen[key] = self._python(rel, spec)
+        return self._python_seen[key]
+
+    def _python(self, rel: str, spec: str) -> list[str]:
         module, _, name = spec.partition(":")
         bare = module.lstrip(".")
         level = len(module) - len(bare)
@@ -172,10 +197,27 @@ class _Files:
         rooted = posixpath.normpath(spec.lstrip("/"))
         return [c for c in (near, rooted) if c in self.known][:1]
 
+    def named(self, spec: str) -> list[str]:
+        """The one file a module path or a file path written in a string is, if it is one."""
+        if "/" in spec:
+            path = posixpath.normpath(spec)
+            return [path] if path in self.known else []
+        parts = spec.partition(":")[0].split(".")
+        module = "/".join(parts)
+        found = [
+            f
+            for f in [*self.by_name[f"{parts[-1]}.py"], *self.by_name["__init__.py"]]
+            for end in (f"{module}.py", f"{module}/__init__.py")
+            if f == end or f.endswith("/" + end)
+        ]
+        return found if len(found) == 1 else []
+
     def resolve(self, rel: str, spec: str) -> list[str]:
         suffix = PurePosixPath(rel).suffix.lower()
         found: list[str] = []
-        if suffix == ".py":
+        if spec.startswith(DYNAMIC):
+            found = self.named(spec.removeprefix(DYNAMIC))
+        elif suffix == ".py":
             found = self.python(rel, spec)
         elif suffix in _JS:
             found = self.js(rel, spec)

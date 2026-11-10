@@ -97,10 +97,11 @@ def test_a_focus_narrows_the_scope_to_that_agent_and_what_it_reaches(tmp_path) -
     assert "web/client.ts" not in every
 
     alpha = areas.agent_scope(found.entries, edges, files, "alpha")
-    assert alpha == {"agents/alpha.yaml", "tools/common.py", "lib/http.py", "lib/retry.py"}
+    # One step through imports: lib/retry.py is a second, into a folder holding no core file.
+    assert alpha == {"agents/alpha.yaml", "tools/common.py", "lib/http.py"}
     beta = areas.agent_scope(found.entries, edges, files, "beta")
     # Beta names the shared tool, which is defined with alpha's: that file and what it imports.
-    assert beta == {"agents/beta.yaml", "tools/common.py", "lib/http.py", "lib/retry.py"}
+    assert beta == {"agents/beta.yaml", "tools/common.py", "lib/http.py"}
 
 
 @pytest.mark.parametrize("answer", [None, "", focus.ALL, "nobody"])
@@ -116,8 +117,9 @@ def test_all_of_them_or_an_unknown_focus_leaves_the_scope_as_today(tmp_path, ans
 
 def test_a_focus_keeps_its_scope_without_other_agents_reached_by_imports() -> None:
     entries = [
-        Entry("agent", "planner", "agents/planner.py", 3),
-        Entry("agent", "writer", "agents/writer.py", 3),
+        # Agents that are one (defined, not only named so): only those start a scope.
+        Entry("agent", "planner", "agents/planner.py", 3, what="definition"),
+        Entry("agent", "writer", "agents/writer.py", 3, what="definition"),
         Entry("route", "POST /chat", "server/routes.py", 5),
     ]
     edges = {
@@ -126,10 +128,11 @@ def test_a_focus_keeps_its_scope_without_other_agents_reached_by_imports() -> No
         "server/routes.py": ["agents/planner.py"],
     }
     files = [*edges, "agents/writer.py"]
+    # The registry it imports is in, the writer it reaches through it is not; the route that
+    # serves it starts nothing (plumbing).
     assert areas.agent_scope(entries, edges, files, "planner") == {
         "agents/planner.py",
         "agents/registry.py",
-        "server/routes.py",
     }
 
 
@@ -174,7 +177,8 @@ def test_the_learn_starts_its_scope_from_the_target_focus(tmp_path) -> None:
         return SimpleNamespace(conf=lambda name: SimpleNamespace(code=code))
 
     alpha = scope_of(targets(CodeConfig(path=folder, focus="alpha")), "app", cmap, found)
-    assert alpha == {"agents/alpha.yaml", "tools/common.py", "lib/http.py", "lib/retry.py"}
+    # One step through imports: lib/retry.py is a second, into a folder holding no core file.
+    assert alpha == {"agents/alpha.yaml", "tools/common.py", "lib/http.py"}
     every = scope_of(targets(CodeConfig(path=folder)), "app", cmap, found)
     assert every is not None and {f"agents/{n}.yaml" for n in NAMES} <= every
 

@@ -535,7 +535,7 @@ def _prose(cmap: CodeMap, path: str) -> bool:
     file the map holds prompts of) is not."""
     if not _PROSE.search(path):
         return False
-    return not any(d.path == path and d.kind == "prompt" for d in cmap.defs.values()) or bool(
+    return not any(d.kind == "prompt" for d in cmap.defs_in(path)) or bool(
         re.search(r"(^|/)(docs?|adrs?)/", path, re.IGNORECASE)
     )
 

@@ -101,3 +101,40 @@ def test_include_narrows_what_is_watched_and_listed(tmp_path, monkeypatch) -> No
     # Past the cap, the list says how many more matched.
     monkeypatch.setattr(module, "LIST_CAP", 1)
     assert narrow.list() == (["README.md"], len(narrow.files(100)) - 1)
+
+
+def test_past_the_cap_the_agents_files_are_kept_not_the_first_by_name(
+    tmp_path, monkeypatch
+) -> None:
+    for n in range(8):
+        (tmp_path / "apps" / "web").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "apps" / "web" / f"page{n}.tsx").write_text("x")
+    agents = {"tools/search.py", "chat/agent.py", "chat/prompts/system.md"}
+    for rel in agents:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x")
+    code = Code(CodeConfig(tmp_path))
+    assert len(code.files(module.HASH_CAP)) == 11, "under the ceiling every file is watched"
+    assert code.left_out() == {"past_cap": 0, "too_large": 0}
+    monkeypatch.setattr(module, "HASH_CAP", 5)
+    kept = code.files(module.HASH_CAP)
+    assert agents <= set(kept), "never the first files by name"
+    assert kept == sorted(kept) and len(kept) == 5
+    assert set(code.hashes()) == set(kept)
+    assert code.left_out() == {"past_cap": 6, "too_large": 0}
+
+
+def test_the_ceiling_is_above_every_repository_measured() -> None:
+    # The largest repository measured takes 3,923 files: none may be cut by name before scoping.
+    assert module.HASH_CAP >= 8_000
+
+
+def test_a_listed_file_is_read_without_asking_git_again(tmp_path, monkeypatch) -> None:
+    code = _project(tmp_path)
+    _git(tmp_path, "init", "-q")
+    code.hashes()
+    asked = []
+    real = code._git
+    monkeypatch.setattr(code, "_git", lambda *a: asked.append(a) or real(*a))
+    assert code.read("README.md") == "# app"
+    assert not asked, "the listing already says it is not ignored"

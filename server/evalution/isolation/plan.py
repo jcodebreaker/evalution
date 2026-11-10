@@ -123,6 +123,11 @@ class Plan:
     #: ``volume:NAME`` (a volume declared external). Always said; a plan is refused only when
     #: the rehearsal's probe wrote into one that is writable.
     shared: list[dict[str, Any]] = field(default_factory=list)
+    #: Folders the search for stores watched but didn't read whole, the file limit reached, in
+    #: the probe that found the stores or a rehearsal: ``[{root, seen, limit}]``, ``seen`` files
+    #: found there and ``limit`` read. A store kept there may have been missed, and the report
+    #: says so. A plan saved before this was kept reads ``[]``.
+    unread: list[dict[str, Any]] = field(default_factory=list)
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
 

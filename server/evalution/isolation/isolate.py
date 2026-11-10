@@ -626,7 +626,20 @@ async def _rehearse_on(
     if writable:
         more["shared"] = writable
     result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude, **more)
+    # What the rehearsal watched as the app ran, as it watched it: said when not read whole.
+    roots = runner.watch_roots()
+    roots += [
+        d.path.parent
+        for d in drivers
+        if isinstance(d, FileStore) and not any(d.path.is_relative_to(r) for r in roots)
+    ]
+    note_unread(plan, await asyncio.to_thread(observe.unread_of, roots))
     return result, notes
+
+
+def note_unread(plan: Plan, unread: list[dict[str, Any]]) -> None:
+    """Keep on *plan* the folders a search didn't read whole, once per folder."""
+    plan.unread = observe.merge_unread(plan.unread, unread)
 
 
 def _proven(plan: Plan, result: Rehearsal) -> None:
@@ -640,6 +653,8 @@ def _proven(plan: Plan, result: Rehearsal) -> None:
 
 def _account(plan: Plan, result: Rehearsal, notes: list[str], where: str, left: list[str]) -> str:
     lines = [f"Rehearsed on {where} in {result.seconds:.0f}s:", result.report()]
+    if plan.unread:
+        lines.append(observe.unread_words(plan.unread))
     if plan.shared:
         lines.append(
             f"Shared with your app (not copied): {shared_words(plan.shared)}. A test that writes "
@@ -726,6 +741,7 @@ async def isolate(
         stage("plan")
         plan = draft_from(folder, stores, seen, found, target=target)
         plan.launch = {**spec, "project": plan.launch.get("project")}
+        note_unread(plan, seen.unread)
         PlanStore(config.data_dir).save_evidence(target, evidence(stores, found, seen))
         if on_plan is not None:
             on_plan(plan)
@@ -861,6 +877,7 @@ def evidence(
             "canary": seen.canary,
             "open_files": seen.open_files,
             "sockets": seen.sockets,
+            "unread": seen.unread,
         },
     }
 

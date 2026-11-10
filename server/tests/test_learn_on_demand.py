@@ -71,11 +71,11 @@ async def test_areas_run_heaviest_first_and_real_use_weighs_and_moves_only_its_a
     weights = {a["id"]: a["weight"] for a in shown["learn"]["areas"]}
     # root: a prompt, a prompt builder, a tool and a route; agents: a prompt, an agent and its
     # tool; lib: a store; web: nothing of the skeleton.
-    assert weights == {"root": 4, "agents": 3, "lib": 1, "web": 0}
+    assert weights == {"root": 10, "agents": 9, "lib": 1, "web": 0}
     assert started == ["root", "agents", "lib"]
     assert not sent["light"], "no file read in bulk"
     # Its budget grows with its weight, from the floor.
-    assert budgets == [area_agents.allowance(w) for w in (4, 3, 1)]
+    assert budgets == [area_agents.allowance(w) for w in (10, 9, 1)]
     assert budgets[-1] == (area_agents.STEPS, area_agents.BUDGET)
     assert budgets[0][1] > budgets[1][1] > budgets[2][1]
     # Its brief is its part of the skeleton, not summaries.
@@ -92,7 +92,7 @@ async def test_areas_run_heaviest_first_and_real_use_weighs_and_moves_only_its_a
     before = len(sent["areas"])
     shown = await _learn(agent, sid)
     assert started == ["agents"] and _area_runs(shown) == ["agents"]
-    assert {a["id"]: a["weight"] for a in shown["learn"]["areas"]}["agents"] == 43
+    assert {a["id"]: a["weight"] for a in shown["learn"]["areas"]}["agents"] == 49
     told = _first_text(sent["areas"][before])
     assert "tool search (agents/worker.yaml:4); used 40 times lately" in told
     # A few more calls of the same tool stay in its band: nothing is learned again.
@@ -127,7 +127,7 @@ def test_an_areas_key_moves_with_its_files_and_its_trace_bands_only() -> None:
     assert areas.key(area, prints, [entry], {}) != key, "none is a band of its own"
     assert areas.key(area, {**prints, "lib/b.py": "5"}, [entry], {entry.id: 4}) != key
     assert [areas.band(n) for n in (0, 1, 9, 10, 99, 100, 5000)] == [0, 1, 1, 2, 2, 3, 3]
-    assert areas.weight([entry], {entry.id: 4}) == 5
+    assert areas.weight([entry], {entry.id: 4}) == areas.KIND_WEIGHT["tool"] + 4
 
 
 async def test_a_learn_stopped_after_two_areas_keeps_both_and_the_next_learns_only_the_rest(
@@ -197,7 +197,7 @@ async def test_a_listed_area_is_learned_on_request_and_a_current_one_only_when_f
     web = await learn.area_state(targets, "bot", "web")
     assert web["state"] == "listed" and web["weight"] == 0 and web["learned_at"] is None
     root = await learn.area_state(targets, "bot", "root")
-    assert root["state"] == "current" and root["learned_at"] and root["weight"] == 4
+    assert root["state"] == "current" and root["learned_at"] and root["weight"] == 10
 
     # "Learn this area": web alone, and the overview again since a section was added.
     before = len(sent["areas"])
@@ -361,7 +361,7 @@ async def test_the_understanding_shows_the_facts_then_each_area_as_it_lands(
         "id": "root",
         "title": "the top folder",
         "state": "learning",
-        "weight": 4,
+        "weight": 10,
         "files": root["files"],
         "learned_at": None,
     }
@@ -548,7 +548,7 @@ def test_a_heavy_area_splits_by_folder_then_file_then_entries_the_same_way_twice
     # Every entry of the area in one piece, none twice; each within a full budget.
     held = [e.id for p in pieces for e in areas.entries_of(p, found)]
     assert sorted(held) == sorted(e.id for e in areas.entries_of(area, found))
-    assert all(areas.weight(areas.entries_of(p, found), {}) <= piece for p in pieces)
+    assert all(len(areas.entries_of(p, found)) <= piece for p in pieces)
     # Up to the ceiling it is learned whole.
     light = [e for e in found if e.path != "agents/settings/team.yaml"]
     assert len(areas.entries_of(area, light)) == 31 <= ceiling
@@ -574,11 +574,11 @@ async def test_a_heavy_area_is_learned_in_pieces_each_within_its_budget_and_kept
     weights = {a["id"]: a["weight"] for a in shown["learn"]["areas"]}
     # agents: the 60 tools of its settings in three pieces, and the rest of it in one.
     assert weights == {
-        "agents.2": 20,
-        "agents.3": 20,
-        "agents.4": 20,
-        "agents.1": 5,
-        "root": 4,
+        "agents.2": 60,
+        "agents.3": 60,
+        "agents.4": 60,
+        "agents.1": 15,
+        "root": 10,
         "lib": 1,
         "web": 0,
     }

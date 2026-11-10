@@ -31,7 +31,7 @@ from evalution.project.codemap.graph import CodeMap, Definition
 from evalution.project.codemap.parse import VERSION as PARSE_VERSION
 
 #: Bumped when what a skeleton holds changes, so kept ones are made again.
-VERSION = 2
+VERSION = 4
 #: The kinds of entry, in the order they are shown.
 KINDS = ("entry", "prompt", "tool", "model", "route", "state", "agent")
 #: How much of a prompt's text an entry keeps.
@@ -78,7 +78,9 @@ _PEOPLE_FOLDERS = frozenset(
     {"docs", "doc", "adr", "adrs", "decisions", "plans", "rfcs", "changelog", "changes"}
 )
 _PEOPLE_FILE = re.compile(
-    r"^(readme|changelog|changes|history|license|contributing|code_of_conduct|security)\b", re.I
+    r"^(readme|changelog|changes|history|licen[cs]e|notice|copying|authors|disclaimer|contributing|"
+    r"code_of_conduct|security)\b",
+    re.I,
 )
 #: A file a string names, which may hold a prompt: ``prompts/system.md``, ``brief.j2``.
 _MENTION = re.compile(r"""["'`]([\w./-]*?([\w-]+\.(?:md|mdx|txt|j2|jinja2?|prompt|tmpl)))["'`]""")
@@ -422,8 +424,8 @@ def _worth_reading(path: str) -> bool:
 
 
 def _mentions(text: str) -> tuple[str, ...]:
-    """The file names a file's strings hold, which may be prompts it loads."""
-    return tuple(sorted({m[2].lower() for m in _MENTION.finditer(text)}))
+    """The files a file's strings name, as written (lowercase), which may be prompts it loads."""
+    return tuple(sorted({m[1].lower() for m in _MENTION.finditer(text)}))
 
 
 # Folding: one entry per tool, per copied prompt or agent; Markdown that is a prompt
@@ -431,13 +433,37 @@ def _mentions(text: str) -> tuple[str, ...]:
 
 def _prompt_file(path: str, mentioned: set[str]) -> bool:
     """Whether a Markdown file is a prompt: in a prompt's folder, named as one, or loaded by the
-    code; never one written for people (docs, decisions, plans, a README)."""
+    code (*mentioned*: what the code's strings name, as written); never one written for people
+    (docs, decisions, plans, a README, a notice), nor one written for the coding assistants that
+    work on the repository (:func:`_for_assistants`) unless the app's own code loads it: by its
+    path, or, in a folder of the app's own (not at the top, not a hidden one), by its name."""
     parts = PurePosixPath(path).parts
     folders = {p.lower() for p in parts[:-1]}
     name = parts[-1]
     if folders & _PEOPLE_FOLDERS or _PEOPLE_FILE.match(name):
         return False
-    return bool(folders & _PROMPT_FOLDERS or _PROMPT_FILE.search(name) or name.lower() in mentioned)
+    low = name.lower()
+    bare = {m.rsplit("/", 1)[-1] for m in mentioned}
+    if _for_assistants(path):
+        whole = path.lower()
+        if any("/" in m and whole.endswith(m.lstrip("./")) for m in mentioned):
+            return True
+        hidden = any(f.startswith(".") for f in folders)
+        return not hidden and len(parts) > 1 and low in bare
+    return bool(folders & _PROMPT_FOLDERS or _PROMPT_FILE.search(name) or low in bare)
+
+
+#: What coding assistants read when they work on a repository, not what its app tells a model.
+_ASSISTANT_FOLDERS = frozenset({".claude", ".agents", ".cursor", ".codex", ".gemini", ".windsurf"})
+_ASSISTANT_FILE = re.compile(r"^(agents|claude|gemini|skill)\.md$", re.I)
+
+
+def _for_assistants(path: str) -> bool:
+    """``AGENTS.md``, ``CLAUDE.md``, a ``SKILL.md``, or anything under ``.claude/``,
+    ``.agents/`` and the like."""
+    parts = PurePosixPath(path).parts
+    hidden = {p.lower() for p in parts[:-1]} & _ASSISTANT_FOLDERS
+    return bool(hidden or _ASSISTANT_FILE.match(parts[-1]))
 
 
 def _rank(entry: Entry) -> int:
@@ -469,7 +495,13 @@ def _fold(group: Sequence[Entry]) -> Entry:
 def _assemble(raw: Sequence[Entry], mentions: Mapping[str, Sequence[str]]) -> tuple[Entry, ...]:
     """The entries shown, from each file's own: Markdown kept only where it is a prompt, a tool
     one entry whatever lists it, copies of one prompt, agent or model setting one entry."""
-    mentioned = {m for named in mentions.values() for m in named}
+    # Only code loads a prompt: what Markdown links to is not what the app reads.
+    mentioned = {
+        m
+        for path, named in mentions.items()
+        if PurePosixPath(path).suffix.lower() not in _MARKDOWN
+        for m in named
+    }
     groups: dict[tuple, list[Entry]] = {}
     for e in raw:
         if e.kind == "prompt" and e.what == "file" and not _prompt_file(e.path, mentioned):
@@ -682,6 +714,53 @@ def _codeish(text: str) -> bool:
     return marks / len(text) > CODE_DENSITY
 
 
+#: A CSS or Tailwind class: ``px-3``, ``hover:bg-black/60``, ``text-[13px]``, ``flex``.
+_CLASS_TOKEN = re.compile(r"^!?-?[a-z0-9]+(?:[a-z0-9\-:/.\[\]%#&_()=,]|\.\d)*$")
+#: Legal text: a licence, a notice, a disclaimer.
+_LEGAL_NAME = re.compile(r"licen[cs]e|notice|disclaimer|copyright|eula|terms_of|privacy", re.I)
+_LEGAL_WORDS = re.compile(
+    r"copyright\s*(?:\(c\)|©|\d{4})|permission is hereby granted|licen[cs]ed under|"
+    r"all rights reserved|provided [\"']?as is|warrant(?:y|ies)|liabilit(?:y|ies)|"
+    r"(?:legal|medical|financial|professional) advice|terms of (?:use|service)",
+    re.I,
+)
+#: A message for a person when something went wrong, by its name's words or its first words.
+_ERROR_WORDS = frozenset(
+    {"err", "error", "errors", "hint", "hints", "remediation", "warning", "warn", "usage"}
+    | {"fail", "failed", "failure", "exc", "fix"}
+)
+_ERROR_HEAD = re.compile(
+    r"^\W*(?:error|failed|failure|could ?n[o']t|can ?n[o']t|unable to|invalid|missing|no such)\b|"
+    # A first sentence that says what is wrong, not one that tells a model what to be.
+    r"^(?![^.\n]*\byou\b)[^.\n]{0,120}\b(?:was not found|not found|is not set|must be|"
+    r"is required|not installed|is not supported)\b",
+    re.I,
+)
+#: The start of a SQL statement: a schema, a query.
+_SQL_HEAD = re.compile(
+    r"^\s*(?:CREATE|SELECT|INSERT|UPDATE|DELETE|ALTER|DROP|PRAGMA|WITH)\s+[A-Z(]", re.M
+)
+
+
+def _not_told(name: str, said: str) -> bool:
+    """A string held in a prompt-like constant that no model is told: a key or a name (one
+    word), CSS classes, licence or disclaimer text, a message for a person about an error and
+    how to fix it, SQL."""
+    words = said.split()
+    if len(words) <= 1:
+        return True
+    classes = [w for w in words if _CLASS_TOKEN.match(w)]
+    styled = sum(1 for w in classes if "-" in w or ":" in w)
+    if len(words) >= 3 and len(classes) >= 0.9 * len(words) and styled >= 0.5 * len(words):
+        return True
+    if _LEGAL_NAME.search(name) or len(_LEGAL_WORDS.findall(said)) >= 2:
+        return True
+    parts = {p.lower() for p in re.split(r"_|(?<=[a-z0-9])(?=[A-Z])", name) if p}
+    if parts & _ERROR_WORDS or _ERROR_HEAD.search(said.strip()):
+        return True
+    return bool(_SQL_HEAD.match(said))
+
+
 def _prompt(path: str, d: Definition, lines: Sequence[str], suffix: str) -> list[Entry]:
     block = _block(lines, d)
     said = _python_string(block) if suffix == ".py" and lines else None
@@ -690,6 +769,8 @@ def _prompt(path: str, d: Definition, lines: Sequence[str], suffix: str) -> list
     named = bool(_PROMPTISH.search(d.name))
     if not named and _codeish(said):
         return []  # a long string that is markup or code: a page, a script, a style
+    if said.strip() and _not_told(d.name, said):
+        return []
     hashes = (_hash(said), _hash(said.strip())) if said else ()
     return [Entry("prompt", d.name, path, d.line, what="string", text=_cap(said), hashes=hashes)]
 
@@ -976,7 +1057,16 @@ def _tool(path: str, d: Definition, lines: Sequence[str]) -> list[Entry]:
 def _route(path: str, d: Definition, lines: Sequence[str], facts: Sequence[Mapping]) -> Entry:
     if re.match(r"^[A-Z]+ /", d.name):
         return Entry("route", d.name, path, d.line, what="call")
-    head = lines[d.line - 1] if d.line <= len(lines) else ""
+    # The decorator up to the handler's own line: its path may be on the next one.
+    upto = next(
+        (
+            n
+            for n in range(d.line - 1, min(d.end, len(lines)))
+            if re.match(r"\s*(async\s+)?def\b", lines[n])
+        ),
+        d.line - 1,
+    )
+    head = "\n".join(lines[d.line - 1 : upto + 1]) if d.line <= len(lines) else ""
     if not head:
         head = next((f["text"] for f in facts if f["kind"] == "route" and f["line"] == d.line), "")
     m = _ROUTE_DECORATOR.search(head)

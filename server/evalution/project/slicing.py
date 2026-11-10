@@ -34,9 +34,10 @@ _POLICY = re.compile(r"polic|guard|permission|safety|moderat|allow|deny|approv",
 
 def does(cmap: CodeMap, path: str) -> bool:
     """Whether *path* shapes the app's behaviour by what it defines or holds."""
-    kinds = {d.kind for d in cmap.defs.values() if d.path == path}
+    held = cmap.defs_in(path)
+    kinds = {d.kind for d in held}
     facts = {f["kind"] for f in cmap.facts(path)}
-    named = [d.name for d in cmap.defs.values() if d.path == path]
+    named = [d.name for d in held]
     policy = _POLICY.search(path) or any(_POLICY.search(n) for n in named)
     return bool(kinds & _DOES or facts & _SETTINGS or policy)
 

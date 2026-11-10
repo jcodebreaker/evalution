@@ -84,9 +84,13 @@ class CodeMap:
     def __post_init__(self) -> None:
         self.defs: dict[str, Definition] = {}
         self.by_name: dict[str, list[str]] = defaultdict(list)
+        #: Each file's definitions' keys: what a file holds, without a scan of them all.
+        self._at: dict[str, list[str]] = defaultdict(list)
         for path, parsed in sorted(self.files.items()):
             for d in parsed.get("defs") or []:
                 found = Definition(path, d["name"], d["kind"], d["line"], d["end"], d["sig"])
+                if found.key not in self.defs:
+                    self._at[path].append(found.key)
                 self.defs[found.key] = found
                 self.by_name[found.name].append(found.key)
         self.uses: dict[str, set[str]] = defaultdict(set)
@@ -186,11 +190,16 @@ class CodeMap:
 
     # Walking
 
+    def defs_in(self, path: str) -> list[Definition]:
+        """The definitions of the file at *path*: read from an index, so asking it of every file
+        of a large repository stays linear."""
+        return [self.defs[k] for k in self._at.get(path, ())]
+
     def find(self, name_or_file: str) -> list[str]:
         """The definitions a name means, or those of a file."""
         target = name_or_file.strip().lstrip("/")
         if target in self.files:
-            return [k for k, d in self.defs.items() if d.path == target]
+            return list(self._at.get(target, ()))
         return list(self.by_name.get(target) or [])
 
     def callees(self, key: str) -> list[str]:
@@ -210,7 +219,7 @@ class CodeMap:
 
     def overlapping(self, path: str, spans: Iterable[tuple[int, int]] | None) -> list[str]:
         """The definitions of *path* that the line *spans* touch; all of them for ``None``."""
-        found = [k for k, d in self.defs.items() if d.path == path]
+        found = list(self._at.get(path, ()))
         if spans is None:
             return found
         spans = list(spans)
@@ -266,7 +275,7 @@ class CodeMap:
         the names that matter most there (behaviour first, then constants, in line order), and how
         many facts it gives. Stable while the file is: no rank in it."""
         defs = sorted(
-            (d for d in self.defs.values() if d.path == path),
+            self.defs_in(path),
             key=lambda d: (d.kind not in BEHAVIOUR, d.kind != "constant", d.line),
         )
         kinds = {d.kind for d in defs} | {f["kind"] for f in self.facts(path)}

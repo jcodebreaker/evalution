@@ -95,15 +95,24 @@ def partition(sizes: Mapping[str, int], does: Collection[str] = ()) -> list[Area
 
     place(sizes, 1)
 
-    def splittable(key: str) -> bool:
+    def below(key: str) -> int | None:
+        """The level *key*'s files split at: the first below it where they part, through
+        folders that hold only one folder (``server/pkg/{a..h}``); ``None``: they never do."""
         files = groups[key]
-        level = depth[key]
-        return len({_folder(p, level + 1) for p in files}) > 1
+        deepest = max(len(PurePosixPath(p).parts) - 1 for p in files)
+        for level in range(depth[key] + 1, deepest + 1):
+            if len({_folder(p, level) for p in files}) > 1:
+                return level
+        return None
+
+    def splittable(key: str) -> bool:
+        return below(key) is not None
 
     def split(key: str) -> None:
+        level = below(key)
         files = groups.pop(key)
-        level = depth.pop(key)
-        place(files, level + 1)
+        depth.pop(key)
+        place(files, level if level is not None else 1)
 
     changed = True
     while changed:
@@ -175,8 +184,9 @@ def _fold_helpers(areas: list[Group], shaping: set[str]) -> list[Group]:
 
 #: What makes an agent: the files that hold these are where its scope starts.
 CORE = ("prompt", "tool", "model", "agent")
-#: Steps through imports from the core (and from what calls it) still in scope.
-HOPS = 2
+#: Steps through imports from the core still in scope: one, to the helpers it imports (a second
+#: only into the agent's own folders: :func:`agent_scope`).
+HOPS = 1
 
 
 def _paths(entry: Entry) -> list[str]:
@@ -190,13 +200,19 @@ def agent_scope(
     files: Collection[str],
     focus: str | None = None,
 ) -> set[str] | None:
-    """The files of *files* that are the agent, with no model (next-level C7): those that hold
-    its prompts, tools, model calls and agents (:data:`CORE`), what they import within
-    :data:`HOPS` steps (*edges*: ``path -> the paths it imports``), and the files holding its
-    routes, entry points and state that reach the core or are reached by it within as many, with
-    what they import. ``None`` when the skeleton names no core (a language the code map reads
-    thinly): then every file is in scope, as before. A web client calling its own ``api.get``, a
-    mobile project, migrations: none of them reach the agent's code, so none is in scope.
+    """The files of *files* that are the agent, with no model (next-level C7).
+
+    Its core: the files that hold its prompts, tools and model calls, and agents that are one
+    (:func:`_starts`). Then, with *edges* (``path -> the paths it imports``): the helpers the
+    core imports, one step; a second step only into the agent's own folders (those holding
+    :data:`FOLDER_CORE` core files or more); the front file of a core file's package
+    (``__init__.py``, ``index.ts``), and a file that imports :data:`REGISTRY` core files or more
+    (a registry of its tools, the loop that runs them), neither followed further. Routes, state
+    and entry points start nothing: a server's routes, its sessions and its app factory are
+    plumbing, in scope only as what the core imports. ``None`` when the skeleton names no core
+    (a language the code map reads thinly): then every file is in scope, as before. A web
+    client calling its own ``api.get``, a mobile project, migrations: none of them are imported
+    by the agent's code, so none is in scope.
 
     *focus* (the target's ``code.focus``, next-level C11): the one agent tested on a platform
     that hosts many. The core is then that agent's files alone (:func:`.focus.agent_files`: its
@@ -204,7 +220,7 @@ def agent_scope(
     out even when something reaches them. A focus no agent has: as without one."""
     known = set(files)
     found = list(entries)
-    core = {p for e in found if e.kind in CORE for p in _paths(e)} & known
+    core = {p for e in found if _starts(e) for p in _paths(e)} & known
     if not core:
         return None
     others: set[str] = set()
@@ -212,14 +228,46 @@ def agent_scope(
         core = mine
         others = {p for a in focused.agents(found) if a.name != focus for p in _paths(a)} - mine
     graph = {k: [v for v in vs if v in known] for k, vs in edges.items() if k in known}
-    back: dict[str, set[str]] = {}
-    for rel, hits in graph.items():
-        for hit in hits:
-            back.setdefault(hit, set()).add(rel)
-    near = core | _reach(graph, core) | _reach(back, core)
-    linked = {p for e in found if e.kind not in CORE for p in _paths(e) if p in near}
-    start = core | linked
-    return (start | _reach(graph, start)) - others
+    helpers = _reach(graph, core)
+    many = Counter(_parent(p) for p in core)
+    folders = {f for f, n in many.items() if n >= FOLDER_CORE}
+    second = {h for p in helpers for h in graph.get(p, ()) if _parent(h) in folders}
+    fronts = {f"{_parent(p)}/{name}" for p in core for name in _FRONTS} & known
+    routed = {p for e in found if e.kind == "route" for p in _paths(e)}
+    registries = {
+        k for k, vs in graph.items() if k not in routed and len(core.intersection(vs)) >= REGISTRY
+    }
+    return (core | helpers | second | fronts | registries) - others
+
+
+#: A file that imports this many of the core's files is part of it: their registry or runner
+#: (not a route's file: serving them is plumbing).
+REGISTRY = 3
+#: A folder holding this many core files is the agent's own: a helper's imports there are in.
+FOLDER_CORE = 2
+
+
+def _parent(path: str) -> str:
+    return str(PurePosixPath(path).parent)
+
+
+#: The file that stands for a package, by language.
+_FRONTS = ("__init__.py", "index.ts", "index.js", "mod.rs")
+#: An agent by what makes it, not only by its name: built by a call to an agent's class or
+#: factory (``Agent(...)``, ``create_react_agent(...)``), a class named for one
+#: (``PlannerAgent``), or one an agent's settings or instructions define.
+_AGENT_MADE = re.compile(r"agents?$", re.I)
+
+
+def _starts(entry: Entry) -> bool:
+    """Whether *entry* starts the agent's scope: a prompt, tool or model call, or an agent that
+    is one (:data:`_AGENT_MADE`), not a name that only says "agent" (``AgentCache``,
+    ``_SUBAGENT_STATUSES``, ``AgentStore``)."""
+    if entry.kind != "agent":
+        return entry.kind in CORE
+    if entry.what in ("definition", "class"):
+        return entry.what == "definition" or bool(_AGENT_MADE.search(entry.name))
+    return bool(_AGENT_MADE.search(entry.what.rsplit(".", 1)[-1]))
 
 
 def _reach(edges: Mapping[str, Iterable[str]], start: Iterable[str]) -> set[str]:
@@ -233,8 +281,10 @@ def _reach(edges: Mapping[str, Iterable[str]], start: Iterable[str]) -> set[str]
 
 def outside(files: Iterable[str], taken: Collection[str] = ()) -> list[Area]:
     """Files not part of the agent, one area per top folder (``root`` for the files at the top),
-    listed and never learned unless asked; an id an area of the agent already has (*taken*) gets
-    ``~outside``."""
+    listed and never learned unless asked; an id an area of the agent already has (*taken*), or
+    the name of one learned in pieces (``server`` of ``server.1``), gets ``~outside``, so asking
+    for an area by either name never finds the wrong one."""
+    whole = set(taken) | {t.rsplit(".", 1)[0] for t in taken if t.rsplit(".", 1)[-1].isdigit()}
     by_folder: dict[str, list[str]] = {}
     for path in sorted(files):
         by_folder.setdefault(_folder(path, 1), []).append(path)
@@ -242,7 +292,7 @@ def outside(files: Iterable[str], taken: Collection[str] = ()) -> list[Area]:
     for folder, paths in sorted(by_folder.items()):
         slug = _slug([folder])
         out.append(
-            Area(slug if slug not in taken else f"{slug}~outside", (folder,), tuple(paths), 0)
+            Area(slug if slug not in whole else f"{slug}~outside", (folder,), tuple(paths), 0)
         )
     return out
 
@@ -258,10 +308,16 @@ def entries_of(area: Area, entries: Iterable[Entry]) -> list[Entry]:
     return [e for e in entries if e.path in files and (not held or e.id in held)]
 
 
+#: What one skeleton entry of each kind weighs: what makes the agent (:data:`CORE`) first, so
+#: the areas of its prompts, tools and agents are learned before those of its plumbing.
+KIND_WEIGHT = {"prompt": 3, "tool": 3, "agent": 3, "model": 3}
+
+
 def weight(entries: Sequence[Entry], uses: Mapping[str, int]) -> int:
-    """An area's weight: its skeleton *entries* (its prompts, tools, state, agents, model calls,
-    routes and entry points) and how often real use touched them (*uses*: entry id -> count)."""
-    return len(entries) + sum(int(uses.get(e.id) or 0) for e in entries)
+    """An area's weight: its skeleton *entries* (its prompts, tools, agents and model calls at
+    :data:`KIND_WEIGHT`, its state, routes and entry points at one each) and how often real use
+    touched them (*uses*: entry id -> count)."""
+    return sum(KIND_WEIGHT.get(e.kind, 1) + int(uses.get(e.id) or 0) for e in entries)
 
 
 def band(uses: int) -> int:
