@@ -92,8 +92,6 @@ describe("the page, local", () => {
         target={null}
         sets={[]}
         set={null}
-        asking={false}
-        onAskAi={null}
         cards={null}
         onTarget={() => {}}
         onSet={() => {}}

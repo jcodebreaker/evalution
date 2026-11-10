@@ -36,7 +36,7 @@ export const CANT_RESET: readonly string[] = [
 /** The explainer itself: five steps, then what it can't reset. */
 export function HowIsolationWorks() {
   return (
-    <div className="flex flex-col gap-4 text-[14px]">
+    <div className="flex flex-col gap-4 text-sm">
       <p className="m-0 text-ink-2">
         Each try should start from the same place, so a result says something about your app and not
         about what an earlier try left behind. Your own app is never touched: all of this happens on
@@ -54,7 +54,7 @@ export function HowIsolationWorks() {
         ))}
       </ol>
       <div className="flex flex-col gap-1.5">
-        <h3 className="m-0 text-[14px] font-semibold">What it can't reset</h3>
+        <h3 className="m-0 text-sm font-semibold">What it can't reset</h3>
         <ul className="m-0 flex flex-col gap-1 ps-4 text-ink-2">
           {CANT_RESET.map((text) => (
             <li key={text}>{text}</li>

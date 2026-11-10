@@ -1,22 +1,25 @@
+import { Check, RotateCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../lib/api";
-import { cn } from "../../lib/cn";
+import { ago } from "../../lib/format";
 import type { Isolation, StoreWords, TestSetup } from "../../lib/schema";
 import { ready, useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/field";
 import { Spinner } from "../../ui/loading";
+import { Card, CardHead, Chip, type ChipTone, Screen, ScreenHead } from "../connect/kit";
 import { Fold } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
 import { ISOLATE_COST } from "../shared/IsolateButton";
-import { Page, Toolbar, ToolbarTitle } from "../shared/layout";
 import { BuildRecipeCard } from "./BuildRecipe";
 import { Checklist } from "./Checklist";
 import { CopyPicture, type ShownBlock, type Tone } from "./CopyPicture";
+import { OutboundCard, OutboundRow } from "./Outbound";
 import { PageReach } from "./PageReach";
 import { PlanDetails } from "./PlanDetails";
+import { PutBackTable } from "./PutBack";
 import { SetupPanel } from "./SetupPanel";
-import { useIsolation } from "./use-isolation";
+import { type IsolationState, useIsolation } from "./use-isolation";
 import {
   type Block,
   begun,
@@ -29,7 +32,6 @@ import {
 } from "./words";
 
 const NO_CODE = "Say where the app's code is first: it's found from it.";
-const LEDE = "Your app stays as it is. Tests run on a copy that starts fresh every time.";
 
 /** The copy's own blocks, before its stores: the app on its own ports, and its traces. */
 const appBlocks = (target: string): Block[] => [
@@ -91,48 +93,54 @@ const TONES: Record<Standing, Tone> = {
   leaky: "leaky",
 };
 
-function Badge({ standing: at }: { standing: Standing }) {
-  const words =
-    at === "stale"
-      ? { text: "Out of date", tone: "bg-unjudged-soft text-warning" }
-      : at === "leaky"
-        ? { text: "Not isolated", tone: "bg-fail-soft text-fail" }
-        : at === "none"
-          ? { text: "Not set up", tone: "bg-sunk-2 text-ink-2" }
-          : null;
-  if (!words) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex h-[22px] items-center rounded-full px-2 text-[12px] font-medium",
-        words.tone,
-      )}
-    >
-      {words.text}
-    </span>
-  );
+/** Where the copy stands, in a chip. */
+export function standingChip(
+  at: Standing,
+  version: number | null,
+): { text: string; tone: ChipTone } {
+  switch (at) {
+    case "proven":
+      return { text: version === null ? "Proven" : `Proven · plan v${version}`, tone: "ok" };
+    case "stale":
+      return { text: "Out of date", tone: "warn" };
+    case "leaky":
+      return { text: "Not isolated", tone: "no" };
+    case "running":
+      return { text: "Setting up", tone: "tint" };
+    case "broke":
+      return { text: "Setup stopped", tone: "no" };
+    default:
+      return { text: "Not set up", tone: "plain" };
+  }
 }
 
 /**
  * The test environment: your app, never touched, beside the copy tests run on, built live while
  * the agent sets it up (the app on its own ports, its traces, one new block per store, the test
- * person), the steps with their times, and the setup a person can change, then how tests reach
- * the app: its API, or its page. `setup` is the step of connecting an app, ending in its first
- * test; `page` is the screen it settles into.
+ * person), what leaves it, the steps with their times, and the setup a person can change; then
+ * how tests reach the app and how another version is built. `setup` is the step of connecting an
+ * app (`embedded` inside the live setup, whose feed says the steps), `page` its own screen.
  */
 export function TestEnvironment({
   target,
   mode,
   onFirstTest,
   onStanding,
+  embedded = false,
+  state,
 }: {
   target: string;
   mode: "setup" | "page";
   onFirstTest?: () => void;
   /** Where it stands, each time that changes. */
   onStanding?: (standing: Standing) => void;
+  /** Inside the live setup: the steps are in its feed, the rest folded. */
+  embedded?: boolean;
+  /** The isolation read by the screen around it; else it reads its own. */
+  state?: IsolationState;
 }) {
-  const { data, failed, set } = useIsolation(target);
+  const own = useIsolation(state ? null : target);
+  const { data, failed, set } = state ?? own;
   const [health, reloadHealth] = useLoad(`environment:${target}`, () => api.health(target, "7d"));
   const [setup, setSetup] = useState<TestSetup | null>(null);
   const readSetup = useCallback(() => {
@@ -159,10 +167,18 @@ export function TestEnvironment({
   }, [at]);
 
   if (!data) {
-    return failed ? (
-      <p className="m-0 text-[14px] text-ink-2">Couldn't load the test environment.</p>
+    const waiting = failed ? (
+      <p className="m-0 text-ink-2">Couldn't load the test environment.</p>
     ) : (
-      <Skeleton className="h-72 rounded-[12px]" />
+      <Skeleton className="h-72 rounded-2xl" />
+    );
+    return mode === "page" ? (
+      <>
+        <ScreenHead title="Test environment" />
+        {waiting}
+      </>
+    ) : (
+      waiting
     );
   }
   const now = at ?? "none";
@@ -171,8 +187,9 @@ export function TestEnvironment({
   const live = now === "running" || now === "broke" || (mode === "setup" && job !== null);
   const blocks = pictureBlocks(data, live, stores, setup);
   const steps = job?.steps.length ? job.steps : waitingSteps(target, stores);
-  const checklist = live || now === "none";
+  const checklist = !embedded && (live || now === "none");
   const yours = [...new Set(stores.map((store) => yourKind(store.kind, store.holds)))];
+  const settled = now !== "running" && now !== "broke";
 
   const start = async () => {
     setStarting(true);
@@ -184,132 +201,201 @@ export function TestEnvironment({
     }
     setStarting(false);
   };
-  const startButton = (label: string) => (
+  const startButton = (label: string, icon?: ReactNode) => (
     <Button
+      size="lg"
       variant={mode === "setup" || now === "none" ? "default" : "secondary"}
       disabled={starting || !data.can_run}
+      title={data.can_run ? ISOLATE_COST : NO_CODE}
       onClick={() => void start()}
     >
-      {starting ? <Spinner /> : null}
+      {starting ? <Spinner /> : icon}
       {label}
     </Button>
   );
 
-  let hint: string;
+  const hint =
+    now === "running" ? "The agent is setting this up…" : data.can_run ? ISOLATE_COST : NO_CODE;
   let action: ReactNode = null;
   switch (now) {
     case "running":
-      hint = "The agent is setting this up…";
       break;
     case "proven":
-      hint = "Every try starts from here.";
+      if (mode === "page") action = startButton("Check again", <RotateCw />);
       break;
     case "broke":
-      hint = data.can_run ? ISOLATE_COST : NO_CODE;
+    case "leaky":
       action = startButton("Try again");
       break;
     case "stale":
-      hint = data.can_run ? ISOLATE_COST : NO_CODE;
       action = startButton("Prove it again");
       break;
-    case "leaky":
-      hint = data.can_run ? ISOLATE_COST : NO_CODE;
-      action = startButton("Try again");
-      break;
     default:
-      hint = data.can_run ? ISOLATE_COST : NO_CODE;
       action = startButton("Set up testing");
   }
-  if (mode === "setup" && (now === "running" || now === "proven")) {
+  if (mode === "setup" && !embedded && (now === "running" || now === "proven")) {
     action = (
-      <Button disabled={now !== "proven"} onClick={onFirstTest}>
+      <Button size="lg" disabled={now !== "proven"} onClick={onFirstTest}>
         Write your first test
       </Button>
     );
   }
 
-  const settled = now !== "running" && now !== "broke";
-  return (
-    <div className="flex min-w-0 flex-col gap-4 text-[14px]" data-testid="test-environment">
-      <div className="flex flex-col gap-1">
-        {mode === "setup" ? (
-          <h3 className="m-0 text-[18px] font-semibold tracking-[-0.02em]">
-            {now === "proven" ? `Ready to test ${target}` : `Setting up a place to test ${target}`}
-          </h3>
-        ) : null}
-        <p className="m-0 text-[14px] text-ink-2">{LEDE}</p>
-      </div>
-      <div
-        className={cn(
-          "grid items-start gap-4",
-          mode === "page" && "xl:grid-cols-[minmax(0,1fr)_300px]",
-        )}
-      >
-        <section
-          className="flex min-w-0 flex-col rounded-[12px] border border-separator bg-group"
-          aria-label="Test copy"
-        >
-          <div className="p-5 max-md:p-4">
-            <CopyPicture
-              target={target}
-              yours={yours}
-              blocks={blocks}
-              tone={TONES[now]}
-              badge={settled ? <Badge standing={now} /> : null}
-              animate={live}
-              empty={now === "running" ? "Starting…" : "Made when it's set up"}
-            />
-            {now === "stale" ? (
-              <p className="m-0 mt-3 text-warning">
-                A commit changed {data.stale_files.join(", ") || "a file it rests on"}. The next run
-                proves it again first.
-              </p>
+  const notes = (
+    <>
+      {now === "stale" ? (
+        <p className="m-0 mt-3 text-unjudged">
+          A commit changed {data.stale_files.join(", ") || "a file it rests on"}. The next run
+          proves it again first.
+        </p>
+      ) : null}
+      {now === "leaky" ? (
+        <p className="m-0 mt-3 text-fail">
+          The last check found {target} keeping things it doesn't put back, so tries may see what
+          earlier ones left.
+        </p>
+      ) : null}
+      {data.problem ? <p className="m-0 mt-3 text-fail">{data.problem}</p> : null}
+    </>
+  );
+  const proofChip =
+    now === "proven" ? (
+      <Chip tone="ok">
+        <Check aria-hidden />
+        Resets cleanly
+      </Chip>
+    ) : null;
+
+  const picture = (
+    <section aria-label="Test copy" className="contents">
+      <Card>
+        {embedded ? <CardHead title="Where tests will run">{proofChip}</CardHead> : null}
+        <div className="p-5 max-md:p-4">
+          <CopyPicture
+            target={target}
+            yours={yours}
+            blocks={blocks}
+            tone={TONES[now]}
+            badge={
+              mode === "setup" && settled && now !== "proven" ? (
+                <Chip tone={standingChip(now, data.version).tone} className="h-6">
+                  {standingChip(now, data.version).text}
+                </Chip>
+              ) : null
+            }
+            animate={live}
+            empty={now === "running" ? "Starting…" : "Made when it's set up"}
+          />
+          {notes}
+        </div>
+        <div className="px-5 pb-5 max-md:px-4">
+          <OutboundRow outbound={data.outbound} />
+        </div>
+        {checklist ? (
+          <div className="border-t border-rule px-5 py-3.5 max-md:px-4">
+            <Checklist steps={steps} />
+            {now === "broke" && job?.error ? (
+              <p className="m-0 mt-2 text-sm text-unjudged">{job.error}</p>
             ) : null}
-            {now === "leaky" ? (
-              <p className="m-0 mt-3 text-fail">
-                The last check found {target} keeping things it doesn't put back, so tries may see
-                what earlier ones left.
-              </p>
-            ) : null}
-            {data.problem ? <p className="m-0 mt-3 text-fail">{data.problem}</p> : null}
           </div>
-          {checklist ? (
-            <div className="border-t border-separator px-5 py-3.5 max-md:px-4">
-              <Checklist steps={steps} />
-              {now === "broke" && job?.error ? (
-                <p className="m-0 mt-2 text-[13px] text-warning">{job.error}</p>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-3 border-t border-separator px-5 py-3 max-md:px-4">
+        ) : null}
+        {mode === "setup" && (action || !embedded) ? (
+          <div className="flex flex-wrap items-center gap-3 border-t border-rule px-5 py-3 max-md:px-4">
             <HowIsolationLink />
-            <span className="min-w-0 flex-1 text-[12.5px] text-ink-3">{hint}</span>
+            <span className="min-w-0 flex-1 text-sm text-ink-3">{hint}</span>
             {action}
           </div>
-          {error ? (
-            <p className="m-0 px-5 pb-3 text-[13px] text-fail max-md:px-4">{error}</p>
-          ) : null}
-        </section>
-        {setup ? (
-          <SetupPanel
-            target={target}
-            setup={setup}
-            locked={now === "running"}
-            onChanged={setSetup}
-          />
         ) : null}
-      </div>
-      {settled ? (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
-          <PageReach target={target} />
-          {mode === "page" ? <BuildRecipeCard target={target} /> : null}
+        {error ? <p className="m-0 px-5 pb-3 text-sm text-fail max-md:px-4">{error}</p> : null}
+      </Card>
+    </section>
+  );
+
+  const panel = setup ? (
+    <SetupPanel target={target} setup={setup} locked={now === "running"} onChanged={setSetup} />
+  ) : null;
+
+  if (mode === "setup") {
+    if (embedded) {
+      return (
+        <div className="flex min-w-0 flex-col gap-3" data-testid="test-environment">
+          {picture}
+          <Fold title="Test setup">
+            <div className="flex flex-col gap-4">
+              {panel}
+              {settled ? <PageReach target={target} /> : null}
+            </div>
+          </Fold>
         </div>
-      ) : null}
-      {mode === "page" && data.plan && settled ? (
-        <Fold title="Details">
-          <PlanDetails isolation={data} onChange={set} />
-        </Fold>
-      ) : null}
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-col gap-4" data-testid="test-environment">
+        <h3 className="m-0 text-[18px] font-semibold tracking-[-0.02em]">
+          {now === "proven" ? `Ready to test ${target}` : `Setting up a place to test ${target}`}
+        </h3>
+        <div className="grid items-start gap-4">
+          {picture}
+          {panel}
+        </div>
+        {settled ? <PageReach target={target} /> : null}
+      </div>
+    );
+  }
+
+  const chip = standingChip(now, data.version);
+  const checkedAt = data.plan?.updated ?? null;
+  return (
+    <div className="flex min-w-0 flex-col gap-5" data-testid="test-environment">
+      <ScreenHead
+        title="Test environment"
+        chips={
+          <>
+            <Chip tone={chip.tone}>
+              {now === "proven" ? <Check aria-hidden /> : now === "running" ? <Spinner /> : null}
+              {chip.text}
+            </Chip>
+            {checkedAt && now !== "none" ? <Chip>Checked {ago(checkedAt)}</Chip> : null}
+          </>
+        }
+        actions={
+          <>
+            <HowIsolationLink />
+            {action}
+          </>
+        }
+      />
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-w-0 flex-col gap-5">
+          {picture}
+          <PutBackTable isolation={data} stores={stores} />
+          {settled ? <PageReach target={target} /> : null}
+          {settled ? <BuildRecipeCard target={target} /> : null}
+          {data.plan && settled ? (
+            <Fold title="Details">
+              <PlanDetails isolation={data} onChange={set} />
+            </Fold>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 flex-col gap-5">
+          {panel}
+          <OutboundCard
+            target={target}
+            outbound={data.outbound}
+            locked={now === "running"}
+            onChange={(outbound) => set({ ...data, outbound })}
+          />
+          {settled && job?.steps.length ? (
+            <Card aria-label="Last check">
+              <div className="flex flex-col gap-3 p-5 max-md:p-4">
+                <h2 className="m-0 text-[15px] font-semibold">Last check</h2>
+                <Checklist steps={job.steps} />
+              </div>
+            </Card>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -317,11 +403,8 @@ export function TestEnvironment({
 /** The Test environment screen: the copy as it stands, its setup, and how tests reach it. */
 export function TestEnvironmentView({ target }: { target: string }) {
   return (
-    <Page wide>
-      <Toolbar>
-        <ToolbarTitle title="Test environment" />
-      </Toolbar>
+    <Screen>
       <TestEnvironment target={target} mode="page" />
-    </Page>
+    </Screen>
   );
 }

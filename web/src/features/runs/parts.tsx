@@ -9,7 +9,10 @@ import { cn } from "../../lib/cn";
 export function Card({ className, ...props }: ComponentProps<"section">) {
   return (
     <section
-      className={cn("min-w-0 rounded-xl border border-separator bg-group", className)}
+      className={cn(
+        "min-w-0 rounded-2xl border border-rule bg-group shadow-[0_1px_2px_var(--shadow)]",
+        className,
+      )}
       {...props}
     />
   );
@@ -18,8 +21,8 @@ export function Card({ className, ...props }: ComponentProps<"section">) {
 /** A card's heading line: its title, then anything at the end. */
 export function CardHead({ title, aside }: { title: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-4">
-      <h3 className="m-0 text-[16px] leading-[1.3] font-semibold tracking-[-0.01em]">{title}</h3>
+    <div className="flex min-h-[54px] flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule px-5 py-2">
+      <h2 className="m-0 text-[15px] leading-[1.3] font-semibold">{title}</h2>
       {aside ? <div className="ms-auto flex items-center gap-2">{aside}</div> : null}
     </div>
   );
@@ -44,11 +47,9 @@ export function Chip({
     <span
       title={title}
       className={cn(
-        "inline-flex h-6 max-w-full items-center truncate rounded-full border px-2 text-[12px] whitespace-nowrap",
-        tint
-          ? "border-tint-soft-2 bg-tint-soft text-tint-ink"
-          : "border-separator bg-group text-ink-2",
-        mono && "font-mono text-[11px] tracking-[-0.01em]",
+        "inline-flex h-7 max-w-full items-center truncate rounded-full border px-2.5 text-[13px] whitespace-nowrap",
+        tint ? "border-tint-soft-2 bg-tint-soft text-tint-ink" : "border-rule bg-group text-ink-2",
+        mono && "font-mono text-xs",
         className,
       )}
       {...rest}
@@ -63,7 +64,7 @@ export type Tone = "pass" | "fail" | "unjudged" | "tint" | "neutral";
 const PILL: Record<Tone, string> = {
   pass: "bg-pass-soft text-pass",
   fail: "bg-fail-soft text-fail",
-  unjudged: "bg-unjudged-soft text-ink",
+  unjudged: "bg-unj-soft text-unj",
   tint: "bg-tint-soft text-tint-ink",
   neutral: "bg-sunk-2 text-ink-2",
 };
@@ -74,7 +75,7 @@ export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
     <span
       data-testid="run-state"
       className={cn(
-        "inline-flex h-[26px] shrink-0 items-center rounded-full px-2.5 text-[13px] font-medium",
+        "inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-[13px] font-medium",
         PILL[tone],
       )}
     >
@@ -98,7 +99,7 @@ export function Notice({
   return (
     <div
       className={cn(
-        "min-w-0 rounded-[10px] px-4 py-3 text-[13px] leading-[1.5] text-ink",
+        "min-w-0 rounded-[10px] px-4 py-3 text-sm leading-[1.5] text-ink",
         NOTICE[tone],
         className,
       )}
@@ -110,7 +111,7 @@ export function Notice({
 /** A small "Not verified" pill, in sentence case, for a model's claim nothing has checked. */
 export function Unverified({ children = "Not verified" }: { children?: ReactNode }) {
   return (
-    <span className="inline-flex h-[22px] shrink-0 items-center rounded-full bg-sunk-2 px-2 text-[12px] text-ink-2">
+    <span className="inline-flex h-[22px] shrink-0 items-center rounded-full bg-sunk-2 px-2 text-[13px] text-ink-2">
       {children}
     </span>
   );
@@ -196,7 +197,7 @@ export function Ring({
     : [];
   const passed = parts.find((part) => part.tone === "pass")?.n ?? 0;
   return (
-    <svg viewBox="0 0 36 36" role="img" aria-label={label} className="size-[84px] shrink-0">
+    <svg viewBox="0 0 36 36" role="img" aria-label={label} className="size-[92px] shrink-0">
       <circle cx="18" cy="18" r={R} fill="none" strokeWidth="4" className="stroke-sunk-2" />
       {arcs.map(({ part, length, start: from }) => (
         <circle
@@ -229,7 +230,7 @@ export function Ring({
 /** A key–value list: the run's details, label on the start, value on the end. */
 export function Facts({ children }: { children: ReactNode }) {
   return (
-    <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[13px]">
+    <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-[18px] gap-y-2.5 text-sm">
       {children}
     </dl>
   );

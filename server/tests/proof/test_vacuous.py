@@ -86,6 +86,7 @@ from evalution.runs.preflight import forget_setup, passed_setups, remember_setup
 from evalution.runs.runner import STILL_WORKING, RunBusyError, Runs
 from evalution.storage import Database
 from evalution.suite.cases import parse_case
+from evalution.suite.store import load_case
 from evalution.traces.base import Span, SpanRead, nest
 from evalution.traces.view import answered_at
 from evalution.writer.agent import Agent
@@ -709,7 +710,9 @@ async def test_11_on_a_managed_copy_a_pass_resting_on_a_leak_is_not_a_pass(make_
     assert all(lab["how"] == "proven" and lab["plan_version"] == 1 for lab in labels)
     # The plan's id for each store checked, which the page names in plain words.
     assert all(lab["checked"] == ["memory"] and lab["problem"] is None for lab in labels)
-    assert all(isinstance(lab["restore_seconds"], float) for lab in labels)
+    # Try 1 plays on the copy as it was kept (and checked) a moment before: no put back.
+    assert [lab["check"] for lab in labels] == ["kept", "full"]
+    assert labels[0]["restore_seconds"] is None and isinstance(labels[1]["restore_seconds"], float)
     assert doc["isolation"] == {"how": "proven", "plan_version": 1, "person": None}
     assert summary(doc)["isolation"] == doc["isolation"]
 
@@ -794,8 +797,9 @@ async def test_12_control_the_approved_case_saves(make_rig) -> None:
     other = {"name": "Something else entirely", "turns": [{"message": "Delete everything"}]}
     refused = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": other})
     assert refused.startswith("Refused")
-    saved = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": case})
-    assert saved == {"case": "greets", "set": SET}
+    # "Add to tests" saved the approved file itself.
+    assert turn.session["plans"][plan_id]["saved"] == "greets"
+    assert load_case(rig.docs, TARGET, SET, "greets").raw["turns"] == case["turns"]
 
 
 # Claims

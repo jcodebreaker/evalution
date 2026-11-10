@@ -74,10 +74,10 @@ from evalution.judging.claims import index_of
 from evalution.judging.memory import grade_memory, with_fold
 from evalution.judging.rubric import (
     FILLER_INSTRUCTIONS,
-    PROMPT_HASH,
     FillerWriter,
     Graded,
     grade_reply,
+    prompt_hash,
 )
 from evalution.judging.steps import Step, check_line, chosen_calls, grade_tools
 from evalution.llm import LLM, Caller, cut, fenced
@@ -87,8 +87,10 @@ from evalution.results.record import (
     SCHEMA,
     add_judgement,
     environment,
+    judged_unheld,
     pass_marks,
     run_isolation,
+    unheld,
     verdict_of,
 )
 from evalution.results.store import RunLock, RunStore
@@ -205,7 +207,22 @@ class _Plan:
 
 
 class RunBusyError(Exception):
-    """A run or an analysis is already going; one at a time."""
+    """A run is already going, or this run's write-up is; one at a time."""
+
+
+#: What a run taken off the queue before it played says.
+UNQUEUED = "Taken off the queue before it played"
+
+
+@dataclass
+class _Queued:
+    """A run asked for while another played: it plays when that one ends (:meth:`Runs.start`)."""
+
+    doc: dict[str, Any]
+    eval_set: EvalSet
+    cases: list[Case]
+    plan: _Plan
+    base: Mapping[str, Any] | None
 
 
 def _last_turn(evidence: TryEvidence) -> tuple[float, float] | None:
@@ -253,6 +270,12 @@ class Runs:
         self._regrades: dict[str, tuple[str, float]] = {}
         self._task: asyncio.Task[None] | None = None
         self._stop_watch: asyncio.Task[None] | None = None
+        #: Runs asked for while another played, first first (:meth:`start` with ``queue``).
+        self._queue: list[_Queued] = []
+        #: What starts them, one after another, while there are any.
+        self._drain: asyncio.Task[None] | None = None
+        #: Write-ups going (a run's analysis and report, after its lock was let go), by run.
+        self._writeups: dict[str, asyncio.Task[None]] = {}
         self._running: str | None = None
         self._playing: str | None = None
         #: Targets a test message is on its way to, or that are being changed: no run starts.
@@ -284,10 +307,11 @@ class Runs:
 
     def _mark_stored_orphans(self) -> None:
         self._orphans_marked = True
+        mine = {q.doc["run"] for q in self._queue}
         for run in self.store.all():
-            if run["run"] == self._running:
+            if run["run"] == self._running or run["run"] in mine:
                 continue
-            if run.get("status") == "running":
+            if run.get("status") in ("running", "queued"):
                 run.update(
                     status="stopped",
                     stop_reason=SERVER_RESTARTED,
@@ -487,7 +511,12 @@ class Runs:
         return self.busy() and self._playing == target
 
     async def start(
-        self, token: str, base: Mapping[str, Any] | None = None, env: str | None = None
+        self,
+        token: str,
+        base: Mapping[str, Any] | None = None,
+        env: str | None = None,
+        *,
+        queue: bool = False,
     ) -> dict[str, Any]:
         """Start the run an estimate's *token* describes, graded with its set's pass marks; the
         token is spent. *base* is the run it will be compared with, which a case that moved from
@@ -495,17 +524,25 @@ class Runs:
         names where the app played (``staging``); the run is ``hosted`` when no folder of this
         computer is read, which is how a hosted server plays, else ``local``.
 
-        :raises RunBusyError: A run or an analysis is going.
+        With *queue*, a run asked for while another plays (here or in another process), or while
+        its app is being changed, is stored ``queued`` and plays when it can, in the order asked
+        (:meth:`queued`); Stop takes it off. Without, it is refused.
+
+        :raises RunBusyError: A run is going, and *queue* is false.
         :raises KeyError: An unknown or expired token.
         :raises CaseError: A case file that no longer reads.
         :raises ValueError: *env* isn't a name (:func:`~evalution.results.record.environment`).
         """
         place = environment("local" if self.targets.folders else "hosted", env)
-        if self.busy() or self.probing or not self.lock.acquire():
+        free = not self.busy() and not self.probing and not self._queue
+        if free and not self.lock.acquire():
+            free = False
+        if not free and not queue:
             raise RunBusyError
         plan = self._plans.pop(token, None)
         if plan is None or plan.expires < time.time():
-            self.lock.release()
+            if free:
+                self.lock.release()
             raise KeyError(token)
         docs = self.targets.docs
         try:
@@ -514,14 +551,54 @@ class Runs:
             if not cases:
                 raise CaseError("none of these tests can run on this app")
         except CaseError:
-            self.lock.release()
+            if free:
+                self.lock.release()
             raise
+        doc = self._new_doc(plan, eval_set, cases, place)
+        waiting = _Queued(doc, eval_set, cases, plan, base)
+        if free:
+            return await self._launch(waiting)
+        doc.update(status="queued", queued_at=doc["started_at"])
+        await self.store.save(doc)
+        self._queue.append(waiting)
+        if self._drain is None or self._drain.done():
+            self._drain = asyncio.get_running_loop().create_task(self._play_queued())
+        return summary(doc)
+
+    def queued(self) -> list[str]:
+        """The runs waiting to play, first first."""
+        return [q.doc["run"] for q in self._queue]
+
+    async def _play_queued(self) -> None:
+        """Start the queued runs, each once the one before it ended, the run lock is free (another
+        process may hold it) and no app is being changed."""
+        while self._queue:
+            if self.busy() and self._task is not None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.wait([self._task])
+                continue
+            if self.probing or not self.lock.acquire():
+                await asyncio.sleep(STOP_POLL_SECONDS)
+                continue
+            waiting = self._queue.pop(0)
+            try:
+                await self._launch(waiting)
+            except Exception:
+                _logger.warning(
+                    "evals: queued run %s not started", waiting.doc["run"], exc_info=True
+                )
+
+    def _new_doc(
+        self, plan: _Plan, eval_set: EvalSet, cases: Sequence[Case], place: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The document of a run of *plan*, as it starts."""
+        docs = self.targets.docs
         started = time.time()
         stamp = datetime.fromtimestamp(started, UTC).strftime("%Y%m%d-%H%M%S")
         doc: dict[str, Any] = {
             "schema": SCHEMA,
             "rules": RULES_VERSION,
-            "judge": self._judge(eval_set.grader).model_dump(mode="json"),
+            "judge": self._judge(eval_set.grader, plan.set).model_dump(mode="json"),
             "run": f"{stamp}-{secrets.token_hex(2)}",
             "target": plan.target,
             "set": plan.set,
@@ -581,6 +658,13 @@ class Runs:
             },
         }
         doc["totals"] = totals(doc)
+        return doc
+
+    async def _launch(self, waiting: _Queued) -> dict[str, Any]:
+        """Play *waiting*'s run in the background; the run lock is held already. Its summary."""
+        doc, plan = waiting.doc, waiting.plan
+        if doc["status"] == "queued":
+            doc.update(status="running", started_at=time.time())
         # Reserved before the first await: a second start sees busy() and is refused.
         self._running = doc["run"]
         self._playing = plan.target
@@ -592,7 +676,9 @@ class Runs:
             self._running = self._playing = None
             self.lock.release()
             raise
-        self._go(self._play(doc, eval_set, cases, plan.tries, base, plan.ref))
+        self._go(
+            self._play(doc, waiting.eval_set, waiting.cases, plan.tries, waiting.base, plan.ref)
+        )
         self._stop_watch = asyncio.get_running_loop().create_task(self._heed_stop(doc["run"]))
         return summary(doc)
 
@@ -616,10 +702,13 @@ class Runs:
         self._task = asyncio.get_running_loop().create_task(work)
         self._task.add_done_callback(lambda _: self.lock.release())
 
-    def _judge(self, key: str) -> JudgeStamp:
-        """Who grades under model key *key*."""
+    def _judge(self, key: str, set_name: str) -> JudgeStamp:
+        """Who grades set *set_name* under model key *key*: a benchmark's prompts are stamped
+        apart from an ordinary test's."""
         model = self.llm.model_id(key) if self.llm else None
-        return JudgeStamp(key=key, model=model, prompt_hash=PROMPT_HASH)
+        return JudgeStamp(
+            key=key, model=model, prompt_hash=prompt_hash(benchmark=is_benchmark(set_name))
+        )
 
     def estimate_regrade(self, run: str) -> dict[str, Any]:
         """How many tries grading *run* again from its evidence takes, with the token that does it.
@@ -639,7 +728,7 @@ class Runs:
         ]
         if not tries:
             raise ValueError(f"run {run} has nothing to grade again")
-        judge = labels.grader_of(self._judge(doc["judge"]["key"]))
+        judge = labels.grader_of(self._judge(doc["judge"]["key"], doc["set"]))
         # The labelled examples of other runs another grader graded are graded again too.
         examples = labels.of(self.targets.docs, doc["target"], doc["set"])
         again = [e for e in examples if e["run"] != run and e["judge"] != judge]
@@ -659,14 +748,14 @@ class Runs:
         run, expires = self._regrades.pop(token, ("", 0.0))
         if expires < time.time():
             raise KeyError(token)
-        if self.busy() or not self.lock.acquire():
+        if self.busy() or self._writing(run) or not self.lock.acquire():
             raise RunBusyError
         try:
             doc = self.load(run)
             assert doc is not None
             key = doc["judge"]["key"]
             caller = self.caller(key)
-            stamp = self._judge(key)
+            stamp = self._judge(key, doc["set"])
             found = {"graded": 0, "failed": 0}
             for evidence in self.store.evidence(run):
                 graded = await self._regrade_try(doc, evidence, caller, stamp)
@@ -725,6 +814,7 @@ class Runs:
             need=case.reply_pass,
             mark=pass_marks(doc)["reply"],
             decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
+            benchmark=is_benchmark(doc["set"]),
         )
 
     async def _trust(self, doc: dict[str, Any]) -> None:
@@ -770,26 +860,45 @@ class Runs:
                 labels.regraded(docs, doc["target"], example, said, by)
 
     async def wait(self) -> None:
-        """Until the running task (a run and its analysis) ends."""
-        if self._task is not None:
+        """Until the running run, those queued after it and their write-ups have all ended."""
+        while True:
+            going = [
+                t
+                for t in (self._task, self._drain, *self._writeups.values())
+                if t is not None and not t.done()
+            ]
+            if not going:
+                return
             with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.shield(self._task)
+                await asyncio.wait(going)
 
     async def analyze(self, run: str) -> dict[str, Any] | None:
-        """Analyse *run* again in the background; its summary, or ``None`` for no such run.
+        """Analyse *run* again in the background; its summary, or ``None`` for no such run. Its
+        app isn't needed: it goes alongside another run playing, outside the run lock.
 
-        :raises RunBusyError: A run or an analysis is going.
+        :raises RunBusyError: *run* is playing or queued, or its write-up is going.
         """
-        if self.busy():
-            raise RunBusyError
         doc = await asyncio.to_thread(self.load, run)
         if doc is None:
             return None
-        if self.busy() or doc["status"] == "running" or not self.lock.acquire():
+        if doc["status"] in ("running", "queued") or self._writing(run):
             raise RunBusyError
         doc["analyzing"] = True
-        self._go(self._analyze(doc))
+        self._write_up(doc)
         return summary(doc)
+
+    def _writing(self, run: str) -> bool:
+        task = self._writeups.get(run)
+        return task is not None and not task.done()
+
+    def _write_up(self, doc: dict[str, Any]) -> None:
+        """Analyse *doc* in the background, outside the run lock: the next run may start."""
+        run = doc["run"]
+        task = asyncio.get_running_loop().create_task(self._analyze(doc))
+        self._writeups[run] = task
+        task.add_done_callback(
+            lambda done: self._writeups.pop(run, None) if self._writeups.get(run) is done else None
+        )
 
     async def _analyze(self, doc: dict[str, Any]) -> None:
         """Analyse *doc*'s failed tries and the run, into the run store. Never raises."""
@@ -825,7 +934,13 @@ class Runs:
             await asyncio.shield(self.store.save(doc))
 
     async def stop(self, run: str) -> dict[str, Any] | None:
-        """Stop *run* if it is the one running; its summary, or ``None`` for no such run."""
+        """Stop *run* if it is the one running, or take it off the queue (it is forgotten: it
+        never played); its summary, or ``None`` for no such run."""
+        waiting = next((q for q in self._queue if q.doc["run"] == run), None)
+        if waiting is not None:
+            self._queue.remove(waiting)
+            await asyncio.to_thread(self.store.delete_run, run)
+            return summary({**waiting.doc, "status": "stopped", "stop_reason": UNQUEUED})
         if run == self._running and self.busy() and self._task is not None:
             self._stop_reason = STOPPED_BY_ADMIN
             self._task.cancel()
@@ -838,6 +953,19 @@ class Runs:
             # Not ours: it's another process's to stop. It looks for this while it plays.
             self.store.ask_stop(run)
         return summary(doc) if doc else None
+
+    async def delete(self, run: str) -> bool:
+        """Forget *run*: its document, its evidence and its files (screenshots, video); whether
+        there was such a run.
+
+        :raises RunBusyError: It is playing or queued (Stop it first), or its write-up is going.
+        """
+        doc = await asyncio.to_thread(self.load, run)
+        if doc is None:
+            return False
+        if doc["status"] in ("running", "queued") or run == self._running or self._writing(run):
+            raise RunBusyError
+        return await asyncio.to_thread(self.store.delete_run, run)
 
     async def _save(self, doc: Mapping[str, Any]) -> None:
         """Into the run store, and once the run ended into the target's sink, if it has one (a
@@ -917,6 +1045,7 @@ class Runs:
                     setup,
                     spec=ready.spec if ready else None,
                     env=ready.env if ready else None,
+                    run=doc["run"],
                 )
                 began = time.monotonic()
                 await copies.start(slots)
@@ -1049,7 +1178,7 @@ class Runs:
             doc["status"] = "done"
         except asyncio.CancelledError:
             doc.update(status="stopped", stop_reason=self._stop_reason or SERVER_SHUTDOWN)
-            await self._finish(pairs(), doc, copies)
+            await self._finish(pairs(), doc, copies, ready)
             raise
         except versioned.NotBuilt as exc:
             _logger.warning("evals: run %s: its version wasn't built", doc["run"])
@@ -1091,18 +1220,10 @@ class Runs:
                 message = f"The app refused the credentials: {message}"
             failure = APP_NOT_READY if isinstance(exc, APP_NOT_READY_ERRORS) else OTHER_FAILURE
             doc.update(status="failed", failure=failure, error=message, stop_reason=message)
-        await self._trust(doc)
-        failed = bool(_failed_tries(doc))
-        # Every run that ends on its own explains itself: its failed tries, and a report when a
-        # model can write one. One stopped (by the admin or its cap) is left as it is. Set before
-        # the run reads ended, so no reader sees it finished with analysis to come.
-        played = any(c["tries"] for c in doc["cases"].values())
-        doc["analyzing"] = doc["status"] in ("done", "failed") and (
-            failed or (played and self.caller(doc["judge"]["key"]) is not None)
-        )
-        await self._finish(pairs(), doc, copies)
+        await self._finish(pairs(), doc, copies, ready, settle=True)
         if doc["analyzing"]:
-            await self._analyze(doc)
+            # Written after the run lets its lock go: the next run needn't wait for it.
+            self._write_up(doc)
 
     async def _footing(
         self, doc: dict[str, Any], name: str, target: Target, ref: str = DISK
@@ -1302,9 +1423,16 @@ class Runs:
         sessions: Sequence[tuple[Target, Session]],
         doc: dict[str, Any],
         copies: isolated.Copies | None = None,
+        ready: versioned.Ready | None = None,
+        *,
+        settle: bool = False,
     ) -> None:
         """End the run: its sessions closed, each by its own adapter, then the copies of the app
-        it played on put back and taken down, then the run saved as it ended."""
+        it played on put back and taken down (a try the end-of-run check found not put back is
+        judged again: not judged), its version's checkout let go of (*ready*), then the run saved
+        as it ended. *settle*, for a run that ended on its own: read with what its labelled
+        examples say of the grader, and marked ``analyzing`` when there is something to explain.
+        """
         doc["totals"] = totals(doc)
         doc["current"] = None
         self._running = self._playing = None
@@ -1315,10 +1443,28 @@ class Runs:
                 await asyncio.shield(cancel_quietly(target, session))
             await asyncio.shield(close_quietly(target, session))
         doc["sessions"] = []
-        if copies is not None:
-            left = await asyncio.shield(copies.close())
-            if left:
-                _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
+        try:
+            if copies is not None:
+                left = await asyncio.shield(copies.close())
+                if left:
+                    _logger.warning("evals: run %s left behind: %s", doc["run"], ", ".join(left))
+        finally:
+            # Another run may remove the version's checkout once this one is done with it.
+            if ready is not None:
+                ready.release()
+        if copies is not None and copies.late:
+            _judge_late(doc, copies.late)
+        if settle:
+            await self._trust(doc)
+            failed = bool(_failed_tries(doc))
+            # Every run that ends on its own explains itself: its failed tries, and a report when
+            # a model can write one. One stopped (by the admin or its cap) is left as it is. Set
+            # before the run is saved ended, so no reader sees it finished with analysis to come.
+            played = any(c["tries"] for c in doc["cases"].values())
+            doc["analyzing"] = doc["status"] in ("done", "failed") and (
+                failed or (played and self.caller(doc["judge"]["key"]) is not None)
+            )
+        doc["totals"] = totals(doc)
         await asyncio.shield(self._save(doc))
 
     async def _drop_passed_proof(self, run: str, evidence: TryEvidence, outcome: Outcome) -> None:
@@ -1421,6 +1567,7 @@ class Runs:
                 need=case.reply_pass,
                 mark=marks["reply"],
                 decider=self.caller("strong") if is_benchmark(doc["set"]) else None,
+                benchmark=is_benchmark(doc["set"]),
             )
         memory = await grade_memory(
             grader, evidence.memory, evidence.model_calls, _last_turn(evidence)
@@ -1451,6 +1598,10 @@ class Runs:
                     "start": c.start,
                     "end": c.end,
                     "helper": c.helper,
+                    # The delegated agent's name, and the tool's MCP server: a try graded
+                    # again on read tells two agents, and two tools of one name, apart.
+                    "agent": c.agent,
+                    "server": c.server,
                 }
                 for c in view.calls
             ],
@@ -1539,6 +1690,16 @@ def _mark_divergences(
     base_kept = store.evidence(base["run"]) if base else []
     for stem, found in divergence.of_run(doc, kept, base, base_kept).items():
         doc["cases"][stem]["divergence"] = found
+
+
+def _judge_late(doc: dict[str, Any], late: Sequence[Mapping[str, Any]]) -> None:
+    """Judge again, as not judged, each try of *doc* whose ``isolation`` is one of *late*: the
+    end-of-run check found its copy not put back after the try was judged (:attr:`Copies.late`)."""
+    found = {id(label) for label in late}
+    for entry in doc["cases"].values():
+        for attempt in entry["tries"]:
+            if id(attempt.get("isolation")) in found and (problem := unheld(attempt)):
+                add_judgement(attempt, judged_unheld(problem))
 
 
 def _failed_tries(doc: Mapping[str, Any]) -> list[Mapping[str, Any]]:

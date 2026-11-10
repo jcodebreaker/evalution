@@ -51,13 +51,13 @@ export function Connection({
 
   let body: ReactNode;
   if (load.status === "loading") body = <Skeleton className="h-80 rounded-xl" />;
-  else if (!saved) body = <p className="m-0 text-[14px] text-ink-2">Couldn't load it.</p>;
+  else if (!saved) body = <p className="m-0 text-sm text-ink-2">Couldn't load it.</p>;
   else if (!saved.managed) {
     body = (
       <>
-        <p className="m-0 text-[14px] text-ink-2">Set in evalution.yaml.</p>
+        <p className="m-0 text-sm text-ink-2">Set in evalution.yaml.</p>
         {checker.check ? <CheckResult check={checker.check} /> : null}
-        {checker.error ? <p className="m-0 text-[13px] text-fail">{checker.error}</p> : null}
+        {checker.error ? <p className="m-0 text-sm text-fail">{checker.error}</p> : null}
         <Button
           variant="secondary"
           className="self-end"
@@ -88,7 +88,7 @@ export function Connection({
   return (
     <div className="flex flex-col gap-4">
       {saved ? (
-        <p className="m-0 text-[14px] text-ink-2">
+        <p className="m-0 text-sm text-ink-2">
           Connected as {saved.adapter_label}.
           {change
             ? ` Changed from ${change.from} to ${change.to}: earlier results tested the other.`
@@ -97,13 +97,13 @@ export function Connection({
       ) : null}
       {saved ? <PlaysThrough page={saved.page} /> : null}
       {saved?.adapter_error ? (
-        <p className="m-0 text-[14px] text-fail">Its adapter doesn't load: {saved.adapter_error}</p>
+        <p className="m-0 text-sm text-fail">Its adapter doesn't load: {saved.adapter_error}</p>
       ) : null}
       <Probe target={target} checked={!!row?.checked} onChange={reloadTargets} />
       {row ? <Isolation target={row} onChange={reloadTargets} /> : null}
       {body}
-      {keyLeft ? <p className="m-0 text-[13px] text-ink-2">Saved. {KEY_LEFT_BEHIND}</p> : null}
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {keyLeft ? <p className="m-0 text-sm text-ink-2">Saved. {KEY_LEFT_BEHIND}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
       {removing ? (
         <ConfirmDialog
           onClose={() => setRemoving(false)}

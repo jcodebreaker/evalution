@@ -12,6 +12,12 @@ The plan's stores are each a :class:`~evalution.isolation.drivers.Driver`. The r
 6. always ends with the starting state put back and the app started, so a rehearsal leaves the
    app exactly as it found it, whatever happened.
 
+With ``hot``, once the plan is proven, it is put back once more as a run would put it back with
+the app up (or only the services a store needs stopped, :mod:`.hot`): the app must answer, take a
+second probe, and after a second such put back hold the starting state with that probe's canary
+gone. That proves the faster path (``hot`` is ``proven``); an app that breaks under it is recorded
+as needing a restart (``failed``), and the plan stays proven for the whole stop and start.
+
 Only what the plan names is ever replaced, and only by its own copy from step 1. The copies live
 in a folder of evalution's own. A planned store whose hash the probe didn't move is reported as
 unconfirmed, not as a failure. Tables the plan leaves out (traces) are never a leak.
@@ -21,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -59,6 +65,18 @@ class Runner(Protocol):
         ...
 
 
+class HotRunner(Runner, Protocol):
+    """A runner that can also stop the app only as far as its stores need (:mod:`.hot`)."""
+
+    async def hot_stop(self) -> None:
+        """Stop only what the stores need stopped (maybe nothing)."""
+        ...
+
+    async def hot_start(self) -> None:
+        """Start that again and make one health call; raise when the app doesn't answer."""
+        ...
+
+
 @dataclass
 class Step:
     name: str
@@ -76,12 +94,18 @@ class Rehearsal:
     unconfirmed: list[str] = field(default_factory=list)
     #: Seconds the whole rehearsal took.
     seconds: float = 0.0
+    #: Put back with the app up: ``proven``, ``failed`` (it needs a restart), ``None`` untried.
+    hot: str | None = None
 
     def report(self) -> str:
         lines = [
             f"{'ok ' if s.ok else 'NO '} {s.name}{': ' + s.detail if s.detail else ''}"
             for s in self.steps
         ]
+        if self.hot == "proven":
+            lines.append("Put back with the app up: proven; runs don't restart it.")
+        elif self.hot == "failed":
+            lines.append("Put back with the app up: it broke; runs stop and start it instead.")
         if self.unconfirmed:
             lines.append(
                 f"Unconfirmed (the probe didn't change them): {', '.join(self.unconfirmed)}"
@@ -109,18 +133,55 @@ def scan_files(roots: Sequence[Path], canary: str) -> list[str]:
     return sorted(set(found))
 
 
+async def _hot_round(
+    runner: HotRunner,
+    kept: Sequence[tuple[Driver, Path]],
+    before: dict[str, str],
+    outside: Callable[[list[str]], list[str]],
+    step: Callable[..., bool],
+) -> str:
+    """Put the stores back twice as a run would with the app up, a probe between: ``proven`` when
+    the app answers each time, takes the probe, and ends in the starting state with that probe's
+    canary nowhere; else ``failed``. Never fails the plan: a run then restarts the app."""
+    canary = f"eval-rehearsal-{secrets.token_hex(6)}"
+    name = "put back with the app up"
+
+    async def put_back() -> None:
+        await runner.hot_stop()
+        for d, copy in kept:
+            await asyncio.to_thread(d.put_back, copy)
+        await runner.hot_start()
+
+    try:
+        await put_back()
+        await runner.probe(canary)
+        await put_back()
+        now = {d.name: await asyncio.to_thread(d.digest) for d, _ in kept}
+        differ = [n for n, h in now.items() if h != before.get(n)]
+        left = [p for d, _ in kept for p in await asyncio.to_thread(d.holding, canary)]
+        left += outside(await runner.search(canary))
+        said = ", ".join([*differ, *left])
+        return "proven" if step(name, not differ and not left, said) else "failed"
+    except Exception as exc:  # the app broke under it: a run restarts it instead
+        step(name, False, f"{type(exc).__name__}: {exc}")
+        return "failed"
+
+
 async def rehearse(
     drivers: Sequence[Driver],
     runner: Runner,
     workdir: Path,
     *,
     ignore: Sequence[str] = (),
+    hot: bool = False,
 ) -> Rehearsal:
     """Try the plan once on a running app (see the module's docstring).
 
     :param drivers: The plan's stores, on the app the runner works.
     :param workdir: An empty folder of evalution's own, for the starting state.
     :param ignore: Places never counted as a leak, ``db.schema.table`` (the plan's traces).
+    :param hot: Prove the put back with the app up too; *runner* is then a :class:`HotRunner`.
+        Sends a second probe.
     """
     started_at = asyncio.get_running_loop().time()
     out = Rehearsal(ok=False)
@@ -200,6 +261,8 @@ async def rehearse(
             out.leaks = left
             return out
         out.ok = True
+        if hot:
+            out.hot = await _hot_round(runner, kept, before, outside, step)  # type: ignore[arg-type]
         return out
     except Exception as exc:  # a driver or the app failing ends the rehearsal, not the cleanup
         step("stopped by an error", False, f"{type(exc).__name__}: {exc}")

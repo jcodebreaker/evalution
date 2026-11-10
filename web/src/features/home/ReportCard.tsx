@@ -120,7 +120,7 @@ export function ReportCard({
           onChange={(event) => setText(event.target.value)}
           placeholder={`Ask about ${label}`}
           aria-label={`Ask about ${label}`}
-          className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-3"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-ink-3"
         />
         <Button type="submit" size="icon-xs" aria-label="Send" disabled={!text.trim()}>
           <ArrowUp />
@@ -159,7 +159,7 @@ function Item({
         {text}
       </span>
       {long || onWhy || shownNotes.length ? (
-        <span className="flex flex-wrap items-baseline gap-x-2.5 text-[12.5px] text-ink-3">
+        <span className="flex flex-wrap items-baseline gap-x-2.5 text-sm text-ink-3">
           {shownNotes.map((note) => (
             <span key={note}>{note}</span>
           ))}
@@ -179,8 +179,8 @@ function ReportList({ title, children }: { title: string; children: ReactNode[] 
   if (!children.length) return null;
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <h3 className="m-0 text-[12.5px] font-semibold text-ink-3">{title}</h3>
-      <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[14px]">{children}</ul>
+      <h3 className="m-0 text-sm font-semibold text-ink-3">{title}</h3>
+      <ul className="m-0 flex list-none flex-col gap-3 p-0 text-sm">{children}</ul>
     </div>
   );
 }

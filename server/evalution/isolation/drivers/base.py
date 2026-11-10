@@ -18,6 +18,29 @@ from typing import IO, Protocol
 #: Seconds one Docker command may take: a dump, a copy or a tar of a large store included.
 DOCKER_SECONDS = 600
 
+#: How far the copy must stop for a driver to put its store back, the least first: not at all
+#: (the app stays up), the services that mount the store, or the whole copy.
+STOPS = ("none", "services", "all")
+
+
+def needs_stop(driver: object) -> str:
+    """How far the copy must stop for *driver* to put its store back (:data:`STOPS`). A driver
+    that doesn't say needs the whole copy stopped: today's path, and the safe one."""
+    said = getattr(driver, "needs_stop", "all")
+    return said if said in STOPS else "all"
+
+
+def widest(drivers: object, *, holds_state: bool = False) -> str:
+    """How far the copy must stop for every one of *drivers*: the widest any of them needs, and
+    the whole copy when the app keeps state in its own memory (*holds_state*), or has no driver
+    that says (a restart is then what clears it)."""
+    if holds_state:
+        return "all"
+    found = [needs_stop(d) for d in drivers]  # type: ignore[attr-defined]
+    if not found:
+        return "all"
+    return max(found, key=STOPS.index)
+
 
 class Refused(Exception):
     """A driver refusing to act on something that isn't evalution's own."""
@@ -35,6 +58,8 @@ class Driver(Protocol):
 
     #: The plan's id for this store.
     name: str
+    #: How far the copy must stop while it is put back (:data:`STOPS`); ``all`` when not said.
+    needs_stop: str
 
     def covers(self, path: str) -> bool:
         """Whether *path* is part of this store: a path on this computer, or a place the copy's

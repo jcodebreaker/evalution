@@ -15,7 +15,16 @@ from evalution.adapters import base
 from evalution.adapters.base import Capabilities, Isolation
 from evalution.config import IsolationConfig
 from evalution.core.case import CLEAN_KINDS
-from evalution.core.rules import current
+from evalution.core.judgement import (
+    CheckKind,
+    CheckResult,
+    Decider,
+    Outcome,
+    Role,
+    Route,
+    WhyUnjudged,
+)
+from evalution.core.rules import current, judgement
 from evalution.isolation.launch import LaunchError
 from evalution.isolation.plan import Plan, PlannedStore, PlanStore
 from evalution.isolation.setup import Setup, SetupStore
@@ -240,7 +249,9 @@ async def test_put_back_before_each_test_only_restores_its_first_try(make_rig) -
     doc = await rig.run(tries=2)
     first, second = (t["isolation"] for t in _tries(doc))
     assert first["reset"] == second["reset"] == "test"
-    assert isinstance(first["restore_seconds"], float) and first["checked"] == ["memory"]
+    # The slot's first try plays on the copy as it was kept a moment before: no put back.
+    assert first["restore_seconds"] is None and first["checked"] == ["memory"]
+    assert first["check"] == "kept"
     assert second["restore_seconds"] is None and second["checked"] == []
     assert second["how"] == "proven" and second["problem"] is None
     # Not put back, try 2 recalls what try 1 stored: what a reset per test can't rule out.
@@ -310,6 +321,72 @@ async def test_without_a_person_type_the_copies_play_as_the_apps_own(make_rig, m
     rig.fill("memory-recalls-fact")
     doc = await rig.run(tries=1)
     assert doc["status"] == "done" and doc["isolation"]["person"] is None
+
+
+# A put back the end-of-run check found didn't hold
+
+
+async def test_tries_the_end_of_run_check_finds_unheld_are_judged_again_as_not_judged(
+    make_rig, monkeypatch
+) -> None:
+    labels: list[dict[str, Any]] = []
+    restore, close = isolated.Copies.restore, isolated.Copies.close
+
+    async def kept(self, index: int) -> dict[str, Any]:
+        label = await restore(self, index)
+        labels.append(label)
+        return label
+
+    async def found_late(self) -> list[str]:
+        left = await close(self)
+        late = labels[-1]
+        late["problem"] = "reset didn't hold: the end-of-run check found memory not put back"
+        self.late.append(late)
+        return left
+
+    monkeypatch.setattr(isolated.Copies, "restore", kept)
+    monkeypatch.setattr(isolated.Copies, "close", found_late)
+    rig = make_rig(options={"memory_file": MEMORY_FILE})
+    rig.manage()
+    rig.fill("memory-recalls-fact")
+    doc = await rig.run(tries=2)
+    first, second = _tries(doc)
+    assert current(first).outcome is Outcome.PASSED
+    now = current(second)
+    assert now.outcome is Outcome.UNJUDGED and len(second["judgements"]) == 2
+    assert [c.unjudged for c in now.checks if c.unjudged] == [WhyUnjudged.LEFTOVER_STATE]
+    assert "end-of-run check found memory" in now.checks[0].why
+    assert doc["totals"]["passed"] == 1
+    # Read again, it is as it was written: nothing to add.
+    assert upcast(doc) is doc
+
+
+def test_an_old_try_whose_end_of_run_check_failed_reads_as_not_judged() -> None:
+    passed = CheckResult(
+        id="steps",
+        kind=CheckKind.STEPS,
+        decided_by=Decider.CODE,
+        role=Role.MUST,
+        outcome=Outcome.PASSED,
+        why="the expected calls were made",
+    )
+    stored = {**judgement([passed], None, Route.EXPECTED).model_dump(mode="json"), "rules": 4}
+    problem = "reset didn't hold: the end-of-run check found memory not put back"
+    late = {"n": 2, "judgements": [stored], "isolation": {"how": "proven", "problem": problem}}
+    fine = {"n": 1, "judgements": [stored], "isolation": {"how": "proven", "problem": None}}
+    doc = {
+        "schema": SCHEMA,
+        "rules": 4,
+        "pass_marks": {"tools": 0.8, "reply": 0.8},
+        "cases": {"c": {"name": "c", "tries": [fine, late]}},
+    }
+    new = upcast(doc)
+    assert new is not doc
+    fine_now, late_now = new["cases"]["c"]["tries"]
+    assert current(fine_now).outcome is Outcome.PASSED and len(fine_now["judgements"]) == 1
+    found = current(late_now)
+    assert found.outcome is Outcome.UNJUDGED and found.rules_from == 4
+    assert found.checks[0].why == problem
 
 
 _ = SET

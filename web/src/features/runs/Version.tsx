@@ -101,7 +101,7 @@ export function NotBuilt({ reason }: { reason: string }) {
         <b className="font-semibold text-fail">Nothing played, so nothing was judged:</b> {head}
       </p>
       {lines.length ? (
-        <pre className="m-0 overflow-x-auto rounded-lg bg-group/70 px-3 py-2 font-mono text-[12px] leading-[1.45] whitespace-pre-wrap text-ink-2">
+        <pre className="m-0 overflow-x-auto rounded-lg bg-group/70 px-3 py-2 font-mono text-[13px] leading-[1.45] whitespace-pre-wrap text-ink-2">
           {lines.join("\n")}
         </pre>
       ) : null}

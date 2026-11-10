@@ -1,3 +1,4 @@
+import { ArrowRight, Database, Lock, User } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { Status, StatusDot } from "../../ui/status";
@@ -9,49 +10,41 @@ export type ShownBlock = Block & { checked: boolean; marking: boolean };
 /** How the copy looks: green when proven, amber out of date, red not isolated. */
 export type Tone = "plain" | "ready" | "stale" | "leaky";
 
-const LANE = "mb-2 text-[12px] text-ink-3";
+const ROW = "flex h-10 min-w-0 items-center gap-2.5 rounded-[10px] border border-rule px-3 text-sm";
 
-function BlockCard({ block, animate }: { block: ShownBlock; animate: boolean }) {
+function BlockRow({ block, animate }: { block: ShownBlock; animate: boolean }) {
   const person = block.kind === "person";
   return (
-    <li
-      className={cn(
-        "flex min-w-0 items-center gap-3 rounded-[10px] border border-separator bg-group px-3 py-2.5",
-        person && "col-span-full",
-        animate && "block-in",
+    <li className={cn(ROW, "bg-group", animate && "block-in")} data-testid={`block-${block.key}`}>
+      {block.marking ? (
+        <i
+          className="marker-pulse size-2.5 shrink-0 rounded-full bg-unjudged"
+          title="Marked while it's proven"
+          aria-hidden
+        />
+      ) : block.checked ? (
+        <StatusDot state="pass" label="Checked" className="size-2.5" />
+      ) : (
+        <i aria-hidden className="size-2.5 shrink-0 animate-pulse rounded-full bg-tint" />
       )}
-      data-testid={`block-${block.key}`}
-    >
       {person && block.face ? (
-        <span className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-tint-soft text-[13px] font-semibold text-tint-ink">
+        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tint-soft text-sm font-semibold text-tint-ink">
           {block.face}
         </span>
+      ) : person ? (
+        <User aria-hidden className="size-[15px] shrink-0 text-ink-3" />
+      ) : block.kind === "store" ? (
+        <Database aria-hidden className="size-[15px] shrink-0 text-ink-3" />
       ) : null}
-      <span className="flex min-w-0 flex-col">
-        <b className="truncate font-medium">{block.title}</b>
-        <span className="truncate text-[12px] text-ink-3">{block.sub}</span>
-      </span>
-      <span className="ms-auto flex shrink-0 items-center gap-2">
-        {block.marking ? (
-          <i
-            className="marker-pulse size-2 rounded-full bg-unjudged"
-            title="Marked while it's proven"
-            aria-hidden
-          />
-        ) : null}
-        {block.checked ? (
-          <StatusDot state="pass" label="Checked" />
-        ) : (
-          <span aria-hidden className="size-2" />
-        )}
-      </span>
+      <b className="min-w-0 truncate font-normal">{block.title}</b>
+      <small className="ms-auto truncate ps-2 font-mono text-[13px] text-ink-3">{block.sub}</small>
     </li>
   );
 }
 
 /**
- * Your app, faded and locked, beside the test copy evalution builds: one block for the app on its
- * own ports, its traces, each store it gets new, and the test person.
+ * Your app, dashed and locked, beside the test copy evalution builds: one block for the app on
+ * its own ports, its traces, each store it gets new, and the test person, drawn as they land.
  */
 export function CopyPicture({
   target,
@@ -75,64 +68,59 @@ export function CopyPicture({
   empty?: string;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,180px)_40px_minmax(0,1fr)] items-stretch max-sm:grid-cols-1">
-      <div className="flex flex-col">
-        <div className={LANE}>Your app</div>
-        <div
-          className="flex flex-1 flex-col gap-2 rounded-[12px] border border-dashed border-rule-strong p-3 opacity-75"
-          data-testid="your-app"
-        >
-          {[target, ...yours].map((name) => (
-            <div
-              key={name}
-              className="truncate rounded-[8px] bg-sunk px-2.5 py-2 font-medium text-ink-2"
-            >
-              {name}
-            </div>
-          ))}
-          <div className="mt-0.5 text-[12px] text-ink-3">Never touched</div>
-        </div>
+    <div className="grid grid-cols-[minmax(0,0.8fr)_36px_minmax(0,1.3fr)] items-stretch max-md:grid-cols-1">
+      <div
+        className="flex min-h-[176px] flex-col gap-2 rounded-[14px] border-[1.5px] border-dashed border-rule-strong p-3.5"
+        data-testid="your-app"
+      >
+        <h3 className="m-0 mb-0.5 flex items-center gap-2 text-sm font-medium text-ink-3">
+          <Lock aria-hidden className="size-[15px]" />
+          Your app · never touched
+        </h3>
+        {[target, ...yours].map((name) => (
+          <div key={name} className={cn(ROW, "bg-sunk text-ink-3")}>
+            {name === target ? null : <Database aria-hidden className="size-[15px] shrink-0" />}
+            <span className="truncate">{name}</span>
+          </div>
+        ))}
       </div>
       <div
         aria-hidden
-        className="grid place-items-center text-[18px] text-ink-3 max-sm:rotate-90 max-sm:py-1.5"
+        className="grid place-items-center text-ink-3 max-md:h-[30px] max-md:rotate-90"
       >
-        →
+        <ArrowRight className="size-[18px]" />
       </div>
-      <div className="flex min-w-0 flex-col">
-        <div className={cn(LANE, "flex items-center gap-2")}>
-          Test copy
+      <div
+        className={cn(
+          "relative flex min-h-[176px] flex-col gap-2 rounded-[14px] border-2 p-3.5 transition-colors duration-500",
+          tone === "ready" && "border-pass bg-pass-soft",
+          tone === "stale" && "border-unjudged bg-unjudged-soft",
+          tone === "leaky" && "border-fail bg-fail-soft",
+          tone === "plain" && "border-tint bg-tint-soft",
+        )}
+        data-testid="test-copy"
+        data-tone={tone}
+      >
+        <h3 className="m-0 mb-0.5 flex flex-wrap items-center gap-2 text-sm font-medium text-ink-3">
+          Test copy ·<span className="font-mono">{copyName(target)}</span>
           {badge}
-        </div>
-        <div
-          className={cn(
-            "relative flex min-h-[200px] flex-1 flex-col rounded-[12px] border p-3 transition-colors duration-500",
-            tone === "ready" && "border-pass/50 bg-pass-soft/40",
-            tone === "stale" && "border-unjudged",
-            tone === "leaky" && "border-fail",
-            tone === "plain" && "border-separator",
-          )}
-          data-testid="test-copy"
-          data-tone={tone}
-        >
-          <div className="mb-2.5 font-mono text-[12.5px] text-ink-3">{copyName(target)}</div>
-          {blocks.length ? (
-            <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5 p-0">
-              {blocks.map((block) => (
-                <BlockCard key={block.key} block={block} animate={animate} />
-              ))}
-            </ul>
-          ) : (
-            <p className="m-auto text-[13px] text-ink-3">{empty}</p>
-          )}
-          {tone === "ready" ? (
-            <div className="mt-2.5 flex justify-end">
-              <Status state="pass" className="font-medium text-ink">
-                Starts fresh, proven
-              </Status>
-            </div>
-          ) : null}
-        </div>
+        </h3>
+        {blocks.length ? (
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {blocks.map((block) => (
+              <BlockRow key={block.key} block={block} animate={animate} />
+            ))}
+          </ul>
+        ) : (
+          <p className="m-auto text-sm text-ink-3">{empty}</p>
+        )}
+        {tone === "ready" ? (
+          <div className="mt-auto flex justify-end pt-1">
+            <Status state="pass" className="text-sm font-medium text-ink">
+              Starts fresh, proven
+            </Status>
+          </div>
+        ) : null}
       </div>
     </div>
   );

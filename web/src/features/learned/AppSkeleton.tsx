@@ -108,15 +108,15 @@ function Row({ entry, when }: { entry: SkeletonEntry; when: string }) {
         className={
           entry.kind === "route" || entry.kind === "tool"
             ? "min-w-0 truncate font-mono text-[13px]"
-            : "min-w-0 truncate text-[14px]"
+            : "min-w-0 truncate text-sm"
         }
       >
         {title(entry)}
       </span>
-      {said ? <span className="min-w-0 truncate text-[13px] text-ink-2">{said}</span> : null}
+      {said ? <span className="min-w-0 truncate text-sm text-ink-2">{said}</span> : null}
       <span
         title={[where, ...entry.places].join("\n")}
-        className="ms-auto min-w-0 truncate font-mono text-[12px] text-ink-3"
+        className="ms-auto min-w-0 truncate font-mono text-[13px] text-ink-3"
       >
         {where}
         {entry.places.length ? (
@@ -127,8 +127,8 @@ function Row({ entry, when }: { entry: SkeletonEntry; when: string }) {
         <span
           className={
             entry.uses
-              ? "shrink-0 text-end text-[13px] text-ink-2 tabular-nums"
-              : "shrink-0 text-end text-[13px] text-ink-3"
+              ? "shrink-0 text-end text-sm text-ink-2 tabular-nums"
+              : "shrink-0 text-end text-sm text-ink-3"
           }
         >
           {used}
@@ -163,7 +163,7 @@ function Entry({ entry, when }: { entry: SkeletonEntry; when: string }) {
           />
           <Row entry={entry} when={when} />
         </summary>
-        <pre className="mx-[18px] mt-0.5 mb-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-[8px] bg-sunk px-3 py-2 font-mono text-[12.5px] leading-[1.55]">
+        <pre className="mx-[18px] mt-0.5 mb-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-[8px] bg-sunk px-3 py-2 font-mono text-[13px] leading-[1.55]">
           {entry.text}
         </pre>
       </details>
@@ -196,7 +196,7 @@ function Kind({
         <button
           type="button"
           onClick={() => setAll(true)}
-          className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-[13px] text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
+          className="mx-[18px] mt-1 rounded-md px-1 py-0.5 text-sm text-ink-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-tint"
         >
           Show {entries.length - shown.length} more
         </button>
@@ -213,7 +213,7 @@ const KIND_WORDS: Record<string, string> = {
 };
 
 /** No code folder is no skeleton: said by the server as a refusal, shown as nothing here. */
-async function load(target: string): Promise<Found | null> {
+export async function loadSkeleton(target: string): Promise<Found | null> {
   try {
     return await api.skeleton(target);
   } catch (error) {
@@ -223,12 +223,10 @@ async function load(target: string): Promise<Found | null> {
 }
 
 export function AppSkeleton({ target }: { target: string }) {
-  const [state] = useLoad(`skeleton:${target}`, () => load(target));
+  const [state] = useLoad(`skeleton:${target}`, () => loadSkeleton(target));
   if (state.status === "loading") return <Placeholder className="h-32 rounded-xl" />;
   if (state.status !== "ready") {
-    return (
-      <p className="m-0 text-[13px] text-ink-3">Couldn't read the app's code for its skeleton.</p>
-    );
+    return <p className="m-0 text-sm text-ink-3">Couldn't read the app's code for its skeleton.</p>;
   }
   const found = ready(state);
   if (!found) return null;
@@ -245,7 +243,7 @@ export function AppSkeleton({ target }: { target: string }) {
       <GroupHeading title="Skeleton" aside={aside} />
       <Group>
         {groups.length ? null : (
-          <p className="m-0 px-[18px] py-3 text-[14px] text-ink-2">
+          <p className="m-0 px-[18px] py-3 text-sm text-ink-2">
             No prompts, tools, model calls, routes or stores found in the code yet.
           </p>
         )}
@@ -259,8 +257,8 @@ export function AppSkeleton({ target }: { target: string }) {
               {found.unseen.map((use) => (
                 <li key={`${use.kind}:${use.name}`} className={ROW}>
                   <span className="min-w-0 truncate font-mono text-[13px]">{use.name}</span>
-                  <span className="text-[13px] text-ink-2">{KIND_WORDS[use.kind] ?? use.kind}</span>
-                  <span className="ms-auto shrink-0 text-[13px] text-ink-2 tabular-nums">
+                  <span className="text-sm text-ink-2">{KIND_WORDS[use.kind] ?? use.kind}</span>
+                  <span className="ms-auto shrink-0 text-sm text-ink-2 tabular-nums">
                     {use.calls ? `${count(use.calls, "call")} ${when}` : "offered, not called"}
                   </span>
                 </li>

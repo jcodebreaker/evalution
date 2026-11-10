@@ -88,6 +88,7 @@ function outcome(question: Question): { word: string; tone: string } {
     return { word: question.unanswerable ? "Said it didn't know" : "Right", tone: "text-pass" };
   }
   if (question.verdict === "fail" || question.verdict === "flaky") {
+    if (question.broke_off) return { word: "Timed out, counted wrong", tone: "text-fail" };
     if (question.unanswerable) return { word: "Made it up", tone: "text-fail" };
     if (question.memory?.reached) return { word: "Had it, answered wrong", tone: "text-warning" };
     if (question.memory?.written === false) {
@@ -426,15 +427,13 @@ function RunResult({
   const kinds = Object.entries(report.kinds).filter(([, tally]) => tally.judged > 0);
   const anyPlayed = played(run) > 0;
   const sameSet = runs.filter((entry) => entry.set === run.set);
-  const previous =
-    sameSet.slice(sameSet.indexOf(run) + 1).find((entry) => played(entry) > 0) ?? null;
   const trend = sameSet.filter((entry) => entry.report.accuracy !== null).reverse();
   const timed = run.questions.filter((question) => question.seconds);
   const { memory } = report;
   const prompted = run.questions.filter((question) => question.prompts.length > 1);
   return (
     <>
-      {tab === "overview" ? <Glance run={run} previous={previous} onStopped={onStopped} /> : null}
+      {tab === "overview" ? <Glance run={run} onStopped={onStopped} /> : null}
       {tab === "questions" && anyPlayed ? (
         <section>
           <div className="flex flex-wrap items-center gap-2 px-1 pb-2.5">

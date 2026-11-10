@@ -19,7 +19,7 @@ export function History({
     <Group className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse">
         <thead>
-          <tr className="text-[11px] text-ink-3">
+          <tr className="text-xs text-ink-3">
             <th />
             {run.history.map((entry, index) => (
               <th

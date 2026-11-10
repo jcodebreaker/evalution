@@ -16,6 +16,7 @@ from evalution.benchmarks.longmemeval import (
     install,
     known_answer,
     overview,
+    questions,
     report,
     sample,
     spread,
@@ -574,17 +575,20 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
         },
     }
     found = report(run)
-    assert (found["right"], found["judged"], found["accuracy"]) == (1, 3, 1 / 3)
-    assert found["task_average"] == 0.25
-    assert found["kinds"]["multi-session"] == {"right": 1, "judged": 2}
+    assert (found["right"], found["judged"], found["accuracy"]) == (2, 5, 2 / 5), (
+        "unanswerable questions count in accuracy"
+    )
+    assert (found["broke_off"], found["unjudged"]) == (1, 0)
+    assert found["task_average"] == (2 / 3 + 0 / 2) / 2
+    assert found["kinds"]["multi-session"] == {"right": 2, "judged": 3}
     assert (found["admitted"], found["unanswerable"]) == (1, 1)
     assert {k: found["memory"][k] for k in ("measured", "written", "committed", "used")} == {
-        "measured": 3,
-        "written": 3,
+        "measured": 4,
+        "written": 4,
         "committed": 1,
         "used": 1,
     }
-    assert found["write_recall"] == 1 / 3
+    assert found["write_recall"] == 1 / 4
 
     docs = Database.open(tmp_path).docs()
     shown = overview("bot", docs, [run])["runs"][0]
@@ -598,7 +602,7 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
         and overview("bot", docs, [{**run, "status": "done"}])["runs"][0]["current"] is None
     )
     played, waiting = shown["questions"][0], shown["questions"][-1]
-    assert shown["questions"][-2]["verdict"] == "unjudged", "it broke off, so it wasn't wrong"
+    assert shown["questions"][-2]["verdict"] == "fail", "the app broke off, so it was wrong"
     assert (played["tokens"], played["messages"], played["models"]) == (10, 2, ["m"])
     assert played["trace_url"] is None and (waiting["tokens"], waiting["models"]) == (None, [])
     bare = overview("bot", docs, [{**run, "cases": {"f": run["cases"]["f"]}}])["runs"][0]
@@ -606,6 +610,77 @@ def test_a_benchmark_report_adds_up(tmp_path: Path) -> None:
     assert bare["totals"] == {"tokens": None, "median_seconds": None, "models": []}
     empty = {**run, "status": "stopped", "cases": {"f": run["cases"]["f"]}}
     assert overview("bot", docs, [empty])["runs"] == [], "stopped with nothing played"
+
+
+def _benchmark_try(outcome: str, source: str, *, why: str | None = None, error=None) -> dict:
+    """A stored question of a benchmark run, played once; *why* is why its rubric line went
+    unjudged."""
+    check = {"id": "rubric:0", "kind": "rubric", "decided_by": "model", "role": "must"}
+    made = {
+        "outcome": outcome,
+        "checks": [{**check, "outcome": outcome, "why": "w", "unjudged": why}],
+        "rules": 2,
+    }
+    return {"source": source, "tries": [{"n": 1, "judgements": [made], "error": error}]}
+
+
+def test_an_app_that_breaks_off_is_wrong_and_only_a_failed_grader_is_not_judged() -> None:
+    kind = "longmemeval:multi-session"
+    run = {
+        "cases": {
+            "right": _benchmark_try("passed", kind),
+            "timed_out": _benchmark_try("failed", kind, error="the turn did not finish in time"),
+            "unreachable": _benchmark_try(
+                "unjudged", kind, why="app_unreachable", error="ConnectError"
+            ),
+            "hung": _benchmark_try("unjudged", kind, why="never_started", error="no answer"),
+            "grader_down": _benchmark_try(
+                "unjudged", kind, why="judge_failed", error="grader: the call failed"
+            ),
+            "grader_unsure": _benchmark_try("unjudged", kind, why="judge_unsure"),
+        }
+    }
+    found = report(run)
+    assert (found["right"], found["judged"]) == (1, 4), "the app's own breaks count as wrong"
+    assert (found["broke_off"], found["unjudged"]) == (3, 2)
+    shown = {q["case"]: q for q in questions(run)}
+    assert shown["unreachable"]["verdict"] == "fail" and shown["unreachable"]["broke_off"]
+    assert shown["grader_down"]["verdict"] == "unjudged" and not shown["grader_down"]["broke_off"]
+    assert not shown["right"]["broke_off"]
+
+
+def test_accuracy_has_a_range_and_a_change_is_real_only_outside_it(tmp_path: Path) -> None:
+    def run(name: str, right: int, wrong: int, judge="m", set_="longmemeval-quick") -> dict:
+        cases = {
+            f"q{i}": _benchmark_try(
+                "passed" if i < right else "failed", "longmemeval:multi-session"
+            )
+            for i in range(right + wrong)
+        }
+        return {
+            "run": name,
+            "set": set_,
+            "status": "done",
+            "judge": {"model": judge},
+            "cases": cases,
+        }
+
+    assert report(run("r", 0, 0))["range"] is None, "nothing judged, no range"
+    low, high = report(run("r", 8, 2))["range"]
+    assert (round(low, 3), round(high, 3)) == (0.49, 0.943), "Wilson 95% for 8 of 10"
+    assert report(run("r", 8, 2))["change_is_real"] is False, "alone, nothing to compare"
+
+    docs = Database.open(tmp_path).docs()
+
+    def shown(*runs: dict) -> dict:
+        return overview("bot", docs, list(runs))["runs"][0]["report"]
+
+    moved = shown(run("new", 19, 1), run("old", 5, 15))
+    assert moved["change_is_real"] and moved["previous_accuracy"] == 0.25
+    assert not shown(run("new", 6, 4), run("old", 5, 5))["change_is_real"], "inside the range"
+    assert not shown(run("new", 19, 1), run("old", 5, 15, judge="other"))["change_is_real"]
+    other_size = shown(run("new", 19, 1), run("old", 5, 15, set_="longmemeval-middle-same"))
+    assert not other_size["change_is_real"] and other_size["previous_accuracy"] is None
 
 
 def test_what_happened_is_said_from_the_numbers() -> None:
@@ -636,6 +711,6 @@ def test_what_happened_is_said_from_the_numbers() -> None:
     assert said(9, memory=(10, 9, 8, 7)) == "9 of 10 right, with 8 of 10 facts saved."
     assert said(4) == "4 of 10 right; memory wasn't measured."
     assert said(4, memory=(3, 0, 0, 0)) == "4 of 10 right.", "too few facts to say more"
-    assert said(judged=0, admitted=3, unanswerable=6).startswith("Said it didn't know 3 of 6")
+    assert said(judged=6, admitted=3, unanswerable=6).startswith("Said it didn't know 3 of 6")
     assert said(9, admitted=1, unanswerable=5).endswith("Made up 4 of 5 answers it couldn't know.")
     assert said(1, admitted=5, unanswerable=5).endswith("may only mean it remembers little.")

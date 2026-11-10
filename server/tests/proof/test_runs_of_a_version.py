@@ -138,6 +138,14 @@ async def test_a_run_of_a_branch_plays_its_worktree_and_reuses_what_was_built(
 
     monkeypatch.setattr(isolated, "copy_of", spy)
     monkeypatch.setattr(build, "build_version", counted)
+    released: list[str] = []
+    release = versioned.Ready.release
+
+    def let_go(ready):
+        released.append(ready.ref)
+        release(ready)
+
+    monkeypatch.setattr(versioned.Ready, "release", let_go)
 
     estimate = rig.runs.estimate(TARGET, SET, None, 1, "feature")
     short = app["feature"][:7]
@@ -158,6 +166,7 @@ async def test_a_run_of_a_branch_plays_its_worktree_and_reuses_what_was_built(
     assert detail(doc, [doc], None)["version"]["said"] == f"feature @ {short}"
     assert [t for c in doc["cases"].values() for t in c["tries"]]
     assert fingerprint(folder) == before, "the person's checkout isn't touched"
+    assert released == ["feature"], "the run let go of its version as it ended"
 
     assert rig.runs.estimate(TARGET, SET, None, 1, "feature")["version"]["cost"] == (
         f"Set up already: feature @ {short}. Your checkout isn't touched."
@@ -165,6 +174,7 @@ async def test_a_run_of_a_branch_plays_its_worktree_and_reuses_what_was_built(
     again = await _run(rig, "feature")
     assert again["status"] == "done" and built == [worktree], "built once, reused after"
     assert again["version"]["notes"] == [] and again["version"]["verified"] is True
+    assert released == ["feature", "feature"]
     assert fingerprint(folder) == before
 
 

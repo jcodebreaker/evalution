@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from evalution.core.trace import Call, Section, tool_name
+from evalution.core.trace import Call, Section, tool_name, tool_server
 from evalution.traces.base import (
     SESSION_ATTRIBUTES,
     Span,
@@ -280,9 +280,17 @@ def tool_args(span: Span) -> dict[str, Any]:
     return {} if raw in (None, "") else {"input": raw}
 
 
+def _raw_tool(span: Span) -> str:
+    return str(get(span.attrs, "tool.name") or get(span.attrs, "gen_ai.tool.name") or span.name)
+
+
 def tool_of(span: Span) -> str:
-    named = get(span.attrs, "tool.name") or get(span.attrs, "gen_ai.tool.name")
-    return tool_name(str(named or span.name))
+    return tool_name(_raw_tool(span))
+
+
+def server_of(span: Span) -> str | None:
+    """The MCP server a tool span's name carries (``mcp__crm__search`` -> ``crm``), if any."""
+    return tool_server(_raw_tool(span))
 
 
 def tool_output(span: Span) -> str:
@@ -428,6 +436,13 @@ def helper_of(span: Span, by_id: Mapping[str, Span]) -> str | None:
     return near.id
 
 
+def agent_name(span: Span) -> str:
+    """What an agent span calls the agent: ``gen_ai.agent.name``, else ``agent.name``, else the
+    span's own name."""
+    named = get(span.attrs, "gen_ai.agent.name") or get(span.attrs, "agent.name")
+    return str(named or span.name)
+
+
 _KIND = {"TOOL": "tool", "LLM": "model"}
 
 
@@ -482,7 +497,19 @@ def build(
             args = tool_args(span)
             name = tool_of(span)
             row["name"] = name
-            view.calls.append(Call(span.id, name, args, rel(span.start), rel(span.end), helper))
+            agent = agent_name(by_id[helper]) if helper in by_id and helper != span.id else None
+            view.calls.append(
+                Call(
+                    span.id,
+                    name,
+                    args,
+                    rel(span.start),
+                    rel(span.end),
+                    helper,
+                    agent,
+                    server_of(span),
+                )
+            )
             row["input"] = json.dumps(args, ensure_ascii=False)[:IO_CHARS]
             result = tool_output(span)
             view.results[span.id] = result

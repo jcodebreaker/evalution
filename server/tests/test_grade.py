@@ -1,6 +1,7 @@
 """The rubric decides a reply: every line or N of them; an unsure line is graded again."""
 
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -24,16 +25,23 @@ from evalution.judging.checks import code_checks
 from evalution.judging.memory import grade_memory, with_fold
 from evalution.judging.render import BUDGET, NEW_CONVERSATION, render
 from evalution.judging.rubric import (
+    BENCHMARK_INSTRUCTIONS,
+    BENCHMARK_PROMPT_HASH,
+    BENCHMARK_SCEPTIC_INSTRUCTIONS,
+    BENCHMARK_TIE_BREAK_INSTRUCTIONS,
     INSTRUCTIONS,
+    PROMPT_HASH,
     REFERENCE_LINE,
     SCEPTIC_INSTRUCTIONS,
     TIE_BREAK_INSTRUCTIONS,
     grade_reply,
     parse_grade,
+    prompt_hash,
 )
 from evalution.results.evidence import look_into
 from evalution.review.findings import try_input
-from evalution.suite.cases import CaseError, parse_case
+from evalution.runs.runner import Runs
+from evalution.suite.cases import BENCHMARK_PREFIX, CaseError, parse_case
 
 RUBRIC = ["Links both decks", "Says they share a look", "Short"]
 
@@ -333,6 +341,53 @@ async def test_the_grader_sees_what_the_app_did() -> None:
     assert "[Data: what the assistant did." in text
     assert "helper called tool_1" in text and "-> saved decks/churn.deck.html" in text
     assert "check state:file: matched" in text
+
+
+async def test_a_benchmark_is_graded_on_the_question_the_known_answer_and_the_reply() -> None:
+    history = TurnRecord(
+        kind="message",
+        message=Clipped(text="I moved to Lisbon"),
+        reply=Clipped(text="Noted, a figure of 42"),
+        started=0.0,
+        ended=1.0,
+    )
+    asked = TurnRecord(
+        kind="message",
+        message=Clipped(text="[Today is 2023/05/01]\nWhere do I live?"),
+        reply=Clipped(text="You live in Lisbon, about 42 km from the sea."),
+        started=2.0,
+        ended=3.0,
+    )
+    evidence = TryEvidence(
+        case="c", n=1, t0=0.0, seconds=3.0, turns=(history, asked), tools=(_tool(1, "secret"),)
+    )
+    line = "The reply contains the correct answer: Lisbon. It counts if it says the same thing."
+    caller = _sceptic_caller(_answer(_line(True, sure=False)), _answer(_line(True, sure=False)))
+    decider = _sceptic_caller(_answer(_line(True)))
+    graded = await grade_reply(
+        caller, evidence, "", [line], check_lines=["- check x"], decider=decider, benchmark=True
+    )
+    assert graded.checks[0].outcome is Outcome.PASSED
+    prompts = [caller.seen[0][0], caller.seen[1][0], decider.seen[0][0]]
+    assert prompts == [
+        BENCHMARK_INSTRUCTIONS,
+        BENCHMARK_SCEPTIC_INSTRUCTIONS,
+        BENCHMARK_TIE_BREAK_INSTRUCTIONS,
+    ]
+    assert not any("tool call" in prompt for prompt in prompts), "no rule about tool calls"
+    text = caller.seen[0][1]
+    assert "Where do I live?" in text and "about 42 km from the sea" in text and "Lisbon." in text
+    assert "I moved to Lisbon" not in text, "the question only, not the history"
+    assert "tool_1" not in text and "secret" not in text and "check x" not in text
+    assert prompt_hash(benchmark=True) != prompt_hash() == PROMPT_HASH, "stamped apart"
+
+
+def test_a_benchmark_runs_judge_is_stamped_with_the_benchmark_prompts() -> None:
+    runs = SimpleNamespace(llm=None)
+    bench = Runs._judge(runs, "light", f"{BENCHMARK_PREFIX}quick")  # type: ignore[arg-type]
+    own = Runs._judge(runs, "light", "smoke")  # type: ignore[arg-type]
+    assert bench.prompt_hash == BENCHMARK_PROMPT_HASH
+    assert own.prompt_hash == PROMPT_HASH
 
 
 def test_answers_are_matched_by_number_or_text_not_by_place() -> None:

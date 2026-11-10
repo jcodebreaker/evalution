@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
 from evalution.core.case import SLUG
 
 FOLDER = "files"
+DAY = 86_400
 _RUN_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 #: A file's name: one path segment, no hidden file and no way out of its folder.
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -102,6 +104,22 @@ class LocalFiles:
         except FileNotFoundError:
             return False
         return True
+
+    def prune(self, keep_days: int, now: float | None = None) -> list[str]:
+        """Delete the files of every run whose newest file is more than *keep_days* old (the
+        newest a try kept, so a run's files go together); the runs whose files went."""
+        cutoff = (time.time() if now is None else now) - keep_days * DAY
+        if not self.root.is_dir():
+            return []
+        gone = []
+        for folder in sorted(self.root.iterdir()):
+            if not folder.is_dir() or not _RUN_ID.match(folder.name):
+                continue
+            times = [p.stat().st_mtime for p in folder.rglob("*") if p.is_file()]
+            if max(times, default=folder.stat().st_mtime) < cutoff:
+                shutil.rmtree(folder, ignore_errors=True)
+                gone.append(folder.name)
+        return gone
 
     def delete_run(self, run: str) -> int:
         if not _RUN_ID.match(run):

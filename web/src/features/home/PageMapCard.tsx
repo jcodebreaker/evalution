@@ -124,9 +124,7 @@ export function PageMapCard({ target, page }: { target: string; page: Health["pa
           alt={`${target}'s page as the check found it`}
         />
       ) : null}
-      {idle ? (
-        <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{oneMessage(target)}</p>
-      ) : null}
+      {idle ? <p className="m-0 max-w-[68ch] text-sm text-ink-3">{oneMessage(target)}</p> : null}
       {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
     </NeedRow>
   );

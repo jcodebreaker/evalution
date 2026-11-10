@@ -70,7 +70,7 @@ export function WhatWentWrong({
                 key={index}
                 className="flex flex-col gap-1 not-first:border-t not-first:border-separator not-first:pt-4"
               >
-                <p className="m-0 flex flex-wrap items-center gap-2 text-[14px] font-medium">
+                <p className="m-0 flex flex-wrap items-center gap-2 text-sm font-medium">
                   {pattern.title}
                   <SuspectTag suspect={pattern.suspected} />
                   {!noneVerified && !pattern.detail.verified ? (

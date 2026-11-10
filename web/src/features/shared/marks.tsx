@@ -37,7 +37,7 @@ export function ScoreBar({ value, pass }: { value: number | null; pass: number }
   if (value === null) return <span className="text-ink-3">—</span>;
   const low = value < pass;
   return (
-    <div className="flex min-w-0 items-center gap-2 text-[12.5px]">
+    <div className="flex min-w-0 items-center gap-2 text-sm">
       <span className={cn("w-[30px] text-end font-mono tabular-nums", low && "text-fail")}>
         {score(value)}
       </span>
@@ -82,7 +82,7 @@ const SUSPECT_LABEL: Record<Suspect, string> = {
 /** Where the model reads the fault to be, as a small soft badge. */
 export function SuspectTag({ suspect }: { suspect: Suspect }) {
   return (
-    <span className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-sunk-2 px-[7px] text-[11px] font-medium text-ink-2">
+    <span className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-sunk-2 px-[7px] text-xs font-medium text-ink-2">
       {SUSPECT_LABEL[suspect]}
     </span>
   );
@@ -93,7 +93,7 @@ export function StaleChip({ reason }: { reason: string }) {
   return (
     <span
       title={reason}
-      className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-unjudged-soft px-[7px] text-[11px] font-medium text-warning"
+      className="inline-flex h-5 shrink-0 items-center rounded-[5px] bg-unjudged-soft px-[7px] text-xs font-medium text-warning"
     >
       May be stale
     </span>
@@ -112,7 +112,7 @@ export function PlaysChip({ plays }: { plays: "api" | "page" }) {
       }
       data-testid="plays-chip"
       className={cn(
-        "inline-flex h-5 shrink-0 items-center rounded-[5px] px-[7px] text-[11px] font-semibold tracking-[0.01em]",
+        "inline-flex h-5 shrink-0 items-center rounded-[5px] px-[7px] text-xs font-semibold tracking-[0.01em]",
         page ? "bg-tint-soft text-tint-ink" : "bg-sunk-2 text-ink-2",
       )}
     >

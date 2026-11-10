@@ -59,13 +59,13 @@ export function LastLearn({
   return (
     <div className="flex flex-col gap-1.5 px-1">
       {found ? (
-        <p className="m-0 text-[12.5px] text-ink-3">
+        <p className="m-0 text-sm text-ink-3">
           <span className="text-ink-2">Last learn:</span> {found.stages.map(stageText).join(" · ")}
         </p>
       ) : null}
       {listed.length ? (
         <div className="flex flex-col gap-1">
-          <p className="m-0 text-[12.5px] text-ink-3">
+          <p className="m-0 text-sm text-ink-3">
             Not learned, nothing in {listed.length === 1 ? "it" : "them"} the app uses:
           </p>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
@@ -73,7 +73,7 @@ export function LastLearn({
               <li
                 key={area.id}
                 aria-label={area.id}
-                className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 text-[12.5px]"
+                className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 text-sm"
               >
                 <span className="min-w-0 truncate font-mono text-ink-2">
                   {area.id}{" "}

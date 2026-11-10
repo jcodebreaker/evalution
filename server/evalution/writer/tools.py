@@ -86,6 +86,20 @@ class AgentTurn:
         return self.taken
 
 
+#: How many of a session's latest messages say what its conversation is about: an area's claims
+#: go to the writer when these name it (:func:`~evalution.project.understanding.writer_profile`).
+SAID_MESSAGES = 20
+
+
+def said_lately(session: Mapping[str, Any]) -> str | None:
+    """The text of *session*'s latest messages, for the profile to send what they name; ``None``
+    before anything was said, and then the whole profile goes."""
+    messages = session.get("messages") or []
+    if not messages:
+        return None
+    return "\n".join(str(m.get("text") or "") for m in messages[-SAID_MESSAGES:])
+
+
 def say(session: dict[str, Any], role: str, text: str, **extra: Any) -> dict[str, Any]:
     message = {
         "id": f"m{secrets.token_hex(6)}",
@@ -200,6 +214,54 @@ def _review(value: Any) -> dict[str, Any]:
     return review
 
 
+def files_missing(targets: Targets, session: Mapping[str, Any], test: Any) -> list[str]:
+    """The files *test*'s turns send that its set doesn't hold yet: written by the writer
+    (``save_fixture``) after approval, before it's saved. ``[]`` for a test that doesn't read."""
+    try:
+        case = cases.parse_case(test, "plan.file")
+    except cases.CaseError:
+        return []
+    names = dict.fromkeys(name for turn in case.turns for name in turn.files)
+    docs, target, set_name = targets.docs, str(session["target"]), str(session["set"])
+    return [n for n in names if store.read_file(docs, target, set_name, n) is None]
+
+
+async def save_plan(
+    targets: Targets,
+    session: dict[str, Any],
+    plan_id: str,
+    plan: dict[str, Any],
+    replace: str | None,
+) -> dict[str, Any] | str:
+    """Save an approved plan's test as it was shown (``plan["file"]``), over *replace* when the
+    plan was shown replacing it: ``{case, set}``, or why not, starting ``Refused:``. The plan is
+    marked saved. No model: the file can't change once approved."""
+    test = plan.get("file")
+    if replace is not None and replace not in session["cases"]:
+        return (
+            f"Refused: {replace} was not saved in this session. Save a new case instead, "
+            "and tell the admin."
+        )
+    docs, target = targets.docs, str(session["target"])
+    if replace != plan.get("replaces"):
+        return (
+            f"Refused: plan {plan_id} wasn't shown as replacing {replace}. Show a plan with "
+            "replaces set, so the admin sees what changes."
+        )
+    if replace is not None:
+        now = await asyncio.to_thread(store.load_case, docs, target, session["set"], replace)
+        if now.version != plan.get("base"):
+            return (
+                f"Refused: {replace} changed since the plan was shown. Show a new plan, so "
+                "the admin sees the difference from what it is now."
+            )
+    stem = await asyncio.to_thread(store.save_case, docs, target, session["set"], test, replace)
+    if stem not in session["cases"]:
+        session["cases"].append(stem)
+    plan["saved"] = stem
+    return {"case": stem, "set": session["set"]}
+
+
 class Tools:
     """The tools of the agent's loop; each takes the turn and the model's arguments."""
 
@@ -297,31 +359,10 @@ class Tools:
                 "Refused: that isn't the test the admin approved. Show the test you mean to save "
                 "as a new plan, with its file, and end your turn."
             )
-        replace = args.get("replace")
-        if replace is not None and replace not in session["cases"]:
-            return (
-                f"Refused: {replace} was not saved in this session. Save a new case instead, "
-                "and tell the admin."
-            )
-        docs, target = self.targets.docs, self._target(turn)
-        if replace != plan.get("replaces"):
-            return (
-                f"Refused: plan {plan_id} wasn't shown as replacing {replace}. Show a plan with "
-                "replaces set, so the admin sees what changes."
-            )
-        if replace is not None:
-            now = await asyncio.to_thread(store.load_case, docs, target, session["set"], replace)
-            if now.version != plan.get("base"):
-                return (
-                    f"Refused: {replace} changed since the plan was shown. Show a new plan, so "
-                    "the admin sees the difference from what it is now."
-                )
-        stem = await asyncio.to_thread(store.save_case, docs, target, session["set"], test, replace)
-        if stem not in session["cases"]:
-            session["cases"].append(stem)
-        plan["saved"] = stem
-        turn.saved = stem
-        return {"case": stem, "set": session["set"]}
+        found = await save_plan(self.targets, session, plan_id, plan, args.get("replace"))
+        if isinstance(found, dict):
+            turn.saved = found["case"]
+        return found
 
     async def save_fixture(self, turn: AgentTurn, args: dict) -> Any:
         session = turn.session
@@ -426,7 +467,10 @@ class Tools:
         turn.read.append("Read the profile")
         return fenced(
             "the profile",
-            understanding.writer_profile(self.targets, self._target(turn)) or "(none yet)",
+            understanding.writer_profile(
+                self.targets, self._target(turn), said_lately(turn.session)
+            )
+            or "(none yet)",
         )
 
     async def read_understanding(self, turn: AgentTurn, _args: dict) -> Any:

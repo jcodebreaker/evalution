@@ -68,7 +68,7 @@ export function PageReach({ target }: { target: string }) {
 
   if (!reach) {
     return failed ? (
-      <p className="m-0 text-[14px] text-ink-2">Couldn't load how tests reach {target}.</p>
+      <p className="m-0 text-sm text-ink-2">Couldn't load how tests reach {target}.</p>
     ) : null;
   }
   // Reached through its page alone: there is no API way to show.
@@ -113,14 +113,14 @@ export function PageReach({ target }: { target: string }) {
 
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-[12px] border border-separator bg-group p-5 text-[14px] max-md:p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-2xl border border-rule bg-group p-5 shadow-[0_1px_2px_var(--shadow)] text-sm max-md:p-4"
       aria-label={`How tests reach ${target}`}
       data-testid="page-reach"
     >
       <div className="flex flex-wrap items-center gap-3">
         <h3 className="m-0 text-[15px] font-semibold">How tests reach {target}</h3>
         {only ? (
-          <span className="ms-auto text-[13px] text-ink-2" data-testid="page-only">
+          <span className="ms-auto text-sm text-ink-2" data-testid="page-only">
             Its page only: no API under it, so a pass is reply only
           </span>
         ) : null}
@@ -136,7 +136,7 @@ export function PageReach({ target }: { target: string }) {
               aria-pressed={shown === each}
               onClick={() => setWay(each)}
               className={cn(
-                "h-[26px] rounded-[5px] px-2.5 text-[13px]",
+                "h-[26px] rounded-[5px] px-2.5 text-sm",
                 shown === each
                   ? "bg-group font-medium text-ink shadow-[0_1px_2px_rgba(20,22,43,0.14)]"
                   : "text-ink-2",
@@ -195,7 +195,7 @@ export function PageReach({ target }: { target: string }) {
                 disabled={!reach.writable || working !== null}
                 onChange={(part, keep) => void prove(part, keep)}
               />
-              <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">
+              <p className="m-0 max-w-[68ch] text-sm text-ink-3">
                 {reach.writable
                   ? `${proofWords(reach.proof)} A test can say otherwise for itself, under What it checks.`
                   : `${target}'s page: block is in evalution.yaml: change proof there.`}
@@ -206,7 +206,7 @@ export function PageReach({ target }: { target: string }) {
           {!reach.can_learn && reach.missing ? (
             <MissingPieceNote piece={reach.missing} onInstalled={() => void read()} />
           ) : !reach.can_learn && reach.why_not ? (
-            <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{reach.why_not}</p>
+            <p className="m-0 max-w-[68ch] text-sm text-ink-3">{reach.why_not}</p>
           ) : null}
           {reach.problem ? <p className="m-0 text-fail">{reach.problem}</p> : null}
           {learning || (reach.proposed && !reach.can_undo) ? null : (
@@ -230,13 +230,13 @@ export function PageReach({ target }: { target: string }) {
                 ) : null}
               </div>
               {reach.can_learn && !reach.proposed ? (
-                <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">{oneMessage(target)}</p>
+                <p className="m-0 max-w-[68ch] text-sm text-ink-3">{oneMessage(target)}</p>
               ) : null}
             </div>
           )}
         </>
       )}
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </section>
   );
 }

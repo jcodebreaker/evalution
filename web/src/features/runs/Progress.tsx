@@ -71,11 +71,11 @@ export function Progress({ run, onTest }: { run: RunDetail; onTest: (id: string)
                 key={`${entry.row.case}:${entry.n}`}
                 type="button"
                 onClick={() => onTest(entry.row.case)}
-                className="flex w-full items-center gap-3 border-t border-separator px-5 py-2.5 text-start text-[14px] hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint"
+                className="flex w-full items-center gap-3 border-t border-separator px-5 py-2.5 text-start text-sm hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint"
               >
                 <StatusDot state={DOT[entry.outcome]} label={SAID[entry.outcome]} />
                 <span className="shrink-0 truncate max-md:max-w-[45%]">{entry.row.name}</span>
-                <span className="shrink-0 text-[12.5px] text-ink-3">try {entry.n}</span>
+                <span className="shrink-0 text-sm text-ink-3">try {entry.n}</span>
                 {entry.reason ? (
                   <span
                     className={cn(

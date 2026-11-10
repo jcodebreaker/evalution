@@ -79,17 +79,15 @@ export function PageNotes({ page, video = true }: { page: TryPage; video?: boole
                 >
                   {line.tone === "error" ? "Error" : "Warning"}
                 </span>
-                <code className="font-mono text-[12.5px] break-words whitespace-pre-wrap">
+                <code className="font-mono text-sm break-words whitespace-pre-wrap">
                   {line.text}
                 </code>
-                <span className="text-[11.5px] text-ink-3 tabular-nums">
-                  {seconds(line.at, true)}
-                </span>
+                <span className="text-xs text-ink-3 tabular-nums">{seconds(line.at, true)}</span>
               </li>
             ))}
           </ul>
           {page.left_out ? (
-            <p className="m-0 mt-1.5 text-[12.5px] text-ink-3">
+            <p className="m-0 mt-1.5 text-sm text-ink-3">
               {count(page.left_out, "more line")} not kept.
             </p>
           ) : null}

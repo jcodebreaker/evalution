@@ -31,6 +31,7 @@ import {
   DiscoverySchema,
   EstimateSchema,
   FetchedBranchSchema,
+  FetchedPullSchema,
   HealthSchema,
   HooksSchema,
   InviteSchema,
@@ -63,9 +64,11 @@ import {
   TestProofChangeSchema,
   TestSetupSchema,
   TracesSchema,
+  TryResultSchema,
   UiTestingSchema,
   UnderstandingSchema,
   UpdatesSchema,
+  VersionsNextSchema,
   VersionsSchema,
   WorkspaceSchema,
 } from "./schema";
@@ -287,7 +290,8 @@ export const api = {
     call("PUT", `/v1/targets/${enc(name)}/isolation`, { required }),
   /** Its isolation plan, how far it is proven, and the job finding it when one is going. */
   isolation: (name: string) => get(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation`),
-  /** Find and prove isolation on evalution's own copy of the app: two messages to that copy. */
+  /** Find and prove isolation on evalution's own copy of the app: two or three messages to that
+   * copy. */
   runIsolation: (name: string) =>
     post(one(IsolationSchema), `/v1/targets/${enc(name)}/isolation/run`, { confirm: true }),
   undoIsolation: (name: string) =>
@@ -546,4 +550,51 @@ export const api = {
       ),
     stop: (id: string) => post(one(AgentSessionSchema), `/v1/evals/agent/sessions/${enc(id)}/stop`),
   },
+  // ---- U3: the result screens (appended) ----
+  /** `compare`, with the try's one list (`steps_timeline`) kept when the server sends it. */
+  tryResult: (run: string, id: string, n?: number | null) =>
+    get(
+      one(TryResultSchema),
+      `/v1/evals/runs/${enc(run)}/cases/${enc(id)}/compare${query({ try: n })}`,
+    ),
+  /** The app's repository with its pull requests among the refs (`kind: "pull"`). */
+  versionsNext: (target: string) =>
+    get(one(VersionsNextSchema), `/v1/targets/${enc(target)}/versions`),
+  /** Fetch pull request `pull` into evalution's own refs; a run then plays `pull/<n>`. */
+  fetchPull: (target: string, pull: number, remote?: string) =>
+    post(one(FetchedPullSchema), `/v1/targets/${enc(target)}/versions/fetch`, {
+      pull,
+      ...(remote ? { remote } : {}),
+    }),
 };
+
+/** Connect, setup, test environment and what it learned, read in the shapes the server sends
+ * now: what leaves the copy, the repository a discovery cloned, areas outside the agent and what
+ * the profile left out. */
+export const appApi = {
+  discover: (path: string) => post(one(DiscoveryViewSchema), "/v1/targets/discover", { path }),
+  discovery: (id: string) => get(one(DiscoveryViewSchema), `/v1/targets/discover/${enc(id)}`),
+  checkTraces: (id: string) =>
+    post(one(DiscoveryViewSchema), `/v1/targets/discover/${enc(id)}/traces`, {}),
+  isolation: (name: string) => get(one(IsolationViewSchema), `/v1/targets/${enc(name)}/isolation`),
+  /** Allow one setting to leave the copy, or block it again. */
+  setOutbound: (name: string, setting: string, allowed: boolean) =>
+    call("PUT", `/v1/targets/${enc(name)}/isolation/outbound`, { name: setting, allowed }).then(
+      one(OutboundListSchema),
+    ),
+  understanding: (target: string) =>
+    get(one(UnderstandingViewSchema), `/v1/targets/${enc(target)}/understanding`),
+  steer: (target: string, steer: Steer) =>
+    post(maybe(UnderstandingViewSchema), `/v1/targets/${enc(target)}/understanding/steer`, steer),
+  updateKnowledge: (target: string) =>
+    post(one(UnderstandingViewSchema), `/v1/targets/${enc(target)}/understanding/update`),
+  undoKnowledge: (target: string) =>
+    post(one(UnderstandingViewSchema), `/v1/targets/${enc(target)}/understanding/undo`),
+};
+
+import {
+  DiscoveryViewSchema,
+  IsolationViewSchema,
+  OutboundListSchema,
+  UnderstandingViewSchema,
+} from "./schema";

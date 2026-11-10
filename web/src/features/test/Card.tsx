@@ -20,13 +20,16 @@ export function Card({
 }) {
   return (
     <section
-      className={cn("group-card", className)}
+      className={cn(
+        "min-w-0 overflow-hidden rounded-2xl border border-rule bg-group shadow-[0_1px_2px_var(--shadow)]",
+        className,
+      )}
       aria-label={label ?? title}
       data-testid={testId}
     >
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 pt-4">
-        <h2 className="m-0 text-[16px] leading-snug font-semibold">{title}</h2>
-        {aside ? <span className="ms-auto text-[12px] text-ink-3">{aside}</span> : null}
+      <div className="flex min-h-[54px] flex-wrap items-center gap-x-3 gap-y-1 border-b border-rule px-5 py-2">
+        <h2 className="m-0 text-[15px] leading-snug font-semibold">{title}</h2>
+        {aside ? <span className="ms-auto text-[13px] text-ink-3">{aside}</span> : null}
       </div>
       {children}
     </section>

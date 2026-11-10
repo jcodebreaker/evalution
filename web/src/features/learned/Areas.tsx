@@ -1,54 +1,61 @@
 import { ago, count } from "../../lib/format";
-import type { LearnedArea, LearnState, Understanding } from "../../lib/schema";
+import type { AreaView, LearnStateView, ProfileFit, UnderstandingView } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { type Outcome, StatusDot } from "../../ui/status";
-import { Group, GroupHeading } from "../shared/group";
+import { Card, Chip } from "../connect/kit";
+import { Fold } from "../shared/group";
 import { LearnAreaButton, type LearnAreaFn } from "./LearnArea";
 
 /** Each state's mark and the words beside it. `learning` has its own mark: a pulsing dot. */
-const LOOK: Record<LearnedArea["state"], { dot: Outcome | "learning"; said: string }> = {
+const LOOK: Record<AreaView["state"], { dot: Outcome | "learning"; said: string }> = {
   done: { dot: "pass", said: "Learned" },
   current: { dot: "pass", said: "Learned" },
   learning: { dot: "learning", said: "Learning" },
   due: { dot: "none", said: "Waiting" },
   failed: { dot: "fail", said: "Failed" },
   listed: { dot: "none", said: "Not learned" },
+  outside: { dot: "none", said: "Not part of the agent" },
 };
 
-const learned = (area: LearnedArea) => area.state === "done" || area.state === "current";
+const learned = (area: AreaView) => area.state === "done" || area.state === "current";
 
 /** An area's weight in plain words. The server sends a number only. */
-export const weightText = (area: LearnedArea) =>
-  area.state === "listed" || !area.weight ? "nothing in it the app uses" : `weight ${area.weight}`;
+export const weightText = (area: AreaView) =>
+  area.state === "outside"
+    ? "not part of the agent"
+    : area.state === "listed" || !area.weight
+      ? "nothing in it the app uses"
+      : `weight ${area.weight}`;
 
 /** "6 of 9 areas learned · 2 learning · 1 not learned: nothing in it the app uses". */
-export function areasSummary(areas: readonly LearnedArea[]): string {
-  const of = (state: LearnedArea["state"]) => areas.filter((area) => area.state === state).length;
+export function areasSummary(areas: readonly AreaView[]): string {
+  const of = (state: AreaView["state"]) => areas.filter((area) => area.state === state).length;
   const parts = [`${areas.filter(learned).length} of ${count(areas.length, "area")} learned`];
   if (of("learning")) parts.push(`${of("learning")} learning`);
   if (of("due")) parts.push(`${of("due")} waiting`);
   if (of("failed")) parts.push(`${of("failed")} failed`);
   if (of("listed")) parts.push(`${of("listed")} not learned: nothing in it the app uses`);
+  if (of("outside")) parts.push(`${of("outside")} not part of the agent`);
   return parts.join(" · ");
 }
 
 /** Where the learn stands, when the server says: `null` from an older server, or one that kept
  * no learn's progress (the page is then as it was). */
-export function learnState(understanding: Understanding): LearnState | null {
+export function learnState(understanding: UnderstandingView): LearnStateView | null {
   const found = understanding.progress;
   return found && (found.state || found.areas.length) ? found : null;
 }
 
 /** The overview is a first pass, written from the skeleton before the areas are in. */
-export const isFirstPass = (understanding: Understanding) =>
+export const isFirstPass = (understanding: UnderstandingView) =>
   understanding.progress?.overview === "first_pass" ||
   understanding.overview?.state === "first_pass";
 
 /** "First pass" and what it rests on, while the overview is written from the skeleton alone. */
 export function FirstPass({ basis }: { basis: string | null }) {
   return (
-    <p className="mx-[18px] mt-3 mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
-      <span className="rounded-full bg-sunk-2 px-2 py-0.5 text-[11.5px] font-medium text-ink-2">
+    <p className="m-0 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
+      <span className="rounded-full bg-sunk-2 px-2 py-0.5 text-[13px] font-medium text-ink-2">
         First pass
       </span>
       <span>{basis ? `From ${basis}; it's` : "It's"} rewritten once the areas are learned.</span>
@@ -56,7 +63,7 @@ export function FirstPass({ basis }: { basis: string | null }) {
   );
 }
 
-function Mark({ area }: { area: LearnedArea }) {
+function Mark({ area }: { area: AreaView }) {
   const look = LOOK[area.state];
   if (look.dot === "learning") {
     return (
@@ -64,37 +71,47 @@ function Mark({ area }: { area: LearnedArea }) {
         role="img"
         aria-label={look.said}
         title={look.said}
-        className="inline-block size-2 shrink-0 animate-pulse rounded-full bg-tint align-middle"
+        className="inline-block size-2.5 shrink-0 animate-pulse rounded-full bg-tint align-middle"
       />
     );
   }
-  return <StatusDot state={look.dot} label={look.said} />;
+  return <StatusDot state={look.dot} label={look.said} className="size-2.5" />;
 }
 
-function AreaRow({ area, onLearnArea }: { area: LearnedArea; onLearnArea?: LearnAreaFn }) {
+function AreaRow({ area, onLearnArea }: { area: AreaView; onLearnArea?: LearnAreaFn }) {
   const look = LOOK[area.state];
-  const quiet = area.state === "due" || area.state === "listed";
+  const quiet = area.state === "due" || area.state === "listed" || area.state === "outside";
   const said =
     area.state === "current" && area.learned_at ? `Learned ${ago(area.learned_at)}` : look.said;
+  const asks = (area.state === "listed" || area.state === "outside") && onLearnArea;
   return (
     <li
       aria-label={area.title || area.id}
       data-state={area.state}
-      className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-separator px-4 py-2 not-last:border-b"
+      className="flex min-h-[52px] flex-wrap items-center gap-x-3.5 gap-y-1 border-rule px-5 py-2.5 not-last:border-b max-md:px-4"
     >
       <Mark area={area} />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className={quiet ? "truncate text-[14px] text-ink-2" : "truncate text-[14px]"}>
-          {area.title || area.id}
-        </span>
-        <span className="text-[12px] text-ink-3">
+        <span className={quiet ? "truncate text-ink-2" : "truncate"}>{area.title || area.id}</span>
+        <span className="text-sm text-ink-3">
           {count(area.files, "file")} · {weightText(area)}
         </span>
+        {area.state === "failed" && area.reason ? (
+          <span className="text-sm text-fail">{area.reason}</span>
+        ) : null}
       </span>
-      {area.state === "listed" && onLearnArea ? (
-        <LearnAreaButton area={area.id} onLearn={onLearnArea} />
+      {asks ? (
+        <span className="flex flex-wrap items-center justify-end gap-2">
+          <Chip>{look.said}</Chip>
+          <LearnAreaButton area={area.id} onLearn={onLearnArea} />
+        </span>
+      ) : area.state === "failed" && onLearnArea ? (
+        <span className="flex flex-wrap items-center justify-end gap-2">
+          <Chip tone="no">{look.said}</Chip>
+          <LearnAreaButton area={area.id} onLearn={onLearnArea} label="Try again" />
+        </span>
       ) : (
-        <span className="text-[12.5px] text-ink-2">{said}</span>
+        <Chip tone={learned(area) ? "ok" : area.state === "failed" ? "no" : "plain"}>{said}</Chip>
       )}
     </li>
   );
@@ -106,7 +123,7 @@ export function Stopped({
   busy,
   onGoOn,
 }: {
-  progress: LearnState;
+  progress: LearnStateView;
   busy: boolean;
   onGoOn: () => void;
 }) {
@@ -114,7 +131,7 @@ export function Stopped({
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] bg-sunk px-3.5 py-2.5 text-[13px] text-ink-2"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] bg-sunk px-3.5 py-2.5 text-sm text-ink-2"
     >
       <span className="min-w-0 flex-1">
         Stopped after {done} of {count(progress.areas.length, "area")}; what was learned is kept.
@@ -126,15 +143,62 @@ export function Stopped({
   );
 }
 
-/** The app's areas, heaviest first: what each is, how big, and whether it is learned. A listed
- * area (nothing in it the app uses) offers "Learn this area" (*onLearnArea*). */
+/** What the watch and the profile left out, in a line each: "12 of 35 areas are in the
+ * profile" with the ones left out, and how many files the watch didn't take. */
+export function LeftOut({
+  profile,
+  progress,
+}: {
+  profile: ProfileFit | null;
+  progress: LearnStateView | null;
+}) {
+  const fit = profile?.left_out.length ? profile : null;
+  const past = progress?.left_out.past_cap ?? 0;
+  const large = progress?.left_out.too_large ?? 0;
+  if (!fit && !past && !large) return null;
+  return (
+    <div className="flex flex-col gap-2" data-testid="left-out">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {fit ? (
+          <Chip tone="warn">
+            {fit.areas} of {count(fit.of, "area")} are in the profile
+          </Chip>
+        ) : null}
+        {past ? (
+          <Chip
+            tone="warn"
+            title="At most 2,000 files are watched: name the agent's with code.include"
+          >
+            {count(past, "file")} past the watch
+          </Chip>
+        ) : null}
+        {large ? <Chip tone="warn">{count(large, "file")} over 1 MB</Chip> : null}
+      </div>
+      {fit ? (
+        <Fold title={`Left out of the profile · ${fit.left_out.length}`}>
+          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0 px-1">
+            {fit.left_out.map((title) => (
+              <li key={title}>
+                <Chip>{title}</Chip>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      ) : null}
+    </div>
+  );
+}
+
+/** The app's areas, heaviest first: what each is, how big, and whether it is learned. An area
+ * outside the agent, or listed as weighing nothing, offers "Learn this area"; a failed one says
+ * why and offers "Try again" (*onLearnArea*). */
 export function LearnedAreas({
   progress,
   busy,
   onGoOn,
   onLearnArea,
 }: {
-  progress: LearnState;
+  progress: LearnStateView;
   /** A learn is running: "Go on" waits. */
   busy: boolean;
   onGoOn: () => void;
@@ -142,24 +206,21 @@ export function LearnedAreas({
 }) {
   if (!progress.areas.length && progress.state !== "stopped") return null;
   return (
-    <section aria-label="Areas" className="flex flex-col gap-2">
+    <section aria-label="Areas" className="flex flex-col gap-3">
       {progress.state === "stopped" ? (
         <Stopped progress={progress} busy={busy} onGoOn={onGoOn} />
       ) : null}
       {progress.areas.length ? (
-        <div>
-          <GroupHeading title="Areas" />
-          <Group className="overflow-hidden">
-            <p className="m-0 border-separator border-b px-4 py-2.5 text-[12.5px] text-ink-2">
-              {areasSummary(progress.areas)}
-            </p>
-            <ul className="m-0 list-none p-0">
-              {progress.areas.map((area) => (
-                <AreaRow key={area.id} area={area} onLearnArea={onLearnArea} />
-              ))}
-            </ul>
-          </Group>
-        </div>
+        <Card>
+          <p className="m-0 border-b border-rule px-5 py-3 text-sm text-ink-2 max-md:px-4">
+            {areasSummary(progress.areas)}
+          </p>
+          <ul className="m-0 list-none p-0">
+            {progress.areas.map((area) => (
+              <AreaRow key={area.id} area={area} onLearnArea={onLearnArea} />
+            ))}
+          </ul>
+        </Card>
       ) : null}
     </section>
   );

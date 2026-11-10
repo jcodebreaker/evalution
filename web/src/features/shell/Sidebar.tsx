@@ -3,19 +3,17 @@ import {
   Gauge,
   House,
   ListChecks,
+  Lock,
   Monitor,
   Network,
   Plus,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import type { Place, View } from "../../lib/router";
 import type { Isolation, SetSummary, Target } from "../../lib/schema";
-import { Spinner } from "../../ui/loading";
 import { Picker } from "../../ui/menu";
-import { StatusDot } from "../../ui/status";
 import { useAccount } from "../account/account";
 import { WorkspaceMenu } from "../account/WorkspaceMenu";
 import type { Card } from "../learned/ProjectCard";
@@ -23,9 +21,9 @@ import { CardRow } from "../learned/ProjectCard";
 import { Logo } from "./Logo";
 
 /**
- * The mark, the app picker (with Connect) and its test set; then Overview, Tests, Runs, What it
- * learned, Test environment and Benchmarks; at the foot, how the test copy stands, Ask AI and
- * Settings.
+ * The mark, the app picker (with Connect) and its test set; then Overview, Tests, Runs and
+ * Benchmarks; under the app's name, What it learned and Test environment; at the foot, that tests run
+ * on a copy (once its plan is proven) and Settings. The assistant has its own button, not an item.
  */
 export function Sidebar({
   place,
@@ -36,8 +34,6 @@ export function Sidebar({
   tests = null,
   failing = 0,
   plan = null,
-  asking,
-  onAskAi,
   cards,
   onTarget,
   onSet,
@@ -54,8 +50,6 @@ export function Sidebar({
   failing?: number;
   /** The app's isolation plan, once read: shown at the foot only when proven. */
   plan?: Pick<Isolation, "status" | "version"> | null;
-  asking: boolean;
-  onAskAi: (() => void) | null;
   /** Each app's card, once read: its row in the picker. */
   cards: ReadonlyMap<string, Card | null> | null;
   onTarget: (name: string) => void;
@@ -166,32 +160,30 @@ export function Sidebar({
           failing ? `${failing} failing` : undefined,
           true,
         )}
+        {item("benchmarks", <Gauge aria-hidden />, "Benchmarks")}
+        {target ? (
+          <span className="truncate px-2 pt-4 pb-1 text-[12px] text-ink-3 max-md:hidden">
+            {target}
+          </span>
+        ) : null}
         {item("app", <Network aria-hidden />, "What it learned")}
         {item("environment", <Monitor aria-hidden />, "Test environment")}
-        <span className="px-2 pt-4 pb-1 text-[12px] text-ink-3 max-md:hidden">Standard</span>
-        {item("benchmarks", <Gauge aria-hidden />, "Benchmarks")}
       </nav>
       <div className="flex flex-col gap-2 pt-2">
         {target && plan?.status === "proven" ? (
           <button
             type="button"
             onClick={() => onView("environment")}
-            title="The test copy's isolation plan: open the Test environment"
-            className="flex items-center gap-2 rounded-[7px] bg-sunk px-3 py-2 text-start text-[12px] text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-tint max-md:hidden"
+            title={`${
+              plan.version === null ? "Isolation plan proven" : `Plan v${plan.version} proven`
+            }: open the Test environment`}
+            className="flex h-[34px] items-center gap-2 rounded-[7px] bg-pass-soft px-2 text-start text-[13px] whitespace-nowrap text-pass focus-visible:outline-2 focus-visible:outline-tint max-md:hidden"
           >
-            <StatusDot state="pass" label="Proven" className="ring-3 ring-pass-soft" />
-            {plan.version === null ? "Isolation plan proven" : `Plan v${plan.version} proven`}
+            <Lock className="size-[15px] shrink-0" aria-hidden />
+            Tests run on a copy
           </button>
         ) : null}
         <div className="flex flex-col gap-px max-md:flex-row">
-          {onAskAi ? (
-            <NavItem
-              selected={false}
-              onClick={onAskAi}
-              icon={asking ? <Spinner /> : <Sparkles className="text-tint" aria-hidden />}
-              label="Ask AI"
-            />
-          ) : null}
           {item("model", <Settings aria-hidden />, "Settings")}
         </div>
       </div>

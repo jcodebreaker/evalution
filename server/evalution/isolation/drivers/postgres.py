@@ -17,6 +17,11 @@ container's own superuser over its local socket.
 
 * **digest** is each table's row count and the ``md5`` of its rows in a fixed order, tables in
   name order, left-out tables not counted.
+* **shape** and **generation** are the cheap check between full hashes: the tables there are,
+  and the database's ``oid``, which a new ``CREATE DATABASE`` always changes.
+
+The app may stay up while it is put back (``needs_stop`` is ``none``): ``DROP DATABASE ... WITH
+(FORCE)`` ends every connection to it first, and the app reconnects to the new one.
 * **load_sql** runs a ``.sql`` file (the person's sample data) in it, stopping at the first error.
 * **holding** reads a data-only dump as it streams and names each ``db.schema.table`` holding the
   canary, left-out tables not read.
@@ -113,6 +118,9 @@ class PostgresStore:
         self.exclude = sorted({_qualified(t) for t in exclude})
         self.name = f"postgres:{container}/{db}"
 
+    #: Put back with the app up: its connections are ended, the database made again.
+    needs_stop = "none"
+
     # Commands --------------------------------------------------------------------------------
 
     def _psql(self, *sql: str, db: str | None = None) -> str:
@@ -164,6 +172,16 @@ class PostgresStore:
                 )
             h.update(self._psql(" UNION ALL ".join(parts), db=self.db).encode())
         return h.hexdigest()
+
+    def shape(self) -> str:
+        """The tables the app has, left-out ones not named: what a put back database must have
+        again, read without reading a row."""
+        return "\n".join(t for t in self.tables() if t not in self.exclude)
+
+    def generation(self) -> str:
+        """The database's ``oid``, new each time it is made again; empty when it isn't there."""
+        sql = f"SELECT oid FROM pg_database WHERE datname = {_literal(self.db)}"
+        return self._psql(sql).strip()
 
     def keep(self, into: Path) -> None:
         golden = f"eval_golden_{secrets.token_hex(6)}"

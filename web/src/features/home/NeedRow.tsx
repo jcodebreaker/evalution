@@ -1,16 +1,24 @@
+import { TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { StatusDot } from "../../ui/status";
+import { IconBox } from "../shared/kit";
 import type { Tone } from "./overview";
 
-/** A row's mark: the outcome dot, or "New" for something offered. Its title says it in words. */
+/** A row's mark: a cross on red for what failed, a warning on amber for what may be wrong, or
+ * "New" for something offered. Its title says it in words. */
 export function Lead({ tone }: { tone: Tone }) {
   if (tone === "new")
     return (
-      <span className="inline-flex h-5 items-center rounded-[5px] bg-tint-soft px-[7px] text-[11px] font-semibold text-tint-ink">
+      <span className="inline-flex h-6 items-center rounded-[7px] bg-tint-soft px-2 text-xs font-semibold text-tint-ink">
         New
       </span>
     );
-  return <StatusDot state={tone} />;
+  return (
+    <span title={tone === "fail" ? "Failed" : "May be wrong"}>
+      <IconBox tone={tone === "fail" ? "bad" : "warn"}>
+        {tone === "fail" ? <X /> : <TriangleAlert />}
+      </IconBox>
+    </span>
+  );
 }
 
 /** One row of Needs you. `children` is what the row opens into once its action starts. */
@@ -33,21 +41,19 @@ export function NeedRow({
 }) {
   return (
     <li
-      className="flex items-start gap-4 border-t border-separator px-5 py-3 text-[14px]"
+      className="flex items-start gap-3.5 border-rule px-5 py-3.5 not-first:border-t"
       data-testid={testId}
       data-tone={tone}
       aria-label={label}
     >
-      <span className="flex w-9 shrink-0 justify-center pt-[1px]" aria-hidden>
-        <span className="flex h-[22px] items-center">
-          <Lead tone={tone} />
-        </span>
+      <span className="flex w-9 shrink-0 justify-center" aria-hidden>
+        <Lead tone={tone} />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 flex-1 basis-[280px] flex-col">
-            <span className="font-semibold">{title}</span>
-            {line ? <div className="text-[13px] text-ink-2">{line}</div> : null}
+            <b className="font-medium">{title}</b>
+            {line ? <div className="text-sm text-ink-2">{line}</div> : null}
           </div>
           {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
         </div>

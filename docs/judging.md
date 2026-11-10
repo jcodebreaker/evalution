@@ -85,6 +85,7 @@ A try's view says which **layer** held, from its check kinds, guides included: `
 | `app_busy` | The app, or a gateway in front of it, answered 429, 502, 503 or 504. The run goes on. |
 | `leftover_state` | Before the first message, a `*_contains` state check of the test already held: what an earlier try left, so the try wasn't played. Only on an adapter that declares `probe`. A probe that fails plays the try as before. |
 | `not_supported` | The target doesn't answer this check, or says it couldn't read what it answers about. |
+| `ambiguous_tool` | A step names a tool by a bare name (`search`) that tools of two MCP servers in this try share: the test has to say which (`crm__search`). Labelled *Setup blocked*. Stored before rules 5 as `not_supported`, read as this. |
 | `blocked` | The app stopped to wait on something, an approval, say, and the test didn't expect it. A test that does sets `"blocked": true` on the turn: then not stopping fails the try. |
 | `never_started` | Out of time, with no sign of the agent working: the target has traces, and none arrived. It may have hung before any span ended. |
 | `grader_unreliable` | The grader passed a rubric line a person found it too often wrong on (below). |
@@ -152,7 +153,7 @@ A run the server restarted under reads as interrupted, says nothing of the app, 
 
 ## Traces
 
-A read is complete when the count of AI spans has held still across two reads more than `traces.settle_seconds` apart (6 by default, above OpenTelemetry's 5 s batch) and every turn that finished has an AI span of its own. Neither by 20 seconds, or a read cut by the span cap, and the read is partial. Each read looks up to that moment, so what the agent does after its reply counts, and a `never` tool called then fails the try. What it does only after the read has settled isn't seen. A source that fails with nothing read is its own status, `unread`: it says nothing of the app.
+A read is complete when the count of AI spans has held still across two reads more than `traces.settle_seconds` apart (6 by default, above OpenTelemetry's 5 s batch) and every turn that finished has an AI span of its own. A read that is plainly whole stops sooner: every span's parent has arrived and the trees have their roots, each one a turn rather than a lone model or tool call (spans are sent when they end, so a root that came has ended, and all under it), with nothing new for 1.5 seconds. A root that can't be told (not come, hanging from a span the caller never sends, or a lone model or tool call, after which the agent may go on) waits the full `settle_seconds`. Neither by 20 seconds, or a read cut by the span cap, and the read is partial. Each read looks up to that moment, so what the agent does after its reply counts, and a `never` tool called then fails the try. What it does only after the read has settled isn't seen. A source that fails with nothing read is its own status, `unread`: it says nothing of the app.
 
 On a partial read **only what was seen decides**. A `never` call seen fails the try; not seeing one decides nothing. A word seen in a model call decides; not seeing it decides nothing. Expected calls that were seen can hold, but steps with `"extras": false` or an `exact` order are unjudged: a call not seen could be the extra one, or out of order.
 
@@ -196,7 +197,7 @@ When the grader changes, by `regrade --judge` or a run graded by another model o
 
 ## The scores
 
-**Steps score** (stored as `tools`): the share of expected calls done, less 0.25 for each call to a `never` tool and, with `extras` off, 0.1 for each extra call, 0 at the least. It only decides when steps bind. **Reply score** (stored as `reply`): lines that held / lines judged. The grader says yes or no to each rubric line, and to the reference as one more line. Lines it wasn't sure of on both gradings don't count. The grader gives no number of its own. A test with nothing to score shows neither, rather than 1.00. Tools a target lists as `automatic_tools` aren't in the steps score, and show as "automatic" on the test page, unless the test names them.
+**Steps score** (stored as `tools`): the share of expected calls done, less 0.25 for each call to a `never` tool and, with `extras` off, 0.1 for each extra call, 0 at the least. It only decides when steps bind, and not even then for two settings that are held to strictly (`strict_ok` in `core/steps.py`): with an `exact` order the steps hold only if every expected call matched, in order, and no other call counted (no extra, no `never`); with `"extras": false` any extra call that counts fails them, and with none the score decides as before. The score is still shown. Extras are the assistant's own: a delegated agent's call that matches no step is shown ("a delegated agent's own call; not counted") and costs nothing, unless a step names that agent with `in`. A step with `in: "main"` is matched only by the assistant's own call, one with an agent's name only by that agent's. Each step carries `actor`: `main`, or the delegated agent's name. A call keeps the MCP server its name carries (`mcp__crm__search` is `search` on `crm`); a step may name it (`crm__search`). A step that names only `search` in a try that called `search` on two servers is `unjudged` ("two tools are named search: say which"), and so are the steps check (`not_supported`) and the route; those calls aren't extras, and the step is left out of the score. **Reply score** (stored as `reply`): lines that held / lines judged. The grader says yes or no to each rubric line, and to the reference as one more line. Lines it wasn't sure of on both gradings don't count. The grader gives no number of its own. A test with nothing to score shows neither, rather than 1.00. Tools a target lists as `automatic_tools` aren't in the steps score, and show as "automatic" on the test page, unless the test names them.
 
 ## Money
 
@@ -220,14 +221,33 @@ What a model says comes as claims. Code checks that the refs exist and the quote
 
 A test that is flaky, or that got worse against the run it is compared with, has tries that passed and tries that failed. Code lines one of each up and names the first step where they part (`review/divergence.py`), with no model. The passing try is from the same run, else from the comparison run when it played the same version of the test.
 
-A try's steps are its tool calls in start order, then its reply; calls the app makes by itself are left out. Each step carries what the model was sent when it decided it: the last model call of the same agent begun by then (for the reply, the assistant's last). Steps line up by index. At the first index where they differ:
+A try's steps are its tool calls in start order, then its reply; calls the app makes by itself are left out. Each step carries what the model was sent when it decided it: the last model call of the same agent begun by then (for the reply, the assistant's last). Each step is its actor's (the assistant, or a delegated agent) and its tool's. The two tries line up by the longest common subsequence of those, so one harmless extra call early doesn't move every later step: a passing `[a, b, c]` against a failing `[x, a, b, d]` parts at `d` against `c`. At the first place they part (`step` is its index in the failing try):
 
-- **missing**: one try called a tool there and the other replied;
-- **tool**: different tools;
+- **missing**: the passing try made a call the failing one didn't, marked at what the failing try did instead; or, only when nothing else differs, the failing try made a call the passing one didn't;
+- **tool**: each made a different call at that place;
 - **args**: the same tool, and the first argument that differs, with both values;
 - **context**: the same step, and the passing try's model was sent words the failing one's never was at that step. Words are those of four letters or more, case aside, without a short list of common ones; a word sent anywhere in the failing try's request counts as sent. Only what the evidence captured is compared: a request held back on either side compares nothing.
 
-Ids and times differ on every try (uuids, ISO dates, clock times, epoch numbers, long words mixing letters and digits), so they are blanked out of arguments and requests first. Of several pairs, the one alike the longest is shown, the earliest on a tie. It is kept on the test in the run (`divergence` on the case detail), the trajectory marks it on the failing try, and a finding is given it as a fact to start its cause from.
+Ids and times differ on every try (uuids, ISO dates, clock times, epoch numbers, long words mixing letters and digits), so they are blanked out of arguments and requests first. Of several pairs, the one with the most steps lined up before they part is shown, the earliest on a tie. It is kept on the test in the run (`divergence` on the case detail), the trajectory marks it on the failing try, and a finding is given it as a fact to start its cause from.
+
+## Timeline
+
+A try's "Step by step" is one list, `timeline[]`, built by `results/timeline.py` (`timeline(attempt, evidence, turns)`, pure) from the stored try, its kept evidence when there is some, and the test's turns. It holds what `tool_rows`, `trajectory` and the plan steps' `actual` each held, which are to be built from it for one release and then go. Not yet on the API: the try view wires it in (`results/views.py`). The stored try's own `timeline` field is the span list (`TimelineSpan[]`), a different thing, so the API should carry this under a name that doesn't collide with it, or replace that field once the page reads spans from elsewhere.
+
+Every entry has `kind`, `status` (`passed`, `failed`, `unjudged`, or `null` when nothing decides it), `span` (the span it points at, or `null`), `at` (seconds from the first message, `null` when nothing kept says) and `actor` (`person`, `main`, a delegated agent's name or `helper`, `page`, `code`). In time order; at one moment: before, break, message, call, reply, frame, state, health. A call never made sits at the time of the step before it.
+
+| `kind` | Also has | `status` from |
+|---|---|---|
+| `message` | `turn` (from 1), `text`, `filler` | nothing (`null`) |
+| `call` | `step` (the step's status: `matched`, `missing`, `wrong_args`, `late`, `never`, `extra`, `unjudged`, or `automatic`), `expected`, `made`, `reason`, `automatic` | the step: matched passes; missing, wrong arguments, late, never and an extra that counts fail; an allowed extra, a delegated agent's own call and an automatic call decide nothing |
+| `reply` | `turn`, `text`, `error`, `lines: [{id, text, status, by, role, reason}]` (the last reply only: rubric lines, the reference, `reply.contains` / `reply.lacks`) | its must lines, the worst first; failed when the turn ended in an error |
+| `frame` | `turn`, `shown_at`, `text`, `instead`, `shot` | the turn's `shown` checks |
+| `state` | `key`, `made`, `reason` | its state or context check |
+| `break` | | nothing |
+| `before` (first) | `how`, `seconds`, `checked`, `problem`: the try's `isolation`, when the copy was put back | failed with a `problem`, passed with stores `checked`, else `null` |
+| `health` (last) | `why` | the `page_health` check |
+
+Without kept evidence, messages and breaks come from the test's turns, the one reply is the stored `reply_text`, and only calls have times.
 
 ## What can be compared
 
@@ -241,8 +261,12 @@ A try keeps a list of judgements, only ever added to; the newest is current. Eve
 
 A run keeps the code it played (ADR 0011): `version: {ref, branch, commit, dirty, played, verified, why_unverified}`. `played` is what actually ran: a compose copy's images (each service's name, id and build time), a process copy's working-tree hash, or nothing for the person's own app as it runs. A compose copy plays whatever images are on the computer, so the run is `verified: false` when an image the app's files build is older than the last commit, or than an uncommitted change. Two runs that played the same images are the same code, whatever their commits say; other images under one commit aren't.
 
-`RULES_VERSION` goes up when a rule changes what a stored try would read as. It is 3 since a page try gets the page's checks. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new model calls, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
+`RULES_VERSION` goes up when a rule changes what a stored try would read as. It is 3 since a page try gets the page's checks, 4 since an `exact` order and `"extras": false` are held to strictly, and 5 since a try the end-of-run check found played on a copy not put back is not judged, and a test naming a tool two servers share says so. `evalution regrade <run> --rules` reads its checks again: free and offline. The checks stay the ones made then, so it doesn't compare with a run whose checks were made under today's rules, and a trend point where that changes is marked *Rules changed*. `evalution regrade <run> --judge` grades its replies again from its evidence: new model calls, through an estimate and a token, and refused on a run without evidence or with no model set up. A try the grader fails on keeps what it had and is counted apart, and the command exits non-zero.
 
 ## Old runs
 
 Runs from before this are read as today's on load, and `evalution migrate` rewrites them (`evalution backup` first keeps a copy). Their `passed` stays as `legacy_passed`, and their judge is on record by key only, so they compare with nothing. A run from before evalution kept what played (ADR 0011) reads its `version` as "what was on disk", with the commit it recorded and nothing vouched for. Where today's rules read one differently it says so ("Originally failed; rules changed") with a marker on the trend. It never reads as an improvement.
+
+Rules 4 (strict steps): a try judged under older rules, of a test with an `exact` order or `"extras": false`, has its steps graded again on read from the calls it kept (else its stored steps) and held to today's rule. Where its steps check now reads otherwise, a judgement is added with `rules_from` the old rules, so the test says "Originally passed; rules changed". Nothing else about the try moves.
+
+Rules 5 (late resets): a try judged before the end-of-run hash found its copy's put back didn't hold (`isolation.problem` "reset didn't hold: the end-of-run check found ...") reads as not judged, with that reason (`leftover_state`). A run does this itself as it ends, adding the judgement; an older one gets it on read, with `rules_from` the old rules. Its earlier judgement stays before it.

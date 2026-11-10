@@ -3,12 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
 import {
+  CaseRowSchema,
   ComparisonSchema,
   EstimateSchema,
   RemoteBranchesSchema,
   RunDetailSchema,
   RunSummarySchema,
-  VersionsSchema,
+  VersionsNextSchema,
 } from "../../lib/schema";
 import { RunConfirm } from "./RunConfirm";
 import { RunRow } from "./RunRow";
@@ -54,8 +55,8 @@ function open() {
   const estimate = vi
     .spyOn(api, "estimate")
     .mockImplementation(async (_scope, _id, _cases, _tries, ref) => estimateOf(ref ?? "disk"));
-  vi.spyOn(api, "versions").mockResolvedValue(
-    VersionsSchema.parse({
+  const versions = vi.spyOn(api, "versionsNext").mockResolvedValue(
+    VersionsNextSchema.parse({
       target: "relay-lite",
       remotes: ["origin"],
       checked_out: { branch: "page-testing", commit: HEAD },
@@ -63,6 +64,13 @@ function open() {
         { name: "page-testing", ref: "refs/heads/page-testing", kind: "local", commit: HEAD },
         { name: "feature-x", ref: "refs/heads/feature-x", kind: "local", commit: FEATURE },
         { name: "v1.2", ref: "refs/tags/v1.2", kind: "tag", commit: HEAD },
+        {
+          name: "pull/412",
+          ref: "refs/evalution/relay-lite/pull/412",
+          kind: "pull",
+          commit: FEATURE,
+          subject: "Save sizes to the profile",
+        },
       ],
     }),
   );
@@ -85,10 +93,16 @@ function open() {
       onStarted={() => null}
     />,
   );
-  return { estimate, remote, fetched };
+  return { estimate, remote, fetched, versions };
 }
 
-it("runs what's on disk by default, and lists the versions when the picker opens", async () => {
+/** The Code row's way to pick the code: On disk now, Branch, Pull request or Commit. */
+const way = (name: string) =>
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "Code" })).getByRole("button", { name }),
+  );
+
+it("runs what's on disk by default, and lists the branches when Branch is picked", async () => {
   const { estimate, remote } = open();
   await screen.findByText("What's on disk now: page-testing @ e535c4d, with uncommitted changes");
   expect(estimate).toHaveBeenLastCalledWith(
@@ -100,21 +114,20 @@ it("runs what's on disk by default, and lists the versions when the picker opens
   );
   // Nothing is listed until the picker opens: ls-remote is a network call.
   expect(remote).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByText("Run another version"));
+  way("Branch");
   await waitFor(() => expect(remote).toHaveBeenCalledWith("relay-lite"));
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("origin/pushed");
   const labels = [...picker.querySelectorAll("option")].map((o) => o.textContent);
   expect(labels).toEqual([
-    "What's on disk now",
+    "Pick a branch",
     "page-testing (checked out)",
     "feature-x",
     "origin/pushed",
     "origin/main",
     "v1.2",
-    "A commit…",
   ]);
-  expect(picker.value).toBe("disk");
+  expect(picker.value).toBe("");
 });
 
 it("opens on a version passed in, with its cost line", async () => {
@@ -139,7 +152,8 @@ it("opens on a version passed in, with its cost line", async () => {
 
 it("says the build and its cost before Run when a branch is picked", async () => {
   const { estimate } = open();
-  fireEvent.click(await screen.findByText("Run another version"));
+  await screen.findByRole("group", { name: "Code" });
+  way("Branch");
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("feature-x");
   fireEvent.change(picker, { target: { value: "local:feature-x" } });
@@ -157,7 +171,8 @@ it("says the build and its cost before Run when a branch is picked", async () =>
 
 it("fetches a remote's branch when it is picked, then estimates it", async () => {
   const { estimate, fetched } = open();
-  fireEvent.click(await screen.findByText("Run another version"));
+  await screen.findByRole("group", { name: "Code" });
+  way("Branch");
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("origin/pushed");
   fireEvent.change(picker, { target: { value: "remote:origin/pushed" } });
@@ -168,10 +183,8 @@ it("fetches a remote's branch when it is picked, then estimates it", async () =>
 
 it("takes a commit typed in", async () => {
   const { estimate } = open();
-  fireEvent.click(await screen.findByText("Run another version"));
-  const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
-  await screen.findByText("feature-x");
-  fireEvent.change(picker, { target: { value: "commit" } });
+  await screen.findByRole("group", { name: "Code" });
+  way("Commit");
   fireEvent.change(screen.getByLabelText("Commit"), { target: { value: "a1b2c3d" } });
   fireEvent.click(screen.getByText("Use"));
   await waitFor(() => expect(estimate.mock.calls.at(-1)?.[4]).toBe("a1b2c3d"));
@@ -188,8 +201,8 @@ it("says a refused version and keeps Run waiting", async () => {
     }
     return estimateOf("disk");
   });
-  vi.spyOn(api, "versions").mockResolvedValue(
-    VersionsSchema.parse({
+  vi.spyOn(api, "versionsNext").mockResolvedValue(
+    VersionsNextSchema.parse({
       target: "relay-lite",
       refs: [{ name: "feature-x", ref: "refs/heads/feature-x", kind: "local", commit: FEATURE }],
     }),
@@ -202,12 +215,54 @@ it("says a refused version and keeps Run waiting", async () => {
       onStarted={() => null}
     />,
   );
-  fireEvent.click(await screen.findByText("Run another version"));
+  await screen.findByRole("group", { name: "Code" });
+  way("Branch");
   const picker = (await screen.findByLabelText("Code to run")) as HTMLSelectElement;
   await screen.findByText("feature-x");
   fireEvent.change(picker, { target: { value: "local:feature-x" } });
   await screen.findByText(/Prove how relay-lite is built first, on Test environment\./);
   expect(screen.getByText("Run").closest("button")?.disabled).toBe(true);
+});
+
+it("fetches a pull request by its number, then plays it as pull/<n>", async () => {
+  const { estimate } = open();
+  const fetchPull = vi
+    .spyOn(api, "fetchPull")
+    .mockResolvedValue({ remote: "upstream", pull: 412, ref: "pull/412", commit: FEATURE });
+  await screen.findByRole("group", { name: "Code" });
+  way("Pull request");
+  fireEvent.change(screen.getByLabelText("Pull request number"), { target: { value: "#412" } });
+  fireEvent.click(screen.getByRole("button", { name: "Fetch" }));
+  await waitFor(() => expect(fetchPull).toHaveBeenCalledWith("relay-lite", 412));
+  await waitFor(() => expect(estimate.mock.calls.at(-1)?.[4]).toBe("pull/412"));
+  const said = within(await screen.findByTestId("pull-picked"));
+  expect(said.getByText("#412")).toBeTruthy();
+  expect(said.getByText("Save sizes to the profile")).toBeTruthy();
+  expect(said.getByText("a1b2c3d")).toBeTruthy();
+});
+
+it("picks which tests and how many tries in the dialog", async () => {
+  const { estimate } = open();
+  vi.spyOn(api, "cases").mockResolvedValue([
+    CaseRowSchema.parse({ case: "a", name: "A", verdict: "pass" }),
+    CaseRowSchema.parse({ case: "b", name: "B", verdict: "fail" }),
+    CaseRowSchema.parse({ case: "c", name: "C", verdict: "pass", stale: "code moved" }),
+  ]);
+  cleanup();
+  render(
+    <RunConfirm
+      target={{ scope: { target: "relay-lite", set: "main" } }}
+      onClose={() => null}
+      onStarted={() => null}
+    />,
+  );
+  const which = await screen.findByRole("group", { name: "Which tests" });
+  fireEvent.click(await within(which).findByRole("button", { name: "Failing 1" }));
+  await waitFor(() => expect(estimate.mock.calls.at(-1)?.[2]).toEqual(["b"]));
+  fireEvent.click(within(which).getByRole("button", { name: "Changed code touches 1" }));
+  await waitFor(() => expect(estimate.mock.calls.at(-1)?.[2]).toEqual(["c"]));
+  fireEvent.click(screen.getByRole("button", { name: "More tries" }));
+  await waitFor(() => expect(estimate.mock.calls.at(-1)?.[3]).toBe(2));
 });
 
 const RUN = {

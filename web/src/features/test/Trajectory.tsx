@@ -55,10 +55,10 @@ function Lane({
 function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
   return (
     <div className="group-card grid grid-cols-2 text-[13px] max-md:grid-cols-1">
-      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[12px] font-medium text-ink-3 max-md:hidden">
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[13px] font-medium text-ink-3 max-md:hidden">
         Expected
       </h4>
-      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[12px] font-medium text-ink-3 max-md:hidden">
+      <h4 className="m-0 px-3.5 pt-2.5 pb-1 text-[13px] font-medium text-ink-3 max-md:hidden">
         What it did{try_ ? ` (try ${try_})` : ""}
       </h4>
       {rows.map((row, index) => (
@@ -71,7 +71,7 @@ function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
             <Call label="What it did" text={row.actual} />
             <p
               className={cn(
-                "m-0 px-3.5 pb-2 -mt-1 text-[12.5px]",
+                "m-0 px-3.5 pb-2 -mt-1 text-sm",
                 row.status === "matched" || row.status === "extra" || row.status === "automatic"
                   ? "text-ink-3"
                   : "text-fail",
@@ -89,8 +89,8 @@ function ToolRows({ rows, try_ }: { rows: ToolRow[]; try_: number | null }) {
 function Call({ label, text }: { label: string; text: string | null }) {
   return (
     <div className="min-w-0 px-3.5 py-2">
-      <span className="block text-[11px] text-ink-3 md:hidden">{label}</span>
-      <code className="font-mono text-[12.5px] break-words">{text ?? "—"}</code>
+      <span className="block text-xs text-ink-3 md:hidden">{label}</span>
+      <code className="font-mono text-sm break-words">{text ?? "—"}</code>
     </div>
   );
 }
@@ -111,9 +111,13 @@ export function Trajectory({
   shown,
   runLabel,
   onPassing,
+  bare = false,
 }: {
   shown: Compare;
   runLabel: (run: string) => string;
+  /** Every try's route alone, with no heading and no expected-against-made rows: those are in
+   * "Step by step". */
+  bare?: boolean;
   /** Shows the passing try, at the step where they differ. */
   onPassing: (run: string, n: number, span: string | null) => void;
 }) {
@@ -125,9 +129,9 @@ export function Trajectory({
   const diverged = shown.divergence?.fail.run === shown.run ? shown.divergence : null;
   return (
     <section className="flex flex-col gap-2">
-      <SectionHead title="Trajectory" sub="what it should do vs what it did" />
+      {bare ? null : <SectionHead title="Trajectory" sub="what it should do vs what it did" />}
       <div className="group-card grid grid-cols-[72px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-3.5">
-        <span className="text-[12.5px] font-semibold text-ink-3">Expected</span>
+        <span className="text-sm font-semibold text-ink-3">Expected</span>
         <Lane
           steps={trajectory.expected.map((label) => ({
             label,
@@ -138,7 +142,7 @@ export function Trajectory({
           <span key={lane.n} className="contents">
             <span
               className={cn(
-                "text-[12.5px] font-semibold",
+                "text-sm font-semibold",
                 lane.n === shown.try ? "text-foreground" : "text-ink-3",
               )}
             >
@@ -156,7 +160,7 @@ export function Trajectory({
         ))}
       </div>
       {diverged ? (
-        <p className="m-0 px-1 text-[12.5px] text-ink-3">
+        <p className="m-0 px-1 text-sm text-ink-3">
           <button
             type="button"
             className="underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
@@ -169,9 +173,11 @@ export function Trajectory({
         </p>
       ) : null}
       {lanes.some((lane) => lane.steps.some((step) => step.status === "automatic")) ? (
-        <p className="m-0 px-1 text-[12.5px] text-ink-3">Automatic: ran by itself, not scored</p>
+        <p className="m-0 px-1 text-sm text-ink-3">Automatic: ran by itself, not scored</p>
       ) : null}
-      {shown.tool_rows.length ? <ToolRows rows={shown.tool_rows} try_={shown.try} /> : null}
+      {shown.tool_rows.length && !bare ? (
+        <ToolRows rows={shown.tool_rows} try_={shown.try} />
+      ) : null}
     </section>
   );
 }

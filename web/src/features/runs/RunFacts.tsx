@@ -65,7 +65,7 @@ export function RunFacts({
           ) : null}
           {played ? (
             <Fact label="What played">
-              <span className="font-mono text-[12px]">{played.join(", ")}</span>
+              <span className="font-mono text-[13px]">{played.join(", ")}</span>
             </Fact>
           ) : null}
           {copy ? <Fact label="Copy">{copy}</Fact> : null}
@@ -75,7 +75,7 @@ export function RunFacts({
           ) : null}
           {run.prompt ? (
             <Fact label="Prompt">
-              <span className="font-mono text-[12px]">{run.prompt}</span>
+              <span className="font-mono text-[13px]">{run.prompt}</span>
             </Fact>
           ) : null}
         </Facts>

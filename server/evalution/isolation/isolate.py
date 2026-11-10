@@ -23,8 +23,8 @@ import dataclasses
 import inspect
 import json
 import logging
-import re
 import secrets
+import shutil
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -34,7 +34,7 @@ from typing import Any
 from evalution import adapters
 from evalution.adapters.base import Target, url_on_copy
 from evalution.config import Config, ConfigError, TargetConfig
-from evalution.isolation import containers, discover, observe
+from evalution.isolation import containers, discover, hot, observe, outbound
 from evalution.isolation.drivers import Driver, FileStore, PostgresStore, VolumeStore
 from evalution.isolation.drivers.base import DockerError, Refused, docker
 from evalution.isolation.launch import (
@@ -46,7 +46,17 @@ from evalution.isolation.launch import (
     extras,
     guard,
 )
-from evalution.isolation.plan import Plan, PlanStore, draft_from, given
+from evalution.isolation.lock import TargetLock
+from evalution.isolation.plan import (
+    PUT_BACK,
+    RESTARTED,
+    Plan,
+    PlanStore,
+    draft_from,
+    given,
+    holds_state,
+    in_container,
+)
 from evalution.isolation.rehearse import Rehearsal, rehearse, scan_files
 from evalution.isolation.setup import Setup, seed_path, setup_for
 
@@ -310,8 +320,10 @@ async def drivers_for(
 ) -> list[Driver]:
     """A driver on the copy for each of *plan*'s stores that one can reset.
 
-    * ``container:db`` (a database found in a container): the copy's container of that service,
-      the same database, the plan's left-out tables of it (``db.schema.table``) left out.
+    * ``container:db`` of kind ``postgres`` (a database found in a container): the copy's
+      container of that service, the same database, the plan's left-out tables of it
+      (``db.schema.table``) left out. Of kind ``redis``: nothing, a restart of the copy clears it
+      (:func:`.plan.holds_state`). Of another kind: nothing, said in *notes* as not put back.
     * ``volume:NAME``: the copy's ``<project>_NAME``.
     * A path here: a file store, put back only inside *roots* (the copy's own folders).
     * In-process memory: nothing, a restart clears it. Identity, hosted, or with no strategy:
@@ -348,7 +360,13 @@ async def drivers_for(
                     out.append(FileStore(path, allowed_roots=roots))
                 else:
                     notes.append(f"{store.id}: {loc} isn't in a folder of the copy's own")
-            elif compose and re.match(r"^[\w.-]+:[\w$-]+$", loc):
+            elif compose and in_container(loc) and store.kind in RESTARTED:
+                notes.append(
+                    f"{store.id}: {store.kind}, in its container's memory; a restart clears it"
+                )
+            elif compose and in_container(loc) and store.kind not in PUT_BACK:
+                notes.append(f"{store.id}: a {store.kind} database, not put back ({loc})")
+            elif compose and in_container(loc):
                 container, db = loc.split(":", 1)
                 mine = _on_copy(container, own, project)
                 if mine is None:
@@ -441,18 +459,34 @@ async def play_as(adapter: Target, person: dict[str, Any]) -> bool:
 
 class ComposeRunner:
     """A compose copy as the rehearsal works it: paused with its volumes kept, the databases a
-    driver works in left up."""
+    driver works in left up. As a run would put it back, stopped only as far as *how* says
+    (:mod:`.hot`), the *services* named stopped when that is ``services``."""
 
-    def __init__(self, copy: ComposeCopy, probe: Callable[[str], Awaitable[None]], keep: list[str]):
+    def __init__(
+        self,
+        copy: ComposeCopy,
+        probe: Callable[[str], Awaitable[None]],
+        keep: list[str],
+        how: str = "all",
+        services: list[str] = (),  # type: ignore[assignment]
+    ):
         self.copy = copy
         self._probe = probe
         self.keep = keep
+        self.how = how
+        self.services = list(services)
 
     async def start(self) -> None:
         await self.copy.resume()
 
     async def stop(self) -> None:
         await self.copy.pause(self.keep)
+
+    async def hot_stop(self) -> None:
+        await hot.stop(self.copy, self.how, keep=self.keep, services=self.services)
+
+    async def hot_start(self) -> None:
+        await hot.start(self.copy, self.how)
 
     async def probe(self, canary: str) -> None:
         await self._probe(canary)
@@ -549,17 +583,32 @@ async def _rehearse_on(
     stage("rehearse")
     stage("prove")
     probe = prober(adapter, run)
+    # Prove the put back with the app up too, when a run could use it (a third probe).
+    how = hot.wanted(plan, drivers, copy)
     if isinstance(copy, ComposeCopy):
         keep = [d.container for d in drivers if isinstance(d, PostgresStore)]
-        runner: ComposeRunner | ProcessRunner = ComposeRunner(copy, probe, keep)
+        services = await hot.services_for(copy, drivers) if how == "services" else []
+        runner: ComposeRunner | ProcessRunner = ComposeRunner(copy, probe, keep, how, services)
     else:
         runner = ProcessRunner(copy, probe, folder)
         pid = copy.pid
         if pid is not None:
             opened = await asyncio.to_thread(observe.open_by, pid)
             runner.roots = observe.roots_for(folder, opened[0], [])
-    result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude)
+    if how == "all":
+        result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude)
+    else:
+        result = await rehearse(drivers, runner, work / "kept", ignore=plan.exclude, hot=True)
     return result, notes
+
+
+def _proven(plan: Plan, result: Rehearsal) -> None:
+    """*plan* as *result* left it: proven or failed, where it leaked, and whether a run may put
+    it back with the app up (a restart when the rehearsal didn't prove that)."""
+    plan.status = "proven" if result.ok else "failed"
+    plan.leaks = list(result.leaks)
+    plan.app_holds_state = holds_state(plan)
+    plan.hot = getattr(result, "hot", None) if result.ok else None
 
 
 def _account(plan: Plan, result: Rehearsal, notes: list[str], where: str, left: list[str]) -> str:
@@ -611,9 +660,14 @@ async def isolate(
     setup = setup_for(config, target)
     seed = seed_path(config, target, setup)
     work = work_folder(config, target)
-    copy = copy_of(spec, target, slot, work)
+    # Settings that reach outside the copy start empty, unless the person allowed them.
+    copy = copy_of(
+        spec, target, slot, work, env=outbound.blocked_for(config.data_dir, target, spec)
+    )
     left: list[str] = []
-    downed = False
+    downed = failed = False
+    lock = TargetLock(config.data_dir, target)
+    lock.acquire()
     try:
         stage("start")
         stage("copy")
@@ -651,14 +705,19 @@ async def isolate(
         if not keep:
             left, downed = await take_down(copy), True
         where = copy.project if isinstance(copy, ComposeCopy) else copy.url
-        plan.status = "proven" if result.ok else "failed"
-        plan.leaks = list(result.leaks)
+        _proven(plan, result)
         plan.report = plan.report + "\n\n" + _account(plan, result, notes, where, left)
         PlanStore(config.data_dir).save(plan)
         return plan
+    except LaunchError:
+        failed = True
+        raise
     finally:
         if not keep and not downed:
             await _quietly(take_down(copy))
+        lock.release()
+        if not keep:
+            await _clear(work, failed)
 
 
 def plan_spec(config: Config, target: str, plan: Plan) -> dict[str, Any]:
@@ -709,9 +768,12 @@ async def rehearse_plan(
     setup = setup_for(config, target)
     seed = seed_path(config, target, setup)
     work = work_folder(config, target)
-    copy = copy_of(spec, target, slot, work, env=env)
+    shut = outbound.blocked_for(config.data_dir, target, spec)
+    copy = copy_of(spec, target, slot, work, env={**shut, **(env or {})})
     left: list[str] = []
-    downed = False
+    downed = failed = False
+    lock = TargetLock(config.data_dir, target)
+    lock.acquire()
     try:
         stage("start")
         stage("copy")
@@ -724,13 +786,24 @@ async def rehearse_plan(
         left, downed = await take_down(copy), True
         where = copy.project if isinstance(copy, ComposeCopy) else copy.url
         draft = plan.report.split("\n\nRehearsed on ", 1)[0]
-        plan.status = "proven" if result.ok else "failed"
-        plan.leaks = list(result.leaks)
+        _proven(plan, result)
         plan.report = draft + "\n\n" + _account(plan, result, notes, where, left)
         return plan
+    except LaunchError:
+        failed = True
+        raise
     finally:
         if not downed:
             await _quietly(take_down(copy))
+        lock.release()
+        await _clear(work, failed)
+
+
+async def _clear(work: Path, failed: bool) -> None:
+    """Delete a rehearsal's work folder once it ended: its override file, its starting state.
+    Kept when the copy didn't start or stop, since the error names its logs there."""
+    if not failed:
+        await asyncio.to_thread(shutil.rmtree, work, True)
 
 
 async def _quietly(work: Awaitable[object]) -> None:

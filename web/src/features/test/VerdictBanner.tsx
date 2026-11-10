@@ -55,17 +55,24 @@ export function VerdictBanner({
   );
   const cells = breakCells(shown);
   return (
-    <section className="group-card" aria-label="Where it broke">
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-2.5 px-5 py-4">
+    <section
+      className="min-w-0 overflow-hidden rounded-2xl border border-rule bg-group shadow-[0_1px_2px_var(--shadow)]"
+      aria-label="Where it broke"
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 p-5">
         <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-          <StatusDot state={markOf(shown.outcome)} label={tryWord(shown.outcome)} />
+          <StatusDot
+            state={markOf(shown.outcome)}
+            label={tryWord(shown.outcome)}
+            className="size-2.5"
+          />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <b className="text-[15px] font-semibold">
+            <b className="text-[22px] leading-tight font-semibold tracking-[-0.02em]">
               {layered?.headline
                 ? `${layered.headline}${lead ? ` · try ${shown.try}` : ""}`
                 : `${shown.label ?? tryWord(shown.outcome)}${lead}${shown.passed && shown.different_route ? ", by a different route" : ""}${shown.passed && shown.basis === "model_only" ? `, ${MODEL_ONLY}` : ""}${shown.passed && pageOnly ? `, ${PAGE_ONLY}` : ""}`}
             </b>
-            <small className="text-[13px] text-ink-2">
+            <small className="mt-1 text-sm text-ink-2">
               {[
                 layered?.line ?? null,
                 shown.passed || !shown.reason ? null : asSentence(shown.reason),
@@ -81,7 +88,10 @@ export function VerdictBanner({
           </div>
         </div>
         {shown.tries.length > 1 ? (
-          <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0" aria-label="Tries">
+          <fieldset
+            className="m-0 inline-flex flex-wrap gap-0.5 rounded-[11px] border-0 bg-sunk p-[3px]"
+            aria-label="Tries"
+          >
             {shown.tries.map((entry) => (
               <button
                 key={entry.n}
@@ -90,9 +100,8 @@ export function VerdictBanner({
                 aria-label={`Try ${entry.n}, ${tryWord(entry.outcome).toLowerCase()}`}
                 onClick={() => onTry(entry.n)}
                 className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-md border border-separator bg-group px-2.5 text-[13px] text-ink-2 hover:bg-sunk focus-visible:outline-2 focus-visible:outline-ring",
-                  entry.n === shown.try &&
-                    "border-tint-soft-2 bg-tint-soft font-medium text-tint-ink hover:bg-tint-soft",
+                  "flex h-8 items-center gap-[7px] rounded-lg px-3 text-sm font-medium text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-tint",
+                  entry.n === shown.try && "bg-group text-ink shadow-[0_1px_2px_var(--shadow-2)]",
                 )}
               >
                 <StatusDot state={markOf(entry.outcome)} label={tryWord(entry.outcome)} />
@@ -105,7 +114,7 @@ export function VerdictBanner({
       {cells ? (
         <ul
           aria-label="Which layer held"
-          className="m-0 flex list-none border-t border-separator p-0 max-md:flex-col"
+          className="m-0 flex list-none border-t border-rule p-0 max-md:flex-col"
           data-testid="where-it-broke"
         >
           {cells.map((cell) => (
@@ -114,7 +123,7 @@ export function VerdictBanner({
               title={cell.label}
               data-broke={cell.state === "fail" || undefined}
               className={cn(
-                "flex min-w-0 flex-1 items-baseline gap-2.5 px-5 py-3.5 not-first:border-separator md:not-first:border-s max-md:not-first:border-t",
+                "flex min-w-0 flex-1 items-baseline gap-2.5 px-5 py-3.5 not-first:border-rule md:not-first:border-s max-md:not-first:border-t",
                 cell.state === "fail" && "bg-fail-soft",
               )}
             >
@@ -122,14 +131,14 @@ export function VerdictBanner({
               <span className="flex min-w-0 flex-col">
                 <b
                   className={cn(
-                    "text-[14px] font-medium",
+                    "font-semibold",
                     cell.state === "fail" && "text-fail",
                     cell.state === "none" && "text-ink-3",
                   )}
                 >
                   {cell.name}
                 </b>
-                <small className="line-clamp-2 text-[12.5px] break-words text-ink-3">
+                <small className="mt-0.5 line-clamp-2 text-[13px] break-words text-ink-2">
                   {cell.line}
                 </small>
               </span>

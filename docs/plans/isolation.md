@@ -57,6 +57,35 @@ Tests: `tests/test_isolation_discover.py` (scan, lsof parsing, toy app probed en
 
 **Done when:** relay-lite's plan is proven on its copy, and removing `artifact-data` from it makes the rehearsal fail naming `memory_index`.
 
+### 4.1 as built: put back without stopping the app
+
+- Each driver says how far the copy stops while it puts its store back (`needs_stop`): Postgres `none` (`DROP DATABASE ... WITH (FORCE)` ends the app's connections, the database is made again from its golden copy, then one health call), a volume `services` (only the services that mount it stop), a file `all`. The copy stops as far as the widest needs (`isolation/hot.py`), and wholly when the plan has a store of kind `memory` (`plan.app_holds_state`).
+- Less than a whole stop is used only once the rehearsal proved it. After the usual proof, the rehearsal puts the stores back twice with the app up, a probe between (a third message to the copy): the app must answer each time and end in the starting state with that probe's canary gone. The plan records `hot: proven | failed`; a plan from before reads `None`. Anything but `proven` keeps the whole stop and start, so today's path is the fallback, chosen per plan.
+- In a run, an app that doesn't answer after a hot put back is stopped and started, and stays on that path for the rest of the run; the try's `isolation.note` says so.
+- A slot's first try isn't put back: the copy, started again after keeping, is hashed once, and plays as kept when it matches and nothing opened a session on it (the connection check, say).
+- Checks: a full hash after a slot's first put back and at the end of the run; between, each store's shape (Postgres: its tables and a new `oid`; a volume: its top-level listing; files: each file's size). `isolation.verify: every_try` hashes every put back. Each try's `isolation.check` is `kept`, `full` or `quick`. An end-of-run hash that doesn't hold marks the cheaply checked tries since the last good hash "reset didn't hold" (`Copies.late`).
+
+### A volume kept inside Docker
+
+A volume's starting state is a second volume, `<volume>_golden` (named after the copy's project, so `down` removes it with the copy), made and put back with `cp -a` in one throwaway container with no network: no tar streams through this computer. A folder kept as `volume.tar` before this is still put back from the tar.
+
+### Copies started together, one holder at a time
+
+- A run's copies start side by side, at most three at once (`STARTING_AT_ONCE`); every one started is kept for `close`, even when another failed.
+- `isolation/lock.py`: one lock per target on `<data>/isolation/<target>/copy.lock` (an advisory `flock`, let go by the system when its holder exits). Finding isolation, a rehearsal, and a run's copies (from `Copies.start` to `Copies.close`) each take it; a second holder, from the server or the CLI, gets `Busy` at once, a `LaunchError` saying the copy is in use. A run that finds it busy while rehearsing a stale plan again leaves the plan as it was.
+- A rehearsal's work folder (its override file and starting state) is deleted when it ends; kept when the copy didn't start or stop, since that error names its logs there.
+- Not done yet: keeping copies warm between runs, and labelling copies with their owner so a crashed server's are removed at the next start. Both need the server's start and the runner's end of a run (not in this package).
+
+### Saying no where a reset can't hold
+
+- Only a planned database of kind `postgres` in a container gets the Postgres driver. One of kind `redis` keeps nothing on disk (a Redis that does has its volume planned too): a restart clears it, so the plan holds state (`plan.holds_state`) and every put back stops and starts the whole copy. Any other kind is noted "not put back", and a run doesn't promise the memory clean (`covered`).
+- On Linux, where Docker doesn't name `host.docker.internal`, the override gives each service `extra_hosts: host.docker.internal:host-gateway` unless it already maps that name, so the copy's traces reach evalution's intake.
+- Not done yet: refusing to prove a plan that leaves a bind mount shared with the person's app writable and uncovered. Every compose copy's bind mounts are the person's (`roots_of` gives a compose copy none), so the literal rule refuses any writable bind mount, source-code mounts for live reload included; which ones to refuse is left to decide.
+
+### What leaves the copy
+
+The copy starts with the project's own env file, which may hold live keys. `isolation/outbound.py` lists the setting names (from the env file, the compose files' `environment` and `env_file`, and a process copy's `env`) that look like a third-party credential or address: a word of a kind (payment, mail, SMS, webhook, cloud storage) with an ending that reaches it (`_KEY`, `_PASSWORD`, `_HOST`, `_URL`, ...), or any name ending `_KEY`, `_SECRET`, `_TOKEN`. The model provider's, evalution's and the app's own (session, signing, database) are left alone. The copy, in a run and in a rehearsal alike, starts with each set empty unless the person allowed it (`<data>/isolation/<target>/outbound.json`, names only). Values are never kept, returned or logged. Env only, not a network proxy. A framework's own signing key with a generic name (`*_SECRET_KEY`) is listed too; an app that won't start without it fails its rehearsal, and the person allows it.
+
 ## Phase 5: the runner
 
 1. `Isolation.MANAGED` in `adapters/base.py`; `starts_clean` is what the proven plan covers.

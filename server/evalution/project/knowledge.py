@@ -33,7 +33,7 @@ from evalution.code import Code
 from evalution.llm import fenced, json_answer
 from evalution.project import impact, imports, understanding
 from evalution.project.history import History
-from evalution.project.profile import PROFILE_CAP, read_doc, set_updates, updates, write_doc
+from evalution.project.profile import read_doc, set_updates, updates, write_doc
 from evalution.suite.cases import slugify
 from evalution.targets import Targets
 
@@ -426,8 +426,6 @@ def _apply(
             )
             if bad := [p for p in problems if p.startswith("sections")]:
                 raise ValueError(bad[0])
-            if len(understanding.render_profile(name, new, log)) > PROFILE_CAP:
-                raise ValueError("the profile would be too long")
             new = understanding.save(targets, name, new, by="refresh")
         files = code.hashes()
         read = state.get("read") or []

@@ -92,7 +92,7 @@ export function InstallProgress({ job, steps = true }: { job: InstallJob; steps?
       {steps ? <Checklist steps={job.steps} /> : null}
       {job.state === "running" && lines.length ? (
         <pre
-          className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
+          className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-xs leading-snug text-ink-2"
           role="log"
           aria-label="What the install says"
         >
@@ -101,7 +101,7 @@ export function InstallProgress({ job, steps = true }: { job: InstallJob; steps?
       ) : null}
       {job.state === "failed" && job.error ? <p className="m-0 text-warning">{job.error}</p> : null}
       {job.state === "failed" && lines.length ? (
-        <pre className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2">
+        <pre className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-xs leading-snug text-ink-2">
           {lines.join("\n")}
         </pre>
       ) : null}
@@ -292,7 +292,7 @@ export function UiTestingStatus() {
   const shown = ui.data;
   if (!shown) {
     return (
-      <span className="pt-1.5 text-[14px] text-ink-3">
+      <span className="pt-1.5 text-sm text-ink-3">
         {ui.failed ? "Couldn't read what UI testing has here." : "…"}
       </span>
     );

@@ -21,17 +21,22 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import json
+import logging
 import os
 import re
+import secrets as tokens
 import shutil
 import signal
 import socket
+import sys
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -40,8 +45,17 @@ from evalution.adapters.base import NOT_APP_PORTS
 from evalution.core import net
 from evalution.core.version import Image
 
+_logger = logging.getLogger(__name__)
+
 #: Every project evalution starts is named like this, and it removes no other.
 PREFIX = "eval-"
+#: The labels on each container of a copy a run starts: the evalution that started it (an id
+#: whose lock file, ``<data_dir>/isolation/owners/<id>.lock``, it holds while it runs) and the run.
+OWNER_LABEL = "evalution.owner"
+RUN_LABEL = "evalution.run"
+_OWNER = re.compile(r"^[0-9a-f]{16}$")
+#: This process's owner id and its held lock file, by data folder.
+_OWNERS: dict[Path, tuple[str, TextIO]] = {}
 _PROJECT = re.compile(r"^eval-[a-z0-9][a-z0-9_-]*$")
 #: The first compose that reads the ``!override`` tag.
 OVERRIDE_TAG = (2, 24, 4)
@@ -52,6 +66,8 @@ _LOCAL_URL = re.compile(
 )
 #: Env values shorter than this aren't scrubbed: they'd blank out ordinary words and numbers.
 _SCRUB_MIN = 6
+#: What makes ``host.docker.internal`` this computer on Linux, where Docker doesn't name it.
+HOST_GATEWAY = "host.docker.internal:host-gateway"
 
 
 class LaunchError(RuntimeError):
@@ -183,6 +199,8 @@ def override_for(
     pick: Callable[[], int] = free_port,
     tag: bool = True,
     env: dict[str, str] | None = None,
+    linux: bool | None = None,
+    labels: Mapping[str, str] | None = None,
 ) -> Override:
     """The override for *config* (``docker compose config --format json``) run as *project*.
 
@@ -200,7 +218,13 @@ def override_for(
         or a trace viewer's, else the first.
     :param env: Settings the copy must have, such as where to send its traces: each is set on
         every service whose environment already names it.
+    :param linux: Whether Docker runs on Linux (by default, whether this computer does): there
+        ``host.docker.internal``, where the copy sends its traces, is only a name once
+        ``extra_hosts`` maps it to the host, so each service that doesn't already gets that line.
+    :param labels: Set on every service's containers beside its own (:data:`OWNER_LABEL`,
+        :data:`RUN_LABEL`), so a copy left behind can be told and removed.
     """
+    linux = sys.platform.startswith("linux") if linux is None else linux
     services: dict[str, dict] = config.get("services") or {}
     moved: dict[int, int] = {}  # the person's published port -> the copy's
     ports: dict[str, dict[int, int]] = {}
@@ -248,9 +272,10 @@ def override_for(
                 if f"{name}.{key}" in out.fixed:
                     out.fixed.remove(f"{name}.{key}")
     out.url = _copy_url(app_url, ports, moved, out.notes)
+    gateway = [n for n, s in services.items() if linux and not _maps_host(s.get("extra_hosts"))]
 
     if not tag:
-        out.text = _resolved(config, project, ports, changes) + "\n"
+        out.text = _resolved(config, project, ports, changes, gateway, labels) + "\n"
         return out
     lines = ["services:"]
     for name, service in services.items():
@@ -263,6 +288,10 @@ def override_for(
         if name in changes:
             body.append("    environment:")
             body += [f"      {k}: {_quote(v)}" for k, v in changes[name].items()]
+        if name in gateway:
+            body += ["    extra_hosts:", f"      - {_quote(HOST_GATEWAY)}"]
+        if labels:
+            body += ["    labels:", *(f"      {k}: {_quote(v)}" for k, v in labels.items())]
         if body:
             lines += [f"  {name}:", *body]
     if len(lines) == 1:
@@ -294,13 +323,36 @@ def _copy_url(
     return f"http://127.0.0.1:{app[0]}" if app else ""
 
 
+def _maps_host(extra: object) -> bool:
+    """Whether a service's ``extra_hosts`` (a list of ``name:ip`` or ``name=ip``, or a mapping)
+    already names ``host.docker.internal``."""
+    if isinstance(extra, dict):
+        return "host.docker.internal" in extra
+    if isinstance(extra, list):
+        return any(
+            re.split(r"[:=]", str(e), maxsplit=1)[0] == "host.docker.internal" for e in extra
+        )
+    return False
+
+
 def _resolved(
-    config: dict, project: str, ports: dict[str, dict[int, int]], changes: dict[str, dict]
+    config: dict,
+    project: str,
+    ports: dict[str, dict[int, int]],
+    changes: dict[str, dict],
+    gateway: Collection[str] = (),
+    labels: Mapping[str, str] | None = None,
 ) -> str:
     """The whole config with the override's changes made in it, for a compose with no tag."""
     whole = json.loads(json.dumps(config))
     whole["name"] = project
     for name, service in whole.get("services", {}).items():
+        if name in gateway:
+            extra = service.get("extra_hosts")
+            if isinstance(extra, dict):
+                extra["host.docker.internal"] = "host-gateway"
+            else:
+                service["extra_hosts"] = [*(extra or []), HOST_GATEWAY]
         service["ports"] = [
             {"target": t, "published": str(h), "host_ip": "127.0.0.1", "protocol": "tcp"}
             for t, h in ports.get(name, {}).items()
@@ -308,6 +360,8 @@ def _resolved(
         if service.get("container_name"):
             service["container_name"] = f"{project}-{name}-1"
         service.setdefault("environment", {}).update(changes.get(name, {}))
+        if labels:
+            service["labels"] = {**(service.get("labels") or {}), **labels}
     for key, volume in (whole.get("volumes") or {}).items():
         if volume.get("external"):
             continue
@@ -382,6 +436,76 @@ async def copies() -> list[str]:
         return []
     names = {p.get("Name", "") for p in json.loads(out or "[]")}
     return sorted(n for n in names if _PROJECT.match(n))
+
+
+def owner_id(data_dir: Path) -> str:
+    """This process as the owner of the copies it starts on *data_dir*: an id whose lock file,
+    ``<data_dir>/isolation/owners/<id>.lock``, it holds as long as it runs."""
+    key = Path(data_dir).resolve()
+    if key not in _OWNERS:
+        folder = key / "isolation" / "owners"
+        folder.mkdir(parents=True, exist_ok=True)
+        found = tokens.token_hex(8)
+        held = (folder / f"{found}.lock").open("w")
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _OWNERS[key] = (found, held)
+    return _OWNERS[key][0]
+
+
+def owner_gone(data_dir: Path, owner: str) -> bool:
+    """Whether *owner* is an evalution of *data_dir* that no longer runs: its lock file is there,
+    and nothing holds it. One this data folder doesn't know (another evalution's, with a data
+    folder of its own) is never gone: its copies are not this one's to remove."""
+    key = Path(data_dir).resolve()
+    if not _OWNER.match(owner or "") or (key in _OWNERS and _OWNERS[key][0] == owner):
+        return False
+    path = key / "isolation" / "owners" / f"{owner}.lock"
+    if not path.is_file():
+        return False
+    with path.open("a") as file:
+        try:
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        fcntl.flock(file, fcntl.LOCK_UN)
+    return True
+
+
+async def _owners() -> dict[str, set[str]]:
+    """``project -> its containers' owner labels`` (``""`` for one with none), for every
+    ``eval-*`` compose project on this computer."""
+    if shutil.which("docker") is None:
+        return {}
+    label = f'{{{{.Label "com.docker.compose.project"}}}}\t{{{{.Label "{OWNER_LABEL}"}}}}'
+    code, out, _ = await _run(
+        _docker(), "ps", "-a", "--filter", "label=com.docker.compose.project", "--format", label
+    )
+    if code != 0:
+        return {}
+    found: dict[str, set[str]] = {}
+    for line in out.splitlines():
+        project, _, owner = line.partition("\t")
+        if _PROJECT.match(project.strip()):
+            found.setdefault(project.strip(), set()).add(owner.strip())
+    return found
+
+
+async def sweep(gone: Callable[[str], bool]) -> list[str]:
+    """Remove the copies a stopped evalution left behind: every ``eval-*`` project whose
+    containers all carry one :data:`OWNER_LABEL`, of an owner *gone* says no longer runs. One with
+    a container without it is never removed (a rehearsal's, or not evalution's). The projects
+    removed."""
+    removed = []
+    for project, owners in sorted((await _owners()).items()):
+        if len(owners) != 1 or "" in owners or not gone(next(iter(owners))):
+            continue
+        try:
+            await down(project)
+        except LaunchError as exc:
+            _logger.warning("evals: %s, left behind, not removed: %s", project, exc)
+            continue
+        removed.append(project)
+    return removed
 
 
 def _created(value: str) -> float:
@@ -502,6 +626,8 @@ class ComposeCopy:
         self.start_seconds = start_seconds
         self.copy: Copy | None = None
         self._secrets = secrets_of(self.env_file)
+        #: Set on every container it starts: who started it, for which run (:func:`sweep`).
+        self.labels: dict[str, str] = {}
 
     @property
     def url(self) -> str:
@@ -586,7 +712,9 @@ class ComposeCopy:
             )
         _, version, _ = await _run(_docker(), "compose", "version", "--short")
         tag = supports_tag(version)
-        plan = override_for(config, self.project, app_url=self.app_url, tag=tag, env=self.env)
+        plan = override_for(
+            config, self.project, app_url=self.app_url, tag=tag, env=self.env, labels=self.labels
+        )
         self.folder.mkdir(parents=True, exist_ok=True)
         override = self.folder / f"{self.project}.override.{'yaml' if tag else 'json'}"
         _write_private(override, plan.text)
@@ -664,6 +792,49 @@ class ComposeCopy:
         if code != 0:
             raise LaunchError(f"couldn't stop {project}: {_tail(err)}")
         return stop
+
+    async def mounting(self, volumes: Collection[str]) -> list[str]:
+        """The copy's services whose containers mount any of *volumes*: what must stop while
+        they are put back. Only for a project named ``eval-*``."""
+        project = guard(self.project)
+        found: set[str] = set()
+        for volume in volumes:
+            _, out, _ = await _run(
+                _docker(), "ps", "-a", "--filter", f"label=com.docker.compose.project={project}",
+                "--filter", f"volume={volume}",
+                "--format", '{{.Names}}\t{{.Label "com.docker.compose.service"}}',
+            )  # fmt: skip
+            for line in out.splitlines():
+                name, _, service = line.partition("\t")
+                if service and name.startswith(f"{project}-"):
+                    found.add(service)
+        return sorted(found)
+
+    async def stop_services(self, services: Collection[str]) -> list[str]:
+        """Stop only *services* of the copy, keeping their containers and volumes; the rest of
+        the copy stays up. Only for a project named ``eval-*``. The services stopped."""
+        project = guard(self.project)
+        own = set((await self.services()).values())
+        stop = sorted(s for s in services if s in own)
+        if not stop:
+            return []
+        code, _, err = await _run(
+            _docker(), "compose", "-p", project, "stop", *stop, limit=180, cwd=Path("/"),
+            secrets=self._secrets,
+        )  # fmt: skip
+        if code != 0:
+            raise LaunchError(f"couldn't stop {', '.join(stop)} of {project}: {_tail(err)}")
+        return stop
+
+    async def answers(self, seconds: float = 60) -> bool:
+        """Whether the copy's app answers within *seconds*: :attr:`health` below 400 when given,
+        else anything at all on its address. One health call, with the app left as it is."""
+        url = self.copy.url if self.copy else ""
+        if not url:
+            return False
+        if self.health:
+            return await _healthy(url + self.health, seconds)
+        return await _healthy(url, seconds, any_answer=True)
 
     async def resume(self) -> None:
         """Start what :meth:`pause` stopped and wait until every container is healthy (and

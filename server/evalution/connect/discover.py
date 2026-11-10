@@ -50,7 +50,7 @@ from evalution.adapters.base import (
     read_env,
 )
 from evalution.code import SKIP_DIRS, is_secret
-from evalution.connect import connect
+from evalution.connect import connect, repository
 from evalution.connect.scrub import scrub_text
 from evalution.core import net
 from evalution.core.case import SLUG
@@ -357,6 +357,8 @@ class Job:
     secrets: dict[str, str] = field(default_factory=dict)
     #: How to send traces to evalution (:func:`setup.advice`), and ``arriving``.
     traces: dict[str, Any] | None = None
+    #: The repository the app was given by, cloned into *folder* before it is read.
+    clone: repository.Address | None = None
 
     def step(self, text: str) -> dict[str, str]:
         made = {"text": text, "state": "doing"}
@@ -399,6 +401,7 @@ class Job:
             ],
             "target": target,
             "traces": self.traces,
+            "repository": self.clone.as_dict() if self.clone else None,
         }
 
 
@@ -510,8 +513,12 @@ class Discoveries:
         llm: LLM | None,
         traces_url: str,
         store: SpanStore,
+        data_dir: Path | None = None,
     ) -> None:
         self.root = root
+        #: Where a repository given by its address is cloned: ``<this>/code/<target>``. The
+        #: config's own default when not given.
+        self.data_dir = Path(data_dir) if data_dir is not None else root / "data"
         self.names = names
         self.llm = llm
         #: Where apps send traces to evalution, as this computer reaches it.
@@ -529,9 +536,21 @@ class Discoveries:
         return name
 
     def start(self, path: str) -> Job:
-        """Look at a project folder, or at an app given by its address."""
-        address = urlsplit(path.strip()) if _URL.match(path.strip()) else None
-        if address:
+        """Look at a project folder, at a repository on the code host (``owner/repo``,
+        ``github.com/owner/repo``, ``owner/repo#412``, ``owner/repo@ref``: cloned first, see
+        :mod:`evalution.connect.repository`), or at an app given by its address. A folder that is
+        there wins over a repository of the same name."""
+        text = path.strip()
+        repo = repository.parse(text)
+        if repo is not None and folder_of(text).is_dir():
+            repo = None
+        address = urlsplit(text) if repo is None and _URL.match(text) else None
+        if repo is not None:
+            name = self._free_name(repo.repo)
+            job = Job(secrets.token_hex(6), repository.folder(self.data_dir, name), name)
+            job.clone = repo
+            job.step(f"Cloning {repo.said}")
+        elif address:
             host = address.hostname or "app"
             job = Job(secrets.token_hex(6), None, self._free_name(_app_name(host)))
             job.base = f"{address.scheme}://{address.netloc}"
@@ -572,6 +591,10 @@ class Discoveries:
         if job.folder is None:
             await self._address(job, reading)
             return
+        if job.clone is not None:
+            if not await self._clone(job, reading):
+                return
+            reading = job.step(f"Reading {job.clone.said}")
         if not job.folder.is_dir():
             reading["text"] = f"There's no folder at {job.folder}. Check the path and try again."
             reading["state"] = "problem"
@@ -585,6 +608,21 @@ class Discoveries:
         else:
             await self._generic(job, await asyncio.to_thread(_files, folder))
         await self._finish(job, await asyncio.to_thread(_files, folder))
+
+    async def _clone(self, job: Job, cloning: dict[str, str]) -> bool:
+        """Clone the repository *job* was given by into its folder, with the person's own git
+        credentials; whether it was."""
+        assert job.clone is not None
+        try:
+            _, commit = await asyncio.to_thread(
+                repository.clone, job.clone, self.data_dir, job.name
+            )
+        except repository.CloneError as exc:
+            cloning.update(text=str(exc), state="problem")
+            job.status = "failed"
+            return False
+        cloning.update(text=f"Cloned {job.clone.said} at {commit[:7]}", state="done")
+        return True
 
     async def _address(self, job: Job, looking: dict[str, str]) -> None:
         """An app given by its address: nothing to read, so what its chat route takes is a first

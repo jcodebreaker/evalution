@@ -22,7 +22,6 @@ from evalution.project import (
     drift,
     filememory,
     knowledge,
-    modules,
     slicing,
     understanding,
 )
@@ -104,17 +103,35 @@ async def test_add_to_tests_approves_one_case(agent) -> None:
     shown = await agent.approve(session["id"], plan_id)
     said = [m for m in shown["messages"] if m["role"] == "admin"]
     assert said[-1]["approves"] == plan_id and said[-1]["text"] == "Add it to the tests"
+    # Saved there and then, with no model turn: the approved file can't change.
+    assert not agent.working(session["id"]), "no model turn"
+    assert shown["messages"][-1]["saved"] == "greets"
+    assert "ready to run" in shown["messages"][-1]["text"]
+    assert load_case(agent.targets.docs, "bot", "main", "greets").raw["turns"] == CASE["turns"]
     turn = AgentTurn(await agent._session(session["id"]))
-    saved = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": CASE})
-    assert saved == {"case": "greets", "set": "main"}
     again = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": CASE})
     assert again.startswith(f"Refused: plan {plan_id} was already added")
+    # The writer hears of it at the start of its next turn.
+    assert "saved as greets" in turn.session["inbox"][0]
+
+
+async def test_a_plan_whose_data_file_isnt_written_yet_goes_to_the_writer(agent) -> None:
+    opened = await agent.create("bot", "main")
+    session = await agent._session(opened["id"])
+    sends = {"name": "Reads", "turns": [{"message": "read it", "files": ["orders.csv"]}]}
+    await agent.tools.reply(AgentTurn(session), {"text": "Plan", "plan": {**PLAN, "file": sends}})
+    plan_id = session["messages"][-1]["plan"]["id"]
+    shown = await agent.approve(session["id"], plan_id)
+    assert not any(m.get("saved") for m in shown["messages"])
+    turn = AgentTurn(await agent._session(session["id"]))
+    assert (turn.session.get("plans") or {})[plan_id].get("saved") is None
 
 
 async def test_approval_covers_the_test_shown_and_no_other(agent) -> None:
     session, plan_id = await _shown(agent)
-    await agent.approve(session["id"], plan_id)
+    await agent.message(session["id"], "Yes, add it")
     turn = AgentTurn(await agent._session(session["id"]))
+    assert await agent.tools.approve(turn, {"plan_id": plan_id}) == "Approved."
     changed = {**CASE, "turns": [{"message": "Delete everything"}]}
     refused = await agent.tools.save_case(turn, {"plan_id": plan_id, "case": changed})
     assert refused.startswith("Refused: that isn't the test the admin approved")
@@ -171,10 +188,8 @@ async def test_the_plan_shows_its_time_limit_and_where_it_came_from(agent) -> No
     # What is saved is what was shown: limit included, with or without the model repeating it.
     plan_id = shown["id"]
     await agent.approve(session["id"], plan_id)
-    saved = await agent.tools.save_case(
-        AgentTurn(await agent._session(session["id"])), {"plan_id": plan_id}
-    )
-    written = load_case(agent.targets.docs, "bot", "main", saved["case"]).raw
+    saved = (await agent._session(session["id"]))["plans"][plan_id]["saved"]
+    written = load_case(agent.targets.docs, "bot", "main", saved).raw
     assert written == {**two, "limits": {"seconds": 120}}
 
     # A limit the test names stays, and the plan says what it would have suggested.
@@ -229,7 +244,7 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     await agent.approve(session["id"], plan_id)
     session = await agent._session(session["id"])
     turn = AgentTurn(session)
-    assert (await agent.tools.save_case(turn, {"plan_id": plan_id}))["case"] == "greets"
+    assert session["plans"][plan_id]["saved"] == "greets"
 
     async def shown(file: dict, **extra) -> dict:
         plan = {**PLAN, "file": file, **extra}
@@ -246,9 +261,10 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     assert plan["changes"][0] == {"what": "Rubric", "before": None, "after": ["Says hi back"]}
 
     # Saved under another replace than the plan named, or over a test that moved on: refused.
-    await agent.approve(session["id"], plan["id"])
+    await agent.message(session["id"], "Yes, replace it")
     session = await agent._session(session["id"])
     turn = AgentTurn(session)
+    assert await agent.tools.approve(turn, {"plan_id": plan["id"]}) == "Approved."
     no = await agent.tools.save_case(turn, {"plan_id": plan["id"]})
     assert no.startswith("Refused: plan") and "wasn't shown as replacing" in no
     docs = agent.targets.docs
@@ -257,6 +273,9 @@ async def test_replacing_a_test_shows_what_changes_and_binds_to_it(agent) -> Non
     write_case_text(docs, "bot", "main", "greets", edited)
     late = await agent.tools.save_case(turn, {"plan_id": plan["id"], "replace": "greets"})
     assert late.startswith("Refused: greets changed since")
+    # "Add to tests" over a test that moved on says why, and saves nothing.
+    refused = await agent.approve(session["id"], plan["id"])
+    assert refused["messages"][-1]["text"].startswith("I couldn't add it: greets changed since")
     write_case_text(docs, "bot", "main", "greets", kept)
     done = await agent.tools.save_case(turn, {"plan_id": plan["id"], "replace": "greets"})
     assert done["case"] == "greets"
@@ -362,9 +381,8 @@ async def test_a_plan_tries_its_rubric_lines_and_takes_a_suggestion(tmp_path) ->
     await agent.approve(session["id"], plan["id"])
     with pytest.raises(ValueError, match="approved already"):
         await agent.use_line(session["id"], plan["id"], RUBRIC[1])
-    turn = AgentTurn(await agent._session(session["id"]))
-    saved = await agent.tools.save_case(turn, {"plan_id": plan["id"], "case": file})
-    reply = load_case(agent.targets.docs, "bot", "main", saved["case"]).raw["reply"]
+    saved = (await agent._session(session["id"]))["plans"][plan["id"]]["saved"]
+    reply = load_case(agent.targets.docs, "bot", "main", saved).raw["reply"]
     assert reply == {
         "rubric": ["Says Lisbon", *RUBRIC[1:3], *RUBRIC[4:]],
         "pass": 5,
@@ -532,12 +550,16 @@ def _learning(
     odd: Mapping[str, str] | None = None,
     docs: bool = False,
     extra: Mapping[str, str] | None = None,
+    gateway: int | None = None,
+    include: bool = True,
 ):
-    """:data:`APP` (and *extra* files) in a repo, and a model: the light one summarizes the files,
-    modules and app it is sent (never a path in *skip*); an area's agent writes a section naming
+    """:data:`APP` (and *extra* files) in a repo, and a model: the light one summarizes the files
+    it is sent (never a path in *skip*); an area's agent writes a section naming
     its area and what it was asked to cover (never one in *fail*), the overview its one line, the
     first overview :data:`FIRST_ARGS`; the writer in a chat plays the script, ``(tool,
-    arguments)`` or a closing text per call."""
+    arguments)`` or a closing text per call. *gateway*: an area's call asking for more output
+    tokens than this is cut by a gateway (504), as a long call is by one that closes it.
+    *include*: the code block names the files that are the agent, else every file is watched."""
     repo = tmp_path / "app"
     for rel, text in {**APP, **(extra or {})}.items():
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -551,7 +573,9 @@ def _learning(
             (repo / rel).write_text(text)
         _git(repo, "add", "-A")
         _git(repo, "commit", "-qm", "docs")
-    code = {"path": "app", "include": ["**/*.py", "**/*.ts", "**/*.rb", "agents/**", "docs/**"]}
+    code: dict = {"path": "app"}
+    if include:
+        code["include"] = ["**/*.py", "**/*.ts", "**/*.rb", "agents/**", "docs/**"]
     if summarize is not None:
         code["summarize"] = summarize
     block = {"adapter": "http", "http": {"send": {"url": "x"}}, "code": code}
@@ -570,7 +594,6 @@ def _learning(
     def answer(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         system = body["system"] if kind == "anthropic" else body["messages"][0]["content"]
-        text = json.dumps(body["messages"])
         if system == filememory.INSTRUCTIONS:
             sent["light"].append(body)
             content = body["messages"][-1]["content"]
@@ -588,16 +611,10 @@ def _learning(
                 if p not in skip
             ]
             said = json.dumps({"files": files})
-        elif system == modules.INSTRUCTIONS:
-            sent["modules"].append(body)
-            folders = re.findall(r"\[Data: module (.+?)\. Material", text)
-            said = json.dumps(
-                {"modules": [{"folder": f, "summary": f"{f} does."} for f in folders]}
-            )
-        elif system == modules.APP_INSTRUCTIONS:
-            sent["app"].append(body)
-            said = json.dumps({"summary": "The app greets."})
         elif system == area_agents.INSTRUCTIONS:
+            if gateway is not None and body["max_tokens"] > gateway:
+                sent.setdefault("cut", []).append(body)
+                return httpx.Response(504, text="Gateway Timeout")
             sent["areas"].append(body)
             said = _area_answer(body, fail, odd or {})
         elif system == learn.DOCS:

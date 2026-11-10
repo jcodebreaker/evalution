@@ -3,10 +3,19 @@
 A target with a proven isolation plan, whose evidence hasn't changed since, plays on copies of the
 app: one per slot, ``eval-<target>-<slot>``, started once per run (:class:`Copies`). Each copy's
 stores, as the plan names them, are kept once as the **starting state**, with their hashes. Before
-every try the copy is stopped as far as its stores need, every store is put back, the copy is
-started again, and every store's hash is compared with the starting state's. One that differs, or
-can't be put back, leaves the try unjudged: "reset didn't hold: <store>". After the run, however it
-ends, every store is put back, the databases' kept copies are dropped and every copy is taken down.
+every try the copy is stopped as far as its stores need (:mod:`evalution.isolation.hot`: not at
+all for a database, the services mounting a volume, else the whole copy; the whole copy unless the
+plan's rehearsal proved less), every store is put back, the copy is started again, and every store
+is checked against the starting state. A slot's first try needs no put back when the copy, started
+again after keeping, still hashes as kept and nothing opened a session on it since.
+
+The check is a full hash after a slot's first put back and once more at the end of the run, and a
+cheap one between (each store's shape, and a database made again since the try began), unless
+``isolation.verify`` is ``every_try``. A store that differs, or can't be put back, leaves the try
+unjudged: "reset didn't hold: <store>". When the end-of-run hash doesn't hold, the tries checked
+only cheaply since the last full hash are marked so too (:attr:`Copies.late`). After the run,
+however it ends, every store is put back, the databases' kept copies are dropped and every copy is
+taken down.
 
 The target's test setup (:mod:`evalution.isolation.setup`) says how many copies play side by
 side, whether a copy is put back before every try or only before each test's first, what each
@@ -44,8 +53,10 @@ from evalution.adapters.base import Capabilities, Isolation, Target, TargetGone
 from evalution.config import Config, ConfigError
 from evalution.core.case import CLEAN_KINDS
 from evalution.core.version import Checkout, Version, on_images, on_tree, unstarted
+from evalution.isolation import hot, outbound
 from evalution.isolation.drivers import Driver, PostgresStore
 from evalution.isolation.drivers.base import DockerError, Refused
+from evalution.isolation.hot import NoAnswer
 from evalution.isolation.isolate import (
     ComposeCopy,
     Copy,
@@ -62,8 +73,17 @@ from evalution.isolation.isolate import (
     take_down,
     work_folder,
 )
-from evalution.isolation.launch import LaunchError, free_port
-from evalution.isolation.plan import Plan, PlanStore, hashes, stale
+from evalution.isolation.launch import (
+    OWNER_LABEL,
+    RUN_LABEL,
+    LaunchError,
+    free_port,
+    owner_gone,
+    owner_id,
+    sweep,
+)
+from evalution.isolation.lock import Busy, TargetLock
+from evalution.isolation.plan import Plan, PlanStore, hashes, not_put_back, stale
 from evalution.isolation.setup import Setup, SetupError, person_name, seed_path, setup_for
 from evalution.results.record import isolation, run_isolation
 from evalution.runs.page.map import page_map_of
@@ -78,8 +98,8 @@ _logger = logging.getLogger(__name__)
 FIX = "evalution isolate --target {target}"
 #: The start of a try's ``problem`` when its copy wasn't put back as the plan says.
 DIDNT_HOLD = "reset didn't hold"
-#: Stores a plan may have that no driver resets: the app's memory is then not promised clean.
-_NOT_RESET = ("identity", "none")
+#: Copies started at the same time, at most: each is a compose up and a wait for healthy.
+STARTING_AT_ONCE = 3
 #: Kinds of store that hold files a person sent.
 _FILE_KINDS = ("volume", "dir")
 
@@ -214,8 +234,9 @@ def covered(plan: Plan) -> frozenset[str]:
     """What a try on a copy this proven *plan* puts back starts clean of. Its rehearsal sent a
     message to be remembered, and found it nowhere once the stores were put back: so the
     conversation, and the memory too unless a store the plan can't reset (hosted, or kept by
-    person only) could hold it. Files, when a planned store is a volume or a folder."""
-    reset = [s for s in plan.stores if s.strategy not in _NOT_RESET and s.kind != "hosted"]
+    person only, or a database of a kind no driver puts back) could hold it. Files, when a
+    planned store is a volume or a folder."""
+    reset = [s for s in plan.stores if not not_put_back(s)]
     if not reset:
         return frozenset()
     found = {"conversation"}
@@ -244,6 +265,8 @@ async def rehearse_again(config: Config, target: str, found: Footing) -> Footing
     assert plan is not None
     try:
         plan = await rehearse_plan(config, target, plan, slot=0)
+    except Busy:
+        raise  # another holds the copy: says nothing of the plan
     except (LookupError, LaunchError, SetupError) as exc:
         plan.status = "failed"
         plan.report = f"{plan.report}\n\nRehearsing again before a run failed: {exc}"
@@ -277,6 +300,21 @@ class Slot:
     adapter: Target | None = None
     #: Stores the plan names that no driver resets, in words.
     notes: list[str] = field(default_factory=list)
+    #: How far the copy stops while it is put back (:mod:`evalution.isolation.hot`): ``all``
+    #: unless the plan's rehearsal proved less, and ``all`` again once the app didn't answer.
+    how: str = "all"
+    #: The services stopped when :attr:`how` is ``services``: those mounting a kept volume.
+    services: list[str] = field(default_factory=list)
+    #: Nothing has opened a session on the copy since its starting state was kept: the next
+    #: try needs no put back.
+    fresh: bool = False
+    #: Times the copy was put back in this run.
+    restores: int = 0
+    #: Each store's cheap shape in the starting state, for the check between full hashes.
+    shapes: dict[str, str | None] = field(default_factory=dict)
+    #: The labels of tries checked only cheaply since the last full hash that held: the
+    #: end-of-run hash marks them when it doesn't hold.
+    since_hash: list[dict[str, Any]] = field(default_factory=list)
 
 
 class CopyLost(TargetGone):
@@ -356,9 +394,13 @@ class Copies:
         *,
         spec: dict[str, Any] | None = None,
         env: dict[str, str] | None = None,
+        run: str | None = None,
     ) -> None:
         """*spec* and *env*: how each copy starts when not as the plan says, a version of the code
-        evalution checked out and built (:mod:`evalution.runs.versioned`)."""
+        evalution checked out and built (:mod:`evalution.runs.versioned`). *run*: the run they
+        play, labelled on each compose copy with this evalution as its owner, so a copy a stopped
+        server left behind is found and removed (:func:`~evalution.isolation.launch.sweep`)."""
+        self.run = run
         assert found.plan is not None
         self.config = config
         #: The test setup the copies play on: the person, the sample data, when they're put back.
@@ -377,6 +419,13 @@ class Copies:
         #: Settings every copy starts with beside the traces': a version's image names.
         self.version_env = dict(env or {})
         self.slots: list[Slot] = []
+        #: How often a copy's stores are hashed whole once put back (``isolation.verify``).
+        self.verify = config.isolation.verify
+        #: Labels of tries the end-of-run hash found not put back: they read as not judged.
+        self.late: list[dict[str, Any]] = []
+        #: Held from :meth:`start` to :meth:`close`: no other run or rehearsal of the target,
+        #: here or from the command line, starts copies meanwhile.
+        self.lock = TargetLock(config.data_dir, target)
 
     @property
     def reset(self) -> str:
@@ -384,76 +433,134 @@ class Copies:
         return self.setup.reset
 
     async def start(self, slots: int) -> None:
-        """Start *slots* copies one after another, load the setup's sample data into each one's
-        Postgres stores, keep each one's starting state, point an adapter at each and have it
-        play as the setup's test person. Whatever was started stays in :attr:`slots`, for
-        :meth:`close`.
+        """Start *slots* copies side by side (at most :data:`STARTING_AT_ONCE` at a time), load
+        the setup's sample data into each one's Postgres stores, keep each one's starting state,
+        point an adapter at each and have it play as the setup's test person. Whatever was started
+        stays in :attr:`slots`, in slot order, for :meth:`close`, even when another failed.
 
         :raises LaunchError: A copy didn't start, or the setup's sample data isn't there.
+        :raises Busy: Another run or rehearsal of the target holds its copies.
         """
         try:
             seed = seed_path(self.config, self.target, self.setup)
         except SetupError as exc:
             raise LaunchError(f"the test setup's sample data can't be loaded: {exc}") from exc
+        self.lock.acquire()
+        # What a server that stopped left of its copies goes first: it would hold their names.
+        data_dir = self.config.data_dir
+        await sweep(lambda owner: owner_gone(data_dir, owner))
         if self.spans is not None and self.intake is None:
             self.intake = await Intake.start(self.spans)
             self.env = trace_env(self.config, self.target, self.intake.url)
-        took = True
-        for index in range(slots):
-            work = await asyncio.to_thread(work_folder, self.config, self.target)
-            copy = copy_of(
-                self.spec, self.target, index, work, env={**self.env, **self.version_env}
-            )
-            slot = Slot(index, copy, work)
-            self.slots.append(slot)
-            await slot.copy.start()
-            roots = roots_of(slot.copy, self.spec)
-            slot.drivers = await stores_on(
-                self.plan, slot.copy, roots=roots, notes=slot.notes, seed=seed
-            )
-            slot.keep_up = [d.container for d in slot.drivers if isinstance(d, PostgresStore)]
-            await self._pause(slot)
-            slot.before = await _digests(slot.drivers)
-            for i, driver in enumerate(slot.drivers):
-                await asyncio.to_thread(driver.keep, work / "kept" / str(i))
-                slot.kept.append((driver, work / "kept" / str(i)))
-            await self._resume(slot)
-            # Through the app's page too, when the target has a page map (ADR 0010).
-            slot.adapter = on_page(
-                self.config.targets[self.target],
-                adapter_on(self.config, self.target, slot.copy.url),
-                slot.copy.url,
-                index,
-            )
-            took = await play_as(slot.adapter, self.setup.person) and took
+        # Settings that reach outside the copy start empty, unless the person allowed them.
+        shut = await asyncio.to_thread(
+            outbound.blocked_for, self.config.data_dir, self.target, self.spec
+        )
+        at_once = asyncio.Semaphore(STARTING_AT_ONCE)
+
+        async def one(index: int) -> bool:
+            async with at_once:
+                return await self._start_slot(index, seed, shut)
+
+        # Each one to its end, so none is left starting behind a failed one.
+        done = await asyncio.gather(*(one(i) for i in range(slots)), return_exceptions=True)
+        self.slots.sort(key=lambda s: s.index)
+        failed = [d for d in done if isinstance(d, BaseException)]
+        if failed:
+            raise failed[0]
+        took = all(done)
         self.person = person_name(self.setup) if self.slots and took else None
+
+    async def _start_slot(self, index: int, seed: Path | None, shut: dict[str, str]) -> bool:
+        """Start slot *index*'s copy and keep its starting state (see :meth:`start`); whether its
+        adapter took the setup's test person."""
+        work = await asyncio.to_thread(work_folder, self.config, self.target)
+        copy = copy_of(
+            self.spec, self.target, index, work, env={**shut, **self.env, **self.version_env}
+        )
+        if isinstance(copy, ComposeCopy) and self.run is not None:
+            copy.labels = {OWNER_LABEL: owner_id(self.config.data_dir), RUN_LABEL: self.run}
+        slot = Slot(index, copy, work)
+        self.slots.append(slot)
+        await slot.copy.start()
+        roots = roots_of(slot.copy, self.spec)
+        slot.drivers = await stores_on(
+            self.plan, slot.copy, roots=roots, notes=slot.notes, seed=seed
+        )
+        slot.keep_up = [d.container for d in slot.drivers if isinstance(d, PostgresStore)]
+        slot.how = hot.level(self.plan, slot.drivers, slot.copy)
+        if slot.how == "services":
+            slot.services = await hot.services_for(slot.copy, slot.drivers)
+        await self._pause(slot, "all")
+        slot.before = await _digests(slot.drivers)
+        slot.shapes = await _shapes(slot.drivers)
+        for i, driver in enumerate(slot.drivers):
+            await asyncio.to_thread(driver.keep, work / "kept" / str(i))
+            slot.kept.append((driver, work / "kept" / str(i)))
+        await self._resume(slot, "all")
+        # Started again, the copy is as kept unless the app wrote as it started: only then does
+        # its first try play without a put back.
+        try:
+            slot.fresh = await _digests(slot.drivers) == slot.before
+        except (DockerError, OSError):
+            slot.fresh = False
+        # Through the app's page too, when the target has a page map (ADR 0010).
+        slot.adapter = on_page(
+            self.config.targets[self.target],
+            adapter_on(self.config, self.target, slot.copy.url),
+            slot.copy.url,
+            index,
+        )
+        took = await play_as(slot.adapter, self.setup.person)
+        _watch_opens(slot)
+        return took
 
     def unrestored(self) -> dict[str, Any]:
         """A try's ``isolation`` when its copy isn't put back before it: a test's later try, when
         the setup puts the copy back before each test only."""
         return isolation("proven", self.version, reset=self.reset)
 
-    async def _pause(self, slot: Slot) -> None:
-        if isinstance(slot.copy, ComposeCopy):
-            await slot.copy.pause(slot.keep_up)
-        else:
-            await slot.copy.stop()
+    async def _pause(self, slot: Slot, how: str | None = None) -> None:
+        """Stop *slot*'s copy as far as *how* says, by default as far as its stores need."""
+        how = how or slot.how
+        await hot.stop(slot.copy, how, keep=slot.keep_up, services=slot.services)
 
-    async def _resume(self, slot: Slot) -> None:
-        if isinstance(slot.copy, ComposeCopy):
-            await slot.copy.resume()
-        else:
-            await slot.copy.start()
+    async def _resume(self, slot: Slot, how: str | None = None) -> None:
+        """Start what :meth:`_pause` stopped and wait until the copy answers.
+
+        :raises NoAnswer: Put back with it (partly) up, the app didn't answer.
+        """
+        await hot.start(slot.copy, how or slot.how)
 
     async def restore(self, index: int) -> dict[str, Any]:
         """Put slot *index*'s copy back to its starting state and check it: the try's
-        ``isolation``. Its ``problem`` says why the reset didn't hold, when it didn't.
+        ``isolation``. Its ``problem`` says why the reset didn't hold, when it didn't; ``check``
+        which check ran: ``kept`` (nothing touched the copy since its starting state was kept, so
+        it isn't put back), ``full`` (every store hashed) or ``quick`` (each store's shape, and a
+        database made again). ``note`` says when the app didn't answer after a put back with it
+        up, and was stopped and started, as it is for the rest of the run.
+
+        The copy stops only as far as its stores need (:mod:`evalution.isolation.hot`), when the
+        plan's rehearsal proved that; else wholly, as it always did.
 
         :raises CopyLost: The copy didn't come back.
         """
         slot = self.slots[index]
+        if slot.fresh:
+            # Its first try: nothing touched the copy since it was kept a moment before.
+            slot.fresh = False
+            ids = [store_id(d) for d in slot.drivers]
+            label = isolation("proven", self.version, None, ids, None, reset=self.reset)
+            return {**label, "check": "kept"}
         started = time.monotonic()
-        problem = None
+        problem = note = None
+        full = self.verify == "every_try" or slot.restores == 0
+        before: dict[str, str | None] = {}
+        if not full:
+            try:
+                before = await _generations(slot.drivers)
+            except (DockerError, OSError):
+                full = True  # what was there can't be told: the full hash says
         try:
             await self._pause(slot)
             for driver, kept in slot.kept:
@@ -464,24 +571,107 @@ class Copies:
             raise CopyLost(f"evalution's copy of the app didn't stop: {exc}") from exc
         try:
             await self._resume(slot)
+        except NoAnswer as exc:
+            note = await self._fall_back(slot, exc)
         except LaunchError as exc:
             raise CopyLost(f"evalution's copy of the app didn't come back: {exc}") from exc
         seconds = round(time.monotonic() - started, 1)
+        slot.restores += 1
         try:
-            now = await _digests(slot.drivers)
+            if full:
+                now = await _digests(slot.drivers)
+                same = [d for d in slot.drivers if now.get(d.name) == slot.before[d.name]]
+            else:
+                same = await self._quick(slot, before)
         except (DockerError, OSError) as exc:
-            now = {}
+            same = []
             problem = problem or f"{DIDNT_HOLD}: the stores couldn't be read ({exc})"
-        same = [d for d in slot.drivers if now.get(d.name) == slot.before[d.name]]
         checked = [store_id(d) for d in same]
         differ = [store_id(d) for d in slot.drivers if d not in same]
         if differ and problem is None:
             problem = f"{DIDNT_HOLD}: {', '.join(differ)}"
-        return isolation("proven", self.version, seconds, checked, problem, reset=self.reset)
+        label = {
+            **isolation("proven", self.version, seconds, checked, problem, reset=self.reset),
+            "check": "full" if full else "quick",
+        }
+        if note:
+            label["note"] = note
+        if not full:
+            slot.since_hash.append(label)
+        elif problem is None:
+            slot.since_hash = []
+        return label
+
+    async def _fall_back(self, slot: Slot, why: Exception) -> str:
+        """The app didn't answer after a put back with it up: stop and start the whole copy, as
+        it is for the rest of the run. What the try says of it.
+
+        :raises CopyLost: The copy didn't come back that way either.
+        """
+        _logger.warning("evals: %s: %s; restarting it from now on", self.target, why)
+        slot.how = "all"
+        try:
+            await self._pause(slot, "all")
+            await self._resume(slot, "all")
+        except LaunchError as exc:
+            raise CopyLost(f"evalution's copy of the app didn't come back: {exc}") from exc
+        return (
+            "The app didn't answer after being put back with it running, so it was stopped and "
+            "started; it is for the rest of this run."
+        )
+
+    async def _quick(self, slot: Slot, before: dict[str, str | None]) -> list[Driver]:
+        """The drivers whose store passes the cheap check: its shape is the starting state's, and
+        a database was made again since *before* (each one's generation then). A driver with no
+        cheap check is hashed whole."""
+        same: list[Driver] = []
+        for driver in slot.drivers:
+            shape = slot.shapes.get(driver.name)
+            if shape is None or not hasattr(driver, "shape"):
+                ok = await asyncio.to_thread(driver.digest) == slot.before[driver.name]
+            else:
+                ok = await asyncio.to_thread(driver.shape) == shape  # type: ignore[attr-defined]
+                was = before.get(driver.name)
+                if ok and was is not None:
+                    now = await asyncio.to_thread(driver.generation)  # type: ignore[attr-defined]
+                    ok = bool(now) and now != was
+            if ok:
+                same.append(driver)
+        return same
+
+    async def _end_check(self, slot: Slot) -> None:
+        """Once the copy is put back at the end of the run, hash every store whole when tries were
+        checked only cheaply since the last full hash. One that differs marks those tries' labels
+        as not held (they then read as not judged) and adds them to :attr:`late`."""
+        if not slot.since_hash:
+            return
+        try:
+            now = await _digests(slot.drivers)
+            differ = [store_id(d) for d in slot.drivers if now.get(d.name) != slot.before[d.name]]
+        except (DockerError, OSError) as exc:
+            differ = [f"the stores couldn't be read ({exc})"]
+        if differ:
+            said = (
+                f"{DIDNT_HOLD}: the end-of-run check found {', '.join(differ)} not put back, "
+                "and this try was checked only cheaply since the last full check"
+            )
+            for label in slot.since_hash:
+                if label.get("problem") is None:
+                    label["problem"] = said
+                    self.late.append(label)
+        slot.since_hash = []
 
     async def close(self) -> list[str]:
-        """Put every store back, drop the databases' kept copies and take every copy down, each
-        step tried whatever the one before did. What was left behind, in words."""
+        """Put every store back, check it whole when tries since the last full hash were checked
+        only cheaply (:meth:`_end_check`), drop the databases' kept copies and take every copy
+        down, each step tried whatever the one before did, then let the target's lock go. What
+        was left behind, in words."""
+        try:
+            return await self._close()
+        finally:
+            self.lock.release()
+
+    async def _close(self) -> list[str]:
         left: list[str] = []
         for slot in self.slots:
             if slot.adapter is not None:
@@ -490,11 +680,17 @@ class Copies:
                     await slot.adapter.dispose()
             try:
                 if slot.kept:
-                    await self._pause(slot)
+                    await self._pause(slot, "all")
                     for driver, kept in slot.kept:
                         await asyncio.to_thread(driver.put_back, kept)
+                    await self._end_check(slot)
             except Exception as exc:  # the copy goes anyway: it is evalution's own
                 _logger.warning("evals: %s not put back: %s", self.target, exc)
+                for label in slot.since_hash:  # nothing can vouch for the cheap checks now
+                    if label.get("problem") is None:
+                        label["problem"] = f"{DIDNT_HOLD}: the end-of-run put back failed ({exc})"
+                        self.late.append(label)
+                slot.since_hash = []
             for driver, kept in slot.kept:
                 drop = getattr(driver, "drop_golden", None)
                 if drop is not None:
@@ -544,3 +740,41 @@ async def preview(config: Config, target: str, found: Footing, checkout: Checkou
 
 async def _digests(drivers: Sequence[Driver]) -> dict[str, str]:
     return {d.name: await asyncio.to_thread(d.digest) for d in drivers}
+
+
+async def _shapes(drivers: Sequence[Driver]) -> dict[str, str | None]:
+    """Each store's cheap shape; ``None`` for a driver with no cheap check."""
+    out: dict[str, str | None] = {}
+    for d in drivers:
+        shape = getattr(d, "shape", None)
+        out[d.name] = await asyncio.to_thread(shape) if shape is not None else None
+    return out
+
+
+async def _generations(drivers: Sequence[Driver]) -> dict[str, str | None]:
+    """Each database's generation (its ``oid``) before it is put back; ``None`` for a store that
+    has none."""
+    out: dict[str, str | None] = {}
+    for d in drivers:
+        made = getattr(d, "generation", None)
+        out[d.name] = await asyncio.to_thread(made) if made is not None else None
+    return out
+
+
+def _watch_opens(slot: Slot) -> None:
+    """Mark *slot*'s copy as touched once anything opens a session on it through its adapter (a
+    check of the connection before the run, say): its first try then needs a put back after all.
+    Until then the copy is as kept, and its first try plays without one."""
+    adapter = slot.adapter
+    opened = getattr(adapter, "open", None)
+    if adapter is None or opened is None:
+        return
+
+    async def open_(*args: Any, **kwargs: Any) -> Any:
+        slot.fresh = False
+        return await opened(*args, **kwargs)
+
+    try:
+        adapter.open = open_  # type: ignore[method-assign]
+    except (AttributeError, TypeError):
+        slot.fresh = False  # can't be watched: put it back before its first try, as before

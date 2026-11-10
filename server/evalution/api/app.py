@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import sys
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse
@@ -40,9 +41,11 @@ from evalution.api.versions import versions_router
 from evalution.api.workspaces import Workspaces
 from evalution.api.writer import writer_router
 from evalution.config import Config, ConfigError
+from evalution.isolation.launch import LaunchError, owner_gone, sweep
 from evalution.project import drift, isolating, knowledge, pagemaps
 from evalution.results.store import FolderUse
 from evalution.storage import LOCAL, Database
+from evalution.storage.files import LocalFiles
 from evalution.traces.builtin import prune
 
 DAY = 24 * 3600
@@ -100,13 +103,33 @@ async def _daily_drift(workspaces: Workspaces) -> None:
                 await pagemaps.mark_stale_quietly(ws.targets, name)
 
 
-async def _daily_prune(database: Database, keep_days: int) -> None:
-    """Drop spans past ``traces.keep_days``, now and once a day: one pass over every workspace."""
+async def _sweep(data_dir: Path) -> None:
+    """Remove the ``eval-*`` copies an evalution of this data folder left when it stopped."""
+    try:
+        removed = await sweep(lambda owner: owner_gone(data_dir, owner))
+    except (LaunchError, OSError) as exc:
+        print(f"evalution: copies left behind not looked for: {exc}", file=sys.stderr)
+        return
+    if removed:
+        print(f"evalution: removed copies left behind: {', '.join(removed)}", file=sys.stderr)
+
+
+async def _daily_prune(
+    database: Database, keep_days: int, files: LocalFiles | None = None, files_days: int = 30
+) -> None:
+    """Drop spans past ``traces.keep_days``, now and once a day: one pass over every workspace.
+    The same pass deletes runs' screenshots and videos past ``files.keep_days`` (*files*: none
+    hosted, which keeps none)."""
     while True:
         try:
             await asyncio.to_thread(prune, database, keep_days)
         except SQLAlchemyError as exc:
             print(f"evalution: old spans not pruned: {type(exc).__name__}", file=sys.stderr)
+        if files is not None:
+            try:
+                await asyncio.to_thread(files.prune, files_days)
+            except OSError as exc:
+                print(f"evalution: old run files not deleted: {exc}", file=sys.stderr)
         await asyncio.sleep(DAY)
 
 
@@ -139,7 +162,16 @@ def create_app(
             raise RuntimeError("a restore is going on this data folder: let it end first")
         daily = [
             asyncio.create_task(_daily_drift(workspaces)),
-            asyncio.create_task(_daily_prune(database, config.traces.keep_days)),
+            # Copies a server that stopped left behind, before anything starts its own.
+            asyncio.create_task(_sweep(config.data_dir)),
+            asyncio.create_task(
+                _daily_prune(
+                    database,
+                    config.traces.keep_days,
+                    None if hosted else LocalFiles(config.data_dir),
+                    config.files.keep_days,
+                )
+            ),
         ]
         try:
             yield

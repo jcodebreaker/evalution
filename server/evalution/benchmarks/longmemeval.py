@@ -26,6 +26,7 @@ LongMemEval's own judge prompts (``src/evaluation/evaluate_qa.py``), for each ki
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 import statistics
@@ -35,8 +36,8 @@ from typing import Any
 
 import httpx
 
-from evalution.core.judgement import VerdictKind
-from evalution.core.rules import line_reason
+from evalution.core.judgement import Role, VerdictKind, WhyUnjudged
+from evalution.core.rules import current, line_reason
 from evalution.results.record import verdict_of
 from evalution.storage import Docs
 from evalution.suite.store import case_stems, delete_set, put_case, save_set, write_file
@@ -75,6 +76,8 @@ _TOO_FEW = 5
 #: A try's time limit: each message gets this long on average, and never less than the floor.
 _SECONDS_PER_MESSAGE = 60
 _MINIMUM_SECONDS = 300
+#: The normal quantile of a 95% range.
+_Z95 = 1.959964
 
 _SAME = "It counts if it says the same thing or shows every step to get there, not if it has part."
 _LINES = {
@@ -99,6 +102,12 @@ _KNOWN = re.compile(
     r"(.*?)(?:\. It (?:counts|still counts) .*)?$",
     re.DOTALL,
 )
+#: Why a try went unjudged that is the app's doing, not the grader's: counted wrong.
+_APP_BROKE = frozenset(
+    {WhyUnjudged.APP_UNREACHABLE, WhyUnjudged.NEVER_STARTED, WhyUnjudged.APP_BUSY}
+)
+#: How a try's ``error`` says the grader, not the app, failed (``runs/runner.py``).
+_GRADER_ERROR = "grader:"
 _UNANSWERABLE = (
     "The reply says it doesn't know, or that the information is missing or incomplete, rather "
     "than answering as if it knew. Why it can't be answered: {answer}"
@@ -313,12 +322,44 @@ def _memory(entry: Mapping[str, Any]) -> dict[str, Any] | None:
     return ((entry.get("tries") or [{}])[-1]).get("memory")
 
 
-def _said(entry: Mapping[str, Any]) -> VerdictKind:
-    """How a question came out. A try that broke off (the app hung, the computer slept) never heard
-    the question through, so its reply says nothing about memory: not judged rather than wrong."""
+def _app_reasons(entry: Mapping[str, Any]) -> bool:
+    """Whether the last try went unjudged for something the app did: it couldn't be reached, was
+    busy, or ran out of time with no sign of working."""
+    attempt = (entry.get("tries") or [{}])[-1]
+    if not attempt.get("judgements"):
+        return False
+    return any(
+        check.role is Role.MUST and check.unjudged in _APP_BROKE
+        for check in current(attempt).checks
+    )
+
+
+def _said(entry: Mapping[str, Any]) -> tuple[VerdictKind, bool]:
+    """How a question came out, and whether the app broke off (hung, crashed, couldn't be reached).
+    A user gets no answer from an app that breaks off, so that is wrong, as published scores count
+    it; only a grader that failed leaves a question not judged."""
     said = verdict_of(entry).kind
     last = (entry.get("tries") or [{}])[-1]
-    return VerdictKind.UNJUDGED if said is VerdictKind.FAIL and last.get("error") else said
+    error = str(last.get("error") or "")
+    if said is VerdictKind.UNJUDGED and _app_reasons(entry):
+        return VerdictKind.FAIL, True
+    app_error = bool(error) and not error.startswith(_GRADER_ERROR)
+    return said, said is VerdictKind.FAIL and app_error
+
+
+def wilson(right: int, judged: int) -> list[float] | None:
+    """Where the true share of right answers lies, 95% of the time, from *right* of *judged*: the
+    Wilson score interval, which holds up on a few questions and near 0 or 100%. ``None`` with
+    nothing judged."""
+    if not judged:
+        return None
+    share, z2 = right / judged, _Z95 * _Z95
+    middle = share + z2 / (2 * judged)
+    spread = _Z95 * math.sqrt(share * (1 - share) / judged + z2 / (4 * judged * judged))
+    return [
+        max(0.0, (middle - spread) / (1 + z2 / judged)),
+        min(1.0, (middle + spread) / (1 + z2 / judged)),
+    ]
 
 
 def report(run: Mapping[str, Any]) -> dict[str, Any]:
@@ -327,7 +368,7 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
     what it couldn't know."""
     kinds: dict[str, list[int]] = {}
     admitted = [0, 0]
-    unjudged = waiting = 0
+    unjudged = waiting = broke_off = 0
     saved = {
         "measured": 0,
         "written": 0,
@@ -342,16 +383,19 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
         found = _SOURCE.match(str(entry.get("source") or ""))
         if not found:
             continue
-        said = _said(entry)
+        said, broke = _said(entry)
+        broke_off += broke
         if said is VerdictKind.NOT_RUN:
             waiting += 1
             continue
         if said is VerdictKind.UNJUDGED:
             unjudged += 1
             continue
-        tally = admitted if found[2] else kinds.setdefault(found[1], [0, 0])
-        tally[0] += said is VerdictKind.PASS
-        tally[1] += 1
+        # An unanswerable question counts in accuracy and its kind, as published scores count it,
+        # and in abstention besides.
+        for tally in [kinds.setdefault(found[1], [0, 0]), *([admitted] if found[2] else [])]:
+            tally[0] += said is VerdictKind.PASS
+            tally[1] += 1
         memory = _memory(entry)
         if found[2] or not memory:
             continue
@@ -370,6 +414,10 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
     judged = sum(tally[1] for tally in kinds.values())
     return {
         "accuracy": right / judged if judged else None,
+        "range": wilson(right, judged),
+        # Set by :func:`overview`, which sees the run before.
+        "previous_accuracy": None,
+        "change_is_real": False,
         "right": right,
         "judged": judged,
         "task_average": (
@@ -383,6 +431,7 @@ def report(run: Mapping[str, Any]) -> dict[str, Any]:
         "admitted": admitted[0],
         "unanswerable": admitted[1],
         "unjudged": unjudged,
+        "broke_off": broke_off,
         "waiting": waiting,
     }
 
@@ -413,13 +462,15 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
         last = (entry.get("tries") or [{}])[-1]
         lines = last.get("rubric") or []
         rubric = entry.get("reply_rubric") or []
+        verdict, broke_off = _said(entry)
         out.append(
             {
                 "case": stem,
                 "kind": found[1],
                 "unanswerable": bool(found[2]),
                 "question": asked.split("\n", 1)[-1],
-                "verdict": _said(entry).value,
+                "verdict": verdict.value,
+                "broke_off": broke_off,
                 "memory": _memory(entry),
                 "tie_break": bool(lines and lines[0].get("tie_break")),
                 "leaning": _leaning(lines[0]) if lines else None,
@@ -444,7 +495,7 @@ def questions(run: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _facts(found: Mapping[str, Any]) -> str:
     """How far the facts got, where the memory numbers say so plainly; else just the score."""
     right, judged = found["right"], found["judged"]
-    if not judged:
+    if judged == found["unanswerable"]:
         return f"Said it didn't know {found['admitted']} of {found['unanswerable']} times."
     memory = found["memory"]
     measured, written, committed = memory["measured"], memory["written"], memory["committed"]
@@ -499,7 +550,7 @@ def happened(found: Mapping[str, Any], plan: Mapping[str, Any] | None = None) ->
     was played."""
     if untested(found, plan):
         return "Nothing compacted, so the answers were still in context. This didn't test memory."
-    answered = found["judged"] + found["unanswerable"]
+    answered = found["judged"]
     unjudged = found["unjudged"]
     if not answered and not unjudged:
         return ""
@@ -538,7 +589,29 @@ def overview(target: str, docs: Docs, runs: Iterable[Mapping[str, Any]]) -> dict
             }
         )
     played = [run for run in runs if str(run.get("set")).startswith(NAME) and _got_going(run)]
-    return {"sizes": sizes, "runs": [_run_view(run) for run in played[:_RUNS_SHOWN]]}
+    views = [_run_view(run) for run in played[:_RUNS_SHOWN]]
+    for at, view in enumerate(views):
+        _compare(view, played[at + 1 :])
+    return {"sizes": sizes, "runs": views}
+
+
+def _judge_of(run: Mapping[str, Any]) -> str | None:
+    return (run.get("judge") or {}).get("model")
+
+
+def _compare(view: dict[str, Any], older: list[Mapping[str, Any]]) -> None:
+    """Set *view*'s accuracy beside the run before it of the same size: a change is real only when
+    that run had the same judge and its accuracy lies outside this run's range."""
+    found = view["report"]
+    same = (run for run in older if run.get("set") == view["set"])
+    before = next(((run, was) for run in same if (was := report(run))["judged"]), None)
+    if before is None or _judge_of(before[0]) is None or _judge_of(before[0]) != view["judge"]:
+        return
+    was = before[1]["accuracy"]
+    found["previous_accuracy"] = was
+    if found["range"] is not None:
+        low, high = found["range"]
+        found["change_is_real"] = not low <= was <= high
 
 
 def _got_going(run: Mapping[str, Any]) -> bool:
@@ -556,7 +629,7 @@ def _run_view(run: Mapping[str, Any]) -> dict[str, Any]:
         "set": run["set"],
         "status": run.get("status"),
         "started_at": run.get("started_at"),
-        "judge": ((run.get("judge") or {}).get("model")),
+        "judge": _judge_of(run),
         "plan": run.get("plan"),
         "report": found,
         "happened": happened(found, run.get("plan")),

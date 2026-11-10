@@ -365,6 +365,7 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
             "starters": [],
             "overview": None,
             "progress": progress(targets, name),
+            "profile": None,
         }
     return {
         "version": doc["version"],
@@ -381,6 +382,7 @@ def view(targets: Targets, runs: History, name: str) -> dict[str, Any]:
         "starters": suggested(targets, name, doc["starters"]),
         "overview": doc.get("overview"),
         "progress": progress(targets, name),
+        "profile": doc.get("profile"),
     }
 
 

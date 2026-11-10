@@ -145,8 +145,9 @@ Isolate = Callable[[Config, str, Stage], Awaitable[Plan]]
 
 async def isolate(config: Config, target: str, stage: Stage) -> Plan:
     """:func:`evalution.isolation.isolate.isolate` on evalution's own copy of the app, telling
-    *stage* each step as it begins, and the plan once drafted. Sends two messages to the copy,
-    never to the person's app."""
+    *stage* each step as it begins, and the plan once drafted. Sends two messages to the copy (three
+    when the rehearsal also proves putting it back with the app running), never to the person's
+    app."""
     from evalution.isolation.isolate import isolate as run
 
     async def started(_summary: str) -> bool:

@@ -1,5 +1,4 @@
-"""The test page: a case as plain steps (worded once by the light model, else mechanically) and
-a stored try laid over it."""
+"""The test page: a case as plain steps in the mechanical words, and a stored try laid over it."""
 
 import json
 
@@ -73,9 +72,9 @@ def _set(tmp_path):
     return sent_files(docs, "bot", "main", _case())
 
 
-async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> None:
+async def test_a_case_as_plain_steps_worded_mechanically(tmp_path) -> None:
     files = _set(tmp_path)
-    plan = await case_plan(_case(), files, LABELS, PASS, None, None)
+    plan = await case_plan(_case(), files, LABELS, PASS)
     kinds = [s["kind"] for s in plan["steps"]]
     assert kinds == ["before", "say", "filler", "state", "say", "agent", "reply", "passes"]
     before = plan["steps"][0]
@@ -97,41 +96,6 @@ async def test_a_case_as_plain_steps_worded_once_else_mechanically(tmp_path) -> 
     # A file the set doesn't have, or that isn't text, is named only.
     assert peek("link.csv", None) == {"name": "link.csv"}
     assert peek("photo.csv", b"\xff\xd8") == {"name": "photo.csv"}
-
-    asked: list[str] = []
-
-    async def light(*, instructions: str, input_text: str) -> str:
-        asked.append(input_text)
-        return json.dumps(
-            {
-                "titles": {"1": "Asks for a total", "5": "Work it out with code"},
-                "items": {
-                    "never-hand_off": {"text": "Never hands the work to a helper"},
-                    "rubric-0": {"text": "rewritten"},
-                },
-                "tools": {"hand_off": "Start a helper"},
-                "behaviour": ["rubric-1"],
-            }
-        )
-
-    cache = tmp_path / "data" / "plans" / "total.json"
-    worded = await case_plan(_case(), files, LABELS, PASS, light, cache)
-    again = await case_plan(_case(), files, LABELS, PASS, light, cache)
-    assert worded == again and len(asked) == 1  # one call per case version
-    assert '"call-0"' not in asked[0]  # a labelled call is not asked about
-    steps = worded["steps"]
-    assert steps[1]["title"] == "Asks for a total"
-    agent = {i["id"]: i for i in steps[5]["items"]}
-    assert agent["never-hand_off"]["text"] == "Never hands the work to a helper"
-    assert agent["rubric-1"]["judged"] == "steps"  # about what it does: judged from the steps
-    assert [i["text"] for i in steps[6]["items"]] == ["States 4,828.13 exactly"]  # verbatim
-    assert worded["names"]["hand_off"] == "Start a helper"
-
-    async def broken(*, instructions: str, input_text: str) -> str:
-        return "no json here"
-
-    fallback = await case_plan(_case(), files, LABELS, PASS, broken, None)
-    assert fallback == plan
 
 
 def _judgement(*checks, **fields) -> Judgement:
@@ -211,7 +175,7 @@ def test_a_score_with_nothing_to_count_is_no_score() -> None:
 
 
 async def test_a_stored_try_laid_over_the_plan(tmp_path) -> None:
-    plan = await case_plan(_case(), _set(tmp_path), LABELS, PASS, None, None)
+    plan = await case_plan(_case(), _set(tmp_path), LABELS, PASS)
     reply = "The North region totals 4,828.10 across 96 orders."
     graded = parse_grade(
         json.dumps(
@@ -339,6 +303,13 @@ async def test_a_stored_try_laid_over_the_plan(tmp_path) -> None:
         (None, "never"),
         (None, "extra"),
     ]
+    # The one list the page draws "Step by step" from, beside the old shapes.
+    timeline = shown["steps_timeline"]
+    assert [e["kind"] for e in timeline if e["kind"] == "call"]
+    first_call = next(e for e in timeline if e["kind"] == "call")
+    assert first_call["expected"] == "run_code(code contains North)"
+    assert first_call["status"] == "failed"
+    assert all({"kind", "status", "span", "at", "actor"} <= set(e) for e in timeline)
 
 
 # Where a failing try first went another way than a passing one

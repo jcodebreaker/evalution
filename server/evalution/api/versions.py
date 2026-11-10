@@ -48,10 +48,29 @@ def versions_router() -> APIRouter:
 
     @router.post("/targets/{target}/versions/fetch")
     async def fetch_version(ws: Current, target: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Fetch ``{remote, branch}`` into evalution's own refs, never the person's: the commit
-        it is at."""
+        """Fetch ``{remote, branch}``, or a pull request ``{pull: N[, remote]}``, into
+        evalution's own refs, never the person's: the commit it is at. A pull request is then
+        played as the ref ``pull/N`` (or ``#N``)."""
         name = target_name(ws.targets, target)
         remote, branch = body.get("remote"), body.get("branch")
+        if "pull" in body:
+            number = body["pull"]
+            if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+                raise invalid("pull: the pull request's number, e.g. 412")
+            if remote is not None and not isinstance(remote, str):
+                raise invalid("remote: the remote's name, e.g. upstream")
+
+            def fetch_pull() -> dict[str, Any]:
+                found = _versions(ws, name)
+                try:
+                    chosen = (remote or "").strip() or found.pull_remote()
+                    commit = found.pull(number, chosen)
+                except versions.VersionError as exc:
+                    raise invalid(str(exc)) from exc
+                ref = versions.PULL_OURS.format(n=number)
+                return {"remote": chosen, "pull": number, "ref": ref, "commit": commit}
+
+            return await asyncio.to_thread(fetch_pull)
         if not isinstance(remote, str) or not remote.strip():
             raise invalid("remote: the remote's name, e.g. origin")
         if not isinstance(branch, str) or not branch.strip():
@@ -104,6 +123,9 @@ def versions_router() -> APIRouter:
             found = _versions(ws, name)
             try:
                 gone = found.remove(commit)
+            except versions.InUse as exc:
+                # A run of another evalution (a terminal's ``evalution run --ref``) plays it.
+                raise busy(str(exc)) from exc
             except versions.VersionError as exc:
                 raise invalid(str(exc)) from exc
             except LookupError as exc:

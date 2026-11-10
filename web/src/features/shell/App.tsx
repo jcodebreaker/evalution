@@ -9,8 +9,10 @@ import { isBenchmark } from "../benchmarks/BenchmarksView";
 import { OpenEnvironment } from "../environment/use-isolation";
 import type { RunTarget } from "../runs/RunConfirm";
 import { RunConfirm } from "../runs/RunConfirm";
+import { screenContext } from "../writer/context";
 import { WriterPanel } from "../writer/WriterPanel";
-import { crumbsFor } from "./crumbs";
+import { AssistantButton } from "./AssistantButton";
+import { backFor } from "./crumbs";
 import { Screen } from "./Screen";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -51,7 +53,8 @@ export function App() {
     void reloadPlan();
   }, [view, reloadPlan]);
   const writer = useWriter(scope, reloadRuns, reloadCases);
-  const { agent, ask, writerOpen, setWriterOpen, writerDraft, clearDraft } = writer;
+  const { agent, ask, writerOpen, setWriterOpen, writerDraft, clearDraft, mode, openAssistant } =
+    writer;
   const shown = useShown(place, scope, scopeKey, rows, runs, writer.agentMessages);
   // A run opened from another set's page (Home, a link) takes the page to its own set.
   const follow = followRun(place, ready(shown.detail), { target, set });
@@ -123,16 +126,14 @@ export function App() {
   const playingLabel = going ? runLabel(going.run) : "Benchmark";
   const lastDone = runs.find((run) => !live(run));
   const failing = lastDone?.tests.filter((entry) => entry.verdict === "fail").length ?? 0;
-  const crumbs = crumbsFor(place, {
-    target,
-    setName: setList.find((entry) => entry.set === set)?.name ?? null,
-    runLabel: (id) =>
-      workspace.benchmarkRuns.some((entry) => entry.run === id) ? "Benchmark run" : runLabel(id),
-    testName,
-  });
+  const benchmarkRun = (id: string) => workspace.benchmarkRuns.some((entry) => entry.run === id);
+  const back = backFor(place, { runLabel, benchmarkRun });
+  const context =
+    mode === "screen"
+      ? screenContext(place, { testName, runLabel, testRun: shown.testRun, benchmarkRun })
+      : null;
 
   const panel = writerOpen && scope !== null;
-  const working = agent.session?.status === "working";
   return (
     <OpenEnvironment.Provider value={target ? openEnvironment : null}>
       <div
@@ -151,8 +152,6 @@ export function App() {
           tests={scope && workspace.cases.status === "ready" ? rows.length : null}
           failing={failing}
           plan={ready(planLoad)}
-          asking={working}
-          onAskAi={scope ? () => setWriterOpen(!writerOpen) : null}
           cards={cards}
           onTarget={(name) => nav({ target: name, set: null, view: "home" })}
           onSet={(id) => nav({ set: id })}
@@ -160,7 +159,17 @@ export function App() {
         />
         <main className="flex min-h-0 min-w-0 flex-col max-md:min-h-[70vh]">
           <TopBar
-            crumbs={crumbs}
+            back={
+              back
+                ? {
+                    label: back.label,
+                    onClick: () => {
+                      if (back.list) nav({ view: back.list });
+                      else go(back.to);
+                    },
+                  }
+                : null
+            }
             live={
               playing
                 ? {
@@ -211,7 +220,10 @@ export function App() {
             onLearned={() => nav({ view: "app" })}
             draft={writerDraft}
             onDrafted={clearDraft}
+            context={context}
           />
+        ) : scope ? (
+          <AssistantButton onClick={openAssistant} />
         ) : null}
 
         {confirm ? (

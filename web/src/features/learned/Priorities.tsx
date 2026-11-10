@@ -20,7 +20,7 @@ export function Priorities({
     setTitle("");
     setAdding(false);
   };
-  const chip = "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[13px]";
+  const chip = "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-sm";
   return (
     <div className="flex flex-wrap gap-1.5 px-[18px] pt-1 pb-2">
       {priorities.map((entry) => (

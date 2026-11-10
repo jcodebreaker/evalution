@@ -31,7 +31,7 @@ export function PlanDetails({
     setUndoing(false);
   };
   return (
-    <div className="flex flex-col gap-3 text-[14px]" data-testid="plan-details">
+    <div className="flex flex-col gap-3 text-sm" data-testid="plan-details">
       <p className="m-0">{planStatusWords(isolation)}</p>
       {plan?.stores.length ? (
         <Group>
@@ -42,11 +42,11 @@ export function PlanDetails({
             >
               <div className="flex min-w-0 items-baseline gap-2">
                 <span className="shrink-0 font-medium">{storeKind(store.kind)}</span>
-                <span className="min-w-0 truncate font-mono text-[11.5px] text-ink-3">
+                <span className="min-w-0 truncate font-mono text-[13px] text-ink-3">
                   {store.locator}
                 </span>
               </div>
-              <span className="text-[13px] text-ink-2">
+              <span className="text-sm text-ink-2">
                 {storeHow(store)}
                 {store.seen ? "" : " · not seen in use"}
               </span>
@@ -64,20 +64,20 @@ export function PlanDetails({
             {plan.leaks.map((leak) => (
               <li key={leak} className="flex items-start gap-2">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
-                <span className="min-w-0 font-mono text-[12.5px] break-all">{leak}</span>
+                <span className="min-w-0 font-mono text-[13px] break-all">{leak}</span>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
       {isolation.evidence ? (
-        <p className="m-0 text-[13px] text-ink-3">
+        <p className="m-0 text-sm text-ink-3">
           The code named {isolation.evidence.candidates} possible places; the app used{" "}
           {isolation.evidence.touched} when watched.
         </p>
       ) : null}
       {plan?.report ? (
-        <pre className="m-0 font-mono text-[11.5px] whitespace-pre-wrap text-ink-2">
+        <pre className="m-0 font-mono text-[13px] whitespace-pre-wrap text-ink-2">
           {plan.report}
         </pre>
       ) : null}
@@ -91,7 +91,7 @@ export function PlanDetails({
           Undo the last plan
         </Button>
       ) : null}
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </div>
   );
 }

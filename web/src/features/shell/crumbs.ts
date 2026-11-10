@@ -1,49 +1,40 @@
 import type { Place, View } from "../../lib/router";
 
-const SCREEN: Record<View, string> = {
-  home: "Overview",
-  app: "What it learned",
-  environment: "Test environment",
-  tests: "Tests",
-  benchmarks: "Benchmarks",
-  runs: "Runs",
-  connect: "Connect an app",
-  model: "Settings",
+/** Where the top bar's back button leads. */
+export type Back = {
+  label: string;
+  /** A top-level screen to go to; else `to` moves within the open run. */
+  list: View | null;
+  to: Partial<Place>;
 };
 
 /**
- * Where the page is, as the top bar's breadcrumbs: the app, its test set, then the screen and
- * what's open on it (a run, a test). The last is where the person is.
+ * The top bar's way back, if the screen has one. A top-level screen has none: its own heading is
+ * its title. A test goes back to Tests (or to the run it was opened from), a run to Runs, and a
+ * benchmark's try to Benchmarks (a benchmark's run is part of that screen).
  */
-export function crumbsFor(
+export function backFor(
   place: Place,
   {
-    target,
-    setName,
     runLabel,
-    testName,
+    benchmarkRun,
   }: {
-    target: string | null;
-    setName: string | null;
-    runLabel: (id: string) => string;
-    testName: (id: string) => string;
+    runLabel: (run: string) => string;
+    benchmarkRun: (run: string) => boolean;
   },
-): string[] {
-  if (place.view === "model") return ["Settings"];
-  if (place.view === "connect" || !target) return [SCREEN.connect];
-  // The app's own screens are the app's, not a test set's.
-  const app = place.view === "app" || place.view === "environment" || place.view === "benchmarks";
-  const crumbs = [target];
-  if (!app && setName) crumbs.push(setName);
-  if (place.view === "runs" && place.run) {
-    crumbs.push(runLabel(place.run));
-    if (place.case) crumbs.push(testName(place.case));
-    return crumbs;
+): Back | null {
+  if (place.run && benchmarkRun(place.run)) {
+    if (!place.case) return null;
+    return { label: "Benchmarks", list: null, to: { view: "benchmarks", case: null, set: null } };
   }
   if (place.case && place.view !== "benchmarks") {
-    crumbs.push("Tests", testName(place.case));
-    return crumbs;
+    if (place.view === "runs" && place.run) {
+      return { label: runLabel(place.run), list: null, to: { case: null } };
+    }
+    return { label: "Tests", list: "tests", to: {} };
   }
-  crumbs.push(SCREEN[place.view]);
-  return crumbs;
+  if (place.view === "runs" && place.run) {
+    return { label: "Runs", list: "runs", to: {} };
+  }
+  return null;
 }

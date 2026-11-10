@@ -71,6 +71,7 @@ const WHY_UNJUDGED: Record<string, string> = {
   grader_unreliable: "grader unreliable here",
   page_map: "the page lacks what its page map names",
   no_reply: "the turn had no reply to show",
+  ambiguous_tool: "two tools share this name: the test must say which",
 };
 
 /** A line whose grader a person disagrees with too often: its passes don't count. */

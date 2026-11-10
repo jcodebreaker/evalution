@@ -26,3 +26,13 @@ A learn (`server/evalution/writer/learn.py`) runs in five stages: the code map (
 - The understanding gains a skeleton part and a "first pass" state; the page shows the skeleton, then areas as they land, then the overview.
 - Fewer model calls for a first learn of a big app, and later learns read only what moved in the areas that matter.
 - An area learned from cards and on-demand reads may miss what a full read would have caught in a file no one opened. The skeleton's names (every prompt, tool and store must be covered by some area's section, as today) and the trace hits are the guard; a miss is fixed by asking for that area.
+
+## Amended after a large app (2026-11-09, docs/plans/next-level.md C)
+
+A learn of a large multi-agent repository behind a company gateway made 35 areas, failed 22 on gateway timeouts and then could not save. So:
+
+- **The agent, not the repository.** Without `code.include`, areas are made only of the files that are the agent, found from the skeleton and the imports with no model (`areas.agent_scope`); the rest is `outside`, listed, learned only when asked. A learn runs at most 12 areas, heaviest first; the rest wait for the next.
+- **Calls stream**, and a call a gateway cut is asked for half the output rather than made again as it was; the reason is kept on the area.
+- **The profile is fitted, never refused**: past its cap the heaviest areas' sections are left out of `profile.md` and named; Details is not in it. The writer's copy is capped near 8,000 tokens.
+- **An area's kept section is the one source**: every save writes back into it, so a refresh survives the next learn.
+- Folder and app summaries are gone.

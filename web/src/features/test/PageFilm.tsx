@@ -17,7 +17,7 @@ const FRAME =
   "flex w-[208px] shrink-0 flex-col overflow-hidden rounded-[10px] border border-separator bg-group p-0 text-start hover:border-rule-strong focus-visible:outline-2 focus-visible:outline-ring";
 const PICKED = "border-tint ring-3 ring-tint-soft-2 hover:border-tint";
 const CAPTION =
-  "flex items-center justify-between gap-2 border-t border-separator px-3 py-2 text-[12px]";
+  "flex items-center justify-between gap-2 border-t border-separator px-3 py-2 text-[13px]";
 
 /**
  * What the page showed over a try played through it: a filmstrip of the page after each message,
@@ -67,7 +67,7 @@ export function PageFilm({ shown }: { shown: Compare }) {
                   className="block h-[128px] w-full bg-sunk object-cover object-top"
                 />
               ) : (
-                <span className="grid h-[128px] place-items-center bg-sunk px-3 text-center text-[12px] text-ink-3">
+                <span className="grid h-[128px] place-items-center bg-sunk px-3 text-center text-[13px] text-ink-3">
                   No screenshot kept
                 </span>
               )}
@@ -106,9 +106,7 @@ export function PageFilm({ shown }: { shown: Compare }) {
             <span className={CAPTION}>
               <b className="font-medium">Video</b>
               {length === null ? null : (
-                <span className="font-mono text-[11.5px] text-ink-3 tabular-nums">
-                  {clock(length)}
-                </span>
+                <span className="font-mono text-xs text-ink-3 tabular-nums">{clock(length)}</span>
               )}
             </span>
           </button>

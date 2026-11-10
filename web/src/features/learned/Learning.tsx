@@ -49,6 +49,18 @@ const STATE: Record<LearnArea["state"], { label: string; dot: string; pill: stri
       pill: "bg-sunk-2 text-ink-3",
       bar: "",
     },
+    outside: {
+      label: "Not part of the agent",
+      dot: "ring-[1.5px] ring-inset ring-rule",
+      pill: "bg-sunk-2 text-ink-3",
+      bar: "",
+    },
+    later: {
+      label: "Next learn",
+      dot: "ring-[1.5px] ring-inset ring-rule-strong",
+      pill: "bg-sunk-2 text-ink-2",
+      bar: "",
+    },
   };
 
 const tokens = (n: number) => (n ? (n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`) : "—");
@@ -102,7 +114,10 @@ function Areas({
 }) {
   const areas = progress.areas;
   const count = (state: LearnArea["state"]) => areas.filter((a) => a.state === state).length;
-  const due = areas.filter((a) => a.state !== "kept" && a.state !== "listed");
+  const due = areas.filter(
+    (a) =>
+      a.state !== "kept" && a.state !== "listed" && a.state !== "outside" && a.state !== "later",
+  );
   const finished = count("learned") + count("failed");
   const spent = areas.reduce((sum, a) => sum + a.tokens, 0);
   // "saving" is past the last stage: every stage shows done.
@@ -135,7 +150,7 @@ function Areas({
                 current && "bg-tint-soft/60",
               )}
             >
-              <span className="flex items-center gap-2 text-[14px] font-medium">
+              <span className="flex items-center gap-2 text-sm font-medium">
                 <span
                   aria-hidden
                   className={cn(
@@ -147,7 +162,7 @@ function Areas({
                 />
                 {name}
               </span>
-              <span className="font-mono text-[11.5px] text-ink-3">
+              <span className="font-mono text-[13px] text-ink-3">
                 {meta[key] || (done ? "done" : current ? "…" : "waiting")}
               </span>
             </li>
@@ -157,7 +172,7 @@ function Areas({
 
       {areas.length ? null : (
         <div className="flex flex-col gap-2 px-4 py-3">
-          <p className="m-0 flex items-center gap-2.5 text-[13px] text-ink-2">
+          <p className="m-0 flex items-center gap-2.5 text-sm text-ink-2">
             <Spinner />
             {progress.stage === "map"
               ? "Mapping the code"
@@ -166,7 +181,7 @@ function Areas({
                 : progress.stage === "read" && progress.read
                   ? `Reading the files the code map can't parse · ${progress.read_done ?? 0} of ${progress.read}`
                   : "Splitting the code into areas"}
-            <span className="ms-auto font-mono text-[11.5px] text-ink-3">
+            <span className="ms-auto font-mono text-[13px] text-ink-3">
               {clock(now - progress.at)}
             </span>
           </p>
@@ -181,7 +196,7 @@ function Areas({
         </div>
       )}
       {areas.length && areasShown ? (
-        <p className="m-0 flex flex-wrap gap-x-4 px-4 py-2.5 text-[12.5px] text-ink-3">
+        <p className="m-0 flex flex-wrap gap-x-4 px-4 py-2.5 text-sm text-ink-3">
           {progress.parallel ? <span>{progress.parallel} areas at a time</span> : null}
           <span className="ms-auto font-mono">
             {tokens(spent)} · {clock(now - progress.at)}
@@ -192,7 +207,7 @@ function Areas({
         <>
           <div
             hidden={!areas.length}
-            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-[12.5px] text-ink-2"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-separator border-b px-4 py-2.5 text-sm text-ink-2"
           >
             <span className="font-semibold text-foreground">
               {due.length} of {areas.length} areas
@@ -245,12 +260,12 @@ function AreaRow({
   onLearnArea?: LearnAreaFn;
 }) {
   const look = STATE[area.state];
-  const quiet = area.state === "kept" || area.state === "waiting" || area.state === "listed";
+  const quiet = ["kept", "waiting", "listed", "outside", "later"].includes(area.state);
   const seconds =
     area.seconds ?? (area.state === "running" && area.since ? now - area.since : undefined);
   const steps = Math.max(area.steps ?? STEPS, 1);
   const filled = Math.min(area.calls, steps);
-  const listed = area.state === "listed";
+  const listed = area.state === "listed" || area.state === "outside";
   return (
     <li
       aria-label={area.id}
@@ -268,7 +283,7 @@ function AreaRow({
           >
             {area.id}
           </span>
-          <span className="text-[11.5px] text-ink-3">
+          <span className="text-sm text-ink-3">
             {area.files} {area.files === 1 ? "file" : "files"}
           </span>
         </span>
@@ -296,7 +311,7 @@ function AreaRow({
         <>
           <span
             className={cn(
-              "hidden truncate font-mono text-[11.5px] sm:block",
+              "hidden truncate font-mono text-[13px] sm:block",
               area.state === "running" ? "text-foreground" : "text-ink-3",
             )}
             title={area.now}
@@ -308,15 +323,15 @@ function AreaRow({
                   ? "nothing in it the app uses"
                   : "")}
           </span>
-          <span className="text-end font-mono text-[11.5px] text-ink-2">{tokens(area.tokens)}</span>
-          <span className="hidden text-end font-mono text-[11.5px] text-ink-2 sm:block">
+          <span className="text-end font-mono text-[13px] text-ink-2">{tokens(area.tokens)}</span>
+          <span className="hidden text-end font-mono text-[13px] text-ink-2 sm:block">
             {seconds != null ? `${Math.round(seconds)}s` : "—"}
           </span>
         </>
       )}
       <span
         className={cn(
-          "justify-self-end rounded-full px-2 py-0.5 text-[11.5px] font-medium",
+          "justify-self-end rounded-full px-2 py-0.5 text-sm font-medium",
           look.pill,
           // On a phone the button takes the pill's place.
           listed && onLearnArea && "hidden sm:inline",

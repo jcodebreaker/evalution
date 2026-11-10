@@ -15,10 +15,22 @@ type MetricKey =
   | "compacted"
   | "abstention"
   | "retrieval";
-type Metric = { key: MetricKey; label: string; value: number | null; note: string };
+type Metric = {
+  key: MetricKey;
+  label: string;
+  value: number | null;
+  note: string;
+  /** Where the true share lies, 95% of the time. */
+  range?: [number, number] | null;
+};
 
 export function share(value: number | null): string {
   return value === null ? "–" : `${Math.round(value * 100)}%`;
+}
+
+/** A 95% range in words: `95% range 76–99%`. */
+export function rangeText(range: [number, number]): string {
+  return `95% range ${Math.round(range[0] * 100)}–${share(range[1])}`;
 }
 
 /** Questions that got as far as a verdict, right or not. */
@@ -33,8 +45,8 @@ function howCalculated(key: MetricKey, run: Run): { lines: string; who: string }
   const yesNo = `${judge} says yes or no against the known answer. Code does the arithmetic.`;
   if (key === "accuracy") {
     return {
-      lines: `questions right / questions judged\n= ${report.right} / ${report.judged} = ${share(report.accuracy)}`,
-      who: yesNo,
+      lines: `questions right / questions judged\n= ${report.right} / ${report.judged} = ${share(report.accuracy)}${report.range ? `\n\n${rangeText(report.range)} (Wilson)` : ""}${report.broke_off ? `\nthe app broke off on ${report.broke_off}, counted as wrong` : ""}`,
+      who: `${yesNo} Unanswerable questions count: right when it said it didn't know.`,
     };
   }
   if (key === "average") {
@@ -95,6 +107,7 @@ function metrics(report: Run["report"]): Metric[] {
       label: "Answer accuracy",
       value: report.accuracy,
       note: `${report.right} of ${report.judged}`,
+      range: report.range,
     },
     {
       key: "recall",
@@ -124,28 +137,22 @@ function metrics(report: Run["report"]): Metric[] {
   return all.filter((metric) => metric.value !== null);
 }
 
-/** Points gained since `before`, on the rounded numbers the cards show, so the sum agrees. */
-function change(value: number | null, before: number | null | undefined): number | null {
-  if (value === null || before === null || before === undefined) return null;
-  return Math.round(value * 100) - Math.round(before * 100);
+/** Points gained since the run before, on the rounded numbers the cards show, so the sum agrees.
+ * Only accuracy has a range, and a move inside it isn't told from chance, so only a real one shows. */
+function change(key: MetricKey, report: Run["report"]): number | null {
+  const { accuracy, previous_accuracy: before } = report;
+  if (key !== "accuracy" || !report.change_is_real || accuracy === null || before === null) {
+    return null;
+  }
+  return Math.round(accuracy * 100) - Math.round(before * 100);
 }
 
 /** The run at a glance: what happened, how far it has got, and its numbers against the run before. */
-export function Glance({
-  run,
-  previous,
-  onStopped,
-}: {
-  run: Run;
-  /** The last run of the same set that got somewhere. */
-  previous: Run | null;
-  onStopped: () => Promise<void> | void;
-}) {
+export function Glance({ run, onStopped }: { run: Run; onStopped: () => Promise<void> | void }) {
   const [open, setOpen] = useState<MetricKey | null>(null);
   const { report } = run;
   const pick = (key: MetricKey) => setOpen(open === key ? null : key);
   const cards = metrics(report);
-  const was = previous ? metrics(previous.report) : [];
   const how = open ? howCalculated(open, run) : null;
   const running = run.status === "running";
   const didntFinish = run.status === "stopped" || run.status === "failed";
@@ -173,7 +180,7 @@ export function Glance({
       {cards.length ? (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3">
           {cards.map((card) => {
-            const delta = change(card.value, was.find((old) => old.key === card.key)?.value);
+            const delta = change(card.key, report);
             return (
               <button
                 key={card.key}
@@ -203,10 +210,25 @@ export function Glance({
                   ) : null}
                 </span>
                 <span className="text-[12.5px] text-ink-3 tabular-nums">{card.note}</span>
+                {card.range ? (
+                  <span className="text-[12.5px] text-ink-3 tabular-nums">
+                    {rangeText(card.range)}
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
+      ) : null}
+      {cards.length ? (
+        <p className="m-0 flex flex-wrap gap-x-3 px-1 text-[12.5px] text-ink-3">
+          {report.broke_off ? (
+            <span className="font-semibold text-warning tabular-nums">
+              {report.broke_off} timed out, counted as wrong
+            </span>
+          ) : null}
+          <span>A sample of {report.judged} questions, not comparable with published scores.</span>
+        </p>
       ) : null}
       {how ? (
         <div className="glass flex flex-col gap-1.5 rounded-xl px-5 py-3.5">

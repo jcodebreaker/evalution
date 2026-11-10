@@ -10,8 +10,8 @@ import {
   verdictWord,
 } from "../../lib/verdict";
 import { type Outcome, StatusDot } from "../../ui/status";
+import { PlayButton } from "../shared/kit";
 import { PlaysChip } from "../shared/marks";
-import { RunAction } from "./RunAction";
 
 /** A row's line under its name: why a failing test failed, else what it checks. A test played
  * through the page says which layer held first (`Stored ✓ · Answered ✓ · Shown ✕`), then why, in
@@ -131,9 +131,9 @@ export function Results({
   const shown = open === "failed" ? failed : open === "not_run" ? notRun : rows;
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-separator px-5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-5">
         {shownTabs.length > 1 ? (
-          <div role="tablist" aria-label="Results" className="flex gap-1">
+          <div role="tablist" aria-label="Results" className="flex gap-[22px]">
             {shownTabs.map((entry) => (
               <button
                 key={entry.id}
@@ -142,21 +142,14 @@ export function Results({
                 aria-selected={open === entry.id}
                 onClick={() => setTab(entry.id)}
                 className={cn(
-                  "-mb-px inline-flex h-[38px] items-center gap-1.5 border-b-2 px-2 font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint",
+                  "-mb-px inline-flex h-11 items-center gap-1.5 border-b-2 px-1 font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint",
                   open === entry.id
-                    ? "border-tint text-tint-ink"
+                    ? "border-tint text-ink"
                     : "border-transparent text-ink-2 hover:text-foreground",
                 )}
               >
                 {entry.label}
-                <span
-                  className={cn(
-                    "rounded-full px-1.5 font-mono text-[11px] font-medium",
-                    open === entry.id ? "bg-tint-soft text-tint-ink" : "bg-sunk-2 text-ink-2",
-                  )}
-                >
-                  {entry.n}
-                </span>
+                <span className={cn("font-mono text-xs font-medium text-ink-3")}>{entry.n}</span>
               </button>
             ))}
           </div>
@@ -165,7 +158,7 @@ export function Results({
         )}
         {layered ? (
           <p
-            className="m-0 ms-auto flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-[12px] text-ink-2"
+            className="m-0 ms-auto flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-[13px] text-ink-2"
             data-testid="layer-key"
           >
             {Object.values(HELD).map((held) => (
@@ -178,27 +171,25 @@ export function Results({
         ) : null}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[14px]">
+        <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-sunk text-[12px] text-ink-3">
-              <th className="px-5 py-2 text-start font-medium">Test</th>
+            <tr className="text-[13px] text-ink-3">
+              <th className="border-b border-rule px-5 py-2.5 text-start font-medium">Test</th>
               {layered
                 ? columns.map((entry) => (
                     <th
                       key={entry.layer}
-                      className="px-3 py-2 text-center font-medium whitespace-nowrap"
+                      className="border-b border-rule px-3 py-2.5 text-center font-medium whitespace-nowrap"
                     >
                       {entry.label}
                     </th>
                   ))
                 : null}
-              <th className="px-3 py-2 text-end font-medium">Tries</th>
-              <th className="py-2 ps-3 pe-5 text-end font-medium">Time</th>
-              {going ? null : (
-                <th className="w-0 pe-3">
-                  <span className="sr-only">Run</span>
-                </th>
-              )}
+              <th className="border-b border-rule px-3 py-2.5 text-end font-medium">Tries</th>
+              <th className="border-b border-rule py-2.5 ps-3 pe-5 text-end font-medium">Time</th>
+              <th className="w-0 pe-5">
+                <span className="sr-only">Run</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -215,11 +206,11 @@ export function Results({
                 <tr
                   key={row.case}
                   onClick={() => onTest(row.case)}
-                  className="group/row border-t border-separator hover:bg-sunk"
+                  className="group/row border-t border-rule first:border-t-0 hover:bg-sunk"
                 >
-                  <td className="max-w-0 min-w-[240px] px-5 py-3">
-                    <div className="flex min-w-0 items-baseline gap-3">
-                      <StatusDot state={dot.state} label={dot.label} className="-translate-y-px" />
+                  <td className="max-w-0 min-w-[240px] px-5 py-3.5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <StatusDot state={dot.state} label={dot.label} className="size-2.5" />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="flex min-w-0 items-center gap-2">
                           <button
@@ -241,7 +232,7 @@ export function Results({
                           <span
                             title={shownLine}
                             className={cn(
-                              "truncate text-[12px]",
+                              "truncate text-[13px]",
                               failing ? "text-ink-2" : "text-ink-3",
                             )}
                           >
@@ -270,11 +261,13 @@ export function Results({
                       seconds(row.seconds)
                     )}
                   </td>
-                  {going ? null : (
-                    <td className="pe-3">
-                      <RunAction name={row.name} onRun={() => onRun(row)} />
-                    </td>
-                  )}
+                  <td className="py-2 pe-5">
+                    <PlayButton
+                      label={`Run ${row.name}`}
+                      disabled={going}
+                      onClick={() => onRun(row)}
+                    />
+                  </td>
                 </tr>
               );
             })}

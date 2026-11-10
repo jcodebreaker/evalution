@@ -123,6 +123,9 @@ class ModelConfig:
     #: is the owner's own and may go wherever they point it, as it does once this is saved.
     no_stored_key: bool = False
     keys: KeyRing = field(default_factory=KeyRing, repr=False, compare=False)
+    #: How long a model call may go without a byte before it is given up (``timeout_seconds``);
+    #: ``None``: the default. Calls stream, so this is silence, not the length of an answer.
+    timeout_seconds: float | None = None
 
     def api_key(self) -> str | None:
         """The key: a typed one, then env var ``api_key_env``, then the stored ``model.api_key``,
@@ -210,12 +213,23 @@ class TracesConfig:
 
 
 @dataclass(frozen=True)
+class FilesConfig:
+    """What a run keeps beside its evidence (a page try's screenshots and video): deleted
+    ``keep_days`` days after the run, on the daily pass that drops old spans."""
+
+    keep_days: int = 30
+
+
+@dataclass(frozen=True)
 class IsolationConfig:
     """How a run treats an app with no proven isolation plan (ADR 0009). ``require_proven``:
     refuse to run it (``evalution isolate --target T`` makes one); off (the default), it runs on
-    the app as it is, every result labelled not isolated."""
+    the app as it is, every result labelled not isolated. ``verify``: how often a copy's stores
+    are hashed whole once put back: ``run`` (the default: after a slot's first put back and at the
+    end of the run, a cheap check between) or ``every_try``."""
 
     require_proven: bool = False
+    verify: str = "run"
 
 
 @dataclass(frozen=True)
@@ -236,6 +250,7 @@ class Config:
     page_beside: frozenset[str] = frozenset()
     traces: TracesConfig = TracesConfig()
     isolation: IsolationConfig = IsolationConfig()
+    files: FilesConfig = FilesConfig()
     #: The ready-made test library (``library/stateful/*.json``).
     library_dir: Path = Path("library")
     #: One real turn before the first run on an adapter and its settings (``runs/preflight.py``).
@@ -274,12 +289,18 @@ def _model(block: dict[str, Any], keys: KeyRing) -> ModelConfig | None:
     for key in MODEL_KEYS:
         if not isinstance(models.get(key), str):
             raise ConfigError(f"model.models.{key}: must be a model id")
+    timeout = block.get("timeout_seconds")
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, int | float) or not 0 < timeout <= 3600
+    ):
+        raise ConfigError("model.timeout_seconds: seconds above 0, at most 3600")
     return ModelConfig(
         kind=kind,
         base_url=_str(block, "base_url", "model", default_url).rstrip("/"),
         api_key_env=block.get("api_key_env"),
         models={k: str(v) for k, v in models.items()},
         keys=keys,
+        timeout_seconds=float(timeout) if timeout is not None else None,
     )
 
 
@@ -332,11 +353,21 @@ def _traces(block: dict[str, Any]) -> TracesConfig:
     return TracesConfig(keep_days, float(settle), float(stuck))
 
 
+def _files(block: dict[str, Any]) -> FilesConfig:
+    keep_days = block.get("keep_days", 30)
+    if isinstance(keep_days, bool) or not isinstance(keep_days, int) or keep_days < 1:
+        raise ConfigError("files.keep_days: a whole number of at least 1")
+    return FilesConfig(keep_days)
+
+
 def _isolation(block: dict[str, Any]) -> IsolationConfig:
     required = block.get("require_proven", False)
     if not isinstance(required, bool):
         raise ConfigError("isolation.require_proven: true or false")
-    return IsolationConfig(require_proven=required)
+    verify = block.get("verify", "run")
+    if verify not in ("run", "every_try"):
+        raise ConfigError("isolation.verify: run or every_try")
+    return IsolationConfig(require_proven=required, verify=verify)
 
 
 def _check_adapters(raw: dict[str, Any]) -> bool:
@@ -508,6 +539,7 @@ def load(path: Path | None = None, docs: Docs | None = None, keys: KeyRing | Non
         page_beside=frozenset(page_beside),
         traces=_traces(_dict(data.get("traces"), "traces")),
         isolation=_isolation(_dict(data.get("isolation"), "isolation")),
+        files=_files(_dict(data.get("files"), "files")),
         library_dir=where("library_dir", "library"),
         check_adapters=_check_adapters(data),
         adapters_dir=where("adapters_dir", "data/adapters") if "adapters_dir" in data else None,

@@ -1,9 +1,8 @@
 import { cn } from "../../lib/cn";
-
-const ABOUT_RUN = /^About benchmark run \S+, reading its traces: /;
+import { askedText } from "./context";
 
 export function Bubble({ text, waiting }: { text: string; waiting?: boolean }) {
-  const asked = text.replace(ABOUT_RUN, "");
+  const { asked, about } = askedText(text);
   return (
     <div
       className={cn(
@@ -11,7 +10,7 @@ export function Bubble({ text, waiting }: { text: string; waiting?: boolean }) {
         waiting && "opacity-60",
       )}
     >
-      {asked === text ? null : <span className="text-[11.5px] text-ink-2">About this run</span>}
+      {about ? <span className="truncate text-[11.5px] text-ink-2">About {about}</span> : null}
       {asked}
     </div>
   );

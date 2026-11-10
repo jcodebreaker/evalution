@@ -75,7 +75,7 @@ export function ProofControl({
               </button>
             ))}
           </fieldset>
-          {aside ? <span className="text-[12.5px] text-ink-3">{aside(part)}</span> : null}
+          {aside ? <span className="text-sm text-ink-3">{aside(part)}</span> : null}
         </div>
       ))}
     </div>

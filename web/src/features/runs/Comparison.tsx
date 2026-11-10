@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -78,7 +78,7 @@ export function CompareWithBase({
   }
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="compare-with-base">
-      <p className="m-0 min-w-0 flex-1 text-[14px] text-ink-2">
+      <p className="m-0 min-w-0 flex-1 text-sm text-ink-2">
         {`${base.missing ?? `No run of these tests on ${base.name} yet`}.`}
       </p>
       {onRunOn ? (
@@ -132,10 +132,8 @@ export function Comparison({
     return (
       <Card data-testid="comparison">
         <CardHead title="What changed" />
-        <div className="flex flex-col gap-2 px-5 pt-2 pb-4">
-          <p className="m-0 text-[14px] text-ink-2">
-            No earlier run of this test set to compare with.
-          </p>
+        <div className="flex flex-col gap-2 px-5 py-3.5">
+          <p className="m-0 text-sm text-ink-2">No earlier run of this test set to compare with.</p>
           {onBase}
         </div>
       </Card>
@@ -162,7 +160,7 @@ export function Comparison({
       <CardHead
         title="What changed"
         aside={
-          <label className="relative inline-flex h-7 items-center gap-1 rounded-[6px] border border-rule-strong bg-group ps-2.5 pe-7 text-[13px] font-medium hover:bg-sunk focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-tint">
+          <label className="relative inline-flex h-9 items-center gap-1 rounded-[10px] border border-rule-strong bg-group ps-3 pe-7 text-sm hover:bg-sunk focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-tint">
             Compared with
             <select
               value={base}
@@ -185,12 +183,12 @@ export function Comparison({
           </label>
         }
       />
-      <div className="flex flex-col gap-2 px-5 pt-2 pb-3">
+      <div className="flex flex-col gap-2 px-5 py-3.5">
         <p className="m-0 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span className="text-[14px] font-medium text-balance">{found.headline}</span>
+          <span className="text-sm font-medium text-balance">{found.headline}</span>
           {versions?.heading ? (
             <span
-              className="font-mono text-[12px] text-ink-2"
+              className="font-mono text-[13px] text-ink-2"
               title={`${versions.now.said} vs ${versions.before.said}`}
               data-testid="compare-versions"
             >
@@ -210,7 +208,7 @@ export function Comparison({
                 key={test.case}
                 data-change={test.change}
                 className={cn(
-                  "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-t border-separator px-5 py-2",
+                  "grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 border-t border-rule px-5 py-3.5",
                   test.change === "worse" &&
                     "bg-[linear-gradient(90deg,var(--fail-soft),var(--group)_70%)]",
                   test.change === "better" &&
@@ -219,7 +217,7 @@ export function Comparison({
               >
                 <span
                   className={cn(
-                    "text-center font-mono text-[14px] font-semibold",
+                    "text-center font-mono text-sm font-semibold",
                     test.change === "worse"
                       ? "text-fail"
                       : test.change === "better"
@@ -235,7 +233,7 @@ export function Comparison({
                     type="button"
                     onClick={() => onTest(test.case)}
                     className={cn(
-                      "min-w-0 truncate text-start text-[14px] hover:underline focus-visible:outline-2 focus-visible:outline-tint",
+                      "min-w-0 truncate text-start text-sm hover:underline focus-visible:outline-2 focus-visible:outline-tint",
                       test.change === "worse" || test.change === "better"
                         ? "font-medium text-foreground"
                         : "text-ink-2",
@@ -244,7 +242,7 @@ export function Comparison({
                     {test.name}
                   </button>
                   {test.caveats.length ? (
-                    <span className="text-[12px] text-ink-3">{test.caveats.join(", ")}</span>
+                    <span className="text-[13px] text-ink-3">{test.caveats.join(", ")}</span>
                   ) : null}
                 </span>
                 <span className="font-mono text-[13px] font-medium whitespace-nowrap text-ink-2">
@@ -254,7 +252,7 @@ export function Comparison({
             );
           })}
           {same ? (
-            <li className="grid grid-cols-[24px_minmax(0,1fr)] items-baseline gap-3 border-t border-separator px-5 py-2 text-[14px]">
+            <li className="grid grid-cols-[24px_minmax(0,1fr)] items-baseline gap-3 border-t border-rule px-5 py-3.5">
               <span className="text-center font-mono font-semibold text-ink-3">
                 <span aria-hidden>=</span>
                 <span className="sr-only">Same</span>
@@ -264,7 +262,7 @@ export function Comparison({
           ) : null}
         </ul>
       ) : null}
-      <div className="flex flex-col gap-1.5 border-t border-separator px-5 py-3 text-[13px] text-ink-2">
+      <div className="flex flex-col gap-1.5 border-t border-rule px-5 py-3.5 text-sm text-ink-2">
         {found.changed.length ? (
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
             {found.changed.map((row) => (
@@ -283,27 +281,33 @@ export function Comparison({
             {`${found.code}.`}
           </p>
         ) : null}
-        {found.could_be_chance ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <p className="m-0 min-w-0 flex-1">Too few tries to tell this from the agent varying.</p>
-            {chance.length ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={going}
-                onClick={() =>
-                  onRunMore(
-                    chance.map((test) => test.case),
-                    MORE_TRIES,
-                  )
-                }
-              >
-                {`Run ${chance.length === 1 ? "it" : "them"} with ${MORE_TRIES} tries`}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
       </div>
+      {found.could_be_chance ? (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule bg-unj-soft px-5 py-3.5 text-sm"
+          data-testid="could-be-chance"
+        >
+          <TriangleAlert aria-hidden className="size-[15px] shrink-0 text-unj" />
+          <p className="m-0 min-w-0 flex-1 text-unj">
+            Too few tries to tell this from the agent varying.
+          </p>
+          {chance.length ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={going}
+              onClick={() =>
+                onRunMore(
+                  chance.map((test) => test.case),
+                  MORE_TRIES,
+                )
+              }
+            >
+              {`Run ${chance.length === 1 ? "it" : "them"} with ${MORE_TRIES} tries`}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 }

@@ -6,6 +6,8 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+from evalution.project import filememory
+from evalution.project import profile as _profile
 from evalution.project.profile import (
     FINGERPRINT_DOC,
     fingerprint_hash,
@@ -15,7 +17,7 @@ from evalution.project.profile import (
     write_profile,
 )
 from evalution.project.understanding.document import with_details
-from evalution.project.understanding.rendering import render_profile
+from evalution.project.understanding.rendering import fit_profile, only_named
 from evalution.project.understanding.steering import (
     STEERS_DOC,
     STEERS_KEPT,
@@ -33,7 +35,7 @@ VERSIONS = 10
 PROGRESS_DOC = "learn_progress.json"
 #: What a learn's progress says of itself, and of each of its areas.
 PROGRESS_STATES = ("learning", "done", "stopped")
-AREA_STATES = ("current", "learning", "done", "due", "listed", "failed")
+AREA_STATES = ("current", "learning", "done", "due", "listed", "failed", "outside")
 OVERVIEW_STATES = ("first_pass", "final")
 
 
@@ -51,14 +53,18 @@ def save(
     targets: Targets, name: str, doc: dict[str, Any], *, by: str = "agent", replace: bool = False
 ) -> dict:
     """Store *doc* as a new version (with the hash of the fingerprint kept) and render
-    the profile from it. *replace*: in place of the last version, under its number (a learn
-    saving as its areas land keeps one version, the last it saved)."""
+    the profile from it, cut to fit (:func:`fit_profile`): what is in it is kept as ``profile``
+    (``{areas, of, left_out}``). A save never fails on the profile's size. *replace*: in place of
+    the last version, under its number (a learn saving as its areas land keeps one version, the
+    last it saved)."""
     kept = versions(targets, name)
     number = (kept[-1]["version"] + 1) if kept else 1
     if replace and kept:
         number, kept = kept[-1]["version"], kept[:-1]
+    text, fit = fit_profile(name, doc, steers(targets, name), _profile.PROFILE_CAP)
     doc = {
         **doc,
+        "profile": fit,
         "version": number,
         "written_at": time.time(),
         "by": by,
@@ -66,15 +72,48 @@ def save(
     }
     write_doc(targets, name, VERSIONS_DOC, [*kept, doc][-VERSIONS:])
     write_doc(targets, name, DOC, doc)
-    write_profile(targets, name, render_profile(name, doc, steers(targets, name)), by=by)
+    write_profile(targets, name, text, by=by)
+    _into_areas(targets, name, doc)
     return doc
+
+
+def _into_areas(targets: Targets, name: str, doc: Mapping[str, Any]) -> None:
+    """Write *doc*'s area sections and nodes back into the areas a learn keeps
+    (:mod:`evalution.project.filememory`), so the area's stored section stays the one source: a
+    refresh's or a writer's edit is what the next learn merges, not what was learned before it.
+    An area's key is left as it is, so this never makes it learned again."""
+    sections = {s["id"]: s for s in doc.get("sections") or [] if isinstance(s, dict)}
+    # What the engine computes on a node (whether real use saw it) is not what an area wrote.
+    nodes = {
+        n["id"]: {k: v for k, v in n.items() if k != "seen"}
+        for n in doc.get("nodes") or []
+        if isinstance(n, dict)
+    }
+    with targets.guards.knowledge:
+        memory = filememory.load(targets, name)
+        kept = memory.get("areas") or {}
+        moved = False
+        for entry in kept.values():
+            for n, section in enumerate(entry.get("sections") or []):
+                new = sections.get(section.get("id"))
+                if new is not None and new != section:
+                    entry["sections"][n] = dict(new)
+                    moved = True
+            for n, node in enumerate(entry.get("nodes") or []):
+                new = nodes.get(node.get("id"))
+                if new is not None and new != node:
+                    entry["nodes"][n] = dict(new)
+                    moved = True
+        if moved:
+            filememory.save(targets, name, {**memory, "areas": kept})
 
 
 def progress(targets: Targets, name: str) -> dict[str, Any]:
     """How the last learn went: ``state`` (``learning``, ``done``, ``stopped``; ``None`` when no
     learn kept one, as before ADR 0012), ``started_at``, its ``areas`` heaviest first (each
     ``id``, ``title``, ``state`` (:data:`AREA_STATES`), ``weight``, ``files``, ``learned_at``)
-    and the ``overview``'s state (``first_pass``, ``final`` or ``None``)."""
+    and the ``overview``'s state (``first_pass``, ``final`` or ``None``); ``left_out``: what the
+    code's watch left out, counted (``past_cap``, ``too_large``; empty when nothing)."""
     found = read_doc(targets, name, PROGRESS_DOC)
     found = found if isinstance(found, dict) else {}
     state = found.get("state")
@@ -88,6 +127,11 @@ def progress(targets: Targets, name: str) -> dict[str, Any]:
             if isinstance(a, dict) and a.get("state") in AREA_STATES
         ],
         "overview": overview if overview in OVERVIEW_STATES else None,
+        "left_out": {
+            k: int(v)
+            for k, v in (found.get("left_out") or {}).items()
+            if k in ("past_cap", "too_large") and isinstance(v, int)
+        },
     }
 
 
@@ -109,7 +153,8 @@ def steer(targets: Targets, name: str, body: Mapping[str, Any]) -> dict[str, Any
     log = [*steers(targets, name), entry][-STEERS_KEPT:]
     write_doc(targets, name, STEERS_DOC, log)
     if "claim" in entry or "node" in entry:
-        write_profile(targets, name, render_profile(name, doc, log), by="admin")
+        text, _fit = fit_profile(name, doc, log, _profile.PROFILE_CAP)
+        write_profile(targets, name, text, by="admin")
     return entry
 
 
@@ -124,10 +169,21 @@ def written(targets: Targets, name: str) -> dict[str, Any] | None:
     return {k: doc.get(k) for k in (*keys, "expected_paths")}
 
 
-def writer_profile(targets: Targets, name: str) -> str:
-    """The profile as the writer is given it: rendered without Details (see :func:`written`), or
-    as kept when there is no understanding to render it from."""
+#: What the writer's copy of the profile may hold: about 8,000 tokens. It is sent at every step.
+WRITER_CHARS = 32_000
+
+
+def writer_profile(targets: Targets, name: str, said: str | None = None) -> str:
+    """The profile as the writer is given it, in at most :data:`WRITER_CHARS`: rendered without
+    Details (see :func:`written`), the heaviest areas' sections left out first past the cap
+    (:func:`fit_profile`), or as kept when there is no understanding to render it from. *said*:
+    the conversation so far, when given; then an area's claims are sent only when it names a
+    tool, file or name of that area (:func:`only_named`), the rest by title, for
+    ``read_understanding``."""
     stored = load(targets, name)
     if stored is None:
-        return read_profile(targets, name)
-    return render_profile(name, with_details(stored, []), steers(targets, name))
+        return read_profile(targets, name)[:WRITER_CHARS]
+    doc = with_details(stored, [])
+    if said is not None:
+        doc = only_named(doc, said)
+    return fit_profile(name, doc, steers(targets, name), WRITER_CHARS)[0]

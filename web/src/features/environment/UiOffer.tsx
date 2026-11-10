@@ -102,12 +102,12 @@ export function UiOffer({ target, className }: { target: string; className?: str
 
   return (
     <section
-      className={cn("flex flex-col gap-3 text-[14px]", className, "border-tint-soft-2")}
+      className={cn("flex flex-col gap-3 text-sm", className, "border-tint-soft-2")}
       aria-label="UI testing"
       data-testid="ui-offer"
     >
       <div className="flex flex-col gap-1">
-        <span className="inline-flex h-5 w-fit items-center rounded-[5px] bg-tint-soft px-[7px] text-[11px] font-semibold tracking-[0.01em] text-tint-ink">
+        <span className="inline-flex h-5 w-fit items-center rounded-[5px] bg-tint-soft px-[7px] text-sm font-semibold tracking-[0.01em] text-tint-ink">
           New for {target}
         </span>
         <h2 className="m-0 text-[16px] font-semibold">
@@ -157,11 +157,11 @@ export function UiOffer({ target, className }: { target: string; className?: str
             copy, keeping a screenshot of every message and a video when a try fails.
           </p>
           {offer?.can_learn ? (
-            <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{oneMessage(target)}</p>
+            <p className="m-0 max-w-[68ch] text-sm text-ink-3">{oneMessage(target)}</p>
           ) : missing && installFirst ? (
             <MissingPieceNote piece={missing} onInstalled={() => void read()} />
           ) : offer?.why_not ? (
-            <p className="m-0 max-w-[68ch] text-[13px] text-ink-3">{offer.why_not}</p>
+            <p className="m-0 max-w-[68ch] text-sm text-ink-3">{offer.why_not}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-3">
             {offer?.can_learn || (open && !installFirst) ? (
@@ -174,7 +174,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
               Not now
             </Button>
             <TextLink
-              className="text-[13px]"
+              className="text-sm"
               aria-expanded={demo}
               aria-controls="ui-demo"
               onClick={() => setDemo(!demo)}
@@ -186,7 +186,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
           <div
             id="ui-demo"
             hidden={!demo}
-            className="flex max-w-[68ch] flex-col gap-2 text-[13px] text-ink-2"
+            className="flex max-w-[68ch] flex-col gap-2 text-sm text-ink-2"
             data-testid="ui-demo"
           >
             <p className="m-0">
@@ -198,7 +198,7 @@ export function UiOffer({ target, className }: { target: string; className?: str
           </div>
         </>
       )}
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </section>
   );
 }

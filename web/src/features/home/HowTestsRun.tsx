@@ -54,7 +54,7 @@ export function HowTestsRun({
   );
   return (
     <section
-      className={cn(CARD, "flex flex-col gap-3 text-[14px]")}
+      className={cn(CARD, "flex flex-col gap-3 text-sm")}
       aria-label="How tests run"
       data-testid="how-tests-run"
     >
@@ -93,7 +93,7 @@ function Body({
             onStarted={onStarted}
           />
         </div>
-        <p className="m-0 text-[12.5px] text-ink-3">
+        <p className="m-0 text-sm text-ink-3">
           {card.can_run ? ISOLATE_COST : "Say where the app's code is first: it's found from it."}
         </p>
       </div>
@@ -169,7 +169,7 @@ function Listed({ title, items, mono }: { title: string; items: string[]; mono?:
       <span className="text-[13px] font-medium text-ink-2">{title}</span>
       <ul className="m-0 flex flex-col gap-0.5 ps-4">
         {items.map((item) => (
-          <li key={item} className={cn(mono && "font-mono text-[12.5px] break-all")}>
+          <li key={item} className={cn(mono && "font-mono text-sm break-all")}>
             {item}
           </li>
         ))}

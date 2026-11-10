@@ -7,11 +7,12 @@ import { Spinner } from "../../ui/loading";
 
 /** What finding isolation spends, said before it does. */
 export const ISOLATE_COST =
-  "This sends two messages to evalution's own copy of your app, never to your app.";
+  "This sends two or three messages to evalution's own copy of your app, never to your app.";
 
 /**
  * The one button that finds where the app keeps what it remembers and proves a plan to reset it,
- * on evalution's own copy of the app. It asks first, since it sends two messages to that copy.
+ * on evalution's own copy of the app. It asks first, since it sends two or three messages to that
+ * copy.
  */
 export function IsolateButton({
   target,
@@ -49,13 +50,13 @@ export function IsolateButton({
         <ConfirmDialog
           onClose={() => setAsking(false)}
           title="Find and prove isolation?"
-          description={`evalution starts its own copy of your app, sends it one message to see where it keeps what it remembers, then rehearses a plan to reset each place with a second message. ${ISOLATE_COST}`}
+          description={`evalution starts its own copy of your app, sends it one message to see where it keeps what it remembers, then rehearses a plan to reset each place with a second message, and a third when it can also prove putting the copy back with the app running. ${ISOLATE_COST}`}
           footer={
             <>
               <Button variant="secondary" onClick={() => setAsking(false)}>
                 Cancel
               </Button>
-              <Button onClick={() => void start()}>Send two messages</Button>
+              <Button onClick={() => void start()}>Send the messages</Button>
             </>
           }
         />

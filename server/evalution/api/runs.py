@@ -146,14 +146,15 @@ def runs_router() -> APIRouter:
     async def start_run(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
         """Start the run an estimate described, graded with its set's pass marks (pass marks
         sent here are ignored), on the app where ``environment`` names, if it says. Refused
-        without its token, or while another run is going."""
+        without its token. Asked for while another run plays, it is answered ``queued`` and
+        plays when that one ends; Stop takes it off the queue."""
         runs = ws.runs
         await runs.recover()
         token = body.get("token")
         if not isinstance(token, str) or not token:
             raise invalid("token: ask for an estimate first")
         try:
-            return await runs.start(token, env=body.get("environment"))
+            return await runs.start(token, env=body.get("environment"), queue=True)
         except RunBusyError as exc:
             raise busy("A run is already going") from exc
         except KeyError as exc:
@@ -383,6 +384,18 @@ def runs_router() -> APIRouter:
         if started is None:
             raise not_found("Run")
         return started
+
+    @router.delete("/evals/runs/{run}")
+    async def delete_run(ws: Current, run: str) -> dict[str, Any]:
+        """Forget a run: its results, its evidence and its screenshots and video. 409 while it
+        plays, waits in the queue (Stop takes it off) or its write-up is going."""
+        try:
+            gone = await ws.runs.delete(run)
+        except RunBusyError as exc:
+            raise busy("That run is playing, queued or being written up: stop it first") from exc
+        if not gone:
+            raise not_found("Run")
+        return {"run": run, "deleted": True}
 
     @router.post("/evals/runs/{run}/stop")
     async def stop_run(ws: Current, run: str) -> dict[str, Any]:

@@ -10,7 +10,7 @@ import { VersionChip } from "./Version";
 /** The runs list's columns: run, result, code, typical try, tokens, started. Code and tokens
  * drop out where the list is narrow (it sits in an `@container`). */
 export const RUN_COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_96px_72px_112px] items-center gap-x-4 @min-[720px]:grid-cols-[minmax(0,1fr)_104px_minmax(0,150px)_72px_56px_112px]";
+  "grid grid-cols-[minmax(0,1fr)_96px_72px_112px] items-center gap-x-4 @min-[720px]:grid-cols-[minmax(0,1fr)_170px_minmax(0,170px)_80px_64px_112px]";
 
 /** The runs list's heading row. */
 export function RunColumns() {
@@ -19,7 +19,7 @@ export function RunColumns() {
       aria-hidden
       className={cn(
         RUN_COLUMNS,
-        "border-b border-separator bg-sunk px-5 py-2 text-[12px] font-medium whitespace-nowrap text-ink-3",
+        "border-b border-rule px-5 py-2.5 text-[13px] font-medium whitespace-nowrap text-ink-3",
       )}
     >
       <span>Run</span>
@@ -56,29 +56,29 @@ export function RunRow({
       onClick={onOpen}
       className={cn(
         RUN_COLUMNS,
-        "w-full border-separator px-5 py-3 text-start not-first:border-t hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint",
+        "w-full border-rule px-5 py-3.5 text-start not-first:border-t hover:bg-sunk focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-tint",
       )}
     >
-      <span className="flex min-w-0 items-baseline gap-3">
+      <span className="flex min-w-0 items-center gap-3">
         {going ? (
           <Spinner />
         ) : (
-          <StatusDot state={state.dot} label={state.word} className="-translate-y-px" />
+          <StatusDot state={state.dot} label={state.word} className="size-2.5" />
         )}
         <span className="flex min-w-0 flex-col">
           <b className="font-medium">{label}</b>
-          <small title={line} className="truncate text-[12px] text-ink-3">
+          <small title={line} className="truncate text-sm text-ink-3">
             {line}
           </small>
         </span>
       </span>
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 items-center gap-2.5 @max-[719px]:flex-col @max-[719px]:items-start @max-[719px]:gap-1">
         <PartsBar
           parts={parts(found)}
           total={found.total}
-          className="h-1.5 w-[88px] rounded-[3px]"
+          className="h-2 w-[88px] shrink-0 rounded-[4px]"
         />
-        <small className="font-mono text-[11px] text-ink-3 tabular-nums">{`${found.passed} of ${found.total}`}</small>
+        <small className="font-mono text-[13px] whitespace-nowrap tabular-nums">{`${found.passed} of ${found.total}`}</small>
       </span>
       <span className="min-w-0 @max-[719px]:hidden">
         <VersionChip version={run.version} />

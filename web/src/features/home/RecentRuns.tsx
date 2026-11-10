@@ -22,7 +22,7 @@ export function RecentRuns({
 }) {
   if (!runs.length) return null;
   const shown = runs.slice(0, RECENT);
-  const th = "bg-sunk px-5 py-2 text-[12px] font-medium whitespace-nowrap text-ink-3";
+  const th = "bg-sunk px-5 py-2 text-[13px] font-medium whitespace-nowrap text-ink-3";
   return (
     <section className={PANEL} aria-labelledby="recent-runs" data-testid="recent-runs">
       <div className="flex items-baseline gap-3 px-5 pt-4 pb-3">
@@ -34,7 +34,7 @@ export function RecentRuns({
         </Button>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[14px]">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-y border-separator text-start">
               <th className={`${th} text-start`}>Run</th>
@@ -66,7 +66,7 @@ export function RecentRuns({
                         >
                           {label}
                         </button>
-                        <small className="max-w-[52ch] truncate text-[12px] text-ink-3">
+                        <small className="max-w-[52ch] truncate text-[13px] text-ink-3">
                           {runReason(run)}
                         </small>
                       </span>
@@ -115,7 +115,7 @@ function ResultBar({ run }: { run: RunSummary }) {
         <i className="h-full bg-fail" style={{ width: share(failed) }} />
         <i className="h-full bg-unjudged" style={{ width: share(unjudged) }} />
       </div>
-      <small className="font-mono text-[12px] text-ink-3 tabular-nums">
+      <small className="font-mono text-[13px] text-ink-3 tabular-nums">
         {didntStart(run) ? "didn't start" : `${run.totals.passed} of ${run.totals.cases}`}
       </small>
     </div>

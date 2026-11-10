@@ -7,10 +7,10 @@ branch, a remote's branch, a tag or a commit. For a ref, before any copy starts:
 1. **Refused before anything starts** (:func:`refusal`) when the target doesn't play on
    evalution's own copy (the person's app as it runs can't be another version), or has no proven
    build recipe: one plain next step, "Prove how <app> is built first, on Test environment."
-2. **Checked out** (:func:`prepare`): the ref resolved, a remote's branch fetched into
-   evalution's own refs when it isn't here yet, and a detached worktree of its commit made in
-   evalution's data folder (:mod:`evalution.project.versions`). The person's checkout is never
-   touched.
+2. **Checked out** (:func:`prepare`): the ref resolved, a remote's branch or a pull request
+   (``pull/412``) fetched again into evalution's own refs every time (never an earlier fetch),
+   and a detached worktree of its commit made in evalution's data folder
+   (:mod:`evalution.project.versions`). The person's checkout is never touched.
 3. **Built** with the target's proven recipe into evalution's own names, tagged with the commit's
    first twelve characters, unless that tag is built already (the recipe store's record, and the
    images still on this computer); a process app's setup runs in the worktree. What was built is a
@@ -129,8 +129,11 @@ def _versions(config: Config, target: str) -> versions.Versions:
 
 
 def name_of(ref: str, commit: str | None) -> str | None:
-    """The branch or tag *ref* names, as a person says it; ``None`` when it is a commit."""
+    """The branch, tag or pull request (``pull/412``) *ref* names, as a person says it; ``None``
+    when it is a commit."""
     ref = ref.strip()
+    if (number := versions.pull_number(ref)) is not None:
+        return versions.PULL_OURS.format(n=number)
     if commit and _HEX.match(ref) and commit.lower().startswith(ref.lower()):
         return None
     for prefix in ("refs/heads/", "refs/tags/", "refs/remotes/"):
@@ -156,18 +159,33 @@ def _last_build(config: Config, target: str, recipe: BuildRecipe) -> dict[str, A
     return done[0] if done else (recipe.last_build or {})
 
 
-def cost(config: Config, target: str, ref: str, name: str | None, commit: str | None) -> str:
+def cost(
+    config: Config,
+    target: str,
+    ref: str,
+    name: str | None,
+    commit: str | None,
+    *,
+    fetches: bool = False,
+) -> str:
     """What running *ref* does first, and what that costs, said before Run: "Checks out
-    feature-x @ a1b2c3d and builds it: about 4 min and up to 20 GB, once", or "Built already"."""
+    feature-x @ a1b2c3d and builds it: about 4 min and up to 20 GB, once", or "Built already".
+    A remote's branch or a pull request (*fetches*) is fetched again at Run, so its *commit* is
+    only the one last seen here."""
     recipe = _recipe(config, target)
     at = where(name, commit) or ref
     untouched = " Your checkout isn't touched."
+    if commit is None:
+        first = f"Fetches {ref}, checks it out"
+    elif fetches:
+        first = f"Fetches {ref} again (last seen at {short(commit)}), checks it out"
+    else:
+        first = f"Checks out {at}"
     if recipe is None:
-        return f"Checks out {at}." + untouched
-    if commit and tag_of(commit) in RecipeStore(config.data_dir).built(target):
+        return f"{first}." + untouched
+    if commit and not fetches and tag_of(commit) in RecipeStore(config.data_dir).built(target):
         done = "Set up already" if recipe.kind == "process" else "Built already"
         return f"{done}: {at}." + untouched
-    first = f"Fetches {ref}, checks it out" if commit is None else f"Checks out {at}"
     last = _last_build(config, target, recipe)
     if recipe.kind == "process":
         steps = ", ".join(" ".join(s.run) for s in recipe.setup)
@@ -192,10 +210,11 @@ def preview(config: Config, target: str, ref: str) -> dict[str, Any]:
     """
     try:
         found = _versions(config, target)
+        fetches = found.fetches(ref)
         try:
             commit: str | None = found.reach(ref, fetch=False)
         except versions.VersionError:
-            if found.remote_of(ref) is None:
+            if not fetches:
                 raise
             commit = None
     except versions.VersionError as exc:
@@ -205,7 +224,7 @@ def preview(config: Config, target: str, ref: str) -> dict[str, Any]:
     return {
         **version.as_dict(),
         "said": described(version.as_dict(), now=True),
-        "cost": cost(config, target, ref, name, commit),
+        "cost": cost(config, target, ref, name, commit, fetches=fetches),
     }
 
 
@@ -224,6 +243,9 @@ class Ready:
     :param reused: Built before, not again.
     :param notes: What the run says of it beside its version: files read from the person's
         checkout, the reset plan or page map checked on this version.
+    :param held: The run's hold on the version's checkout: no other run, here or in another
+        evalution, removes it while the run plays. Let go by :meth:`release` when the run ends
+        (or when this is collected, or the process ends).
     """
 
     ref: str
@@ -237,10 +259,16 @@ class Ready:
     reused: bool
     recipe: BuildRecipe
     notes: list[str] = field(default_factory=list)
+    held: versions.Held | None = None
 
     @property
     def where(self) -> str:
         return where(self.name, self.commit)
+
+    def release(self) -> None:
+        """Let go of the version's checkout: the run is over."""
+        if self.held is not None:
+            self.held.release()
 
     def unplayed(self, why: str | None = None) -> Version:
         return asked(self.ref, self.name, self.commit, why)
@@ -359,12 +387,42 @@ async def prepare(
         commit = await asyncio.to_thread(found.reach, ref)
         name = name_of(ref, commit)
         existed = found.path(commit).is_dir()
-        top = await asyncio.to_thread(found.checkout, commit)
-        folder = found.code_folder(commit)
-        notes: list[str] = []
-        spec = on_version(plan_spec(config, target, plan), found.top, top, folder, notes)
+        # Held for the run: no other run, here or in another evalution, removes it meanwhile.
+        held = await asyncio.to_thread(found.take, commit)
     except versions.VersionError as exc:
         raise failed(f"{ref} couldn't be checked out: {exc}") from exc
+    try:
+        ready = await _ready(config, target, ref, plan, recipe, found, held, existed, said, on_step)
+    except BaseException:
+        held.release()
+        raise
+    return ready
+
+
+async def _ready(
+    config: Config,
+    target: str,
+    ref: str,
+    plan: Plan,
+    recipe: BuildRecipe,
+    found: versions.Versions,
+    held: versions.Held,
+    existed: bool,
+    said: Said,
+    on_step: Callable[[str], object],
+) -> Ready:
+    """:func:`prepare` once the version is checked out and held: built, unless it is already."""
+    commit, top = held.commit, held.path
+    name = name_of(ref, commit)
+
+    def failed(why: str) -> NotBuilt:
+        return NotBuilt(why, asked(ref, name, commit, why))
+
+    store = RecipeStore(config.data_dir)
+    folder = found.code_folder(commit)
+    notes: list[str] = []
+    try:
+        spec = on_version(plan_spec(config, target, plan), found.top, top, folder, notes)
     except LookupError as exc:
         raise failed(f"{where(name, commit)} can't start: {exc}") from exc
     tag = tag_of(commit)
@@ -381,7 +439,8 @@ async def prepare(
             raise failed(f"{where(name, commit)} wasn't built. {exc}") from exc
         record = {**done.as_dict(), "commit": commit, "ref": ref}
         await asyncio.to_thread(store.record_built, target, record)
-        # What it built now counts toward the limit: older versions go first, never this one.
+        # What it built now counts toward the limit: older versions go first, never this one
+        # nor one another run holds.
         with contextlib.suppress(versions.VersionError):
             await asyncio.to_thread(found.trim, [commit])
     assert record is not None
@@ -398,6 +457,7 @@ async def prepare(
         reused=reused,
         recipe=recipe,
         notes=notes,
+        held=held,
     )
 
 

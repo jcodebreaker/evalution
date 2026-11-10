@@ -180,11 +180,13 @@ def connect_router() -> APIRouter:
 
     @router.post("/targets/discover", status_code=202, dependencies=hosted_off)
     async def discover_target(ws: Current, body: dict[str, Any]) -> dict[str, Any]:
-        """Look at a project folder, or an app's address, in the background; follow it with the
-        GET below."""
+        """Look at a project folder, a repository on the code host (``owner/repo``,
+        ``github.com/owner/repo``, ``owner/repo#412``, ``owner/repo@ref``: cloned into
+        ``<data>/code/<target>`` first, with the person's own git credentials), or an app's
+        address, in the background; follow it with the GET below."""
         path = body.get("path")
         if not isinstance(path, str) or not path.strip():
-            raise invalid("Type your app's address or its project folder.")
+            raise invalid("Type your app's address, its repository or its project folder.")
         return _found(ws).start(path).view()
 
     @router.get("/targets/discover/{job_id}", dependencies=hosted_off)

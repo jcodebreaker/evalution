@@ -16,7 +16,7 @@ function Copyable({ text, label }: { text: string; label: string }) {
   };
   return (
     <div className="relative">
-      <pre className="m-0 overflow-x-auto rounded-[7px] bg-window px-2.5 py-2 pe-16 font-mono text-[11.5px] leading-[1.55]">
+      <pre className="m-0 overflow-x-auto rounded-[7px] bg-window px-2.5 py-2 pe-16 font-mono text-[13px] leading-[1.55]">
         {text}
       </pre>
       <Button
@@ -43,7 +43,7 @@ export function TracesHelp({
   onCheck: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2.5 border-separator border-t pt-4 text-[14px]">
+    <div className="flex flex-col gap-2.5 border-separator border-t pt-4 text-sm">
       <p className="m-0 text-ink-2">{traces.text}</p>
       <Copyable text={traces.lines} label="Copy the lines" />
       {traces.command ? (

@@ -77,7 +77,7 @@ function ScoreSlider({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="grid grid-cols-[minmax(0,1fr)_120px_34px] items-center gap-2.5 border-separator px-3.5 py-2.5 text-[14px] not-first:border-t">
+    <label className="grid grid-cols-[minmax(0,1fr)_120px_34px] items-center gap-2.5 border-separator px-3.5 py-2.5 text-sm not-first:border-t">
       <span>{label}</span>
       <input
         type="range"
@@ -89,7 +89,7 @@ function ScoreSlider({
         onChange={(event) => onChange(Number(event.target.value))}
         className="w-full accent-tint"
       />
-      <span className="text-end font-mono text-[12.5px] tabular-nums">{score(value)}</span>
+      <span className="text-end font-mono text-sm tabular-nums">{score(value)}</span>
     </label>
   );
 }

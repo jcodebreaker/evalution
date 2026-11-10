@@ -345,6 +345,6 @@ it("says the run before in plain words, with the tokens the set's last full run 
   expect(screen.getByTestId("run-estimate").textContent).toBe(
     "About 4 min · starts the copy (about 81 s), then 4 tries · about 103k tokens, as run 2 spent",
   );
-  expect(screen.getByText("All 4 tests · 1 try each")).toBeTruthy();
+  expect(screen.getByText(/^All 4 tests · 1 try each · /)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Run 4 tests" })).toBeTruthy();
 });

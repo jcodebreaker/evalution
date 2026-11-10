@@ -1,10 +1,10 @@
 import { CircleAlert, Minus, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ApiError, api, errorText } from "../../lib/api";
-import { cn } from "../../lib/cn";
 import type { TestSetup, TestSetupChange } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/field";
+import { Seg, Switch } from "../connect/kit";
 import { initials } from "./words";
 
 /** How many copies of the app may run side by side. */
@@ -31,59 +31,12 @@ function timeZones(): string[] {
   }
 }
 
-const SECTION = "mb-2 text-[13px] font-medium text-ink-2";
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="mt-4 flex flex-col" aria-label={title}>
-      <h3 className={cn(SECTION, "m-0 mb-2")}>{title}</h3>
+    <section className="flex flex-col gap-2" aria-label={title}>
+      <h3 className="m-0 text-sm font-medium text-ink-3">{title}</h3>
       {children}
     </section>
-  );
-}
-
-/** One choice of a few, as a card row with a round mark. */
-function Choice({
-  name,
-  checked,
-  disabled,
-  label,
-  aside,
-  onPick,
-}: {
-  name: string;
-  checked: boolean;
-  disabled: boolean;
-  label: string;
-  aside: string;
-  onPick: () => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex items-center gap-2.5 rounded-[8px] border px-2.5 py-2 has-focus-visible:outline-2 has-focus-visible:outline-tint",
-        checked ? "border-tint bg-tint-soft" : "border-separator hover:bg-sunk",
-        disabled && "opacity-60",
-      )}
-    >
-      <input
-        type="radio"
-        name={name}
-        className="sr-only"
-        checked={checked}
-        disabled={disabled}
-        onChange={onPick}
-      />
-      <i
-        className={cn(
-          "size-3.5 shrink-0 rounded-full",
-          checked ? "border-4 border-tint" : "border-[1.5px] border-rule-strong",
-        )}
-        aria-hidden
-      />
-      {label}
-      <span className="ms-auto truncate text-[12.5px] text-ink-3">{aside}</span>
-    </label>
   );
 }
 
@@ -136,6 +89,7 @@ export function SetupPanel({
     const person: TestSetupChange["person"] = {};
     for (const field of fields) {
       const key = field as keyof TestSetup["person"];
+      if (key === "new_every_try") continue;
       if (key in draft && draft[key] !== setup.person[key]) {
         Object.assign(person, { [key]: draft[key] });
       }
@@ -155,51 +109,49 @@ export function SetupPanel({
 
   return (
     <aside
-      className="flex flex-col rounded-[12px] border border-separator bg-group p-4"
+      className="flex min-w-0 flex-col gap-[18px] rounded-2xl border border-rule bg-group p-5 shadow-[0_1px_2px_var(--shadow)] max-md:p-4"
       aria-label="Test setup"
     >
-      <h2 className="m-0 flex items-baseline justify-between gap-2 text-[14px] font-semibold">
-        Test setup
-        <span className="text-[12.5px] font-normal text-ink-3">you can change this</span>
-      </h2>
+      <h2 className="m-0 text-[15px] font-semibold">Test setup</h2>
 
       <Section title="Test person">
         {fields.length ? (
           <>
-            <div className="flex items-center gap-3 rounded-[10px] border border-separator p-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
               {named ? (
-                <span className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-tint-soft text-[13px] font-semibold text-tint-ink">
+                <span className="grid size-[34px] shrink-0 place-items-center rounded-full bg-tint-soft text-sm font-semibold text-tint-ink">
                   {initials(setup.person.name || "Test person")}
                 </span>
               ) : null}
-              <span className="flex min-w-0 flex-col">
+              <span className="flex min-w-0 flex-1 flex-col">
                 <b className="truncate font-medium">
                   {(named && setup.person.name) || "Test person"}
                 </b>
-                {meta ? <span className="truncate text-[12.5px] text-ink-3">{meta}</span> : null}
+                {meta ? <span className="truncate text-sm text-ink-3">{meta}</span> : null}
                 {named ? null : (
-                  <span className="truncate text-[12.5px] text-ink-3">
+                  <span className="truncate text-sm text-ink-3">
                     {target} names its own test person
                   </span>
                 )}
               </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="ms-auto"
-                disabled={busy}
-                aria-expanded={editing}
-                onClick={() => {
-                  setDraft(setup.person);
-                  setEditing(!editing);
-                }}
-              >
-                Edit
-              </Button>
+              {fields.some((field) => field !== "new_every_try") ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy}
+                  aria-expanded={editing}
+                  onClick={() => {
+                    setDraft(setup.person);
+                    setEditing(!editing);
+                  }}
+                >
+                  Edit
+                </Button>
+              ) : null}
             </div>
             {editing ? (
               <form
-                className="mt-2 flex flex-col gap-2 text-[12.5px] text-ink-2"
+                className="flex flex-col gap-2 text-sm text-ink-2"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void savePerson();
@@ -251,18 +203,6 @@ export function SetupPanel({
                     </datalist>
                   </label>
                 ) : null}
-                {has("new_every_try") ? (
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={draft.new_every_try}
-                      onChange={(event) =>
-                        setDraft({ ...draft, new_every_try: event.target.checked })
-                      }
-                    />
-                    New person every try
-                  </label>
-                ) : null}
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
                     Cancel
@@ -273,139 +213,129 @@ export function SetupPanel({
                 </div>
               </form>
             ) : null}
+            {has("new_every_try") ? (
+              <div className="flex items-center gap-2.5">
+                <span>New person every try</span>
+                <span className="ms-auto">
+                  <Switch
+                    on={setup.person.new_every_try}
+                    label="New person every try"
+                    disabled={busy}
+                    onChange={(on) => void change({ person: { new_every_try: on } })}
+                  />
+                </span>
+              </div>
+            ) : null}
           </>
         ) : (
-          <p className="m-0 text-[13px] text-ink-2">This app picks its own test person</p>
+          <p className="m-0 text-sm text-ink-2">This app picks its own test person</p>
         )}
       </Section>
 
       <Section title="Starts with">
-        <div className="flex flex-col gap-1.5">
-          <Choice
-            name="start"
-            checked={!seeding}
-            disabled={busy}
-            label="Nothing"
-            aside="clean slate"
-            onPick={() => {
+        <Seg
+          name="Starts with"
+          value={seeding ? "seed" : "empty"}
+          disabled={busy}
+          options={[
+            { value: "empty" as const, label: "Nothing", aside: "clean slate" },
+            ...(setup.supports.seed
+              ? [
+                  {
+                    value: "seed" as const,
+                    label: "Sample data",
+                    aside: setup.start.file ?? "a file",
+                  },
+                ]
+              : []),
+          ]}
+          onPick={(value) => {
+            if (value === "empty") {
               setPicking(false);
               void change({ start: { kind: "empty" } });
+            } else if (setup.start.file) {
+              void change({ start: { kind: "seed", file: setup.start.file } });
+            } else {
+              setPicking(true);
+            }
+          }}
+        />
+        {setup.supports.seed && seeding ? (
+          <form
+            className="flex gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (file.trim())
+                void change({ start: { kind: "seed", file: file.trim() } }).then((done) => {
+                  if (done) setPicking(false);
+                });
             }}
-          />
-          {setup.supports.seed ? (
-            <Choice
-              name="start"
-              checked={seeding}
+          >
+            <Input
+              aria-label="Sample data file"
+              placeholder="seed.sql"
+              value={file}
+              onChange={(event) => setFile(event.target.value)}
               disabled={busy}
-              label="Sample data"
-              aside={setup.start.file ?? "a file"}
-              onPick={() => {
-                if (setup.start.file)
-                  void change({ start: { kind: "seed", file: setup.start.file } });
-                else setPicking(true);
-              }}
             />
-          ) : null}
-          {setup.supports.seed && seeding ? (
-            <form
-              className="flex gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (file.trim())
-                  void change({ start: { kind: "seed", file: file.trim() } }).then((done) => {
-                    if (done) setPicking(false);
-                  });
-              }}
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={busy || !file.trim() || file.trim() === setup.start.file}
             >
-              <Input
-                aria-label="Sample data file"
-                placeholder="seed.sql"
-                value={file}
-                onChange={(event) => setFile(event.target.value)}
-                disabled={busy}
-              />
-              <Button
-                type="submit"
-                variant="secondary"
-                disabled={busy || !file.trim() || file.trim() === setup.start.file}
-              >
-                Use
-              </Button>
-            </form>
-          ) : null}
-        </div>
+              Use
+            </Button>
+          </form>
+        ) : null}
       </Section>
 
       <Section title="Reset">
-        <div className="flex flex-col gap-1.5">
-          <Choice
-            name="reset"
-            checked={setup.reset === "try"}
-            disabled={busy}
-            label="Before every try"
-            aside="cleanest"
-            onPick={() => void change({ reset: "try" })}
-          />
-          <Choice
-            name="reset"
-            checked={setup.reset === "test"}
-            disabled={busy}
-            label="Before every test"
-            aside="faster"
-            onPick={() => void change({ reset: "test" })}
-          />
-        </div>
+        <Seg
+          name="Reset"
+          value={setup.reset}
+          disabled={busy}
+          options={[
+            { value: "try" as const, label: "Before every try", aside: "cleanest" },
+            { value: "test" as const, label: "Before every test", aside: "faster" },
+          ]}
+          onPick={(value) => void change({ reset: value })}
+        />
       </Section>
 
-      <Section title="Copies side by side">
-        <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5">
+        <span>Copies side by side</span>
+        <span className="ms-auto inline-flex h-9 items-center rounded-[10px] border border-rule-strong bg-group">
           <Button
-            variant="outline"
-            size="icon-sm"
+            variant="ghost"
+            size="icon"
             aria-label="Fewer copies"
             disabled={busy || setup.copies <= 1}
             onClick={() => void change({ copies: setup.copies - 1 })}
           >
             <Minus />
           </Button>
-          <b className="min-w-[18px] text-center tabular-nums" data-testid="copies">
+          <b className="min-w-[26px] text-center font-semibold tabular-nums" data-testid="copies">
             {setup.copies}
           </b>
           <Button
-            variant="outline"
-            size="icon-sm"
+            variant="ghost"
+            size="icon"
             aria-label="More copies"
             disabled={busy || setup.copies >= MOST_COPIES}
             onClick={() => void change({ copies: setup.copies + 1 })}
           >
             <Plus />
           </Button>
-          <span className="ms-auto flex gap-1" aria-hidden>
-            {Array.from({ length: Math.max(1, setup.copies) }, (_, index) => (
-              <i
-                key={index}
-                className="block h-[18px] w-3.5 rounded-[4px] border border-tint bg-tint-soft"
-              />
-            ))}
-          </span>
-        </div>
-      </Section>
-
-      <Section title="Left alone">
-        <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex h-6 items-center rounded-full border border-separator bg-group px-2 text-[12px] text-ink-2">
-            Traces · kept as evidence
-          </span>
-        </div>
-      </Section>
+        </span>
+      </div>
 
       {setup.needs_check ? (
-        <p className="m-0 mt-3.5 flex items-center gap-2 rounded-[10px] bg-unjudged-soft px-3 py-2 text-[13px] text-warning">
+        <p className="m-0 flex items-center gap-2 rounded-[10px] bg-unjudged-soft px-3 py-2 text-sm text-unjudged">
           <CircleAlert className="size-4 shrink-0" aria-hidden />
           Changed. It's checked again before the next run.
         </p>
       ) : null}
-      {error ? <p className="m-0 mt-2.5 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </aside>
   );
 }

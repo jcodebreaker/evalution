@@ -14,7 +14,7 @@ const ROW =
   "grid grid-cols-[minmax(0,200px)_minmax(0,1fr)_52px] items-center px-3 max-md:grid-cols-[110px_minmax(0,1fr)_44px]";
 
 function Tag({ children }: { children: string }) {
-  return <span className="shrink-0 text-[10.5px] text-ink-3">{children}</span>;
+  return <span className="shrink-0 text-xs text-ink-3">{children}</span>;
 }
 
 /** A try's spans on one time axis, indented by parent. */
@@ -31,7 +31,7 @@ export function Timeline({
   const axis = useMemo(() => timelineAxis(spans), [spans]);
   return (
     <div>
-      <div className="flex justify-end gap-3 px-1 pb-1.5 text-[12.5px] text-ink-3">
+      <div className="flex justify-end gap-3 px-1 pb-1.5 text-sm text-ink-3">
         {spans.some((span) => span.automatic) ? (
           <span className="me-auto">Automatic: ran by itself, not scored</span>
         ) : null}
@@ -45,7 +45,7 @@ export function Timeline({
         </span>
       </div>
       <div className="rounded-lg border border-separator bg-group pt-1.5 pb-2">
-        <div className={cn(ROW, "py-1 text-[11px] text-ink-3")}>
+        <div className={cn(ROW, "py-1 text-xs text-ink-3")}>
           <span />
           <div className="flex justify-between tabular-nums">
             {axis.ticks.map((tick) => (
@@ -86,7 +86,7 @@ export function Timeline({
                   }}
                 />
               </span>
-              <span className="text-end text-[11.5px] text-ink-3 tabular-nums">
+              <span className="text-end text-xs text-ink-3 tabular-nums">
                 {missing ? "" : seconds(span.seconds, true)}
               </span>
             </>

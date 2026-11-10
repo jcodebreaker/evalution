@@ -50,7 +50,7 @@ export function HowItPlays({
   };
 
   return (
-    <section className="flex flex-col gap-2.5 text-[14px]" data-testid="how-it-plays">
+    <section className="flex flex-col gap-2.5 text-sm" data-testid="how-it-plays">
       <p className="m-0 text-ink-2">{playsWords(plays)}</p>
       {plays !== "api" && shown ? (
         <ProofControl
@@ -62,7 +62,7 @@ export function HowItPlays({
               <>
                 This test's own ·{" "}
                 <TextLink
-                  className="text-[12.5px]"
+                  className="text-sm"
                   disabled={saving}
                   onClick={() => void save(part, null)}
                 >

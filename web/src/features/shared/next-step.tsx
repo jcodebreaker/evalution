@@ -103,7 +103,7 @@ export function BrokenMapNote({
 }) {
   return (
     <section
-      className="flex flex-wrap items-start gap-3 rounded-[10px] bg-unjudged-soft px-4 py-3.5 text-[14px]"
+      className="flex flex-wrap items-start gap-3 rounded-[10px] bg-unjudged-soft px-4 py-3.5 text-sm"
       aria-label="The page map no longer matches the page"
       data-testid="broken-map"
     >

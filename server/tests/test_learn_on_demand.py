@@ -451,6 +451,7 @@ def test_an_understanding_from_before_progress_reads_as_no_learn(tmp_path) -> No
         "started_at": None,
         "areas": [],
         "overview": None,
+        "left_out": {},
     }
 
     async def first() -> None:
@@ -480,6 +481,7 @@ def test_an_understanding_from_before_progress_reads_as_no_learn(tmp_path) -> No
             "started_at": None,
             "areas": [],
             "overview": None,
+            "left_out": {},
         }
 
         cut = {

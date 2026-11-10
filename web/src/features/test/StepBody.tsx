@@ -28,7 +28,7 @@ export function StepBody({
         <div className="group-card flex flex-col">
           {message ? (
             <div className="px-3.5 py-3">
-              <p className="m-0 w-fit max-w-[560px] rounded-xl bg-bubble px-3 py-2 text-[14px] whitespace-pre-wrap">
+              <p className="m-0 w-fit max-w-[560px] rounded-xl bg-bubble px-3 py-2 text-sm whitespace-pre-wrap">
                 {step.message}
               </p>
             </div>
@@ -39,7 +39,7 @@ export function StepBody({
               className="flex min-w-0 flex-col border-separator not-first:border-t"
             >
               <span className="m-3 inline-flex w-fit max-w-[calc(100%-24px)] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[9px] px-2.5 py-1.5 text-[13px] ring-1 ring-inset ring-separator">
-                <code className="font-mono text-[12.5px]">{entry.name}</code>
+                <code className="font-mono text-sm">{entry.name}</code>
                 {[
                   entry.rows !== undefined ? count(entry.rows, "row") : null,
                   entry.columns?.length ? entry.columns.join(", ") : null,
@@ -52,7 +52,7 @@ export function StepBody({
                   ))}
               </span>
               {step.kind === "before" && entry.peek ? (
-                <pre className="m-0 overflow-x-auto border-t border-separator px-3.5 py-2 font-mono text-[11.5px] text-ink-2">
+                <pre className="m-0 overflow-x-auto border-t border-separator px-3.5 py-2 font-mono text-xs text-ink-2">
                   {entry.peek}
                   {entry.more ? `   … ${entry.more} more` : ""}
                 </pre>

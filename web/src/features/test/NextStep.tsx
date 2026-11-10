@@ -24,8 +24,8 @@ export function PageNextStep({
       data-testid="next-step"
     >
       <div className="min-w-0 flex-1">
-        <b className="block text-[14px] font-semibold">Next step</b>
-        <p className="m-0 mt-0.5 text-[14px]">{next.text}</p>
+        <b className="block text-sm font-semibold">Next step</b>
+        <p className="m-0 mt-0.5 text-sm">{next.text}</p>
       </div>
       <Button disabled={going} onClick={onRun}>
         <Play />

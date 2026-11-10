@@ -38,9 +38,18 @@ from evalution.core.judgement import (
     Route,
     WhyUnjudged,
 )
-from evalution.core.rules import judgement, line_outcome, rubric_outcome, tools_bind
+from evalution.core.rules import current, judgement, line_outcome, rubric_outcome, tools_bind
+from evalution.core.steps import SAY_WHICH, Step, grade_tools, strict_ok
+from evalution.core.trace import Call
 from evalution.core.version import not_recorded
-from evalution.results.record import SCHEMA, environment, isolation, run_isolation
+from evalution.results.record import (
+    SCHEMA,
+    environment,
+    isolation,
+    judged_unheld,
+    run_isolation,
+    unheld,
+)
 from evalution.results.views import totals
 
 #: What reading something that isn't a run raises, whichever part of it is off.
@@ -208,8 +217,20 @@ def _steps_check(
         )
     score = float(attempt.get("tools") or 0)
     steps = [s for s in attempt.get("steps") or [] if not _is_state(s)]
-    outcome = Outcome.PASSED if score >= mark else Outcome.FAILED
+    strict = strict_ok(expected, [_as_step(s) for s in steps])
+    held = strict if strict is not None else score >= mark
+    outcome = Outcome.PASSED if held else Outcome.FAILED
     return _check("steps", CheckKind.STEPS, outcome, _first_miss(steps), role=role, score=score)
+
+
+def _as_step(stored: Mapping[str, Any]) -> Step:
+    return Step(
+        str(stored.get("status") or ""),
+        stored.get("expected"),
+        stored.get("actual"),
+        str(stored.get("reason") or ""),
+        stored.get("span"),
+    )
 
 
 def _old_line_outcome(line: Mapping[str, Any]) -> Outcome:
@@ -350,7 +371,13 @@ def _try(
     elif attempt.get("different_route"):
         route = Route.DIFFERENT
     else:
-        held = float(attempt.get("tools") or 0) >= float(marks["tools"])
+        steps = [_as_step(s) for s in attempt.get("steps") or [] if not _is_state(s)]
+        strict = strict_ok(expected, steps)
+        held = (
+            strict
+            if strict is not None
+            else float(attempt.get("tools") or 0) >= float(marks["tools"])
+        )
         route = Route.EXPECTED if held else Route.DIFFERENT
     graded = any(c.decided_by is Decider.MODEL for c in checks)
     found = judgement(checks, judge if graded else None, route, rules_from=0)
@@ -442,12 +469,174 @@ def _three_to_four(old: Mapping[str, Any]) -> dict[str, Any]:
     return {**old, "schema": 4, "version": not_recorded(old.get("commit"))}
 
 
+#: The rules from which an ``exact`` order and ``extras: false`` are held to strictly.
+STRICT_STEPS = 4
+
+
+def _steps_again(
+    tools: Mapping[str, Any], attempt: Mapping[str, Any], mark: float
+) -> tuple[bool, list[Step], float]:
+    """A stored try's steps read under today's rules: graded again from its calls when it kept
+    them, else its stored steps held to today's rule. ``(held, steps, score)``."""
+    if isinstance(attempt.get("calls"), list):
+        automatic = set(attempt.get("automatic") or ())
+        calls = [
+            Call(
+                str(c["id"]),
+                str(c["name"]),
+                c.get("args") or {},
+                float(c.get("start") or 0.0),
+                c.get("end"),
+                c.get("helper"),
+                c.get("agent"),
+                c.get("server"),
+            )
+            for c in attempt["calls"]
+            if c.get("id") not in automatic
+        ]
+        steps, score = grade_tools(tools, calls)
+    else:
+        steps = [_as_step(s) for s in attempt.get("steps") or [] if not _is_state(s)]
+        score = float(attempt.get("tools") or 0)
+    strict = strict_ok(tools, steps)
+    return (strict if strict is not None else score >= mark), steps, score
+
+
+def _strict_try(
+    tools: Mapping[str, Any], attempt: Mapping[str, Any], mark: float
+) -> dict[str, Any] | None:
+    """The judgement to add to a try judged before :data:`STRICT_STEPS` whose steps check reads
+    otherwise now, else ``None``."""
+    if not attempt.get("judgements"):
+        return None
+    found = current(attempt)
+    if found.rules >= STRICT_STEPS:
+        return None
+    at = next((i for i, c in enumerate(found.checks) if c.id == "steps"), None)
+    if at is None or found.checks[at].outcome not in (Outcome.PASSED, Outcome.FAILED):
+        return None
+    held, steps, score = _steps_again(tools, attempt, mark)
+    if held == (found.checks[at].outcome is Outcome.PASSED):
+        return None
+    checks = list(found.checks)
+    checks[at] = checks[at].model_copy(
+        update={
+            "outcome": Outcome.PASSED if held else Outcome.FAILED,
+            "why": _first_miss([s.as_dict() for s in steps]),
+            "score": score,
+        }
+    )
+    route = found.route
+    if route in (Route.EXPECTED, Route.DIFFERENT):
+        route = Route.EXPECTED if held else Route.DIFFERENT
+    was = found.rules if found.rules_from is None else found.rules_from
+    return judgement(checks, found.judge, route, rules_from=was).model_dump(mode="json")
+
+
+def _strict_steps(doc: dict[str, Any]) -> dict[str, Any]:
+    """Rules 4: an ``exact`` order or ``extras: false`` is held to strictly, and a delegated
+    agent's own calls aren't extras. A try of such a test whose steps check now reads otherwise
+    gets a judgement added, so its test says "Originally passed; rules changed". The same object
+    when none does."""
+    if int(doc.get("rules") or 0) >= STRICT_STEPS:
+        return doc
+    mark = float((doc.get("pass_marks") or DEFAULT_PASS_MARKS)["tools"])
+    added: dict[tuple[str, int], dict[str, Any]] = {}
+    for stem, entry in (doc.get("cases") or {}).items():
+        tools = entry.get("expected") or {}
+        if tools.get("order") != "exact" and tools.get("extras") is not False:
+            continue
+        for i, attempt in enumerate(entry.get("tries") or []):
+            found = _strict_try(tools, attempt, mark)
+            if found is not None:
+                added[(stem, i)] = found
+    if not added:
+        return doc
+    new = copy.deepcopy(doc)
+    for (stem, i), found in added.items():
+        new["cases"][stem]["tries"][i]["judgements"].append(found)
+    return new
+
+
+#: The rules from which a try whose put back the end-of-run check found unheld is not judged.
+LATE_RESETS = 5
+
+
+def _late_resets(doc: dict[str, Any]) -> dict[str, Any]:
+    """Rules 5: a try judged before the end-of-run check found its copy's put back didn't hold
+    (its ``isolation.problem`` says so) is not judged. It gets a judgement added saying why; the
+    same object when none does."""
+    if int(doc.get("rules") or 0) >= LATE_RESETS:
+        return doc
+    found = [
+        (stem, i, problem)
+        for stem, entry in (doc.get("cases") or {}).items()
+        for i, attempt in enumerate(entry.get("tries") or [])
+        if (problem := unheld(attempt)) is not None
+    ]
+    if not found:
+        return doc
+    new = copy.deepcopy(doc)
+    for stem, i, problem in found:
+        attempt = new["cases"][stem]["tries"][i]
+        was = current(attempt)
+        rules = was.rules if was.rules_from is None else was.rules_from
+        attempt["judgements"].append(judged_unheld(problem, rules).model_dump(mode="json"))
+    if "totals" in new:
+        new["totals"] = totals(new)
+    return new
+
+
+def _ambiguous(check: Mapping[str, Any]) -> bool:
+    return (
+        check.get("id") == "steps"
+        and check.get("unjudged") == WhyUnjudged.NOT_SUPPORTED.value
+        and str(check.get("why") or "").endswith(f": {SAY_WHICH}")
+    )
+
+
+def _ambiguous_tools(doc: dict[str, Any]) -> dict[str, Any]:
+    """Rules 5: a steps check not judged because a bare tool name was two servers' tools says so
+    (``ambiguous_tool``), not that the target couldn't answer it. Same outcome, its own reason; the
+    same object when no try has one."""
+    if int(doc.get("rules") or 0) >= LATE_RESETS:
+        return doc
+    found = [
+        (stem, i)
+        for stem, entry in (doc.get("cases") or {}).items()
+        for i, attempt in enumerate(entry.get("tries") or [])
+        if attempt.get("judgements")
+        and any(_ambiguous(c) for c in attempt["judgements"][-1].get("checks") or [])
+    ]
+    if not found:
+        return doc
+    new = copy.deepcopy(doc)
+    for stem, i in found:
+        attempt = new["cases"][stem]["tries"][i]
+        was = current(attempt)
+        checks = [
+            c.model_copy(update={"unjudged": WhyUnjudged.AMBIGUOUS_TOOL})
+            if _ambiguous(c.model_dump(mode="json"))
+            else c
+            for c in was.checks
+        ]
+        rules = was.rules if was.rules_from is None else was.rules_from
+        attempt["judgements"].append(
+            judgement(checks, was.judge, was.route, rules).model_dump(mode="json")
+        )
+    return new
+
+
+def _rules_five(doc: dict[str, Any]) -> dict[str, Any]:
+    return _late_resets(_ambiguous_tools(doc))
+
+
 def upcast(doc: dict[str, Any]) -> dict[str, Any]:
-    """*doc* as today's schema: the same object when it already is."""
+    """*doc* as today's schema and rules: the same object when it already is."""
     schema = int(doc.get("schema") or 0)
     if schema >= SCHEMA:
-        return doc
+        return _rules_five(_strict_steps(doc))
     found = _zero_to_one(doc) if schema < 1 else doc
     found = _one_to_two(found) if schema < 2 else found
     found = _two_to_three(found) if schema < 3 else found
-    return _three_to_four(found)
+    return _rules_five(_strict_steps(_three_to_four(found)))

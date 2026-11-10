@@ -63,14 +63,14 @@ export function Check({
         )}
       </span>
       <div className="min-w-0">
-        <p className="m-0 text-[13.5px]">{item.text}</p>
+        <p className="m-0 text-sm">{item.text}</p>
         {item.detail && !actual ? (
-          <small className="mt-px block text-[12.5px] text-ink-3">{item.detail}</small>
+          <small className="mt-px block text-sm text-ink-3">{item.detail}</small>
         ) : null}
         {actual ? <Outcome actual={actual} names={names} onSpan={onSpan} /> : null}
         {answerable ? <Agree agreement={answerable} onPress={press} /> : null}
       </div>
-      <span className="pt-0.5 text-[12px] whitespace-nowrap text-ink-3">
+      <span className="pt-0.5 text-[13px] whitespace-nowrap text-ink-3">
         {[actual ? null : label, how].filter(Boolean).join(" · ")}
       </span>
     </Row>

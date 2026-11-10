@@ -39,7 +39,7 @@ export function ToolChip({
     </>
   );
   const classes = cn(
-    "inline-flex h-6 max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2.5 font-mono text-[11.5px]",
+    "inline-flex h-6 max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2.5 font-mono text-xs",
     CHIP_TONE[tone],
     banned && "bg-fail-soft text-fail ring-1 ring-inset ring-fail/40",
     selected && "ring-2 ring-inset ring-tint",

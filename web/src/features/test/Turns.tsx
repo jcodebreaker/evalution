@@ -9,8 +9,8 @@ import { splitAt, turnShown, turnsOf } from "./try-words";
 
 const CELL =
   "min-w-0 px-5 py-4 not-first:border-separator md:not-first:border-s max-md:not-first:border-t max-md:not-first:border-dashed";
-const LABEL = "mb-1.5 text-[12px] font-medium text-ink-3 md:hidden";
-const TEXT = "m-0 max-h-[280px] overflow-auto text-[14px] break-words whitespace-pre-wrap";
+const LABEL = "mb-1.5 text-[13px] font-medium text-ink-3 md:hidden";
+const TEXT = "m-0 max-h-[280px] overflow-auto text-sm break-words whitespace-pre-wrap";
 
 /** A turn through the API, in a few words with its mark. */
 function turnSaid(actual: Actual | undefined): { state: Outcome; text: string } | null {
@@ -45,19 +45,17 @@ function Showed({ page }: { page: StepPage }) {
       {text ? (
         <p className={TEXT}>{text}</p>
       ) : (
-        <p className="m-0 text-[14px] text-ink-2">Nothing showed</p>
+        <p className="m-0 text-sm text-ink-2">Nothing showed</p>
       )}
       {page.part ? (
-        <p className="m-0 mt-2 text-[12.5px] text-ink-3" data-testid="page-part">
+        <p className="m-0 mt-2 text-sm text-ink-3" data-testid="page-part">
           {"Shown on the page: "}
           {page.part.shown ? <code className="font-mono">{page.part.shown}</code> : "none of it"}
           {" · Missing: "}
           <code className="font-mono">{page.part.missing}</code>
         </p>
       ) : (failed || page.check?.outcome === "unjudged") && why ? (
-        <p className="m-0 mt-2 text-[12.5px] text-ink-3">
-          {why.charAt(0).toUpperCase() + why.slice(1)}
-        </p>
+        <p className="m-0 mt-2 text-sm text-ink-3">{why.charAt(0).toUpperCase() + why.slice(1)}</p>
       ) : null}
     </>
   );
@@ -88,7 +86,7 @@ export function Turns({ shown }: { shown: Compare }) {
     <Card title="Turn by turn" testId="turns" aside={marked ? "Missing words are marked" : null}>
       <div
         className={cn(
-          "mt-3 grid border-t border-separator bg-sunk text-[12px] font-medium text-ink-3 max-md:hidden",
+          "mt-3 grid border-t border-separator bg-sunk text-[13px] font-medium text-ink-3 max-md:hidden",
           grid,
         )}
         aria-hidden
@@ -107,14 +105,14 @@ export function Turns({ shown }: { shown: Compare }) {
             <li key={n} aria-label={`Turn ${n}`}>
               <div
                 className={cn(
-                  "flex items-center gap-2 border-t border-separator px-5 py-2 text-[12.5px] font-semibold text-ink-2",
+                  "flex items-center gap-2 border-t border-separator px-5 py-2 text-sm font-semibold text-ink-2",
                   mark?.state === "fail" && "bg-fail-soft",
                 )}
               >
                 {`Turn ${n}`}
                 <span className="flex-1" />
                 {mark ? (
-                  <Status state={mark.state} className="text-[12.5px] font-normal">
+                  <Status state={mark.state} className="text-sm font-normal">
                     {mark.text}
                   </Status>
                 ) : null}
@@ -124,7 +122,7 @@ export function Turns({ shown }: { shown: Compare }) {
                   {step.message ? (
                     <p className={TEXT}>{step.message}</p>
                   ) : (
-                    <p className="m-0 text-[14px] text-ink-2">{step.title || "A message"}</p>
+                    <p className="m-0 text-sm text-ink-2">{step.title || "A message"}</p>
                   )}
                 </Cell>
                 <Cell label="The app answered">
@@ -132,13 +130,13 @@ export function Turns({ shown }: { shown: Compare }) {
                     <p
                       className={cn(
                         TEXT,
-                        "rounded-[7px] bg-sunk px-3 py-2 font-mono text-[12.5px] leading-relaxed",
+                        "rounded-[7px] bg-sunk px-3 py-2 font-mono text-sm leading-relaxed",
                       )}
                     >
                       <Answered reply={reply} missing={step.page?.part?.missing ?? null} />
                     </p>
                   ) : (
-                    <p className="m-0 text-[14px] text-ink-2">
+                    <p className="m-0 text-sm text-ink-2">
                       {notTaken
                         ? `No reply: ${notTakenWords(notTaken).toLowerCase()}.`
                         : "No reply"}
@@ -150,7 +148,7 @@ export function Turns({ shown }: { shown: Compare }) {
                     {step.page ? (
                       <Showed page={step.page} />
                     ) : (
-                      <p className="m-0 text-[14px] text-ink-2">Not checked on the page</p>
+                      <p className="m-0 text-sm text-ink-2">Not checked on the page</p>
                     )}
                   </Cell>
                 ) : null}

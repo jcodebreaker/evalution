@@ -9,6 +9,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -140,6 +141,101 @@ def test_a_remote_only_branch_is_fetched_into_evalutions_refs_only(repos) -> Non
     assert listed[("fetched", "origin/remote-only")].subject == "change app.py"
 
 
+def push_more(origin: Path, branch: str, text: str) -> str:
+    """Someone else pushes a new commit to *branch* on *origin*, after every fetch here."""
+    other = origin.parent / f"other-{branch}"
+    if not other.exists():
+        run(origin.parent, "clone", "-q", str(origin), str(other))
+    run(other, "fetch", "-q", "origin")
+    run(other, "checkout", "-q", "-B", branch, f"origin/{branch}")
+    made = commit(other, "app.py", text)
+    run(other, "push", "-q", "origin", branch)
+    return made
+
+
+def test_a_remote_branch_is_fetched_again_every_time_it_is_played(repos) -> None:
+    person = repos["person"]
+    before = state(person)
+    found = Versions("bot", person, repos["data"])
+    assert found.reach("origin/remote-only") == repos["remote_only"]
+
+    newer = push_more(repos["origin"], "remote-only", "reply = 'newer'\n")
+    # Not an earlier fetch: the remote's branch as it is now.
+    assert found.reach("origin/remote-only") == newer
+    # The person's remote-tracking branch is behind too; it is fetched, into evalution's refs.
+    stale = run(person, "rev-parse", "origin/feature").strip()
+    feature = push_more(repos["origin"], "feature", "reply = 'feature, later'\n")
+    assert found.reach("origin/feature") == feature
+    assert run(person, "rev-parse", "origin/feature").strip() == stale
+    assert state(person) == before
+    # Without a fetch (the estimate before Run), what is known here.
+    assert found.reach("origin/feature", fetch=False) == feature
+
+
+def test_a_remote_branch_that_cant_be_fetched_is_not_played_from_an_earlier_fetch(repos) -> None:
+    found = Versions("bot", repos["person"], repos["data"])
+    found.fetch("origin", "remote-only")
+    run(repos["person"], "remote", "set-url", "origin", str(repos["origin"].parent / "gone.git"))
+    with pytest.raises(VersionError, match="Fetching remote-only from origin failed"):
+        found.reach("origin/remote-only")
+    assert found.reach("origin/remote-only", fetch=False) == repos["remote_only"]
+
+
+def open_pull_request(origin: Path, number: int, text: str) -> str:
+    """A pull request's head on *origin*, as a code host keeps it: ``refs/pull/N/head``."""
+    other = origin.parent / f"pr-{number}"
+    run(origin.parent, "clone", "-q", str(origin), str(other))
+    made = commit(other, "app.py", text)
+    run(other, "push", "-q", "origin", f"HEAD:refs/pull/{number}/head")
+    return made
+
+
+def test_a_pull_request_is_fetched_into_evalutions_refs_only(repos) -> None:
+    person = repos["person"]
+    head = open_pull_request(repos["origin"], 412, "reply = 'pull request'\n")
+    before = state(person)
+    theirs = run(person, "for-each-ref", "refs/heads", "refs/remotes", "refs/tags")
+    found = Versions("bot", person, repos["data"])
+
+    assert versions.pull_number("pull/412") == 412 and versions.pull_number("#412") == 412
+    assert versions.pull_number("pull/x") is None and versions.pull_number("main") is None
+    assert found.pull(412) == head
+    ours = run(person, "for-each-ref", "--format=%(refname) %(objectname)", "refs/evalution")
+    assert ours.strip() == f"refs/evalution/bot/pull/412 {head}"
+    assert run(person, "for-each-ref", "refs/heads", "refs/remotes", "refs/tags") == theirs
+    assert state(person) == before
+    # Played by either name; listed as a pull request.
+    assert found.reach("#412") == head and found.reach("pull/412") == head
+    assert found.resolve("pull/412") == head
+    listed = {(r.kind, r.name): r for r in found.refs()}
+    assert listed[("pull", "pull/412")].commit == head
+    # Pushed to again: fetched again when played.
+    newer = commit(repos["origin"].parent / "pr-412", "app.py", "reply = 'pr, later'\n")
+    run(repos["origin"].parent / "pr-412", "push", "-q", "origin", "HEAD:refs/pull/412/head")
+    assert found.reach("#412", fetch=False) == head
+    assert found.reach("#412") == newer
+    path = found.checkout("pull/412")
+    assert (path / "app.py").read_text() == "reply = 'pr, later'\n"
+    assert state(person) == before
+
+
+def test_a_pull_request_that_isnt_there_is_said_plainly(repos) -> None:
+    found = Versions("bot", repos["person"], repos["data"])
+    with pytest.raises(VersionError, match="origin has no pull request 9"):
+        found.reach("#9")
+    with pytest.raises(VersionError, match="no pull request 9 fetched here"):
+        found.reach("#9", fetch=False)
+    upstream = repos["origin"].parent / "upstream.git"
+    run(upstream.parent, "clone", "-q", "--bare", str(repos["origin"]), str(upstream))
+    run(repos["person"], "remote", "add", "upstream", str(upstream))
+    head = open_pull_request(upstream, 9, "reply = 'nine'\n")
+    # A fork's pull requests are on the repository it was forked from: upstream, when there is one.
+    assert found.reach("#9") == head
+    assert run(
+        repos["person"], "for-each-ref", "--format=%(refname)", "refs/evalution"
+    ).split() == ["refs/evalution/bot/pull/9"]
+
+
 def test_refs_list_branches_remotes_and_tags_and_what_is_checked_out(repos) -> None:
     found = Versions("bot", repos["person"], repos["data"])
     listed = {(r.kind, r.name): r for r in found.refs()}
@@ -257,6 +353,100 @@ def test_too_little_disk_is_refused_with_what_to_remove(repos, monkeypatch) -> N
     assert found.checkout("main").exists()
 
 
+# Versions in use, and more than one evalution at a time
+
+
+def test_a_version_a_run_is_playing_is_not_trimmed_nor_removed(repos) -> None:
+    playing = Versions("bot", repos["person"], repos["data"], limit=1)
+    held = playing.take("main")
+    assert held.path.is_dir() and held.commit == playing.resolve("main")
+    os.utime(held.path, (1, 1))
+    assert [k.in_use for k in playing.kept()] == [True]
+
+    # Another run, past the limit: the one in use stays, though it was used longest ago.
+    other = Versions("bot", repos["person"], repos["data"], limit=1)
+    second = other.checkout("origin/feature")
+    assert held.path.is_dir() and second.is_dir()
+    with pytest.raises(versions.InUse, match="a run is playing it"):
+        other.remove(held.commit)
+    assert held.path.is_dir()
+
+    held.release()
+    held.release()  # twice is harmless
+    assert other.trim(keep=[other.resolve("origin/feature")])[0].commit == held.commit
+    assert not held.path.exists()
+
+
+def test_two_runs_of_one_version_share_it(repos) -> None:
+    found = Versions("bot", repos["person"], repos["data"])
+    first, second = found.take("main"), found.take("main")
+    assert first.path == second.path
+    first.release()
+    with pytest.raises(versions.InUse):
+        found.remove(first.commit)
+    with second:
+        pass
+    assert found.remove(first.commit).commit == first.commit
+
+
+HOLDER = """
+import sys
+from pathlib import Path
+from evalution.project.versions import Versions
+found = Versions("bot", Path(sys.argv[1]), Path(sys.argv[2]))
+if sys.argv[3] == "take":
+    held = found.take("main")
+    print(held.commit, flush=True)
+else:
+    with found.changing():
+        print("locked", flush=True)
+        sys.stdin.readline()
+sys.stdin.readline()
+"""
+
+
+def hold(repos, how: str) -> tuple[subprocess.Popen[str], str]:
+    """Another evalution process: holding a version (*how* ``take``) or the versions folder's
+    lock (``lock``) until its stdin is closed."""
+    holder = subprocess.Popen(
+        [sys.executable, "-c", HOLDER, str(repos["person"]), str(repos["data"]), how],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdout is not None
+    return holder, holder.stdout.readline().strip()
+
+
+def test_a_version_another_process_plays_is_not_removed(repos) -> None:
+    holder, commit_ = hold(repos, "take")
+    found = Versions("bot", repos["person"], repos["data"])
+    try:
+        assert commit_ == found.resolve("main")
+        assert [k.in_use for k in found.kept()] == [True]
+        with pytest.raises(versions.InUse):
+            found.remove(commit_)
+    finally:
+        holder.communicate("\n\n", timeout=30)
+    # Its lease ends with it, however it ends.
+    assert [k.in_use for k in found.kept()] == [False]
+    assert found.remove(commit_).commit == commit_
+
+
+def test_the_versions_folder_is_locked_across_processes(repos, monkeypatch) -> None:
+    found = Versions("bot", repos["person"], repos["data"])
+    holder, said = hold(repos, "lock")
+    assert said == "locked"
+    monkeypatch.setattr(versions, "LOCK_WAIT", 0.3)
+    try:
+        with pytest.raises(VersionError, match="Another evalution is changing"):
+            found.checkout("main")
+        assert found.kept() == []
+    finally:
+        holder.communicate("\n\n", timeout=30)
+    assert found.checkout("main").is_dir()
+
+
 class Images:
     """A stand-in for phase 3's built images."""
 
@@ -363,6 +553,36 @@ def test_the_api_lists_fetches_and_removes(client, repos) -> None:
     assert gone.json()["removed"]["commit"] == repos["remote_only"] and gone.json()["kept"] == []
     assert client.delete(f"/v1/targets/bot/versions/{repos['remote_only']}").status_code == 404
     assert state(repos["person"]) == before
+
+
+def test_the_api_wont_remove_a_version_a_run_plays(client, repos) -> None:
+    held = Versions("bot", repos["person"], repos["data"]).take("main")
+    view = client.get("/v1/targets/bot/versions").json()
+    assert [(k["commit"], k["in_use"]) for k in view["kept"]] == [(held.commit, True)]
+    during = client.delete(f"/v1/targets/bot/versions/{held.commit}")
+    assert during.status_code == 409
+    assert (
+        during.json()["detail"]
+        == f"{held.commit[:7]}: a run is playing it; remove it when the run ends"
+    )
+    held.release()
+    assert client.delete(f"/v1/targets/bot/versions/{held.commit}").status_code == 200
+
+
+def test_the_api_fetches_a_pull_request(client, repos) -> None:
+    head = open_pull_request(repos["origin"], 412, "reply = 'pull request'\n")
+    fetched = client.post("/v1/targets/bot/versions/fetch", json={"pull": 412})
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json() == {"remote": "origin", "pull": 412, "ref": "pull/412", "commit": head}
+    refs = client.get("/v1/targets/bot/versions").json()["refs"]
+    assert {"kind": "pull", "name": "pull/412", "commit": head}.items() <= next(
+        r for r in refs if r["name"] == "pull/412"
+    ).items()
+    missing = client.post("/v1/targets/bot/versions/fetch", json={"pull": 9})
+    assert missing.status_code == 400 and missing.json()["detail"] == "origin has no pull request 9"
+    for wrong in ("412", 0, True):
+        bad = client.post("/v1/targets/bot/versions/fetch", json={"pull": wrong})
+        assert bad.status_code == 400 and "pull: the pull request's number" in bad.json()["detail"]
 
 
 def test_the_api_refuses_plainly(client, monkeypatch) -> None:

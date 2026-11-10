@@ -34,7 +34,7 @@ export function Agree({
     </Button>
   );
   return (
-    <span className="mt-1 flex items-center gap-0.5 text-[11.5px] text-ink-3">
+    <span className="mt-1 flex items-center gap-0.5 text-xs text-ink-3">
       {can ? choice(true, "Agree", <ThumbsUp />) : null}
       {can ? choice(false, "Disagree", <ThumbsDown />) : null}
       {labelled ? (

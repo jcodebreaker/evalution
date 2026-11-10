@@ -30,11 +30,16 @@ from evalution.core.judgement import (
     WhyUnjudged,
 )
 
-#: Raised whenever a rule below changes what a stored try would read as.
 #: How unlikely a move must be, by chance alone, before it's called a real one.
 CHANCE = 0.05
+#: Raised whenever a rule below changes what a stored try would read as.
 #: 3: a try played through the page gets the page's checks (ADR 0010).
-RULES_VERSION = 3
+#: 4: an ``exact`` order and ``extras: false`` are held to strictly, and a delegated agent's own
+#: calls are not extras (``core/steps.py``; migration in ``results/migrate.py``).
+#: 5: a try whose copy's put back the end-of-run check found didn't hold is not judged
+#: (``runs/runner.py``; migration in ``results/migrate.py``), and two tools of one name a test
+#: doesn't tell apart are said so (``WhyUnjudged.AMBIGUOUS_TOOL``).
+RULES_VERSION = 5
 #: Code checks that show the outcome itself. Binding steps count too (:func:`basis_of`).
 _OUTCOME_CHECKS = frozenset(
     {CheckKind.STATE, CheckKind.CONTEXT, CheckKind.REPLY_TEXT, CheckKind.TOOL_RESULT}
@@ -67,6 +72,7 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.ADAPTER_MISREAD: Label.ADAPTER_ERROR,
     WhyUnjudged.APP_UNREACHABLE: Label.SETUP_BLOCKED,
     WhyUnjudged.NOT_SUPPORTED: Label.SETUP_BLOCKED,
+    WhyUnjudged.AMBIGUOUS_TOOL: Label.SETUP_BLOCKED,
     WhyUnjudged.BLOCKED: Label.SETUP_BLOCKED,
     WhyUnjudged.NEVER_STARTED: Label.SETUP_BLOCKED,
     WhyUnjudged.CREDENTIALS_REFUSED: Label.SETUP_BLOCKED,

@@ -7,7 +7,7 @@ import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/loading";
 import { TextLink } from "../shared/group";
 import { IsolateButton } from "../shared/IsolateButton";
-import { PANEL } from "./card";
+import { PANEL, PANEL_HEAD } from "./card";
 import { Following } from "./HowTestsRun";
 import { NeedRow } from "./NeedRow";
 import { OfferRow, type PageOfferState } from "./OfferRow";
@@ -35,22 +35,24 @@ export type NeedsContext = {
 export function NeedsYou({ needs, context }: { needs: Need[]; context: NeedsContext }) {
   return (
     <section className={PANEL} aria-labelledby="needs-you" data-testid="needs-you">
-      <div className="flex items-baseline gap-3 px-5 pt-4">
-        <h2 id="needs-you" className="m-0 text-[16px] font-semibold">
+      <div className={needs.length ? PANEL_HEAD : `${PANEL_HEAD} border-b-0`}>
+        <h2 id="needs-you" className="m-0 text-[15px] font-semibold">
           Needs you
         </h2>
         {needs.length ? (
-          <span className="font-mono text-[13px] text-ink-3 tabular-nums">{needs.length}</span>
+          <span className="inline-flex h-7 items-center rounded-full border border-rule px-2.5 font-mono text-[13px] text-ink-2 tabular-nums">
+            {needs.length}
+          </span>
         ) : null}
       </div>
       {needs.length ? (
-        <ul className="m-0 mt-3 list-none p-0">
+        <ul className="m-0 list-none p-0">
           {needs.map((need) => (
             <NeedItem key={need.id} need={need} context={context} />
           ))}
         </ul>
       ) : (
-        <p className="m-0 px-5 pt-1 pb-4 text-[14px] text-ink-3" data-testid="needs-you-empty">
+        <p className="m-0 px-5 pt-1 pb-4 text-sm text-ink-3" data-testid="needs-you-empty">
           Nothing needs you right now.
         </p>
       )}

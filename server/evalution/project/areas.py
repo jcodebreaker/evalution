@@ -169,6 +169,71 @@ def _fold_helpers(areas: list[Group], shaping: set[str]) -> list[Group]:
     return out
 
 
+# What is the agent, of a repository that holds more
+
+
+#: What makes an agent: the files that hold these are where its scope starts.
+CORE = ("prompt", "tool", "model", "agent")
+#: Steps through imports from the core (and from what calls it) still in scope.
+HOPS = 2
+
+
+def _paths(entry: Entry) -> list[str]:
+    """The files *entry* is at: its own and, folded, its other places (``path:line``)."""
+    return [entry.path, *(p.rsplit(":", 1)[0] for p in entry.places)]
+
+
+def agent_scope(
+    entries: Iterable[Entry], edges: Mapping[str, Iterable[str]], files: Collection[str]
+) -> set[str] | None:
+    """The files of *files* that are the agent, with no model (next-level C7): those that hold
+    its prompts, tools, model calls and agents (:data:`CORE`), what they import within
+    :data:`HOPS` steps (*edges*: ``path -> the paths it imports``), and the files holding its
+    routes, entry points and state that reach the core or are reached by it within as many, with
+    what they import. ``None`` when the skeleton names no core (a language the code map reads
+    thinly): then every file is in scope, as before. A web client calling its own ``api.get``, a
+    mobile project, migrations: none of them reach the agent's code, so none is in scope."""
+    known = set(files)
+    found = list(entries)
+    core = {p for e in found if e.kind in CORE for p in _paths(e)} & known
+    if not core:
+        return None
+    graph = {k: [v for v in vs if v in known] for k, vs in edges.items() if k in known}
+    back: dict[str, set[str]] = {}
+    for rel, hits in graph.items():
+        for hit in hits:
+            back.setdefault(hit, set()).add(rel)
+    near = core | _reach(graph, core) | _reach(back, core)
+    linked = {p for e in found if e.kind not in CORE for p in _paths(e) if p in near}
+    start = core | linked
+    return start | _reach(graph, start)
+
+
+def _reach(edges: Mapping[str, Iterable[str]], start: Iterable[str]) -> set[str]:
+    begin = set(start)
+    seen, front = set(begin), begin
+    for _ in range(HOPS):
+        front = {hit for rel in front for hit in edges.get(rel, ())} - seen
+        seen |= front
+    return seen - begin
+
+
+def outside(files: Iterable[str], taken: Collection[str] = ()) -> list[Area]:
+    """Files not part of the agent, one area per top folder (``root`` for the files at the top),
+    listed and never learned unless asked; an id an area of the agent already has (*taken*) gets
+    ``~outside``."""
+    by_folder: dict[str, list[str]] = {}
+    for path in sorted(files):
+        by_folder.setdefault(_folder(path, 1), []).append(path)
+    out = []
+    for folder, paths in sorted(by_folder.items()):
+        slug = _slug([folder])
+        out.append(
+            Area(slug if slug not in taken else f"{slug}~outside", (folder,), tuple(paths), 0)
+        )
+    return out
+
+
 # What an area weighs, and what its section was learned from
 
 

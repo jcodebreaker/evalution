@@ -4,8 +4,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   AgentSessionSchema,
   AreaStateSchema,
-  LearnedAreaSchema,
-  LearnStateSchema,
+  AreaViewSchema,
+  LearnStateViewSchema,
+  UnderstandingViewSchema,
 } from "../../lib/schema";
 import { AppView } from "./AppView";
 import { areasSummary, LearnedAreas } from "./Areas";
@@ -40,7 +41,7 @@ const AREAS = [
 ];
 
 const progress = (extra = {}) =>
-  LearnStateSchema.parse({ state: "learning", started_at: 1, areas: AREAS, ...extra });
+  LearnStateViewSchema.parse({ state: "learning", started_at: 1, areas: AREAS, ...extra });
 
 const claim = (id: string, text: string) => ({
   id,
@@ -115,7 +116,7 @@ it("lists the areas heaviest first, each marked by its state, under one summary 
 
 it("words the summary for a learn with nothing left", () => {
   const done = [area("a", "done"), area("b", "current")].map((entry) =>
-    LearnedAreaSchema.parse(entry),
+    AreaViewSchema.parse(entry),
   );
   expect(areasSummary(done)).toBe("2 of 2 areas learned");
 });
@@ -157,46 +158,196 @@ it("says a stopped learn kept what it learned, and goes on with the learn action
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-it("orders the page: card, first-pass overview, areas, what they learned, skeleton", async () => {
+const DIAGRAM = {
+  nodes: [
+    { id: "you", kind: "person", title: "Person" },
+    {
+      id: "bot",
+      kind: "agent",
+      title: "Bot agent",
+      sub: "answers",
+      evidence: [{ kind: "prompt", ref: "system.md" }],
+    },
+  ],
+  edges: [{ from: "you", to: "bot", asks: 12 }],
+};
+
+const tab = (name: string) =>
+  fireEvent.click(screen.getByRole("tab", { name: new RegExp(`^${name}`) }));
+
+it("lays the page out: one title, the figures, how it works with its check, then the tabs", async () => {
   serve(() =>
     understanding({
+      card: {
+        name: "bot",
+        one_line: "Answers questions about orders.",
+        summary: "A bot that answers.",
+        stack: ["Python", "FastAPI"],
+        status: "out_of_date",
+        changes: 2,
+        numbers: {
+          tools: 6,
+          tools_seen: 5,
+          state_kinds: ["profile", "notes"],
+          tests: 7,
+          tests_passing: 6,
+        },
+      },
+      diagram: DIAGRAM,
       progress: { ...progress({ state: "done" }), overview: "first_pass" },
       overview: { state: "first_pass", basis: "the code's skeleton and 12 conversations" },
     }),
   );
   const learn = vi.fn();
   render(page({ onLearn: learn }));
-  const pill = await screen.findByText("First pass");
+  expect(await screen.findByRole("heading", { level: 1, name: "What bot does" })).toBeTruthy();
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(screen.getByText("Answers questions about orders.")).toBeTruthy();
+  expect(screen.getByText("FastAPI")).toBeTruthy();
+  expect(screen.getByText("Changed since learned · 2")).toBeTruthy();
+  expect(screen.getByText("5 seen in use")).toBeTruthy();
+  expect(screen.getByText("6 pass · 1 fail")).toBeTruthy();
+  const pill = screen.getByText("First pass");
   expect(pill.nextSibling?.textContent).toBe(
     "From the code's skeleton and 12 conversations; it's rewritten once the areas are learned.",
   );
-  const overview = screen.getByRole("region", { name: "Overview" });
-  expect(within(overview).getByText("A bot that answers.")).toBeTruthy();
-  const areas = screen.getByRole("region", { name: "Areas" });
-  // The areas' sections show, heaviest area first, after the older ones.
-  const headings = screen.getAllByRole("heading").map((heading) => heading.textContent);
-  const at = (text: string) => headings.indexOf(text);
-  expect(at("What it can do")).toBeLessThan(at("The agents part"));
-  expect(at("The agents part")).toBeLessThan(at("The memory part"));
-  expect(at("What it is")).toBeLessThan(at("Areas"));
-  expect(at("Areas")).toBeLessThan(at("What it can do"));
-  // Overview → areas → sections: in the document's order too.
-  const follows = (a: Node, b: Node) =>
-    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(follows(overview, areas)).toBe(true);
-  expect(follows(areas, screen.getByText("It keeps notes."))).toBe(true);
+  // The agent is checked beside the diagram until another box is picked.
+  const check = screen.getByRole("generic", { name: "About Bot agent" });
+  expect(within(check).getByText("prompt · system.md")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Learn again" }));
+  expect(learn).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByRole("tab").map((entry) => entry.textContent)).toEqual([
+    "Tools6",
+    "Typical paths",
+    "What it knows3",
+    "Areas6",
+    "Suggested tests",
+  ]);
+  // The areas' sections show in What it knows, heaviest area first, after the older ones.
+  tab("What it knows");
+  const panel = screen.getByRole("tabpanel");
+  const headings = within(panel)
+    .getAllByRole("heading")
+    .map((heading) => heading.textContent);
+  expect(headings).toEqual([
+    "What it is",
+    "What it can do",
+    "The agents part",
+    "The memory part",
+    "What matters most to test",
+  ]);
+  tab("Areas");
+  expect(within(screen.getByRole("tabpanel")).getByRole("region", { name: "Areas" })).toBeTruthy();
 });
 
 it("drops the first-pass pill once the overview is final", async () => {
   serve(() =>
     understanding({
+      diagram: DIAGRAM,
       progress: { ...progress({ state: "done" }), overview: "final" },
       overview: { state: "final", basis: "the areas" },
     }),
   );
   render(page());
-  await screen.findByText("A bot that answers.");
+  await screen.findByRole("region", { name: "Overview" });
   expect(screen.queryByText("First pass")).toBeNull();
+});
+
+it("checks a claim right or wrong from its row, and a box from its check, as steers", async () => {
+  serve(() => understanding({ diagram: DIAGRAM }));
+  const steers: unknown[] = [];
+  const fetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init: RequestInit = {}) => {
+      if (init.method === "POST") {
+        steers.push(JSON.parse(String(init.body)));
+        return new Response("null", { headers: { "content-type": "application/json" } });
+      }
+      return fetch(path, init);
+    }),
+  );
+  render(page());
+  const check = await screen.findByRole("generic", { name: "About Bot agent" });
+  fireEvent.click(within(check).getByRole("button", { name: "Wrong" }));
+  tab("What it knows");
+  const greets = screen.getByText("It greets people.").closest("li") as HTMLElement;
+  fireEvent.click(within(greets).getByRole("button", { name: "Right" }));
+  expect(within(greets).getByRole("button", { name: "Right" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  await waitFor(() =>
+    expect(steers).toEqual([
+      { node: "bot", verdict: "wrong" },
+      { claim: "c1", verdict: "right" },
+    ]),
+  );
+});
+
+it("lists an area outside the agent with Learn this area, and a failed one with why and Try again", async () => {
+  const asked = vi.fn(async (id: string) =>
+    AreaStateSchema.parse({ id, state: "due", weight: 0, files: 1 }),
+  );
+  render(
+    <LearnedAreas
+      progress={LearnStateViewSchema.parse({
+        state: "done",
+        areas: [
+          area("agents", "done"),
+          area("search", "failed", { reason: "the model's gateway timed out (504)" }),
+          area("ios", "outside", { files: 101, weight: 0 }),
+        ],
+      })}
+      busy={false}
+      onGoOn={() => undefined}
+      onLearnArea={asked}
+    />,
+  );
+  expect(
+    screen.getByText(/1 of 3 areas learned · 1 failed · 1 not part of the agent/),
+  ).toBeTruthy();
+  const ios = screen.getByRole("listitem", { name: "The ios part" });
+  expect(ios.dataset.state).toBe("outside");
+  expect(ios.textContent).toContain("101 files · not part of the agent");
+  expect(within(ios).getAllByText("Not part of the agent").length).toBeGreaterThan(0);
+  fireEvent.click(within(ios).getByRole("button", { name: "Learn this area" }));
+  expect(asked).toHaveBeenCalledWith("ios", false);
+  const search = screen.getByRole("listitem", { name: "The search part" });
+  expect(within(search).getByText("the model's gateway timed out (504)").className).toContain(
+    "text-fail",
+  );
+  fireEvent.click(within(search).getByRole("button", { name: "Try again" }));
+  expect(asked).toHaveBeenCalledWith("search", false);
+  await waitFor(() => expect(within(search).getByText("Asked")).toBeTruthy());
+});
+
+it("says how many areas are in the profile, which were left out, and what the watch left out", async () => {
+  serve(() =>
+    understanding({
+      progress: { ...progress({ state: "done" }), left_out: { past_cap: 1234, too_large: 3 } },
+      profile: { areas: 12, of: 35, left_out: ["Web client", "iOS app"] },
+    }),
+  );
+  render(page());
+  const notice = await screen.findByTestId("left-out");
+  expect(within(notice).getByText("12 of 35 areas are in the profile")).toBeTruthy();
+  expect(within(notice).getByText("1234 files past the watch")).toBeTruthy();
+  expect(within(notice).getByText("3 files over 1 MB")).toBeTruthy();
+  expect(within(notice).getByText("Web client")).toBeTruthy();
+});
+
+it("says nothing was left out when the profile holds every area", () => {
+  const read = UnderstandingViewSchema.parse(
+    understanding({ profile: { areas: 6, of: 6, left_out: [] } }),
+  );
+  expect(read.profile).toEqual({ areas: 6, of: 6, left_out: [] });
+  // An older server's: no profile, no left_out, an area state it doesn't know read as waiting.
+  const old = UnderstandingViewSchema.parse(
+    understanding({ progress: { state: "done", areas: [area("x", "someday")] } }),
+  );
+  expect(old.profile).toBeNull();
+  expect(old.progress?.left_out).toEqual({ past_cap: 0, too_large: 0 });
+  expect(old.progress?.areas[0]?.state).toBe("due");
 });
 
 it("reads the understanding every 3 s while it says it is learning, and stops after", async () => {
@@ -228,9 +379,11 @@ it.each([
   const reads = serve(() => understanding(extra));
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   render(page());
-  await screen.findByText("A bot that answers.");
+  await screen.findByRole("heading", { level: 1, name: "What bot does" });
   expect(screen.queryByRole("region", { name: "Areas" })).toBeNull();
   expect(screen.queryByText("First pass")).toBeNull();
+  tab("What it knows");
+  expect(screen.getByText("A bot that answers.")).toBeTruthy();
   // An area's section stays the test writer's note.
   expect(screen.queryByText("It keeps notes.")).toBeNull();
   expect(screen.getByText("It greets people.")).toBeTruthy();

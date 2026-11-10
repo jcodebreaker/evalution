@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from evalution.project.understanding.document import AREA_PREFIX, DETAILS
 from evalution.project.understanding.steering import overlay
 
 _TAG = {"traces": "[trace]", "admin": "[admin]"}
@@ -76,6 +78,94 @@ def render_profile(name: str, doc: Mapping[str, Any], log: Sequence[Mapping[str,
             what = s["what"].rstrip(".")
             lines.append(f"- {s['title']}: {what}. Why: {s['why']}{source}")
     return "\n".join(lines) + "\n"
+
+
+#: What the closing list of areas left out says.
+LEFT_OUT = "Left out of this profile to fit"
+
+
+def _size(section: Mapping[str, Any]) -> int:
+    """About what *section* renders to: its heading and its claims' lines."""
+    return len(str(section.get("title") or "")) + sum(
+        len(str(c.get("text") or "")) + 40 for c in section.get("claims") or []
+    )
+
+
+def fit_profile(
+    name: str, doc: Mapping[str, Any], log: Sequence[Mapping[str, Any]], cap: int
+) -> tuple[str, dict[str, Any]]:
+    """``profile.md`` of *doc* (:func:`render_profile`) in at most *cap* characters, and what is
+    in it: ``{areas, of, left_out}``, the areas' sections kept, of how many, and the titles of
+    those left out. Details is never part of it. Past *cap*, the areas' sections go, the heaviest
+    first, and a closing list names them; past it still (an overview alone too long), the text is
+    cut. It never refuses."""
+    sections = [s for s in doc.get("sections") or [] if s.get("id") != DETAILS]
+    areas = [s for s in sections if str(s.get("id") or "").startswith(AREA_PREFIX)]
+    gone: list[Mapping[str, Any]] = []
+    heaviest = sorted(areas, key=lambda s: (-_size(s), str(s.get("id"))))
+    while True:
+        dropped = {id(s) for s in gone}
+        kept = {**doc, "sections": [s for s in sections if id(s) not in dropped]}
+        text = render_profile(name, kept, log)
+        if gone:
+            titles = [str(s.get("title") or s.get("id")) for s in gone]
+            said = f"{len(areas) - len(gone)} of {len(areas)} areas are in this profile."
+            text += f"\n## {LEFT_OUT}\n\n{said}\n" + "".join(f"- {t}\n" for t in titles)
+        if len(text) <= cap or len(gone) == len(areas):
+            break
+        # Drop as many of the heaviest as the excess needs at once, then measure again.
+        excess, more = len(text) - cap, 0
+        for section in heaviest[len(gone) :]:
+            gone.append(section)
+            more += _size(section)
+            if more >= excess:
+                break
+    if len(text) > cap:
+        mark = "\n\n(cut to fit)\n"
+        text = text[: cap - len(mark)].rstrip() + mark
+    left_out = [str(s.get("title") or s.get("id")) for s in gone]
+    return text, {"areas": len(areas) - len(gone), "of": len(areas), "left_out": left_out}
+
+
+#: A name worth matching in a conversation: one with an underscore, or a capital past its first
+#: letter (``greet_people``, ``MemoryStore``), at least four characters.
+_NAME = re.compile(r"\b[A-Za-z_][A-Za-z0-9]*(?:_[A-Za-z0-9_]+|[a-z0-9][A-Z][A-Za-z0-9_]*)\b")
+#: What an area section not named says in its place.
+ASK_FOR_IT = "(not named in this conversation: read_understanding gives its claims)"
+
+
+def _names_of(section: Mapping[str, Any], nodes: Sequence[Mapping[str, Any]]) -> set[str]:
+    """What names *section*: its area id and title, its files' paths, the names its
+    claims use, and the tools of the nodes that rest on its files."""
+    refs = {
+        str(e.get("ref") or "").split(":")[0]
+        for c in section.get("claims") or []
+        for e in c.get("evidence") or []
+        if e.get("kind") in ("code", "prompt", "docs")
+    } - {""}
+    names = {str(section.get("id") or "").removeprefix(AREA_PREFIX), str(section.get("title"))}
+    names |= refs
+    names |= {m for c in section.get("claims") or [] for m in _NAME.findall(str(c.get("text")))}
+    for node in nodes:
+        if {str(e.get("ref") or "") for e in node.get("evidence") or []} & refs:
+            names |= {str(t) for t in node.get("tools") or []}
+    return {n for n in names if len(n) >= 4}
+
+
+def only_named(doc: Mapping[str, Any], said: str) -> dict[str, Any]:
+    """*doc* with the claims of only those area sections *said* (a conversation's text) names: by
+    a tool, file or name of theirs, or the area itself. The rest keep their title, marked
+    :data:`ASK_FOR_IT`. The overview's own sections, the nodes and their tools always stay."""
+    text = said.lower()
+    nodes = doc.get("nodes") or []
+    out = []
+    for section in doc.get("sections") or []:
+        area = str(section.get("id") or "").startswith(AREA_PREFIX)
+        if not area or any(n.lower() in text for n in _names_of(section, nodes)):
+            out.append(section)
+        else:
+            out.append({**section, "title": f"{section['title']} {ASK_FOR_IT}", "claims": []})
+    return {**doc, "sections": out}
 
 
 def card_md(found: Mapping[str, Any]) -> str:

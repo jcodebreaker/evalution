@@ -21,7 +21,7 @@ function Row({ check }: { check: CheckRow }) {
         className="translate-y-[-1px]"
       />
       <span className="break-words text-ink-2">{check.text}</span>
-      {tags ? <span className="text-[11px] text-ink-3">{tags}</span> : null}
+      {tags ? <span className="text-xs text-ink-3">{tags}</span> : null}
     </li>
   );
 }
@@ -37,7 +37,7 @@ function Panel({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2 border-separator p-3.5 not-first:md:border-s not-first:max-md:border-t">
-      <h4 className="m-0 text-[12px] font-medium text-ink-3">{title}</h4>
+      <h4 className="m-0 text-[13px] font-medium text-ink-3">{title}</h4>
       {tally ? <b className="text-[15px] font-semibold">{tally}</b> : null}
       {children}
     </div>

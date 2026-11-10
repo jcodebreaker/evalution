@@ -34,7 +34,7 @@ export function Scores({
     .sort((a, b) => b.started_at - a.started_at);
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 px-1 text-[12.5px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-2 px-1 text-sm text-ink-3">
         {run.prompt ? <span>prompt {run.prompt}</span> : null}
         {others.length ? (
           <>
@@ -54,7 +54,7 @@ export function Scores({
       <Group className="overflow-x-auto">
         <table className="w-full min-w-[620px] border-collapse">
           <thead>
-            <tr className="text-start text-[11.5px] font-medium text-ink-3">
+            <tr className="text-start text-xs font-medium text-ink-3">
               <Th>Test</Th>
               <Th className="w-[150px]">Steps score</Th>
               <Th className="w-[150px]">Reply score</Th>

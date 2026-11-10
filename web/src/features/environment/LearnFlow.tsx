@@ -25,7 +25,7 @@ export function useLearnPoll(reach: PageReach | null, read: () => unknown) {
 /** A page map in plain words: each entry, and where it is on the page. */
 export function MapWords({ kept }: { kept: KeptPageMap }) {
   if (kept.error) {
-    return <p className="m-0 text-[13px] text-fail">The map doesn't read: {kept.error}</p>;
+    return <p className="m-0 text-sm text-fail">The map doesn't read: {kept.error}</p>;
   }
   return (
     <Group>
@@ -55,7 +55,7 @@ const SETTINGS = new Set([
  * keeps in one line. */
 export function MapChips({ kept }: { kept: KeptPageMap }) {
   if (kept.error) {
-    return <p className="m-0 text-[13px] text-fail">The map doesn't read: {kept.error}</p>;
+    return <p className="m-0 text-sm text-fail">The map doesn't read: {kept.error}</p>;
   }
   const parts = kept.map.filter((entry) => !SETTINGS.has(entry.what));
   const settings = kept.map.filter((entry) => SETTINGS.has(entry.what));
@@ -65,20 +65,17 @@ export function MapChips({ kept }: { kept: KeptPageMap }) {
         {parts.map((entry) => (
           <li
             key={entry.what}
-            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-full bg-group px-2.5 py-1 text-[12.5px] ring-1 ring-separator"
+            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-full bg-group px-2.5 py-1 text-sm ring-1 ring-separator"
           >
             <span className="shrink-0 font-medium">{entry.what}</span>
-            <span
-              className="min-w-0 truncate font-mono text-[11.5px] text-ink-3"
-              title={entry.where}
-            >
+            <span className="min-w-0 truncate font-mono text-[13px] text-ink-3" title={entry.where}>
               {entry.where}
             </span>
           </li>
         ))}
       </ul>
       {settings.length ? (
-        <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3">
+        <p className="m-0 max-w-[68ch] text-sm text-ink-3">
           {settings.map((entry) => `${entry.what}: ${entry.where}`).join(" · ")}
         </p>
       ) : null}
@@ -182,7 +179,7 @@ export function ProposedMap({
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium text-ink-2">What it found</span>
+        <span className="text-sm font-medium text-ink-2">What it found</span>
         <MapChips kept={kept} />
       </div>
       {kept.report ? <p className="m-0 max-w-[68ch] text-ink-2">{kept.report}</p> : null}
@@ -202,7 +199,7 @@ export function ProposedMap({
           {working === "learn" ? <Spinner /> : <RotateCcw />}
           Re-learn the page
         </Button>
-        <span className="min-w-0 flex-1 text-[12.5px] text-ink-3">
+        <span className="min-w-0 flex-1 text-sm text-ink-3">
           {reach.writable
             ? reach.managed
               ? `From the next run, tests reach it through its page. ${undo}`
@@ -210,7 +207,7 @@ export function ProposedMap({
             : `${target}'s page: block in evalution.yaml wins: change the map there, or take the block out to use this one.`}
         </span>
       </div>
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </div>
   );
 }
@@ -246,7 +243,7 @@ export function LearnSteps({
       ) : null}
       <Checklist steps={learn.steps} />
       {learn.state === "failed" && learn.error ? (
-        <p className="m-0 max-w-[68ch] text-[13px] text-warning">
+        <p className="m-0 max-w-[68ch] text-sm text-warning">
           {learn.error} The whole conversation is kept among the agent's chats.
         </p>
       ) : null}
@@ -256,7 +253,7 @@ export function LearnSteps({
             {stopping ? <Spinner /> : <Square />}
             Stop
           </Button>
-          <span className="text-[12.5px] text-ink-3">
+          <span className="text-sm text-ink-3">
             Underway on its own: you can leave this page and come back to it.
           </span>
         </div>

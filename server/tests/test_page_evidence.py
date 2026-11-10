@@ -195,6 +195,60 @@ def test_deleting_a_run_deletes_its_evidence_and_files(tmp_path) -> None:
     assert RunStore(store.docs).delete_run("run-2") is True
 
 
+def test_a_runs_files_go_once_they_are_older_than_keep_days(tmp_path) -> None:
+    import os
+    import time
+
+    from evalution.config import load
+    from evalution.storage.files import DAY
+
+    files = LocalFiles(tmp_path)
+    assert files.prune(30) == [], "nothing kept yet"
+    files.put("old-run", "c", 1, "turn-1.png", b"png")
+    files.put("old-run", "c", 2, "video.webm", b"webm")
+    files.put("new-run", "c", 1, "turn-1.png", b"png")
+    now = time.time()
+    for path in (tmp_path / "files" / "old-run").rglob("*"):
+        if path.is_file():
+            os.utime(path, (now - 31 * DAY, now - 31 * DAY))
+    assert files.prune(30, now) == ["old-run"]
+    assert files.list("old-run", "c", 1) == [] and files.list("old-run", "c", 2) == []
+    assert files.list("new-run", "c", 1) == ["turn-1.png"]
+    # Kept 30 days unless the config says otherwise.
+    (tmp_path / "evalution.yaml").write_text("files:\n  keep_days: 7\n")
+    assert load(tmp_path / "evalution.yaml").files.keep_days == 7
+    (tmp_path / "none.yaml").write_text("{}\n")
+    assert load(tmp_path / "none.yaml").files.keep_days == 30
+    (tmp_path / "bad.yaml").write_text("files:\n  keep_days: 0\n")
+    with pytest.raises(ValueError, match=r"files\.keep_days"):
+        load(tmp_path / "bad.yaml")
+
+
+def test_a_run_is_deleted_through_the_api_with_its_files(tmp_path) -> None:
+    import yaml
+    from fastapi.testclient import TestClient
+
+    from evalution.api.app import create_app
+    from evalution.config import load
+
+    (tmp_path / "evalution.yaml").write_text(
+        yaml.safe_dump({"targets": {"bot": {"adapter": "http", "http": {"send": {"url": "x"}}}}})
+    )
+    with TestClient(create_app(load(tmp_path / "evalution.yaml"))) as client:
+        runs = client.app.state.workspaces.get("local").runs
+        runs._orphans_marked = True  # run-2 is playing here, not left by an earlier server
+        done = {"run": "run-1", "target": "bot", "set": "main", "status": "done", "cases": {}}
+        runs.store.write(done)
+        runs.store.write({**done, "run": "run-2", "status": "running"})
+        runs.store.files.put("run-1", "c", 1, "turn-1.png", b"png")
+        assert client.delete("/v1/evals/runs/run-2").status_code == 409
+        gone = client.delete("/v1/evals/runs/run-1")
+        assert gone.status_code == 200 and gone.json() == {"run": "run-1", "deleted": True}
+        assert runs.store.load("run-1") is None
+        assert runs.store.files.list("run-1", "c", 1) == []
+        assert client.delete("/v1/evals/runs/run-1").status_code == 404
+
+
 def test_an_uploaded_run_keeps_its_files_names_only() -> None:
     raw = json.loads((FIXTURES / "runs" / "v0-first.json").read_text(encoding="utf-8"))
     run = upcast(raw)

@@ -1,37 +1,29 @@
+import { ChevronLeft } from "lucide-react";
+
 /**
- * The bar over every screen: where the page is, and the run playing now, if any, which opens it.
+ * The bar over every screen: on a test or a run, the way back to its list (a top-level screen's own
+ * heading is its title, so there is no breadcrumb), and the run playing now, if any, which opens it.
  */
 export function TopBar({
-  crumbs,
+  back,
   live,
 }: {
-  crumbs: readonly string[];
+  back: { label: string; onClick: () => void } | null;
   live: { label: string; onOpen: () => void } | null;
 }) {
-  const last = crumbs.length - 1;
   return (
-    <header className="z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-separator bg-window/85 px-8 backdrop-blur-[10px] backdrop-saturate-[1.4] max-md:px-4">
-      <nav
-        aria-label="Where you are"
-        className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[13px] whitespace-nowrap text-ink-3"
-      >
-        {crumbs.map((crumb, index) => (
-          <span key={`${index}:${crumb}`} className="flex min-w-0 items-center gap-2">
-            {index ? (
-              <span aria-hidden className="text-rule-strong">
-                /
-              </span>
-            ) : null}
-            {index === last ? (
-              <b aria-current="page" className="truncate font-medium text-ink">
-                {crumb}
-              </b>
-            ) : (
-              <span className="truncate">{crumb}</span>
-            )}
-          </span>
-        ))}
-      </nav>
+    <header className="z-10 flex h-[52px] shrink-0 items-center gap-3 bg-window/85 px-8 backdrop-blur-[10px] backdrop-saturate-[1.4] max-md:px-4">
+      {back ? (
+        <button
+          type="button"
+          onClick={back.onClick}
+          className="inline-flex h-[34px] min-w-0 items-center gap-1.5 rounded-[9px] ps-1.5 pe-2.5 whitespace-nowrap text-ink-2 hover:bg-sunk hover:text-ink focus-visible:outline-2 focus-visible:outline-tint"
+        >
+          <ChevronLeft className="size-[15px] shrink-0" aria-hidden />
+          <span className="truncate">{back.label}</span>
+        </button>
+      ) : null}
+      <span className="flex-1" />
       {live ? (
         <button
           type="button"

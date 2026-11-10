@@ -1,9 +1,10 @@
-import { count, live, tokens, when } from "../../lib/format";
+import { count, live, percent, score, seconds, signed, tokens, when } from "../../lib/format";
 import type { CaseRow, RunDetail, RunSummary } from "../../lib/schema";
 import type { Load } from "../../lib/use-load";
 import { PAGE_ONLY_RUN } from "../../lib/verdict";
 import { Button } from "../../ui/button";
 import { Fold } from "../shared/group";
+import { Delta, type DeltaTone } from "../shared/kit";
 import { Centered, Page } from "../shared/layout";
 import { Comparison, MORE_TRIES } from "./Comparison";
 import { Scores } from "./Details";
@@ -26,7 +27,6 @@ export function RunView({
   label,
   scopeLabel,
   going,
-  onBack,
   onBase,
   onTest,
   onRunTest,
@@ -41,7 +41,8 @@ export function RunView({
   scopeLabel: string;
   /** A run is going: run actions wait for it. */
   going: boolean;
-  onBack: () => void;
+  /** The way back: the shell's top bar draws it, so the screen doesn't. */
+  onBack?: () => void;
   onBase: (run: string) => void;
   onTest: (id: string) => void;
   onRunTest: (row: CaseRow) => void;
@@ -65,19 +66,18 @@ export function RunView({
   const reasons = new Map(run.tests.map((test) => [test.case, test.reason]));
 
   return (
-    <Page wide>
+    <Page full>
       <RunHeader
         run={run}
         found={found}
         label={label}
         going={going}
-        onBack={onBack}
         onRunMore={onRunMore}
         onRunOn={onRunOn}
         onStop={onStop}
       />
-      <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="flex min-w-0 flex-col gap-4">
+      <div className="grid items-start gap-5 min-[1180px]:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-w-0 flex-col gap-5">
           {isLive ? (
             <Progress run={run} onTest={onTest} />
           ) : (
@@ -107,10 +107,11 @@ export function RunView({
             </>
           )}
         </div>
-        <aside className="flex min-w-0 flex-col gap-4">
+        <aside className="flex min-w-0 flex-col gap-5">
           {!isLive && failing ? (
             <WhatWentWrong run={run} onTest={onTest} onAnalyze={() => onAnalyze(run.run)} />
           ) : null}
+          {isLive ? null : <ScoresCard run={run} />}
           <RunFacts run={run} scopeLabel={scopeLabel} />
         </aside>
       </div>
@@ -118,13 +119,13 @@ export function RunView({
   );
 }
 
-/** "Runs / <set>", "Run n" with how it came out, its facts as chips, and its actions. */
+/** "Run n" with how it came out (the top bar holds the way back to Runs), its facts as chips,
+ * and its actions. */
 function RunHeader({
   run,
   found,
   label,
   going,
-  onBack,
   onRunMore,
   onRunOn,
   onStop,
@@ -133,7 +134,6 @@ function RunHeader({
   found: Tally;
   label: (run: string) => string;
   going: boolean;
-  onBack: () => void;
   onRunMore: (ids: readonly string[], tries: number) => void;
   onRunOn?: (set: string, ref: string) => void;
   onStop: (run: string) => Promise<void>;
@@ -160,26 +160,15 @@ function RunHeader({
         ? () => onRunMore(ids, tries)
         : null;
   return (
-    <div className="flex flex-wrap items-start gap-5">
-      <div className="min-w-0 flex-[1_1_420px]">
-        <div className="mb-2 flex items-center gap-2 text-[13px] text-ink-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="text-tint-ink hover:underline focus-visible:outline-2 focus-visible:outline-tint"
-          >
-            Runs
-          </button>
-          <span aria-hidden>/</span>
-          <span className="truncate">{run.set}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="m-0 text-[30px] leading-[1.15] font-semibold tracking-[-0.01em] [overflow-wrap:anywhere] max-[560px]:text-[24px]">
+    <div className="flex flex-wrap items-start gap-3.5">
+      <div className="min-w-0 flex-[1_1_320px]">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="m-0 text-[28px] leading-[1.15] font-semibold tracking-[-0.025em] [overflow-wrap:anywhere] max-md:text-2xl">
             {label(run.run)}
           </h1>
           <Pill tone={state.tone}>{state.word}</Pill>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2" data-testid="run-chips">
+        <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="run-chips">
           <Chip>{long ? `${when(run.started_at)} · ${long}` : when(run.started_at)}</Chip>
           <VersionChip version={run.version} />
           {copy ? <Chip>{copy}</Chip> : null}
@@ -187,7 +176,7 @@ function RunHeader({
           {plays ? <Chip tint>{plays}</Chip> : null}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2">
         {run.status === "running" ? (
           <Button variant="secondary" onClick={() => void onStop(run.run)}>
             Stop
@@ -253,7 +242,7 @@ function ResultCard({ run, found }: { run: RunDetail; found: Tally }) {
   ].filter(Boolean);
   return (
     <Card data-testid="run-result">
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-6 p-5 max-[560px]:grid-cols-1">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-[22px] p-5 max-[560px]:grid-cols-1">
         <span className="max-[560px]:hidden">
           <Ring
             parts={bar}
@@ -262,11 +251,11 @@ function ResultCard({ run, found }: { run: RunDetail; found: Tally }) {
           />
         </span>
         <div className="min-w-0">
-          <h2 className="m-0 text-[30px] leading-none font-semibold tracking-[-0.03em] max-[560px]:text-[24px]">
+          <h2 className="m-0 text-[30px] leading-none font-semibold tracking-[-0.035em] tabular-nums max-[560px]:text-[24px]">
             {`${run.totals.passed} of ${count(run.totals.cases, "test")} pass`}
           </h2>
           <PartsBar parts={bar} total={found.total} className="mt-3 mb-2" />
-          <p className="m-0 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-ink-2">
+          <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
             {counted.map((entry) => (
               <span key={entry.text} className="inline-flex items-center gap-1.5">
                 <Swatch tone={entry.tone as "fail" | "unjudged" | "none"} />
@@ -281,6 +270,56 @@ function ResultCard({ run, found }: { run: RunDetail; found: Tally }) {
         </div>
       </div>
       {notices.length ? <div className="flex flex-col gap-2 px-5 pb-5">{notices}</div> : null}
+    </Card>
+  );
+}
+
+/** A change's tone: better green, worse red, none grey. */
+function toneOf(value: number, lowerIsBetter = false): DeltaTone {
+  if (Math.abs(value) < 0.005) return "flat";
+  return (lowerIsBetter ? value < 0 : value > 0) ? "ok" : "bad";
+}
+
+/** The run's scores in the rail: steps, reply and median time, each with its change from the run
+ * it is compared with. */
+function ScoresCard({ run }: { run: RunDetail }) {
+  const { totals, delta } = run;
+  const rows: { label: string; value: string; change: { text: string; tone: DeltaTone } | null }[] =
+    [
+      {
+        label: "Steps score",
+        value: totals.tools === null ? "–" : score(totals.tools),
+        change: delta ? { text: signed(delta.tools), tone: toneOf(delta.tools) } : null,
+      },
+      {
+        label: "Reply score",
+        value: totals.reply === null ? "–" : score(totals.reply),
+        change: delta ? { text: signed(delta.reply), tone: toneOf(delta.reply) } : null,
+      },
+      {
+        label: "Median time",
+        value: seconds(totals.median_seconds),
+        change: delta
+          ? {
+              text: percent(delta.median_seconds_pct),
+              tone: toneOf(delta.median_seconds_pct / 100, true),
+            }
+          : null,
+      },
+    ];
+  return (
+    <Card aria-label="Scores" data-testid="run-scores">
+      <div className="flex flex-col gap-3.5 p-5">
+        <h2 className="m-0 text-[15px] font-semibold">Scores</h2>
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center gap-2.5">
+            <span className="text-ink-2">{row.label}</span>
+            <span className="flex-1" />
+            <b className="font-mono text-[15px] font-medium tabular-nums">{row.value}</b>
+            {row.change ? <Delta tone={row.change.tone}>{row.change.text}</Delta> : null}
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

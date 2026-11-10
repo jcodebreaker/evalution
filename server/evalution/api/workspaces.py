@@ -124,6 +124,8 @@ def open_workspace(
             llm,
             traces_url,
             targets.store,
+            # Clones go in this workspace's data folder, wherever its config puts it.
+            data_dir=config.data_dir,
         )
         watcher = impact.Watcher(runs, knowledge.refresh)
     agent = Agent(runs, SessionStore(targets.docs), llm)

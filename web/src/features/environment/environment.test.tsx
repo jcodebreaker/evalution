@@ -100,7 +100,7 @@ it("before anything runs: every step waiting, an empty copy, and one button that
   expect(steps.map((item) => item.dataset.state)).toEqual(Array(6).fill("waiting"));
   expect(within(copy()).queryAllByRole("listitem")).toHaveLength(0);
   expect(screen.getByText("eval-relay-lite-0")).toBeTruthy();
-  expect(screen.getByText(/two messages to evalution's own copy/)).toBeTruthy();
+  expect(screen.getByText(/two or three messages to evalution's own copy/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Set up testing" }));
   await waitFor(() =>
     expect(calls).toContainEqual({
@@ -334,8 +334,6 @@ it("the sidebar opens the Test environment, between What it learned and the test
       target="relay-lite"
       sets={[]}
       set={null}
-      asking={false}
-      onAskAi={null}
       cards={null}
       onTarget={() => {}}
       onSet={() => {}}

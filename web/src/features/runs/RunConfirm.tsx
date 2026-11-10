@@ -1,17 +1,26 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Scope } from "../../lib/api";
 import { ApiError, api, errorText, missingOf } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { count, runNumbers, tokens } from "../../lib/format";
 import { about } from "../../lib/isolation";
-import type { Estimate, Keep, MissingPiece, PageReach, Proof, RunSummary } from "../../lib/schema";
+import type {
+  CaseRow,
+  Estimate,
+  Keep,
+  MissingPiece,
+  PageReach,
+  Proof,
+  RunSummary,
+} from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { ConfirmDialog } from "../../ui/dialog";
 import { useAccount } from "../account/account";
 import { useOpenEnvironment } from "../environment/use-isolation";
 import { TextLink } from "../shared/group";
 import { HowIsolationLink } from "../shared/HowIsolationWorks";
+import { Seg } from "../shared/kit";
 import { PlaysChip } from "../shared/marks";
 import { MissingPieceNote } from "../shared/next-step";
 import { ProofControl } from "../shared/ProofControl";
@@ -189,7 +198,7 @@ function RunProof({ app, onChanged }: { app: string; onChanged: () => void }) {
           disabled={working}
           onChange={(part, keep) => void change(part, keep)}
         />
-        <p className="m-0 text-[12px] text-ink-3">
+        <p className="m-0 text-[13px] text-ink-3">
           For every page test of {app}. A test can set its own under "What it checks".
         </p>
         {error ? <p className="m-0 text-fail">{error}</p> : null}
@@ -201,9 +210,12 @@ function RunProof({ app, onChanged }: { app: string; onChanged: () => void }) {
 /** A row of the Run dialog: what it is on the start, the run's choice of it beside. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-4 border-t border-separator px-6 py-3 max-[560px]:grid-cols-1 max-[560px]:gap-1">
-      <div className="pt-px text-[13px] text-ink-3">{label}</div>
-      <div className="min-w-0 text-[14px]">{children}</div>
+    <div
+      className="grid grid-cols-[110px_minmax(0,1fr)] items-start gap-4 border-t border-rule px-6 py-3.5 max-[560px]:grid-cols-1 max-[560px]:gap-1.5"
+      data-row={label}
+    >
+      <h3 className="m-0 pt-2 text-[13px] font-medium text-ink-3 max-[560px]:pt-0">{label}</h3>
+      <div className="min-w-0 text-sm">{children}</div>
     </div>
   );
 }
@@ -277,6 +289,62 @@ function useSpent(scope: Scope, whole: boolean): Spent | null {
   return spent;
 }
 
+/** Which of the set's tests a run of the whole set plays. */
+type Which = "all" | "failing" | "changed";
+
+/** The set's tests with their latest verdicts and stale marks, for a run of the whole set. */
+function useRows(scope: Scope, whole: boolean): CaseRow[] {
+  const [rows, setRows] = useState<CaseRow[]>([]);
+  const { target, set } = scope;
+  useEffect(() => {
+    if (!whole) return;
+    let cancelled = false;
+    api.cases({ target, set }).then(
+      (found) => {
+        if (!cancelled) setRows(found);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [target, set, whole]);
+  return rows;
+}
+
+/** Tries per test, one more or one fewer, from 1 to 20. */
+function Tries({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const step = (by: number) => onChange(Math.max(1, Math.min(20, value + by)));
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-ink-3">
+      Tries
+      <span className="inline-flex h-9 items-center rounded-[10px] border border-rule-strong bg-group text-ink">
+        <button
+          type="button"
+          aria-label="Fewer tries"
+          disabled={value <= 1}
+          onClick={() => step(-1)}
+          className="size-[34px] rounded-[9px] hover:bg-sunk disabled:opacity-40"
+        >
+          −
+        </button>
+        <b className="min-w-[26px] text-center font-semibold tabular-nums" aria-live="polite">
+          {value}
+        </b>
+        <button
+          type="button"
+          aria-label="More tries"
+          disabled={value >= 20}
+          onClick={() => step(1)}
+          className="size-[34px] rounded-[9px] hover:bg-sunk disabled:opacity-40"
+        >
+          +
+        </button>
+      </span>
+    </span>
+  );
+}
+
 /** What a run plays: the whole set, one of its tests, or some of them. */
 export type RunTarget = {
   scope: Scope;
@@ -314,16 +382,32 @@ export function RunConfirm({
   const [busy, setBusy] = useState(false);
   /** The version it plays: what's on disk now, unless another is picked (ADR 0011). */
   const [ref, setRef] = useState(target.ref ?? DISK);
-  const spent = useSpent(target.scope, !target.test && !target.cases && !target.tries);
+  /** Which of the set's tests, for a run of the whole set: all, the failing, or those the
+   * changed code touches. */
+  const [which, setWhich] = useState<Which>("all");
+  /** Tries per test, picked here; each test's own when `undefined`. */
+  const [triesPicked, setTries] = useState<number | undefined>(target.tries);
+  const whole = !target.test && !target.cases;
+  const rows = useRows(target.scope, whole);
+  const failing = rows.filter((row) => row.verdict === "fail" || row.verdict === "flaky");
+  const touched = rows.filter((row) => row.stale);
+  const spent = useSpent(target.scope, whole && which === "all" && !triesPicked);
 
   const given = !!target.estimate;
   const { target: name, set } = target.scope;
   const testId = target.test?.id;
-  const cases = target.cases;
-  const tries = target.tries;
+  const picked = which === "failing" ? failing : which === "changed" ? touched : null;
+  const pickedKey = picked?.map((row) => row.case).join(",") ?? null;
+  // The ids say the pick: the list is the same while they are.
+  const cases = useMemo(
+    () => (pickedKey === null ? target.cases : pickedKey.split(",")),
+    [pickedKey, target.cases],
+  );
+  const tries = triesPicked;
+  const asGiven = which === "all" && tries === target.tries;
   useEffect(() => {
     // An estimate in hand is of what's on disk: another version is estimated on its own.
-    if (given && round === 0 && ref === DISK) return;
+    if (given && asGiven && round === 0 && ref === DISK) return;
     let cancelled = false;
     setReading(true);
     setError(null);
@@ -346,7 +430,7 @@ export function RunConfirm({
     return () => {
       cancelled = true;
     };
-  }, [given, round, name, set, testId, cases, tries, ref]);
+  }, [given, asGiven, round, name, set, testId, cases, tries, ref]);
 
   const start = async () => {
     if (!estimate) return;
@@ -414,10 +498,43 @@ export function RunConfirm({
       }
     >
       <div className="-mx-6 flex flex-col">
-        {estimate ? (
+        {estimate || whole ? (
           <Row label="Tests">
-            <span className="font-medium">{testsWords(estimate, target)}</span>
-            <small className="mt-0.5 block text-[12px] text-ink-3">{sendsWords(estimate)}</small>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {whole ? (
+                <Seg
+                  label="Which tests"
+                  value={which}
+                  onChange={setWhich}
+                  options={[
+                    { value: "all", label: "All", count: rows.length || estimate?.cases },
+                    {
+                      value: "failing",
+                      label: "Failing",
+                      count: failing.length,
+                      disabled: !failing.length,
+                    },
+                    {
+                      value: "changed",
+                      label: "Changed code touches",
+                      count: touched.length,
+                      disabled: !touched.length,
+                      title: "The tests that may be out of date with the code that changed",
+                    },
+                  ]}
+                />
+              ) : null}
+              <span className="flex-1" />
+              <Tries
+                value={tries ?? (estimate?.cases ? Math.round(estimate.tries / estimate.cases) : 3)}
+                onChange={setTries}
+              />
+            </div>
+            {estimate ? (
+              <small className="mt-1.5 block text-[13px] text-ink-3">
+                {`${testsWords(estimate, target)} · ${sendsWords(estimate)}`}
+              </small>
+            ) : null}
           </Row>
         ) : null}
         {estimate?.version || ref !== DISK ? (

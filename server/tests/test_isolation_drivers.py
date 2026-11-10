@@ -390,6 +390,8 @@ def test_volume_round_trip(volume, tmp_path):
     assert store.holding(canary) == []
     listing = _docker("run", "--rm", "-v", f"{volume}:/v", "alpine:3.20", "ls", "-A", "/v").stdout
     assert sorted(listing.split()) == [".config", "index"]
+    store.drop_golden(tmp_path / "kept")
+    assert _docker("volume", "inspect", store.golden, check=False).returncode != 0
 
 
 @docker_only

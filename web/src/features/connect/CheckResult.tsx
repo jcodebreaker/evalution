@@ -16,7 +16,7 @@ export function CheckResult({ check }: { check: TargetCheck }) {
         return (
           <div
             key={key}
-            className="flex items-start gap-3 border-separator px-4 py-2.5 text-[14px] not-first:border-t"
+            className="flex items-start gap-3 border-separator px-4 py-2.5 text-sm not-first:border-t"
           >
             <StatusDot
               state={part.ok ? "pass" : "fail"}

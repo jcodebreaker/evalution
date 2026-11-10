@@ -534,8 +534,9 @@ async def isolate(config: Config, args: argparse.Namespace) -> int:
     async def ask(summary: str) -> bool:
         print(summary)
         print(
-            "Two messages go to the copy (not to your app): one to find where it keeps what it's "
-            "told, one to rehearse resetting that."
+            "Two or three messages go to the copy (not to your app): one to find where it keeps "
+            "what it's told, one to rehearse resetting that, and one more when it also proves "
+            "resetting with the app running."
         )
         try:
             answer = await asyncio.to_thread(input, "Send them? [y/N] ")
@@ -931,8 +932,9 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument(
         "--ref",
         default="disk",
-        help="the version to play: a branch, origin/branch, a tag or a commit, checked out and "
-        "built by evalution without touching your checkout (default: disk, what's on disk now)",
+        help="the version to play: a branch, origin/branch (fetched again first), a pull request "
+        "(pull/412 or '#412', fetched first), a tag or a commit, checked out and built by "
+        "evalution without touching your checkout (default: disk, what's on disk now)",
     )
     play.add_argument(
         "--traces-port",
@@ -1022,7 +1024,8 @@ def main(argv: list[str] | None = None) -> int:
     found.add_argument("--yes", action="store_true")
     found.add_argument("--json", action="store_true")
     iso = sub.add_parser(
-        "isolate", help="find, plan and rehearse a target's resets on a copy: sends two messages"
+        "isolate",
+        help="find, plan and rehearse a target's resets on a copy: sends two or three messages",
     )
     iso.add_argument("--target", required=True)
     iso.add_argument("--slot", type=int, default=0, help="which copy: eval-<target>-<slot>")

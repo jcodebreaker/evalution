@@ -1,7 +1,9 @@
 import type { Steer, Understanding } from "../../lib/schema";
 
 /** The understanding with one steer applied, as the page shows it before the server answers. */
-export function apply(now: Understanding, steer: Steer): Understanding {
+export function apply<
+  U extends Pick<Understanding, "sections" | "diagram" | "starters" | "priorities">,
+>(now: U, steer: Steer): U {
   const mark = <T extends { id: string; verdict?: "right" | "wrong"; fix?: string }>(
     item: T,
     id: string,

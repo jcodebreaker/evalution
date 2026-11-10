@@ -111,6 +111,13 @@ class Plan:
     leaks: list[str] = field(default_factory=list)
     #: The files a commit changed under the evidence, when the plan was marked ``stale``.
     stale_files: list[str] = field(default_factory=list)
+    #: The app keeps state in its own memory (a store of kind ``memory``): only a restart clears
+    #: it, so every put back stops the whole copy.
+    app_holds_state: bool = False
+    #: Whether the rehearsal proved the copy can be put back with the app up (or only the
+    #: services a store needs stopped): ``proven``, ``failed`` (it needs a restart), or ``None``
+    #: when it wasn't tried. A plan saved before this was kept reads ``None``: today's restart.
+    hot: str | None = None
     created: float = field(default_factory=time.time)
     updated: float = field(default_factory=time.time)
 
@@ -136,6 +143,34 @@ class Plan:
 GIVEN = ("relocate", "snapshot")
 #: Prefixes of a locator that is a name, not a place.
 _NAMED = ("volume:", "env:", "service:", "package:", "socket:")
+
+
+#: Kinds of database in a container a driver puts back.
+PUT_BACK = ("postgres",)
+#: Kinds kept in a process's memory, which only a restart clears: the app's own, and a database
+#: in a container that keeps nothing on disk (one that does has its volume planned too).
+RESTARTED = ("memory", "redis")
+_IN_CONTAINER = re.compile(r"^[\w.-]+:[\w$-]+$")
+
+
+def in_container(locator: str) -> bool:
+    """Whether *locator* names a database in a container (``container:db``), not a setting, a
+    volume or a path."""
+    return not locator.startswith(_NAMES) and bool(_IN_CONTAINER.match(locator))
+
+
+def holds_state(plan: Plan) -> bool:
+    """Whether *plan*'s app keeps state in memory: said on the plan, or one of its stores is the
+    process's memory or a database that keeps nothing on disk, which only a restart clears."""
+    return plan.app_holds_state or any(s.kind in RESTARTED for s in plan.stores)
+
+
+def not_put_back(store: PlannedStore) -> bool:
+    """Whether nothing resets *store* between tries: hosted, kept by person only, with no
+    strategy, or a database in a container of a kind no driver puts back nor a restart clears."""
+    if store.strategy in ("identity", "none") or store.kind == "hosted":
+        return True
+    return in_container(store.locator) and store.kind not in (*PUT_BACK, *RESTARTED)
 
 
 def given(plan: Plan) -> list[PlannedStore]:
@@ -339,6 +374,7 @@ def draft_from(
     for p in build.stores:
         p.strategy = strategy_for(p.kind, p.locator, p.moved_by, p.keyed_by, p.id in build.compose)
     plan.stores = build.stores
+    plan.app_holds_state = holds_state(plan)
     plan.launch = (
         {"kind": "compose", "project": sorted(projects)[0]} if projects else {"kind": "process"}
     )

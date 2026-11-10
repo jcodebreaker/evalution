@@ -24,10 +24,25 @@ Versions play only on evalution's own copy of your app, so the app needs:
 
 Without these, picking a version says what's missing and the one place to fix it.
 
+## Connect by address
+
+Instead of a folder, the connect field takes a repository on GitHub: `github.com/owner/repo`, `owner/repo`, `owner/repo#412` (a pull request) or `owner/repo@feature-x` (a branch, tag or commit). Evalution clones it into its own folder, `data/code/<app>`, then connects that folder as it connects any other; its versions and pull requests are played from there. A folder that's on disk under the same name (`~/owner/repo`) wins over the address.
+
+- **Your own credentials**: the clone uses your git settings and credential helper, as your own `git clone https://github.com/owner/repo.git` would; evalution stores none and never asks for a password. A private repository you can't clone in a terminal fails with that said.
+- **Nothing runs**: no hook of the repository or of your git templates runs for the clone, as for every git call evalution makes.
+- **A pull request or a ref** is checked out detached in the clone (a pull request is fetched into the clone's `refs/evalution/<app>/pull/412`). The clone is evalution's, not your checkout.
+- **Connecting it again** under the same name fetches what's new into the clone rather than cloning again; a folder there that isn't a clone of that repository is refused.
+
+On the page, the address goes in the same field as a folder (`POST /v1/targets/discover` `{"path": "owner/repo#412"}`); the discovery's first step says "Cloned owner/repo#412 at a1b2c3d", and its `repository` block names the owner, repository, pull request and ref.
+
 ## Pick a version
 
 - **On the page**: the Run dialog's **Code** line, "what's on disk now" by default. The picker lists your branches, your remote's branches (listed when you open it), tags, and **A commit…**. Picking one says what will happen first and what it costs, before you press Run: "Checks out feature-x @ a1b2c3d and builds it: about 4 min and up to 20 GB, once. Your checkout isn't touched." A version built before says "Built already".
-- **In a terminal**: `evalution run --ref feature-x`, `--ref origin/feature-x` or `--ref a1b2c3d`. `evalution versions` lists the branches and tags, and the versions evalution has checked out, with their sizes.
+- **In a terminal**: `evalution run --ref feature-x`, `--ref origin/feature-x`, `--ref pull/412` or `--ref a1b2c3d`. `evalution versions` lists the branches and tags, and the versions evalution has checked out, with their sizes.
+
+A remote's branch (`origin/feature-x`) is fetched again every time a run plays it, so the run plays the branch as it is on the remote now, never an earlier fetch nor your remote-tracking branch. When that fetch fails (offline, no access), the run says so and plays nothing; the estimate before Run reads only what's here, and says the commit it last saw.
+
+**A pull request** is played by its number: `pull/412` or `#412` (quote it in a shell). Evalution fetches the pull request's head from the code host's `refs/pull/412/head` into its own `refs/evalution/<app>/pull/412`, never into your branches, from the `upstream` remote when there is one (a fork's pull requests are on what it was forked from), else `origin`. It is fetched again every time a run plays it. The page fetches one with `POST /v1/targets/<app>/versions/fetch` `{"pull": 412}` (and an optional `remote`), then runs the ref `pull/412`; it is listed among the versions with the kind `pull`.
 
 On a run of a branch, the comparison card compares it with the latest run of the same tests on your base branch (`origin/HEAD`, else `main`, else `master`). When there is none yet, it says so and offers **Run them on main**; a run of `main` made after is picked up. The runs list filters by version.
 
@@ -58,6 +73,8 @@ Builds are refused with less than 5 GB free, and a target's versions are kept un
 - *Test environment → How a version is built*: each built version with its size, and **Remove**.
 - `evalution versions --remove <commit>` removes a version's checkout and what was built from it.
 
+A version a run is playing is never removed, by the limit or by hand, whether that run is on the page or in a terminal (`evalution run --ref`): the page's list marks it `in_use`, and removing it answers "a run is playing it; remove it when the run ends" (409). A run holds its version with a shared lock on `data/versions/<app>/.using/<commit>`, which the operating system lets go when the run's process ends, however it ends. Changes to the versions folder (checking out, removing) take one lock on `data/versions/.lock`, so two evalutions on one data folder don't check out or remove at the same time; one waits for the other, up to six minutes, then says so.
+
 On Colima, removing a build also trims the virtual machine's disk, so the Mac gets the space back.
 
 ## Limits
@@ -65,4 +82,14 @@ On Colima, removing a build also trims the virtual machine's disk, so the Mac ge
 - Local and CI only: a hosted evalution has no copies.
 - A version that changes the files the reset plan or the page map rest on is checked on that version's copy before the first try (the plan rehearsed again, the map checked), and the run says so. Neither is saved: they stay as proven on what's on disk.
 - An env file inside the repository is read from your checkout, not the version's.
-- Not yet: pull requests by number.
+- Not yet: posting the result to the pull request (design below).
+
+## Design: post the result to the pull request (not built)
+
+`evalution run --ref pull/412 --against base.json --summary out.md` already writes the comparison as markdown (`results/markdown.py`, `comparison_markdown`) and exits 1 when a test got worse. What's missing is sending it to the code host. The plan:
+
+- **What is posted**: on the pull request's head commit (the run's `commit`), one result named `evalution`: success when nothing got worse, failure when a test got worse or the run ended unjudged, with the first line of the comparison as its title and the markdown as its body. Posted once, when the run ends; a run of the same commit replaces it.
+- **How**: a *check run* (`POST /repos/{owner}/{repo}/check-runs`, a title and a markdown summary) needs a GitHub App's token, which is what Actions' `GITHUB_TOKEN` is (with `checks: write`). A personal token can't create check runs, so with one it falls back to a *commit status* (`POST /repos/{owner}/{repo}/statuses/{sha}`, one line and a link to the run's page) and leaves the markdown to a pull request comment only if asked (`--comment`), edited in place on later runs.
+- **When**: only when a token is set (`--post`, token from `EVALUTION_HOST_TOKEN`, else `GITHUB_TOKEN`), and only for a run of `pull/N`, `#N` or a target connected by address; the repository is the `upstream`/`origin` remote's (parsed with `connect/repository.parse`). The token is read from the environment, never stored, never logged, sent only to the host's API.
+- **Where the code lives**: core gets a small seam, `Poster.post(result, repository, commit, pull)`, called by `cli.py` after `--summary` is written, with no host named. The GitHub implementation can't live in core: `tests/test_no_vendor_in_core.py` allows vendor code only under `adapters/`, and `adapters/` holds the *app* adapters. Either put it at `adapters/hosts/github.py` (passes the test as it is), or add a `hosts/` folder beside `adapters/` and let the test allow it there. The lead decides; the second keeps "adapter" meaning one thing.
+- **Tests**: the poster against a recorded fake of the host's API (no network), the token absent from every log line and error, and a failed post said as a warning that never changes the run's exit code.

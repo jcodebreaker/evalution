@@ -14,7 +14,7 @@ export function ClaimText({ text, item }: { text: string; item: Checked }) {
     <>
       <p
         className={cn(
-          "m-0 text-[14px]",
+          "m-0 text-sm",
           item.verdict === "wrong" && item.fix === undefined && "text-ink-3 line-through",
         )}
       >

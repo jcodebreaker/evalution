@@ -126,7 +126,7 @@ it("Home warns when there is no plan, says what the connection promises, and off
     ),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Find and prove isolation" })).toBeTruthy();
-  expect(screen.getByText(/two messages to evalution's own copy/)).toBeTruthy();
+  expect(screen.getByText(/two or three messages to evalution's own copy/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Details" })).toBeNull();
 });
 

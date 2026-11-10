@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en" data-font="geist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evalution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Hallmark · genre: modern-minimal · macrostructure: app workbench · theme: custom "warm paper, evalution violet"
+ * one family (Geist) + Geist Mono for machine text · pre-emit critique: P5 H5 E4 S5 R4 V4
+ * sample data: cartly, a made-up shopping assistant. Nothing is wired. */
+:root{
+  color-scheme:light;
+  --font-ui:"Geist",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --font-mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --window:#f8f7f4; --group:#ffffff; --sunk:#f3f1ed; --sunk-2:#e8e5df;
+  --rule:#ebe8e2; --rule-strong:#d6d2ca;
+  --ink:#191820; --ink-2:#514f5b; --ink-3:#827f8a;
+  --tint:#5546d8; --tint-hover:#4638bd; --tint-2:#8b7ff0; --tint-soft:#f0eefc; --tint-soft-2:#dedafa; --tint-ink:#4336b8; --on-tint:#ffffff;
+  --pass:#17806a; --pass-soft:#e1f2ec; --fail:#c2372a; --fail-soft:#fbeae6; --fail-line:#f1c4bd;
+  --unj:#a86c00; --unj-soft:#fbf0d9;
+  --k-tool:#0b8577; --k-tool-soft:#dcf3ef; --k-agent:#3b6fd9; --k-agent-soft:#e6edfb;
+  --shadow:rgba(40,34,20,.07); --shadow-2:rgba(40,34,20,.16); --scrim:rgba(25,24,32,.36);
+  --ease:cubic-bezier(.2,.7,.2,1);
+}
+html[data-font="inter"]{--font-ui:"Inter",system-ui,sans-serif}
+html[data-font="plex"]{--font-ui:"IBM Plex Sans",system-ui,sans-serif}
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --window:#0e0f14; --group:#17181f; --sunk:#1f2029; --sunk-2:#2b2c38;
+  --rule:rgba(255,255,255,.08); --rule-strong:rgba(255,255,255,.17);
+  --ink:#f0eff4; --ink-2:#b6b4c0; --ink-3:#8b8996;
+  --tint:#8c9bff; --tint-hover:#a3afff; --tint-2:#b3a8ff; --tint-soft:#23264a; --tint-soft-2:#343a66; --tint-ink:#b9c1ff; --on-tint:#0e0f14;
+  --pass:#2dd4bf; --pass-soft:#103a35; --fail:#ff8577; --fail-soft:#40201c; --fail-line:#6b2e27;
+  --unj:#f0b65a; --unj-soft:#3a2a14;
+  --k-tool:#2dd4bf; --k-tool-soft:#103a35; --k-agent:#7da7ff; --k-agent-soft:#1c2a4a;
+  --shadow:rgba(0,0,0,.35); --shadow-2:rgba(0,0,0,.6); --scrim:rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;overflow-x:clip}
+body{background:var(--window);color:var(--ink);font:400 15px/1.5 var(--font-ui);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--tint);outline-offset:2px}
+svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s{width:15px;height:15px} svg.i.f{fill:currentColor;stroke:none;width:12px;height:12px}
+.mono{font-family:var(--font-mono);font-size:13px}
+.dim{color:var(--ink-3)} .ink2{color:var(--ink-2)} .bad{color:var(--fail)} .good{color:var(--pass)}
+h1{margin:0;font:600 28px/1.15 var(--font-ui);letter-spacing:-.025em;overflow-wrap:anywhere;min-width:0}
+h2{margin:0;font:600 15px/1.3 var(--font-ui);letter-spacing:-.005em}
+h3{margin:0;font:500 13px/1.3 var(--font-ui);color:var(--ink-3)}
+p{margin:0}
+.sp{flex:1}
+.row{display:flex;align-items:center;gap:10px;min-width:0}
+.wrap{flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* shell */
+.shell{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
+body.asking .shell{grid-template-columns:240px minmax(0,1fr) 420px}
+.side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:16px 12px;border-right:1px solid var(--rule)}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 8px 16px;font:600 18px/1 var(--font-ui);letter-spacing:-.03em}
+.mark{width:28px;height:28px;flex:none;display:block}
+.mark path{fill:var(--tint);stroke:var(--tint);stroke-width:3;stroke-linejoin:round}
+.mark .eye{fill:var(--group);transform-box:fill-box;transform-origin:center;animation:wink 5s infinite}
+.appsw{display:flex;align-items:center;gap:10px;width:100%;padding:9px;border:1px solid var(--rule);border-radius:12px;background:var(--group);text-align:left;box-shadow:0 1px 2px var(--shadow)}
+.appsw:hover{border-color:var(--rule-strong)}
+.av{width:34px;height:34px;border-radius:9px;background:var(--tint-soft);color:var(--tint-ink);display:grid;place-items:center;font-weight:600;flex:none}
+.appsw b{display:block;font-weight:600;line-height:1.2}
+.appsw small{font:400 12px var(--font-mono);color:var(--ink-3)}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:16px}
+.nav .h{font-size:12px;color:var(--ink-3);padding:16px 10px 6px}
+.nav button{display:flex;align-items:center;gap:12px;height:40px;padding:0 10px;border:0;background:none;border-radius:10px;color:var(--ink-2);text-align:left;width:100%;white-space:nowrap}
+.nav button:hover{background:var(--sunk);color:var(--ink)}
+.nav button.on{background:var(--tint-soft);color:var(--tint-ink);font-weight:500}
+.nav .n{margin-left:auto;font:500 12px var(--font-mono);color:var(--ink-3);padding:1px 7px;border-radius:99px;background:var(--sunk)}
+.nav .n.bad{background:var(--fail-soft);color:var(--fail)}
+.nav button.on .n:not(.bad){background:var(--group);color:var(--tint-ink)}
+.side .foot{margin-top:auto;display:flex;flex-direction:column;gap:2px}
+.nav .copystat,.nav .copystat:hover{background:var(--pass-soft);color:var(--pass)}
+.copystat{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border:0;border-radius:10px;background:var(--pass-soft);color:var(--pass);font-size:14px;white-space:nowrap;margin-bottom:6px;width:100%;text-align:left}
+.main{min-width:0;display:flex;flex-direction:column}
+.top{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:10px;height:60px;padding:0 32px;background:color-mix(in srgb,var(--window) 88%,transparent);backdrop-filter:blur(10px)}
+.back{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px 0 6px;border:0;border-radius:9px;background:none;color:var(--ink-2);white-space:nowrap}
+.back:hover{background:var(--sunk);color:var(--ink)}
+.search{display:flex;align-items:center;gap:8px;height:36px;width:min(320px,34vw);padding:0 12px;border:1px solid var(--rule);border-radius:10px;background:var(--group);color:var(--ink-3);font-size:14px;white-space:nowrap}
+.kbd{font:500 11px var(--font-mono);padding:1px 5px;border:1px solid var(--rule-strong);border-bottom-width:2px;border-radius:5px;color:var(--ink-3);margin-left:auto}
+.live{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:0;border-radius:99px;background:var(--tint-soft);color:var(--tint-ink);font-weight:500;font-size:14px;white-space:nowrap}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--tint);animation:pulse 1.6s var(--ease) infinite}
+.page{padding:8px 32px 120px;display:flex;flex-direction:column;gap:20px;max-width:1320px;width:100%;margin:0 auto}
+.page.narrow{max-width:760px}
+.head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.head .t{flex:1 1 320px;min-width:0}
+.head .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sub{color:var(--ink-2);margin-top:4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+
+/* controls */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--rule-strong);background:var(--group);font-weight:500;white-space:nowrap;transition:background .12s var(--ease)}
+.btn:hover{background:var(--sunk)}
+.btn.primary{background:var(--tint);border-color:var(--tint);color:var(--on-tint)}
+.btn.primary:hover{background:var(--tint-hover);border-color:var(--tint-hover)}
+.btn.sm{height:32px;padding:0 11px;font-size:14px;border-radius:9px}
+.btn.ghost{border-color:transparent;background:none;color:var(--tint-ink);padding:0 8px}
+.btn.ghost:hover{background:var(--tint-soft)}
+.btn.sq{width:38px;padding:0}.btn.sm.sq{width:32px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:99px;border:1px solid var(--rule);background:var(--group);font-size:13px;color:var(--ink-2);white-space:nowrap}
+.chip.tint{border-color:var(--tint-soft-2);background:var(--tint-soft);color:var(--tint-ink)}
+.chip.warn{border-color:transparent;background:var(--unj-soft);color:var(--unj)}
+.chip.ok{border-color:transparent;background:var(--pass-soft);color:var(--pass)}
+.chip.no{border-color:transparent;background:var(--fail-soft);color:var(--fail)}
+.chip.mono{font-family:var(--font-mono);font-size:12px}
+.tag{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:7px;font:500 13px var(--font-mono);white-space:nowrap;background:var(--sunk);color:var(--ink-2)}
+.tag.tool{background:var(--k-tool-soft);color:var(--k-tool)} .tag.llm{background:var(--tint-soft);color:var(--tint-ink)} .tag.agent{background:var(--k-agent-soft);color:var(--k-agent)}
+.tag.bad{background:var(--fail-soft);color:var(--fail)} .tag.ok{background:var(--pass-soft);color:var(--pass)} .tag.warn{background:var(--unj-soft);color:var(--unj)}
+.tag.miss{background:none;box-shadow:inset 0 0 0 1.5px var(--fail);color:var(--fail)}
+.tag.never{text-decoration:line-through}
+.seg{display:inline-flex;padding:3px;border-radius:11px;background:var(--sunk);gap:2px;max-width:100%;overflow-x:auto}
+.seg button{height:32px;padding:0 12px;border:0;border-radius:8px;background:none;color:var(--ink-2);font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.seg button.on{background:var(--group);color:var(--ink);box-shadow:0 1px 2px var(--shadow-2)}
+.seg .c{font:500 12px var(--font-mono);color:var(--ink-3)}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--rule);overflow-x:auto}
+.tabs button{height:44px;padding:0;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--ink-2);font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--tint)}
+.field{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:1px solid var(--rule-strong);border-radius:10px;background:var(--group);min-width:0}
+.field input{flex:1;min-width:0;border:0;outline:0;background:none}
+.field.big{height:56px;font-size:17px;border-radius:14px;padding:0 8px 0 18px;box-shadow:0 2px 10px var(--shadow)}
+.field:focus-within{border-color:var(--tint);box-shadow:0 0 0 3px var(--tint-soft)}
+.pick{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 10px 0 12px;border:1px solid var(--rule-strong);border-radius:10px;background:var(--group);font-size:14px;white-space:nowrap}
+.step{display:inline-flex;align-items:center;border:1px solid var(--rule-strong);border-radius:10px;background:var(--group);height:36px}
+.step button{width:34px;height:34px;border:0;background:none;border-radius:9px}
+.step b{min-width:26px;text-align:center;font-weight:600}
+.sw{position:relative;width:40px;height:24px;border-radius:12px;border:0;background:var(--sunk-2);flex:none;transition:background .15s var(--ease)}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:var(--group);box-shadow:0 1px 2px var(--shadow-2);transition:transform .15s var(--ease)}
+.sw.on{background:var(--tint)}.sw.on::after{transform:translateX(16px)}
+
+/* surfaces */
+.card{background:var(--group);border:1px solid var(--rule);border-radius:16px;min-width:0;box-shadow:0 1px 2px var(--shadow)}
+.card>.hd{display:flex;align-items:center;gap:10px;min-height:54px;padding:0 20px;border-bottom:1px solid var(--rule)}
+.card>.hd.nb{border-bottom:0;min-height:0;padding-top:18px}
+.card>.bd{padding:20px}
+.card.cut{overflow:hidden}
+.grid{display:grid;gap:20px;align-items:start}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.gmain{grid-template-columns:minmax(0,1fr) 340px}
+.gwork{grid-template-columns:minmax(0,1fr) 380px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.dot.pass{background:var(--pass)} .dot.fail{background:var(--fail)} .dot.unj{background:var(--unj)} .dot.none{box-shadow:inset 0 0 0 1.5px var(--rule-strong)}
+.dot.flaky{background:linear-gradient(90deg,var(--pass) 50%,var(--fail) 50%)}
+.dot.go{background:var(--tint);animation:pulse 1.6s var(--ease) infinite}
+.list>*{border-top:1px solid var(--rule)} .list>*:first-child{border-top:0}
+.item{display:flex;align-items:center;gap:14px;padding:14px 20px;min-width:0}
+.item .t{flex:1;min-width:0}
+.item b{font-weight:500;display:block}
+.item small{font-size:14px;color:var(--ink-2);display:block}
+.ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none}
+.ico.bad{background:var(--fail-soft);color:var(--fail)} .ico.warn{background:var(--unj-soft);color:var(--unj)} .ico.tint{background:var(--tint-soft);color:var(--tint-ink)} .ico.ok{background:var(--pass-soft);color:var(--pass)} .ico.plain{background:var(--sunk);color:var(--ink-2)}
+table{width:100%;border-collapse:collapse}
+th{font-size:13px;font-weight:500;color:var(--ink-3);text-align:left;padding:10px 20px;border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:14px 20px;border-bottom:1px solid var(--rule);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--sunk)}
+td.r,th.r{text-align:right} td.c,th.c{text-align:center}
+.tw{overflow-x:auto}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 18px;margin:0;font-size:14px}
+.kv dt{color:var(--ink-3)} .kv dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.big{font:600 40px/1 var(--font-ui);letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.big small{font-size:20px;font-weight:500;color:var(--ink-3);letter-spacing:-.01em}
+.delta{font-size:13px;font-weight:500;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.delta.bad{background:var(--fail-soft);color:var(--fail)} .delta.ok{background:var(--pass-soft);color:var(--pass)} .delta.flat{background:var(--sunk);color:var(--ink-2)}
+.bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--sunk-2)}
+.bar i{display:block;height:100%}
+.meter{height:8px;border-radius:4px;background:var(--sunk-2);overflow:hidden;min-width:40px}
+.meter i{display:block;height:100%;background:var(--pass);border-radius:4px;transition:width .5s var(--ease)}
+.meter.go i{background:var(--tint)} .meter.weak i{background:var(--unj)}
+pre{margin:0;font:400 13px/1.6 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.code{background:var(--sunk);border-radius:10px;padding:12px 14px}
+.bubble{display:inline-block;padding:9px 14px;border-radius:16px 16px 16px 5px;background:var(--sunk);max-width:100%}
+.bubble.app{background:var(--tint-soft);border-radius:16px 16px 5px 16px}
+mark{background:none;color:inherit;border-bottom:2px wavy var(--fail)}
+mark.g{border-bottom:2px solid var(--pass)}
+.spin{animation:spin 1.2s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.35}}
+@keyframes wink{0%,46%,50%,100%{transform:scaleY(1)}48%{transform:scaleY(.1)}}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.pop{animation:pop .4s var(--ease) both}
+
+/* cells + matrix */
+.cells{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;width:150px}
+.cells i{height:18px;border-radius:4px;background:var(--sunk-2)}
+.cells i.p,.mx i.p{background:var(--pass)} .cells i.f,.mx i.f{background:var(--fail)} .cells i.u,.mx i.u{background:var(--unj)}
+.mx{display:grid;gap:5px;align-items:center}
+.mx .h{font:400 12px var(--font-mono);color:var(--ink-3);text-align:center}
+.mx .h.now{color:var(--tint-ink);font-weight:500}
+.mx .nm{font-weight:500;padding-right:14px}
+.mx i{height:30px;border-radius:7px;background:var(--sunk-2);min-width:28px;cursor:pointer;transition:transform .12s var(--ease)}
+.mx i:hover{transform:scale(1.08)}
+.mx i.q{background:repeating-linear-gradient(135deg,var(--tint-soft-2) 0 5px,var(--tint-soft) 5px 10px)}
+.playb{width:34px;height:34px;border-radius:50%;border:1px solid var(--rule-strong);background:var(--group);display:grid;place-items:center;padding:0;flex:none}
+.playb:hover{background:var(--tint);border-color:var(--tint);color:var(--on-tint)}
+.playb svg{margin-left:2px}
+
+/* connect + setup */
+.center{min-height:calc(100vh - 60px);display:grid;place-items:center;padding:24px}
+.hero{width:min(680px,100%);display:flex;flex-direction:column;gap:22px;align-items:center;text-align:center}
+.hero h1{font-size:40px}
+.egs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.egs button{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 13px;border-radius:99px;border:1px solid var(--rule);background:var(--group);font:400 13px var(--font-mono);color:var(--ink-2)}
+.egs button:hover{border-color:var(--tint);color:var(--tint-ink)}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;width:100%;margin-top:10px}
+.trio div{display:flex;flex-direction:column;align-items:center;gap:10px;padding:18px 10px;border-radius:14px;background:var(--sunk);color:var(--ink-2);font-size:14px}
+.stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.stage{position:relative;padding:16px 20px;display:flex;gap:12px;align-items:center;border-right:1px solid var(--rule);min-width:0}
+.stage:last-child{border-right:0}
+.ring{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--sunk);color:var(--ink-3)}
+.stage.done .ring{background:var(--pass-soft);color:var(--pass)}
+.stage.doing .ring{background:var(--tint-soft);color:var(--tint-ink)}
+.stage b{display:block;font-weight:600;line-height:1.25}
+.stage small{color:var(--ink-3);font:400 12px var(--font-mono);white-space:nowrap}
+.stage .fill{position:absolute;left:0;bottom:0;height:3px;background:var(--pass);width:0;transition:width .6s var(--ease)}
+.stage.doing .fill{background:var(--tint)}
+.feed{display:flex;flex-direction:column;padding:8px 0;height:384px;overflow:auto}
+.fl{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 20px}
+.fl .m{font:400 13px var(--font-mono);color:var(--ink-3)}
+.pic{display:grid;grid-template-columns:minmax(0,.8fr) 36px minmax(0,1.3fr);padding:20px;align-items:stretch}
+.box{border:1.5px dashed var(--rule-strong);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px;min-height:176px}
+.box.copy{border:2px solid var(--tint);background:var(--tint-soft)}
+.box.copy.ok{border-color:var(--pass);background:var(--pass-soft)}
+.box h3{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.blk{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:10px;background:var(--group);border:1px solid var(--rule);font-size:14px;min-width:0}
+.box:not(.copy) .blk{background:var(--sunk);color:var(--ink-3)}
+.blk small{margin-left:auto;font:400 12px var(--font-mono);color:var(--ink-3);white-space:nowrap}
+.arrow{display:grid;place-items:center;color:var(--ink-3)}
+.outs{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 20px;align-items:center}
+.out{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:99px;font-size:13px;border:1px solid var(--rule);white-space:nowrap}
+.out.off{color:var(--fail);border-color:transparent;background:var(--fail-soft)}
+.out.off span{text-decoration:line-through}
+
+/* map */
+.map{width:100%;height:auto;display:block}
+.map .n{cursor:pointer}
+.map .n rect{fill:var(--group);stroke:var(--rule-strong);stroke-width:1.2}
+.map .n:hover rect{stroke:var(--tint)}
+.map .n.agent rect{fill:var(--ink);stroke:var(--ink)}
+.map .n.agent text{fill:var(--group)}
+.map .n.store rect{fill:var(--sunk)}
+.map .n.new rect{stroke:var(--tint);stroke-dasharray:5 4;fill:var(--tint-soft)}
+.map .n.unseen rect{stroke-dasharray:4 4}
+.map .n.sel rect{stroke:var(--tint);stroke-width:2.5}
+.map text{font:500 14px var(--font-ui);fill:var(--ink)}
+.map text.s{font:400 11.5px var(--font-mono);fill:var(--ink-3)}
+.map path{fill:none;stroke:var(--rule-strong);stroke-width:1.5}
+.map path.hot{stroke:var(--k-tool);stroke-width:3.5}
+.map path.cold{stroke-dasharray:3 5}
+.map text.c{font:500 12px var(--font-mono);fill:var(--ink-3)}
+.ev{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border-radius:6px;font:400 12px var(--font-mono);background:var(--sunk);color:var(--ink-2)}
+
+/* result */
+.verdict{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:20px;align-items:center}
+.vbig{font:600 22px/1.2 var(--font-ui);letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+.layers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--rule)}
+.layer{padding:14px 20px;border-right:1px solid var(--rule);min-width:0}
+.layer:last-child{border-right:0}
+.layer b{display:flex;align-items:center;gap:8px;font-weight:600}
+.layer small{display:block;font-size:13px;color:var(--ink-2);margin-top:2px}
+.layer.fail{background:var(--fail-soft)}
+.tl{position:relative;padding:8px 0}
+.ts{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr);cursor:pointer}
+.ts:hover{background:var(--sunk)}
+.ts.sel{background:var(--tint-soft)}
+.ts.badrow{background:var(--fail-soft)}
+.ts.badrow.sel{box-shadow:inset 4px 0 0 var(--fail)}
+.ts .gut{position:relative;display:flex;justify-content:center;padding-top:16px}
+.ts .gut::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:var(--rule)}
+.ts:first-child .gut::before{top:20px} .ts:last-child .gut::before{bottom:calc(100% - 20px)}
+.ts .gut i{position:relative;width:14px;height:14px;border-radius:50%;background:var(--group);border:2px solid var(--rule-strong)}
+.ts .gut i.pass{border-color:var(--pass);background:var(--pass)} .ts .gut i.fail{border-color:var(--fail);background:var(--fail)} .ts .gut i.sq{border-radius:4px}
+.ts .bdy{padding:12px 20px 12px 0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ts .k{font-size:13px;color:var(--ink-3);display:flex;align-items:center;gap:8px}
+.ts .k .at{margin-left:auto;font:400 12px var(--font-mono)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);gap:8px;align-items:center}
+.pair h3{font-size:12px}
+.thumb{width:132px;aspect-ratio:16/10;border-radius:9px;border:1px solid var(--rule);background:var(--sunk);position:relative;overflow:hidden;flex:none}
+.thumb::before{content:"";position:absolute;inset:0 0 auto 0;height:16%;background:var(--sunk-2)}
+.thumb i{position:absolute;left:12%;right:30%;height:8%;border-radius:4px;background:var(--sunk-2)}
+.thumb i.me{left:40%;right:8%;background:var(--tint-soft-2)}
+.thumb.bad{border-color:var(--fail);box-shadow:0 0 0 3px var(--fail-soft)}
+.thumb .hole{position:absolute;left:12%;right:30%;top:58%;height:18%;border:2px dashed var(--fail);border-radius:5px}
+.thumb.vid{background:var(--ink);display:grid;place-items:center;color:var(--group)}
+.thumb.vid::before{display:none}
+.film{display:flex;gap:12px;overflow-x:auto;padding:20px}
+.film figure{margin:0;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2)}
+.film .thumb{width:190px}
+.wf{display:flex;flex-direction:column;gap:2px;padding:12px 8px}
+.wfr{display:grid;grid-template-columns:170px minmax(0,1fr) 44px;gap:12px;align-items:center;height:34px;padding:0 12px;border-radius:8px;cursor:pointer}
+.wfr:hover{background:var(--sunk)} .wfr.sel{background:var(--tint-soft)}
+.wfr .trk{position:relative;height:10px;border-radius:5px;background:var(--sunk)}
+.wfr .trk i{position:absolute;top:0;bottom:0;border-radius:5px;min-width:4px}
+.wfr b{font:400 12px var(--font-mono);color:var(--ink-3);text-align:right}
+.ctxbar{display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--sunk-2)}
+.ctxbar i{display:block;height:100%}
+.sq{display:inline-block;width:18px;height:18px;border-radius:5px;background:var(--sunk-2)}
+.sq.p{background:var(--pass)} .sq.f{background:var(--fail)} .sq.fl{background:linear-gradient(90deg,var(--pass) 50%,var(--fail) 50%)}
+.thumbs{display:inline-flex;gap:2px}
+.thumbs button{width:28px;height:28px;border:0;border-radius:7px;background:none;color:var(--ink-3);display:grid;place-items:center}
+.thumbs button:hover{background:var(--sunk);color:var(--ink)}
+.script{position:relative;display:flex;flex-direction:column;gap:12px;padding:20px 20px 20px 48px}
+.script::before{content:"";position:absolute;left:27px;top:30px;bottom:30px;width:2px;background:var(--rule)}
+.st{position:relative;display:flex;align-items:center;gap:10px;min-height:32px;flex-wrap:wrap}
+.st::before{content:"";position:absolute;left:-27px;top:50%;width:12px;height:12px;margin-top:-6px;border-radius:50%;background:var(--group);border:2px solid var(--rule-strong)}
+.st.call::before{border-color:var(--k-tool);background:var(--k-tool)}
+.st.chk::before{border-radius:4px;border-color:var(--tint)}
+.st.never::before{border-color:var(--fail)}
+.st.draw{opacity:.6}
+.brk{display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:13px;margin-left:-28px}
+.brk::before,.brk::after{content:"";flex:1;border-top:1px dashed var(--rule-strong)}
+.brk::before{flex:0 0 14px}
+.ringc{width:92px;height:92px;flex:none}
+
+/* bench */
+.range{position:relative;height:12px;border-radius:6px;background:var(--sunk-2);margin:16px 0 6px}
+.range span{position:absolute;top:0;bottom:0;border-radius:6px;background:var(--tint-soft-2)}
+.range b{position:absolute;top:-5px;width:4px;height:22px;border-radius:2px;background:var(--tint)}
+.qd{display:flex;gap:6px;flex-wrap:wrap}
+.qd i{width:20px;height:20px;border-radius:6px;background:var(--pass);cursor:pointer}
+.qd i.f{background:var(--fail)} .qd i.to{background:var(--group);box-shadow:inset 0 0 0 2.5px var(--fail)}
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;align-items:end;height:150px}
+.flow div{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100%;font-size:13px;color:var(--ink-2)}
+.flow i{display:block;border-radius:8px 8px 3px 3px;background:var(--tint-soft-2)}
+.flow div:last-child i{background:var(--pass)}
+.flow b{font:600 18px var(--font-ui);color:var(--ink);letter-spacing:-.02em}
+
+/* assistant */
+.orb{position:fixed;right:28px;bottom:24px;z-index:20;width:64px;height:64px;border:0;padding:0;background:none}
+.orb .halo{position:absolute;inset:-6px;border-radius:50%;background:radial-gradient(circle,var(--tint-2) 0,transparent 66%);opacity:.45;animation:breathe 3.2s ease-in-out infinite}
+.orb .mark{position:relative;width:64px;height:64px;filter:drop-shadow(0 8px 14px var(--shadow-2));animation:bob 3.2s ease-in-out infinite}
+.orb:hover .mark{scale:1.08}
+@keyframes breathe{50%{transform:scale(1.18);opacity:.2}}
+@keyframes bob{50%{transform:translateY(-4px)}}
+body.asking .orb{display:none}
+.panel{position:sticky;top:0;height:100vh;display:none;flex-direction:column;border-left:1px solid var(--rule);background:var(--group);min-width:0}
+body.asking .panel{display:flex}
+.panel .phd{display:flex;align-items:center;gap:10px;padding:14px 14px 14px 18px;border-bottom:1px solid var(--rule)}
+.panel .phd b{font:600 16px var(--font-ui);letter-spacing:-.01em}
+.ib{width:34px;height:34px;border:0;border-radius:9px;background:none;display:grid;place-items:center;color:var(--ink-3);flex:none}
+.ib:hover{background:var(--sunk);color:var(--ink)}
+.chat{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px}
+.chat .me{align-self:flex-end;background:var(--tint);color:var(--on-tint);padding:9px 14px;border-radius:16px 16px 5px 16px;max-width:88%}
+.chat .ai{align-self:stretch;display:flex;flex-direction:column;gap:10px}
+.chat .ai p{line-height:1.55}
+.srcs{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}
+.hello{margin:auto 0;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;color:var(--ink-2)}
+.hello .mark{width:56px;height:56px}
+.hello b{font:600 20px var(--font-ui);color:var(--ink);letter-spacing:-.02em}
+.sugg{display:flex;flex-direction:column;gap:8px;width:100%}
+.sugg button{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--rule);background:var(--group);text-align:left}
+.sugg button:hover{border-color:var(--tint);background:var(--tint-soft)}
+.plan{border:1px solid var(--rule);border-radius:14px;overflow:hidden}
+.plan .script{padding:16px 16px 16px 44px;gap:10px}
+.plan .script::before{left:23px}
+.plan .pf{display:flex;gap:8px;padding:12px;border-top:1px solid var(--rule);background:var(--sunk)}
+.composer{margin:0 14px 14px;border:1px solid var(--rule-strong);border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 2px 10px var(--shadow)}
+.composer:focus-within{border-color:var(--tint)}
+.ctx{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;height:30px;padding:0 6px 0 10px;border-radius:9px;background:var(--tint-soft);color:var(--tint-ink);font-size:14px;max-width:100%}
+.ctx button{width:20px;height:20px;border:0;border-radius:50%;background:none;display:grid;place-items:center;padding:0;color:inherit}
+.ctx button:hover{background:var(--tint-soft-2)}
+.composer .line{display:flex;align-items:center;gap:8px}
+.composer input{flex:1;min-width:0;border:0;outline:0;background:none;height:36px;padding:0 4px}
+.send{width:36px;height:36px;border:0;border-radius:50%;background:var(--tint);color:var(--on-tint);display:grid;place-items:center;flex:none}
+
+/* dialog */
+.scrim{position:fixed;inset:0;z-index:40;background:var(--scrim);display:grid;place-items:center;padding:20px}
+.dlg{width:min(620px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--group);border-radius:20px;box-shadow:0 24px 60px var(--shadow-2)}
+.dlg .dh{display:flex;align-items:center;padding:20px 22px 6px}
+.dlg .dr{display:grid;grid-template-columns:110px minmax(0,1fr);gap:16px;padding:14px 22px;border-top:1px solid var(--rule);align-items:start}
+.dlg .dr>h3{padding-top:8px}
+.dlg .df{display:flex;align-items:center;gap:10px;padding:16px 22px;border-top:1px solid var(--rule);background:var(--sunk);border-radius:0 0 20px 20px}
+
+body.asking .gmain,body.asking .gwork,body.asking .g2x{grid-template-columns:minmax(0,1fr)}
+body.asking .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:1180px){
+  .gmain,.gwork,.g2x{grid-template-columns:minmax(0,1fr)}
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g3{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:860px){
+  .shell,body.asking .shell{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;padding:10px 12px;border-right:0;border-bottom:1px solid var(--rule)}
+  .brand,.side .foot,.nav .h,.search{display:none}
+  .nav{flex-direction:row;margin-top:8px;overflow-x:auto}
+  .nav button{width:auto}
+  .top,.page{padding-left:16px;padding-right:16px}
+  h1{font-size:24px}.hero h1{font-size:30px}
+  .g2,.g4,.trio{grid-template-columns:minmax(0,1fr)}
+  .stages,.layers{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pic{grid-template-columns:minmax(0,1fr)}.arrow{height:30px;transform:rotate(90deg)}
+  .panel{position:fixed;inset:0;z-index:30;height:auto}
+  .cells,.hide-s{display:none}
+  .pair{grid-template-columns:minmax(0,1fr)}
+  .dlg .dr{grid-template-columns:minmax(0,1fr);gap:6px}
+  .wfr{grid-template-columns:110px minmax(0,1fr) 40px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3.5 6l1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></symbol>
+  <symbol id="i-runs" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M7.5 11 16.5 6M7.5 13l9 5"/></symbol>
+  <symbol id="i-env" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-6 7"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M14 6l6 6-6 6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9v6l5-3z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 19c-3 1-3-2-4.5-2.2M15 20v-3a2.6 2.6 0 0 0-.7-2c2.4-.3 4.7-1.2 4.7-5a3.9 3.9 0 0 0-1-2.7 3.6 3.6 0 0 0-.1-2.6s-.9-.3-2.9 1.1a10 10 0 0 0-5 0C8 4.4 7.100 4.700 7.100 4.700a3.600 3.600 0 0 0-.1 2.600 3.900 3.900 0 0 0-1 2.700c0 3.800 2.300 4.700 4.700 5a2.600 2.600 0 0 0-.7 2v3" stroke-width="1.4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.500 3 14.500 0 18M12 3c-3 3.500-3 14.500 0 18"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.700 3.100 3 7 3s7-1.300 7-3V6M5 12c0 1.700 3.100 3 7 3s7-1.300 7-3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.500 20h19zM12 10v5M12 17.500v.5"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><path d="M12 4v8M8 8h8M8 18h8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.800 5.200L19 10l-5.200 1.800L12 17l-1.800-5.200L5 10l5.200-1.800z"/></symbol>
+  <symbol id="i-tup" viewBox="0 0 24 24"><path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 2 2v4h5a2 2 0 0 1 2 2.300l-1.200 6A2 2 0 0 1 16.800 20H7"/></symbol>
+  <symbol id="i-tdown" viewBox="0 0 24 24"><path d="M7 13V4H4v9zM7 13l4 8a2 2 0 0 0 2-2v-4h5a2 2 0 0 0 2-2.300l-1.200-6A2 2 0 0 0 16.800 4H7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.300"/><circle cx="12" cy="12" r="1.300"/><circle cx="19" cy="12" r="1.300"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.300-5.700M20 4v4h-4"/></symbol>
+</defs></svg>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z"/><circle class="eye" cx="24" cy="29" r="5.5"/><circle class="eye" cx="40" cy="29" r="5.500"/></svg>evalution</div>
+    <button class="appsw" data-go="connect" title="Switch or connect an app"><span class="av">c</span><span style="min-width:0"><b>cartly</b><small>main · a41c9e2</small></span><span class="sp"></span><svg class="i s dim"><use href="#i-down"/></svg></button>
+    <nav class="nav" id="nav" aria-label="Main">
+      <button data-go="overview"><svg class="i"><use href="#i-home"/></svg>Overview</button>
+      <button data-go="tests"><svg class="i"><use href="#i-list"/></svg>Tests<span class="n">7</span></button>
+      <button data-go="runs"><svg class="i"><use href="#i-runs"/></svg>Runs<span class="n bad">1 failing</span></button>
+      <button data-go="bench"><svg class="i"><use href="#i-gauge"/></svg>Benchmarks</button>
+      <span class="h">cartly</span>
+      <button data-go="map"><svg class="i"><use href="#i-map"/></svg>What it learned</button>
+      <button data-go="env"><svg class="i"><use href="#i-env"/></svg>Test environment</button>
+    </nav>
+    <div class="foot nav">
+      <button class="copystat" data-go="env"><svg class="i s"><use href="#i-lock"/></svg>Tests run on a copy</button>
+      <button data-go="settings"><svg class="i"><use href="#i-gear"/></svg>Settings</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top" id="top"></header>
+    <div id="view"></div>
+  </main>
+
+  <aside class="panel" aria-label="Assistant">
+    <div class="phd"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z"/><circle class="eye" cx="24" cy="29" r="5.500"/><circle class="eye" cx="40" cy="29" r="5.500"/></svg><b id="ptitle">Ask</b><span class="sp"></span>
+      <button class="ib" title="Past chats" aria-label="Past chats"><svg class="i"><use href="#i-clock"/></svg></button>
+      <button class="ib" id="pnew" title="New chat" aria-label="New chat"><svg class="i"><use href="#i-plus"/></svg></button>
+      <button class="ib" id="pclose" title="Close" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="chat" id="chat"></div>
+    <div class="composer">
+      <span class="ctx" id="ctx"><span class="clip" id="ctxt"></span><button aria-label="Remove context" id="ctxx"><svg class="i s"><use href="#i-x"/></svg></button></span>
+      <div class="line"><input id="pin" aria-label="Message"><button class="send" aria-label="Send"><svg class="i"><use href="#i-up"/></svg></button></div>
+    </div>
+  </aside>
+</div>
+<button class="orb" id="orb" aria-label="Ask evalution"><span class="halo"></span><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z"/><circle class="eye" cx="24" cy="29" r="5.500"/><circle class="eye" cx="40" cy="29" r="5.500"/></svg></button>
+<div id="modal"></div>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const ic=(n,c='')=>`<svg class="i ${c}"><use href="#i-${n}"/></svg>`;
+const dot=v=>`<span class="dot ${v}"></span>`;
+const tag=(t,k='')=>`<span class="tag ${k}">${t}</span>`;
+const chip=(t,k='')=>`<span class="chip ${k}">${t}</span>`;
+const seg=(items,on=0,cls='')=>`<div class="seg ${cls}">${items.map((t,i)=>`<button class="${i===on?'on':''}">${t}</button>`).join('')}</div>`;
+const tabs=(g,items,on=0)=>`<div class="tabs" data-tabs="${g}">${items.map((t,i)=>`<button data-tab="${i}" class="${i===on?'on':''}">${t}</button>`).join('')}</div>`;
+const cells=s=>`<span class="cells">${[...s].map(c=>`<i class="${c==='-'?'':c}"></i>`).join('')}</span>`;
+const MARK=`<svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M58 21 40 11H24L6 21l5 22 14 11h14l14-11z"/><circle class="eye" cx="24" cy="29" r="5.5"/><circle class="eye" cx="40" cy="29" r="5.5"/></svg>`;
+const bars=(v,hi)=>{const m=Math.max(...v);return `<svg viewBox="0 0 ${v.length*14} 44" style="width:100%;height:44px;display:block;margin-top:14px" preserveAspectRatio="none">${v.map((x,i)=>`<rect x="${i*14+2}" y="${44-x/m*40}" width="10" height="${x/m*40}" rx="3" fill="${i===v.length-1?(hi||'var(--tint)'):'var(--tint-soft-2)'}"/>`).join('')}</svg>`};
+const line=v=>{const m=Math.max(...v),n=Math.min(...v),w=(v.length-1)*20;const p=v.map((x,i)=>`${i*20},${40-(x-n)/(m-n||1)*34}`);return `<svg viewBox="-4 0 ${w+8} 44" style="width:100%;height:44px;display:block;margin-top:14px;overflow:visible" preserveAspectRatio="none"><polyline points="${p.join(' ')}" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`};
+
+const TESTS=[
+ {n:'Finds the right order',a:'Looks up an order and quotes its real delivery date',h:'pppppppppp',v:'pass',tr:'3/3',s:'4 s',pl:['API']},
+ {n:'Remembers a shoe size',a:'A size given once is used in a new conversation',h:'--pppppppf',v:'fail',tr:'1/3',s:'6 s',pl:['API','Page']},
+ {n:'Adds to the cart once',a:'One add_to_cart per item, even when asked twice',h:'-pppfppppp',v:'flaky',tr:'2/3',s:'5 s',pl:['API']},
+ {n:'Refuses a refund over $200',a:'Hands off to a person, never refunds',h:'---ppppppp',v:'pass',tr:'3/3',s:'9 s',pl:['API']},
+ {n:'Checkout page shows the total',a:'The total in the reply is on the page',h:'-----ppppp',v:'pass',tr:'3/3',s:'11 s',pl:['Page']},
+ {n:'Recalls a past order',a:'Finds an order from an earlier conversation',h:'----pppppp',v:'pass',tr:'3/3',s:'7 s',pl:['API']},
+ {n:'Stops when asked',a:'Cancels a search in flight',h:'------pppp',v:'pass',tr:'3/3',s:'3 s',pl:['API']}];
+const VW={pass:'Passed',fail:'Failed',flaky:'Flaky',unj:"Couldn't judge",none:'Not run'};
+const SCRIPT=(draw='')=>`<div class="script">
+<div class="st"><span class="bubble">I wear a size 43, keep that in mind.</span></div>
+<div class="st call">${tag('save_profile','tool')}<span class="mono dim">size=43</span>${chip('Must')}</div>
+<div class="st never">${tag('add_note','bad never')}${chip('Never')}</div>
+<div class="st chk"><span>Profile holds <span class="mono">43</span></span>${chip('checked exactly')}</div>
+<div class="brk">new conversation</div>
+<div class="st"><span class="bubble">Find me running shoes.</span></div>
+<div class="st call">${tag('search_products','tool')}<span class="mono dim">size=43</span>${chip('Must')}</div>
+<div class="st chk"><span>Only suggests shoes in size 43</span>${chip('graded')}</div>
+<div class="st chk"><span>Doesn't ask the size again</span>${chip('graded')}</div>
+<div class="st chk">${tag('page')}<span>shows "Size 43"</span></div>${draw}</div>`;
+
+const S={};
+
+/* ---------- Connect ---------- */
+S.connect=()=>`<div class="center"><div class="hero">
+ ${MARK.replace('class="mark"','class="mark" style="width:56px;height:56px"')}
+ <h1>Connect an app</h1>
+ <div class="field big" style="width:100%">${ic('folder','dim')}<input id="src" value="github.com/acme/cartly" aria-label="Folder, GitHub repository or address"><button class="btn primary" data-go="setup" style="height:42px">Connect</button></div>
+ <div class="egs"><button>${ic('folder','s')}~/code/cartly</button><button>${ic('git','s')}acme/cartly</button><button>${ic('branch','s')}acme/cartly#412</button><button>${ic('globe','s')}localhost:3000</button></div>
+ <div class="trio"><div>${ic('book')}Reads the code</div><div>${ic('env')}Builds a test copy</div><div>${ic('map')}Maps what it does</div></div>
+</div></div>`;
+
+/* ---------- Setup (live) ---------- */
+S.setup=()=>`<div class="page">
+ <div class="head"><div class="t"><h1 id="su-title">Setting up cartly</h1><div class="chips">${chip(ic('git','s')+'acme/cartly','mono')}${chip(ic('branch','s')+'main · a41c9e2','mono')}<span class="chip mono" id="su-clock">0:00</span></div></div>
+ <div class="acts"><button class="btn" id="su-replay">${ic('redo','s')}Replay</button><button class="btn primary" id="su-go" data-ask disabled style="opacity:.45">${ic('spark','s')}Write the first test</button></div></div>
+ <div class="card cut"><div class="stages" id="su-stages">
+  ${[['Code','reading'],['Talks','waiting'],['Test copy','waiting'],['Map','waiting']].map(s=>`<div class="stage"><span class="ring">${ic('clock')}</span><span style="min-width:0"><b>${s[0]}</b><small>${s[1]}</small></span><i class="fill"></i></div>`).join('')}
+ </div></div>
+ <div class="grid g2 g2x">
+  <div class="card cut"><div class="hd"><h2>What it's doing</h2><span class="sp"></span><span class="dot go" id="su-live"></span></div><div class="feed" id="su-feed"></div></div>
+  <div class="col">
+   <div class="card cut"><div class="hd"><h2>Where tests will run</h2><span class="sp"></span><span id="su-proof"></span></div>
+    <div class="pic"><div class="box"><h3>${ic('lock','s')}Your app · never touched</h3><div class="blk">cartly<small>:3000</small></div><div class="blk">${ic('db','s')}Postgres</div><div class="blk">${ic('db','s')}Redis</div></div>
+     <div class="arrow">${ic('arrow')}</div>
+     <div class="box copy" id="su-copy"><h3>Test copy · eval-cartly-0</h3></div></div>
+    <div class="outs" id="su-outs"></div></div>
+   <div class="card cut"><div class="hd"><h2>What it's learning</h2><span class="sp"></span><span class="mono dim" id="su-areas">0 of 7 areas</span></div>
+    <div class="bd"><svg class="map" viewBox="0 0 720 240" id="su-map" role="img" aria-label="Map of cartly, filling in"></svg></div></div>
+  </div>
+ </div>
+ <div class="card" id="su-done" hidden><div class="hd"><span class="ico ok">${ic('check')}</span><h2>cartly is ready. Three tests worth writing first:</h2></div>
+  <div class="bd grid g3">${[['Refuses a refund over $200','refund_order moves money'],['Remembers a shoe size','save_profile, across conversations'],['Adds to the cart once','add_to_cart, called 14 times']].map(x=>`<div class="card" style="box-shadow:none"><div class="bd col" style="gap:10px"><b>${x[0]}</b><span class="dim" style="font-size:14px">${x[1]}</span><button class="btn sm" data-ask style="align-self:flex-start">${ic('plus','s')}Add</button></div></div>`).join('')}</div></div>
+</div>`;
+let suTimers=[];
+function runSetup(){
+ suTimers.forEach(clearTimeout);suTimers=[];
+ const feed=$('#su-feed'),copy=$('#su-copy'),map=$('#su-map'),outs=$('#su-outs'),st=$$('#su-stages .stage');
+ if(!feed)return;
+ feed.innerHTML='';copy.className='box copy';copy.innerHTML='<h3>Test copy · eval-cartly-0</h3>';map.innerHTML='';outs.innerHTML='';$('#su-proof').innerHTML='';$('#su-done').hidden=true;
+ $('#su-go').disabled=true;$('#su-go').style.opacity=.45;$('#su-title').textContent='Setting up cartly';$('#su-live').className='dot go';
+ st.forEach(x=>{x.className='stage';$('.fill',x).style.width='0';$('.ring',x).innerHTML=ic('clock')});
+ const stage=(i,state,sub,pct)=>{const x=st[i];x.className='stage '+state;$('small',x).textContent=sub;$('.fill',x).style.width=(pct??(state==='done'?100:40))+'%';$('.ring',x).innerHTML=state==='done'?ic('check'):ic('spin','spin')};
+ const say=(t,m,k='ok')=>{$$('.fl .spin',feed).forEach(x=>{x.classList.remove('spin');x.classList.add('good');x.firstChild.setAttribute('href','#i-check')});feed.insertAdjacentHTML('beforeend',`<div class="fl pop">${k==='ok'?ic('check','s good'):k==='no'?ic('lock','s bad'):ic('spin','s spin')}<span class="clip">${t}</span><span class="m">${m||''}</span></div>`);feed.scrollTop=feed.scrollHeight};
+ const blk=(t,m)=>copy.insertAdjacentHTML('beforeend',`<div class="blk pop">${dot('go')}${t}<small>${m}</small></div>`);
+ const node=(cls,x,y,w,t,s2)=>map.insertAdjacentHTML('beforeend',`<g class="n ${cls} pop"><rect x="${x}" y="${y}" width="${w}" height="44" rx="11"/><text x="${x+13}" y="${y+(s2?19:27)}">${t}</text>${s2?`<text class="s" x="${x+13}" y="${y+34}">${s2}</text>`:''}</g>`);
+ const edge=(d,hot)=>map.insertAdjacentHTML('afterbegin',`<path class="${hot?'hot':''}" d="${d}"/>`);
+ const ar=n=>$('#su-areas').textContent=n+' of 7 areas';
+ const E=[
+  [200,()=>{stage(0,'doing','cloning',30);say('Cloning acme/cartly','main','go')}],
+  [1100,()=>{say('Got the code','64 files');say('Next.js · Postgres · Redis','from package.json');stage(0,'done','64 files')}],
+  [1700,()=>{stage(1,'doing','finding the route');say('Found where it takes messages','POST /api/chat')}],
+  [2500,()=>{say('Sent "hello", got a reply','2.1 s');say('Traces arriving','38 conversations');stage(1,'done','/api/chat · 2 s')}],
+  [3000,()=>{stage(2,'doing','copying',15);stage(3,'doing','0 of 7',5);say('Copying cartly to its own ports','18 s','go');blk('cartly',':4012');node('',10,98,100,'Shopper');node('agent',190,98,120,'Cartly agent');edge('M110 120H190',1)}],
+  [3900,()=>{blk(ic('db','s')+'Postgres','empty · 12 tables');say('Gave it its own Postgres','2 s');stage(2,'doing','stores',40);node('',390,10,140,'Catalog','search_products');edge('M310 120C350 120 340 32 390 32',1);ar(1);stage(3,'doing','1 of 7',18)}],
+  [4700,()=>{blk(ic('db','s')+'Redis','fresh');say('Gave it its own Redis','1 s');node('',390,70,140,'Orders','get_order');edge('M310 120C350 120 350 92 390 92');ar(2);stage(3,'doing','2 of 7',32)}],
+  [5400,()=>{blk(ic('user','s')+'Alex Rivera','test person');say('Made a test person','Alex Rivera');stage(2,'doing','checking it resets',70);node('',390,130,140,'Memory','save_profile +1');edge('M310 120C350 120 350 152 390 152');node('store',590,100,120,'Profile');edge('M530 152C560 152 560 122 590 122');ar(3);stage(3,'doing','3 of 7',46)}],
+  [6100,()=>{outs.innerHTML=`<span class="out pop">${dot('pass')}model</span><span class="out pop">${dot('pass')}traces</span><span class="out off pop">${ic('lock','s')}<span>stripe</span></span><span class="out off pop">${ic('lock','s')}<span>sendgrid</span></span>`;say('Blanked 2 live keys in the copy','Stripe, SendGrid','no');node('store',590,30,120,'Cart');edge('M530 32C560 32 560 52 590 52');ar(4);stage(3,'doing','4 of 7',60)}],
+  [7000,()=>{say('Planted a marker, reset, marker gone','41 s');copy.classList.add('ok');$$('.dot',copy).forEach(d=>d.className='dot pass');$('#su-proof').innerHTML=chip(ic('check','s')+'Resets cleanly','ok');stage(2,'done','resets in 2 s');node('store',590,170,120,'Notes');edge('M530 152C560 152 560 192 590 192');ar(5);stage(3,'doing','5 of 7',74)}],
+  [7900,()=>{node('',390,190,140,'Checkout','add_to_cart');edge('M310 120C350 120 340 212 390 212');ar(6);stage(3,'doing','6 of 7',88);say('Read checkout/','6 tools so far')}],
+  [8800,()=>{ar(7);stage(3,'done','6 tools · 3 stores');say('Mapped cartly','7 areas · 58 s');$('#su-live').className='dot pass';$('#su-title').textContent='cartly is ready';$('#su-done').hidden=false;$('#su-go').disabled=false;$('#su-go').style.opacity=1}]];
+ E.forEach(([t,f])=>suTimers.push(setTimeout(f,t)));
+ let s=0;const tick=()=>{const c=$('#su-clock');if(!c)return;const n=Math.min(s*8,72);c.textContent=`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;s++;if(s<10)suTimers.push(setTimeout(tick,900))};tick();
+}
+
+/* ---------- Overview ---------- */
+S.overview=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>How cartly is doing</h1><div class="chips">${chip(ic('lock','s')+'Clean copy before every try','ok')}${chip('API + page')}${chip('2 files changed since run 14','warn')}</div></div>
+ <div class="acts"><button class="btn" data-ask>${ic('spark','s')}New test</button><button class="btn primary" data-run>${ic('play','f')}Run all</button></div></div>
+ <div class="card cut"><div class="hd"><h2>Needs you</h2>${chip('3')}</div><div class="list">
+  <div class="item"><span class="ico bad">${ic('x')}</span><div class="t"><b>Remembers a shoe size got worse in run 14</b><small>Passed on <span class="mono">9c02d11</span>. The size is no longer saved to the profile.</small></div><button class="btn sm" data-go="test">See why</button></div>
+  <div class="item"><span class="ico warn">${ic('diff')}</span><div class="t"><b>Code changed since the last run</b><small>3 tests affected · <button class="btn ghost sm" data-ask style="height:auto;padding:0">checkout has no test</button></small></div><button class="btn sm" data-run>Run 3 tests</button></div>
+  <div class="item"><span class="ico tint">${ic('book')}</span><div class="t"><b>4 things it knows may be out of date</b><small>From <span class="mono">agent/prompts/system.md</span></small></div><button class="btn sm" data-go="map">Review</button></div>
+ </div></div>
+ <div class="grid g3">
+  <div class="card"><div class="bd"><h3>Passing in the last run</h3><div class="row" style="margin-top:8px;align-items:baseline"><span class="big">6<small> of 7</small></span><span class="delta bad">−1 vs run 13</span></div>${bars([4,5,5,6,6,7,7,7,6],'var(--fail)')}</div></div>
+  <div class="card"><div class="bd"><h3>Typical try</h3><div class="row" style="margin-top:8px;align-items:baseline"><span class="big">6<small> s</small></span><span class="delta flat">same as run 13</span></div>${line([7,7,6,8,6,6,5,6,6])}</div></div>
+  <div class="card"><div class="bd"><h3>Spent</h3><div class="row" style="margin-top:8px;align-items:baseline"><span class="big">61k<small> tokens</small></span><span class="delta flat">typical 58k</span></div>${bars([40,44,52,58,57,60,58,59,61])}</div></div>
+ </div>
+ <div class="grid gmain">
+  <div class="card cut"><div class="hd"><h2>Each test, run by run</h2><span class="sp"></span><span class="dim" style="font-size:13px">last 9 runs</span></div><div class="bd tw"><div class="mx" id="ov-mx"></div>
+   <div class="row wrap" style="gap:16px;margin-top:16px;font-size:13px;color:var(--ink-2)"><span class="row" style="gap:6px"><span class="sq p"></span>Passed</span><span class="row" style="gap:6px"><span class="sq f"></span>Failed</span><span class="row" style="gap:6px"><span class="sq"></span>Not run</span></div></div></div>
+  <div class="card cut"><div class="hd"><h2>What it's good at</h2></div><div class="bd col" style="gap:16px">
+   ${[['Finding orders',100,'Strong',''],['Refunds',100,'Strong',''],['The cart',83,'OK',''],['Remembering customers',50,'Weak','weak']].map(a=>`<div><div class="row"><span>${a[0]}</span><span class="sp"></span><span class="mono dim">${a[1]}%</span></div><div class="meter ${a[3]}" style="margin-top:6px"><i style="width:${a[1]}%"></i></div></div>`).join('')}</div></div>
+ </div>
+</div>`;
+function mx(el,last){const runs=['6','7','8','9','10','11','12','13','14'];el.style.gridTemplateColumns=`minmax(180px,1.6fr) repeat(${runs.length},minmax(28px,1fr))`;
+ el.innerHTML='<span></span>'+runs.map((r,i)=>`<span class="h${i===runs.length-1?' now':''}">${r}</span>`).join('')+TESTS.map(t=>`<span class="nm clip">${t.n}</span>`+[...t.h.slice(1)].map(c=>`<i class="${c==='-'?'':c}" data-go="test"></i>`).join('')).join('')}
+
+/* ---------- Tests ---------- */
+S.tests=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>Tests</h1></div><div class="acts"><button class="btn" data-ask>${ic('spark','s')}New test</button><button class="btn primary" data-run>${ic('play','f')}Run all</button></div></div>
+ <div class="row wrap"><div class="field" style="flex:1 1 220px;max-width:320px">${ic('search','s dim')}<input placeholder="Find a test" aria-label="Find a test"></div>
+  ${seg(['All <span class="c">7</span>','Failing <span class="c">1</span>','Flaky <span class="c">1</span>','May be stale <span class="c">2</span>'])}<span class="sp"></span>
+  <span class="pick">Test set <b>main</b>${ic('down','s dim')}</span><button class="btn sq" title="Pass marks" aria-label="Pass marks">${ic('more')}</button></div>
+ <div class="card cut tw"><table><thead><tr><th>Test</th><th class="hide-s">Plays</th><th class="hide-s">Last 10 runs</th><th class="c">Tries</th><th class="r hide-s">Time</th><th></th></tr></thead><tbody>
+  ${TESTS.map(t=>`<tr class="click" data-go="test"><td><div class="row" style="gap:12px">${dot(t.v)}<span style="min-width:0"><b style="font-weight:500;display:block">${t.n}</b><span class="dim clip" style="font-size:14px;display:block">${t.a}</span></span></div></td><td class="hide-s"><span class="row" style="gap:6px">${t.pl.map(p=>tag(p)).join('')}</span></td><td class="hide-s">${cells(t.h)}</td><td class="c mono ${t.v==='pass'?'dim':'bad'}">${t.tr}</td><td class="r mono dim hide-s">${t.s}</td><td class="r"><button class="playb" data-run aria-label="Run ${t.n}">${ic('play','f')}</button></td></tr>`).join('')}
+ </tbody></table></div>
+ <div class="card cut"><div class="hd"><span class="ico tint" style="width:30px;height:30px">${ic('spark','s')}</span><h2>Suggested from what it learned</h2><span class="sp"></span><button class="btn sm" data-ask>Add all 3</button></div>
+  <div class="bd grid g3">${[['Checkout stops on an empty cart','checkout/ has no test'],['Remembers a delivery address','save_profile, 12 uses'],['Says so when an order is missing','get_order returns nothing in 3 of 38']].map(x=>`<div class="card" style="box-shadow:none"><div class="bd col" style="gap:8px"><b style="font-weight:500">${x[0]}</b><span class="dim" style="font-size:14px">${x[1]}</span><button class="btn sm" data-ask style="align-self:flex-start;margin-top:4px">${ic('plus','s')}Add</button></div></div>`).join('')}</div></div>
+</div>`;
+
+/* ---------- One test ---------- */
+const TLS=[
+ {k:'Before',st:'pass',body:`<span>Started clean</span><span class="dim" style="font-size:14px">Put back Postgres and uploads in 2.1 s, and checked them</span>`,at:'0.0 s',insp:'clean'},
+ {k:'The person says',st:'',body:`<span class="bubble">I wear a size 43, keep that in mind.</span>`,at:'0.0 s'},
+ {k:'What cartly did',st:'fail',bad:1,body:`<div class="pair"><h3>Expected</h3><span></span><h3>What it did</h3>
+   <span class="row">${tag('save_profile','miss')}<span class="mono dim">size=43</span></span>${ic('x','s bad')}<span class="row dim">not called</span>
+   <span class="row">${tag('add_note','never')}${chip('Never')}</span>${ic('x','s bad')}<span class="row">${tag('add_note','bad')}<span class="mono dim clip">"size 43"</span></span></div>`,at:'1.4 s',insp:'span'},
+ {k:'What the reply said',st:'pass',body:`<span class="bubble app">Noted! I'll remember you wear a 43.</span><div class="row"><span class="thumb"><i class="me" style="top:30%"></i><i style="top:46%"></i></span><span class="dim" style="font-size:14px">${ic('check','s good')} Shown at 0.3 s</span></div>`,at:'1.9 s'},
+ {k:'What the app holds',st:'fail',bad:1,body:`<div class="row wrap"><span>Profile holds <span class="mono">43</span></span>${chip('checked exactly')}</div><span class="bad" style="font-size:14px">Profile is empty. Notes hold "size 43".</span>`,at:'2.0 s'},
+ {k:'Break',st:'',body:`<span class="dim">New conversation, same person</span>`,at:''},
+ {k:'The person says',st:'',body:`<span class="bubble">Find me running shoes.</span>`,at:'2.4 s'},
+ {k:'What cartly did',st:'fail',bad:1,body:`<div class="pair"><h3>Expected</h3><span></span><h3>What it did</h3>
+   <span class="row">${tag('search_products','tool')}<span class="mono dim">size=43</span></span>${ic('x','s bad')}<span class="row">${tag('search_products','tool')}<span class="mono dim clip">q="running shoes"</span>${chip('wrong args','no')}</span></div>`,at:'3.6 s'},
+ {k:'What the reply said',st:'fail',bad:1,body:`<span class="bubble app">Here are four running shoes, in sizes <mark>38 to 46</mark>. <mark>What size do you wear?</mark></span>
+   <div class="col" style="gap:6px"><div class="row wrap">${ic('x','s bad')}<span>Only suggests shoes in size 43</span>${chip('model')}<span class="sp"></span><span class="thumbs"><button aria-label="Agree">${ic('tup','s')}</button><button aria-label="Disagree">${ic('tdown','s')}</button></span></div>
+   <div class="row wrap">${ic('x','s bad')}<span>Doesn't ask the size again</span>${chip('model')}<span class="sp"></span><span class="thumbs"><button aria-label="Agree">${ic('tup','s')}</button><button aria-label="Disagree">${ic('tdown','s')}</button></span></div></div>
+   <div class="row"><span class="thumb bad"><i class="me" style="top:26%"></i><i style="top:40%"></i><span class="hole"></span></span><span class="bad" style="font-size:14px">${ic('x','s')} "Size 43" not shown</span></div>`,at:'5.8 s'},
+ {k:'Page healthy',st:'pass',body:`<span class="dim" style="font-size:14px">No console errors, no failed requests</span>`,at:''}];
+const INSP={
+ span:`<div class="hd">${tag('add_note','bad')}<span class="sp"></span><span class="mono dim">1.4 s · took 0.3 s</span></div><div class="bd col" style="gap:14px">
+  <dl class="kv"><dt>Ran in</dt><dd>Cartly agent</dd><dt>Scored</dt><dd class="bad">Never to be called</dd><dt>Model</dt><dd class="mono">claude-sonnet-5-5</dd><dt>Tokens</dt><dd class="mono">212 in · 18 out</dd></dl>
+  <div class="col" style="gap:6px"><h3>Input</h3><pre class="code">{ "text": "size 43" }</pre></div>
+  <div class="col" style="gap:6px"><h3>Output</h3><pre class="code">{ "ok": true, "scope": "conversation" }</pre></div>
+  <button class="btn sm" data-askq="Why did it call add_note?">${ic('spark','s')}Ask why</button></div>`};
+S.test=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>Remembers a shoe size</h1><p class="sub">A size given once is used in a new conversation</p>
+  <div class="chips">${chip('6 s')}${chip('2 messages')}${chip('API + page')}${chip('limit 60 s')}${chip('May be stale','warn')}</div></div>
+  <div class="acts"><button class="btn" data-askq="Write three variations of this test">Variations</button><button class="btn" data-askq="Change this test: ">Edit</button><button class="btn primary" data-run>${ic('play','f')}Run again</button></div></div>
+ ${tabs('test',['Latest result','What it checks','History'])}
+
+ <div data-panel="test:0" class="col">
+  <div class="card cut">
+   <div class="verdict"><div><div class="vbig">${dot('fail')}Failed in memory, in the answer and on the page</div><p class="sub">Try 1 of 3 · tries 2 failed, 3 passed · run 14 · <span class="mono">main a41c9e2</span> · 5.8 s</p></div>
+    ${seg([dot('fail')+'Try 1',dot('fail')+'2',dot('pass')+'3'])}</div>
+   <div class="layers">
+    <div class="layer fail"><b>${ic('x','s bad')}Stored</b><small>Size never reached the profile</small></div>
+    <div class="layer fail"><b>${ic('x','s bad')}Answered</b><small>Asked for the size again</small></div>
+    <div class="layer fail"><b>${ic('x','s bad')}Shown</b><small>"Size 43" not on the page</small></div>
+    <div class="layer"><b>${ic('check','s good')}Page healthy</b><small>No errors</small></div>
+   </div></div>
+
+  <div class="card"><div class="bd row" style="align-items:flex-start;gap:16px">
+   <span class="ico tint">${ic('spark')}</span>
+   <div class="col" style="gap:10px;flex:1">
+    <div class="row wrap"><h2>Analysis</h2>${chip('App?','warn')}<span class="sp"></span><button class="btn sm ghost" data-jump="2">Differs from passing run 13 at step 3 ${ic('arrow','s')}</button></div>
+    <p>The size went to conversation notes, which end with the conversation, so the new conversation never had it.</p>
+    <p class="ink2">The line "save sizes to the profile" left <span class="mono">agent/prompts/system.md</span> in <span class="mono">a41c9e2</span>. Put it back, then run again.</p>
+    <div class="row wrap"><span class="dim" style="font-size:13px">Evidence</span><button class="ev" data-jump="2">add_note · 1.4 s</button><button class="ev" data-jump="4">profile empty</button><span class="ev">system.md:41</span></div>
+   </div></div></div>
+
+  <div class="row wrap">${seg(['Step by step','Trace','What the model saw','How it was decided'],0,'js-work')}<span class="sp"></span><span class="dim" style="font-size:13px">Click a step to inspect it</span></div>
+
+  <div data-work="0" class="grid gwork">
+   <div class="card cut"><div class="tl" id="tl"></div></div>
+   <div class="card cut" id="insp" style="position:sticky;top:76px"></div>
+  </div>
+  <div data-work="1" class="grid gwork" hidden>
+   <div class="card cut"><div class="hd"><h2>Trace</h2><span class="sp"></span><span class="mono dim">11 spans · 5.8 s · 2.9k tokens</span></div><div class="wf" id="wf"></div></div>
+   <div class="card cut" style="position:sticky;top:76px">${INSP.span}</div>
+  </div>
+  <div data-work="2" hidden class="card cut"><div class="hd"><h2>What the model saw, call by call</h2><span class="sp"></span>
+    <span class="row wrap" style="gap:12px;font-size:13px;color:var(--ink-2)">${[['System prompt','var(--tint)'],['Memory profile','var(--pass)'],['Tools','var(--k-agent)'],['Turns','var(--unj)']].map(x=>`<span class="row" style="gap:6px"><span class="sq" style="background:${x[1]};width:12px;height:12px"></span>${x[0]}</span>`).join('')}</span></div>
+   <div class="list">${[['Call 1','conversation 1',[52,0,34,14],'1.9k'],['Call 2','after add_note',[50,0,33,17],'2.0k'],['Call 3','conversation 2',[55,0,36,9],'1.8k'],['Call 4','after search_products',[40,0,26,34],'2.5k']].map((c,i)=>`<div class="item" style="align-items:center"><span style="width:150px;flex:none"><b>${c[0]}</b><small>${c[1]}</small></span><div class="t"><div class="ctxbar"><i style="width:${c[2][0]}%;background:var(--tint)"></i><i style="width:${c[2][1]}%;background:var(--pass)"></i><i style="width:${c[2][2]}%;background:var(--k-agent)"></i><i style="width:${c[2][3]}%;background:var(--unj)"></i></div></div>${i===2?chip('Memory profile: empty','no'):''}<span class="mono dim" style="width:48px;text-align:right">${c[3]}</span></div>`).join('')}</div></div>
+  <div data-work="3" hidden class="grid g2">
+   <div class="card cut"><div class="hd"><h2>Decided by code</h2><span class="sp"></span><span class="mono bad">2 of 5 held</span></div><div class="list">
+    ${[['x','save_profile called with size=43','steps'],['x','add_note never called','steps'],['x','Profile holds 43','what the app holds'],['check','Console and requests clean',"the page's health"],['check','Reply shown on the page, turn 1','on the page']].map(r=>`<div class="item" style="padding:12px 20px">${ic(r[0],'s '+(r[0]==='x'?'bad':'good'))}<span class="t">${r[1]}</span>${chip(r[2])}</div>`).join('')}</div></div>
+   <div class="card cut"><div class="hd"><h2>Graded by a model</h2><span class="sp"></span><span class="mono bad">0 of 2 held</span></div><div class="list">
+    <div class="item" style="padding:12px 20px;align-items:flex-start">${ic('x','s bad')}<span class="t"><b>Only suggests shoes in size 43</b><small>The reply lists sizes 38 to 46.</small></span><span class="mono dim">4/4 agreed</span></div>
+    <div class="item" style="padding:12px 20px;align-items:flex-start">${ic('x','s bad')}<span class="t"><b>Doesn't ask the size again</b><small>It asks "What size do you wear?"</small></span><span class="mono dim">3/3 agreed</span></div>
+    <div class="item" style="padding:12px 20px"><dl class="kv" style="width:100%"><dt>Grader</dt><dd class="mono">claude-haiku-5-5</dd><dt>Rules</dt><dd class="mono">r7 · first judged under r7</dd></dl></div></div></div>
+  </div>
+
+  <div class="card cut"><div class="hd"><h2>What the page showed</h2><span class="sp"></span><span class="dim" style="font-size:13px">Screenshots always · video because it failed</span></div>
+   <div class="film">${[['Message 1','check','Shown at 0.3 s',''],['Message 2','x','"Size 43" not shown','bad']].map(f=>`<figure><span class="thumb ${f[3]}"><i class="me" style="top:28%"></i><i style="top:42%"></i>${f[3]?'<span class="hole"></span>':''}</span><span class="row" style="gap:6px">${ic(f[1],'s '+(f[1]==='x'?'bad':'good'))}${f[0]} · ${f[2]}</span></figure>`).join('')}<figure><span class="thumb vid">${ic('play','f')}</span><span>Video · 0:14</span></figure></div></div>
+
+  <div class="card"><div class="bd row wrap"><h2>Earlier results</h2><span class="row" style="gap:5px;margin-left:8px">${'ppppppp'.split('').map(()=>'<span class="sq p" data-go="run" style="cursor:pointer"></span>').join('')}<span class="sq fl" title="Run 14"></span></span><span class="sp"></span><button class="btn sm ghost" data-tabgo="test:2">All history ${ic('arrow','s')}</button></div></div>
+ </div>
+
+ <div data-panel="test:1" class="grid gmain" hidden>
+  <div class="card cut"><div class="hd"><h2>What it checks</h2><span class="sp"></span><button class="btn sm" data-askq="Change this test: ">${ic('spark','s')}Change with AI</button><button class="btn sm">Edit file</button></div>${SCRIPT()}</div>
+  <div class="card"><div class="bd col" style="gap:18px">
+   <div class="col" style="gap:8px"><h3>Plays through</h3>${seg(['API','Page','Both'],2)}</div>
+   <div class="row"><h3>Tries</h3><span class="sp"></span><span class="step"><button aria-label="Fewer">−</button><b>3</b><button aria-label="More">+</button></span></div>
+   <div class="col" style="gap:8px"><h3>Starts with no earlier</h3><div class="row wrap">${chip(ic('check','s')+'conversation','ok')}${chip(ic('check','s')+'memory','ok')}${chip('files')}</div></div>
+   <div class="col" style="gap:8px"><h3>Keeps</h3><dl class="kv"><dt>Screenshots</dt><dd>Always</dd><dt>Video</dt><dd>On failure</dd></dl></div>
+   <div class="col" style="gap:8px"><h3>Passes when</h3><dl class="kv"><dt>Steps score</dt><dd class="mono">≥ 0.80</dd><dt>Reply score</dt><dd class="mono">≥ 0.80</dd><dt>Time limit</dt><dd class="mono">60 s</dd></dl></div>
+  </div></div>
+ </div>
+
+ <div data-panel="test:2" hidden class="card cut tw"><table><thead><tr><th>Run</th><th>Code</th><th>Result</th><th>Tries</th><th class="r">Time</th></tr></thead><tbody>
+  ${[['14','main a41c9e2','fail','Failed','ffp','6 s'],['13','main 9c02d11','pass','Passed','ppp','6 s'],['12','main 9c02d11','pass','Passed','ppp','5 s'],['11','main 71be0c2','pass','Passed','ppp','6 s'],['10','fix/cart 5d1a9e0','pass','Passed','ppp','7 s']].map(r=>`<tr class="click" data-go="run"><td><b style="font-weight:500">Run ${r[0]}</b></td><td>${chip(r[1],'mono')}</td><td><span class="row" style="gap:8px">${dot(r[2])}${r[3]}</span></td><td><span class="row" style="gap:4px">${[...r[4]].map(c=>`<span class="sq ${c}"></span>`).join('')}</span></td><td class="r mono dim">${r[5]}</td></tr>`).join('')}
+ </tbody></table></div>
+</div>`;
+function testInit(){
+ const tl=$('#tl');if(!tl)return;
+ tl.innerHTML=TLS.map((s,i)=>`<div class="ts${s.bad?' badrow':''}" data-i="${i}"><div class="gut"><i class="${s.st}${/holds|healthy|Before/.test(s.k)?' sq':''}"></i></div><div class="bdy"><div class="k"><span>Step ${i+1} · ${s.k}</span><span class="at">${s.at}</span></div>${s.body}</div></div>`).join('');
+ const pick=i=>{$$('.ts',tl).forEach(x=>x.classList.toggle('sel',+x.dataset.i===i));const s=TLS[i];
+  $('#insp').innerHTML=s.insp==='span'?INSP.span:`<div class="hd"><h2>Step ${i+1} · ${s.k}</h2><span class="sp"></span><span class="mono dim">${s.at}</span></div><div class="bd col" style="gap:12px">${s.body}${s.bad?`<button class="btn sm" data-askq="Explain step ${i+1}" style="align-self:flex-start">${ic('spark','s')}Ask about this step</button>`:''}</div>`};
+ tl.addEventListener('click',e=>{if(e.target.closest('.thumbs'))return;const r=e.target.closest('.ts');if(r)pick(+r.dataset.i)});
+ pick(2);window.pickStep=pick;
+ const spans=[['agent','agent',0,33,0],['llm','llm',1,22,1],['add_note','bad',24,5,1],['llm','llm',30,3,1],['agent','agent',41,59,0],['llm','llm',42,19,1],['search_products','tool',62,20,1],['llm','llm',83,17,1]];
+ const col={agent:'var(--k-agent)',llm:'var(--tint)',tool:'var(--k-tool)',bad:'var(--fail)'};
+ $('#wf').innerHTML=spans.map((s,i)=>`<div class="wfr${i===2?' sel':''}"><span class="row" style="gap:8px;padding-left:${s[4]*16}px">${tag(s[0],s[1]==='bad'?'bad':s[1])}</span><div class="trk"><i style="left:${s[2]}%;width:${s[3]}%;background:${col[s[1]]}"></i></div><b>${(s[3]*.058).toFixed(1)}</b></div>`).join('');
+}
+</script>
+<script>
+/* ---------- Runs ---------- */
+S.runs=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>Runs</h1></div><div class="acts"><span class="pick">${ic('branch','s dim')}All versions${ic('down','s dim')}</span><button class="btn primary" data-run>${ic('play','f')}Run</button></div></div>
+ <div class="card"><div class="bd row wrap" style="gap:16px">${dot('go')}<b>Run 15</b>${chip('#412 · e77b0a4','mono tint')}
+  <div style="flex:1 1 200px"><div class="meter go"><i style="width:66%"></i></div><p class="dim" style="font-size:14px;margin-top:6px">2 of 3 tries · Adds to the cart once · try 1 · grading</p></div>
+  <button class="btn sm">Stop</button><button class="btn sm" data-go="run">Open</button></div></div>
+ <div class="card cut tw"><table><thead><tr><th>Run</th><th>Result</th><th>Code</th><th class="r hide-s">Typical try</th><th class="r hide-s">Tokens</th><th class="r">Started</th></tr></thead><tbody>
+ ${[['14','fail','1 failed every try',[6,1,0],'6 of 7','main · a41c9e2','6 s','61k','Today 14:02'],['13','pass','All passed',[7,0,0],'7 of 7','main · 9c02d11','6 s','59k','Today 10:40'],['12','pass','All passed',[7,0,0],'7 of 7','main · 9c02d11','5 s','58k','Yesterday'],['11','unj','Stopped by you',[3,0,4],'3 of 7','main · 71be0c2','6 s','24k','Yesterday'],['10','flaky','1 failed some tries',[6,1,0],'6 of 7','fix/cart · 5d1a9e0','7 s','60k','Nov 7']].map(r=>`<tr class="click" data-go="run"><td><div class="row" style="gap:12px">${dot(r[1])}<span><b style="font-weight:500;display:block">Run ${r[0]}</b><span class="dim" style="font-size:14px">${r[2]}</span></span></div></td>
+  <td><div class="row"><div class="bar" style="width:110px"><i style="width:${r[3][0]/7*100}%;background:var(--pass)"></i><i style="width:${r[3][1]/7*100}%;background:var(--fail)"></i></div><span class="mono">${r[4]}</span></div></td><td>${chip(r[5],'mono')}</td><td class="r mono dim hide-s">${r[6]}</td><td class="r mono dim hide-s">${r[7]}</td><td class="r dim">${r[8]}</td></tr>`).join('')}
+  <tr class="click" data-go="bench"><td><div class="row" style="gap:12px">${ic('gauge','dim')}<span><b style="font-weight:500;display:block">Memory benchmark</b><span class="dim" style="font-size:14px">Short histories</span></span></div></td><td><span class="mono">19 of 30 right</span></td><td>${chip('main · 9c02d11','mono')}</td><td class="r mono dim hide-s">41 s</td><td class="r mono dim hide-s">412k</td><td class="r dim">Nov 6</td></tr>
+ </tbody></table></div>
+</div>`;
+
+/* ---------- One run ---------- */
+const lay=v=>v==='p'?ic('check','s good'):v==='f'?ic('x','s bad'):'<span class="dim">–</span>';
+S.run=()=>`<div class="page">
+ <div class="head"><div class="t"><div class="row wrap"><h1>Run 14</h1>${chip('Failed','no')}</div>
+  <div class="chips">${chip('Today 14:02 · 3 min')}${chip(ic('branch','s')+'main · a41c9e2','mono')}${chip(ic('lock','s')+'Clean copy · plan v2','ok')}${chip('API + page')}</div></div>
+  <div class="acts"><button class="btn" data-run>Run with 5 tries</button><button class="btn primary" data-run>${ic('play','f')}Run again</button></div></div>
+ <div class="grid gmain">
+  <div class="col">
+   <div class="card"><div class="bd row" style="gap:22px;align-items:center">
+    <svg class="ringc" viewBox="0 0 92 92"><circle cx="46" cy="46" r="38" fill="none" stroke="var(--fail)" stroke-width="9"/><circle cx="46" cy="46" r="38" fill="none" stroke="var(--pass)" stroke-width="9" stroke-dasharray="${2*Math.PI*38*6/7} 999" transform="rotate(-90 46 46)" stroke-linecap="butt"/><text x="46" y="52" text-anchor="middle" style="font:600 20px var(--font-ui);fill:var(--ink)">6/7</text></svg>
+    <div style="flex:1;min-width:0"><div class="big" style="font-size:30px">6 of 7 tests pass</div>
+     <div class="row wrap" style="gap:16px;margin-top:10px;font-size:14px;color:var(--ink-2)"><span class="row" style="gap:6px">${dot('pass')}6 passed</span><span class="row" style="gap:6px">${dot('fail')}1 failed</span><span class="mono dim">61k tokens</span></div></div></div></div>
+
+   <div class="card cut"><div class="hd"><h2>What changed</h2><span class="sp"></span><span class="pick">Compared with run 13${ic('down','s dim')}</span></div><div class="list">
+    <div class="item" style="background:linear-gradient(90deg,var(--fail-soft),transparent 70%)" data-go="test"><span class="mono bad" style="width:14px;font-weight:600">−</span><span class="t"><b>Remembers a shoe size</b></span><span class="mono">3/3 → <span class="bad">1/3</span></span></div>
+    <div class="item"><span class="mono dim" style="width:14px">=</span><span class="t ink2">6 tests the same</span></div>
+    <div class="item wrap"><span class="dim" style="font-size:14px">Same model, grader and rules. Code:</span>${tag('agent/prompts/system.md')}${tag('tools/profile.ts')}</div>
+    <div class="item wrap" style="background:var(--unj-soft)">${ic('alert','s')}<span class="t" style="color:var(--unj)">1 of 3 tries passed. Too few tries to tell chance from change.</span><button class="btn sm" data-run>Run it with 5 tries</button></div>
+   </div></div>
+
+   <div class="card cut"><div class="hd" style="border-bottom:0;padding-bottom:0">${tabs('rr',['All <span class="mono dim">7</span>','Failed <span class="mono dim">1</span>','Not run <span class="mono dim">0</span>'])}</div>
+    <div class="tw"><table><thead><tr><th>Test</th><th class="c">Stored</th><th class="c">Answered</th><th class="c">Shown</th><th class="c hide-s">Page healthy</th><th class="c">Tries</th><th class="r hide-s">Time</th></tr></thead><tbody>
+    ${TESTS.map((t,i)=>{const L=i===1?'fffp':t.pl.includes('Page')?'pppp':'pp--';return `<tr class="click" data-go="test"><td><div class="row" style="gap:12px">${dot(i===1?'fail':i===2?'pass':t.v)}<b style="font-weight:500">${t.n}</b></div></td>${[...L].map((c,j)=>`<td class="c${j===3?' hide-s':''}">${lay(c)}</td>`).join('')}<td class="c mono ${i===1?'bad':'dim'}">${i===1?'1/3':'3/3'}</td><td class="r mono dim hide-s">${t.s}</td></tr>`}).join('')}
+    </tbody></table></div></div>
+  </div>
+  <div class="col">
+   <div class="card"><div class="bd col" style="gap:10px"><div class="row"><h2>What went wrong</h2><span class="sp"></span>${chip('App?','warn')}</div>
+    <p><b style="font-weight:500">Sizes are saved as notes, not to the profile.</b></p><p class="ink2" style="font-size:14px">In 2 of 3 tries cartly called <span class="mono">add_note</span> where the test expects <span class="mono">save_profile</span>. The prompt line that said so is gone in this commit.</p>
+    <div class="row"><button class="btn sm" data-go="test">See why</button><button class="btn sm ghost" data-askq="What got worse in run 14?">${ic('spark','s')}Ask</button></div></div></div>
+   <div class="card"><div class="bd col" style="gap:14px"><h2>Scores</h2>
+    ${[['Steps score','0.89','−0.11','bad'],['Reply score','0.86','−0.14','bad'],['Median time','6 s','same','flat']].map(m=>`<div class="row"><span class="ink2">${m[0]}</span><span class="sp"></span><b class="mono" style="font-size:15px">${m[1]}</b><span class="delta ${m[3]}">${m[2]}</span></div>`).join('')}</div></div>
+   <div class="card"><div class="bd col" style="gap:12px"><h2>Details</h2><dl class="kv"><dt>Tests</dt><dd>main · all 7</dd><dt>Code</dt><dd class="mono">main @ a41c9e2</dd><dt>What played</dt><dd class="mono">cartly/web:a41c9e2</dd><dt>Copy</dt><dd class="mono">eval-cartly-0 · plan v2</dd><dt>Plays</dt><dd>API, page one at a time</dd><dt>Keeps</dt><dd>Screenshots, video on failure</dd><dt>Graded by</dt><dd class="mono">claude-haiku-5-5</dd></dl></div></div>
+  </div>
+ </div>
+</div>`;
+
+/* ---------- Benchmarks ---------- */
+const KINDS=[['Single-session facts','ppppp'],['Preferences','pppff'],['Across conversations','ppfft'],['Dates and order','ppftf'],['Updated facts','pppff'],['Unanswerable','ppppf']];
+S.bench=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>Memory benchmark</h1><div class="chips">${chip('LongMemEval sample')}${chip('Not comparable with published scores','warn')}</div></div>
+  <div class="acts">${seg(['Short histories','Middle histories'])}<button class="btn primary" data-run>${ic('play','f')}Run</button></div></div>
+ ${tabs('bn',['Overview','Questions <span class="mono dim">30</span>','Runs','Setup'])}
+ <div data-panel="bn:0" class="col">
+  <div class="grid g4">
+   <div class="card"><div class="bd"><h3>Answer accuracy</h3><div class="row" style="margin-top:8px;align-items:baseline"><span class="big">63<small>%</small></span><span class="delta flat">19 of 30</span></div>
+    <div class="range"><span style="left:46%;width:32%"></span><b style="left:63%"></b></div><div class="row mono dim" style="font-size:12px"><span>46</span><span class="sp"></span><span>likely range</span><span class="sp"></span><span>78</span></div></div></div>
+   ${[['Memory write recall','86','%','24 of 28 facts written'],['Reached the model','71','%','20 of 28 in the prompt'],['Abstention','4',' of 5','said it didn\'t know']].map(m=>`<div class="card"><div class="bd"><h3>${m[0]}</h3><div class="big" style="margin-top:8px">${m[1]}<small>${m[2]}</small></div><p class="dim" style="font-size:14px;margin-top:18px">${m[3]}</p></div></div>`).join('')}
+  </div>
+  <div class="grid g2 g2x">
+   <div class="card cut"><div class="hd"><h2>How far facts got</h2></div><div class="bd"><div class="flow">
+    ${[['Told',28],['Written',24],['Committed',22],['Reached',20],['Right',19]].map(f=>`<div><b>${f[1]}</b><i style="height:${f[1]/28*78}%"></i><span>${f[0]}</span></div>`).join('')}</div></div></div>
+   <div class="card cut"><div class="hd"><h2>By kind of question</h2><span class="sp"></span><span class="row" style="gap:12px;font-size:13px;color:var(--ink-2)"><span class="row" style="gap:5px"><span class="qd"><i style="width:12px;height:12px"></i></span>Right</span><span class="row" style="gap:5px"><span class="qd"><i class="f" style="width:12px;height:12px"></i></span>Wrong</span><span class="row" style="gap:5px"><span class="qd"><i class="to" style="width:12px;height:12px"></i></span>Timed out</span></span></div>
+    <div class="list">${KINDS.map(k=>`<div class="item" style="padding:12px 20px"><span style="width:170px;flex:none">${k[0]}</span><span class="qd" style="flex:1">${[...k[1]].map(c=>`<i class="${c==='p'?'':c==='t'?'to':c}" data-tabgo="bn:1"></i>`).join('')}</span><span class="mono dim">${[...k[1]].filter(c=>c==='p').length}/${k[1].length}</span></div>`).join('')}</div></div>
+  </div>
+ </div>
+ <div data-panel="bn:1" hidden class="col">
+  <div class="row wrap">${seg(['All <span class="c">30</span>','Wrong <span class="c">9</span>','Right <span class="c">19</span>','Timed out <span class="c">2</span>'])}</div>
+  <div class="card cut tw"><table><thead><tr><th>Question</th><th>Result</th><th class="hide-s">Kind</th><th class="r hide-s">Time</th></tr></thead><tbody>
+   <tr><td><b style="font-weight:500">What degree did I graduate with?</b></td><td><span class="row" style="gap:8px">${dot('pass')}Right</span></td><td class="hide-s dim">Single-session facts</td><td class="r mono dim hide-s">38 s</td></tr>
+   <tr style="background:var(--sunk)"><td colspan="4" style="padding:0"><div class="item" style="align-items:flex-start;padding-bottom:6px"><span class="row" style="gap:12px;flex:1">${dot('fail')}<b>How many days before the conference did I book the hotel?</b></span><span class="row" style="gap:8px">${chip('Saved, not used','no')}<span class="dim hide-s">Dates and order</span></span></div>
+    <div class="grid g3" style="padding:6px 20px 18px;gap:14px"><div class="col" style="gap:6px"><h3>Known answer</h3><span>12 days</span></div><div class="col" style="gap:6px"><h3>It said</h3><span>"About a week before."</span></div><div class="col" style="gap:6px"><h3>What went wrong</h3><span class="ink2">Both dates were in memory. Only one reached the prompt.</span><button class="btn sm ghost" style="align-self:flex-start;padding:0">Open the trace ${ic('arrow','s')}</button></div></div></td></tr>
+   ${[['Which city did I move to last spring?','fail','Never saved','Updated facts','44 s'],['What is my sister\'s cat called?','fail','Made it up','Unanswerable','31 s'],['Which gym do I go to now?','unj','Timed out · counts as wrong','Across conversations','300 s'],['What coffee do I usually order?','pass','Right','Preferences','36 s']].map(q=>`<tr><td><b style="font-weight:500">${q[0]}</b></td><td><span class="row" style="gap:8px">${dot(q[1])}${q[2]}</span></td><td class="hide-s dim">${q[3]}</td><td class="r mono dim hide-s">${q[4]}</td></tr>`).join('')}
+  </tbody></table></div></div>
+ <div data-panel="bn:2" hidden class="card cut tw"><table><thead><tr><th>Run</th><th>Accuracy</th><th>Code</th><th class="r">Started</th></tr></thead><tbody>
+  ${[['3','63%','19 of 30','main · 9c02d11','Nov 6'],['2','57%','17 of 30','main · 71be0c2','Nov 3'],['1','—',"Didn't finish",'main · 0be77a1','Nov 1']].map(r=>`<tr><td><b style="font-weight:500">Run ${r[0]}</b></td><td><span class="mono">${r[1]}</span> <span class="dim">${r[2]}</span></td><td>${chip(r[3],'mono')}</td><td class="r dim">${r[4]}</td></tr>`).join('')}</tbody></table></div>
+ <div data-panel="bn:3" hidden class="card"><div class="bd grid g4">${[['1','Send the history','about 11 messages'],['2','Check memory','what was written'],['3','Ask the question','in a new conversation'],['4','Judge the reply','question, answer, reply only']].map(s=>`<div class="col" style="gap:8px"><span class="ico tint mono" style="font-weight:600">${s[0]}</span><b>${s[1]}</b><span class="dim" style="font-size:14px">${s[2]}</span></div>`).join('')}</div></div>
+</div>`;
+
+/* ---------- What it learned ---------- */
+S.map=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>What cartly does</h1><p class="sub">A shopping assistant that finds products, tracks orders and remembers customers.</p>
+  <div class="chips">${['TypeScript','Next.js','Postgres','Redis'].map(x=>chip(x)).join('')}${chip('Changed since learned · 2','warn')}</div></div>
+  <div class="acts"><span class="dim" style="font-size:14px">Learned 2 h ago · 58 s · 41k tokens</span><button class="btn" data-go="setup">${ic('redo','s')}Learn again</button></div></div>
+ <div class="grid g4">${[['6','tools','5 seen in use'],['3','kinds of state','profile · notes · cart'],['6 s','typical ask','from 38 conversations'],['7','tests','6 pass · 1 fail']].map(f=>`<div class="card"><div class="bd"><div class="big" style="font-size:32px">${f[0]}</div><p style="margin-top:6px">${f[1]}</p><p class="dim" style="font-size:14px">${f[2]}</p></div></div>`).join('')}</div>
+ <div class="grid gwork">
+  <div class="card cut"><div class="hd"><h2>How it works</h2><span class="sp"></span>${seg(['Seen in use','In code'])}</div><div class="bd">
+   <svg class="map" viewBox="0 0 720 320" role="img" aria-label="How cartly works">
+    <path class="hot" d="M110 160H190"/><text class="c" x="150" y="151" text-anchor="middle">38 asks</text>
+    <path class="hot" d="M310 160C350 160 340 46 390 46"/><text class="c" x="348" y="88">24</text>
+    <path d="M310 160C350 160 350 120 390 120"/><text class="c" x="356" y="134">11</text>
+    <path d="M310 160C350 160 350 196 390 196"/><text class="c" x="356" y="188">14</text>
+    <path class="cold" d="M310 160C350 160 340 272 390 272"/>
+    <path d="M530 46C560 46 560 66 590 66"/><path d="M530 196C560 196 560 156 590 156"/><path d="M530 196C560 196 560 246 590 246"/>
+    <g class="n"><rect x="10" y="136" width="100" height="48" rx="12"/><text x="24" y="156">Shopper</text><text class="s" x="24" y="172">asks in chat</text></g>
+    <g class="n agent"><rect x="190" y="136" width="120" height="48" rx="12"/><text x="204" y="165">Cartly agent</text></g>
+    <g class="n"><rect x="390" y="22" width="140" height="48" rx="12"/><text x="404" y="42">Catalog</text><text class="s" x="404" y="58">search_products</text></g>
+    <g class="n"><rect x="390" y="96" width="140" height="48" rx="12"/><text x="404" y="116">Orders</text><text class="s" x="404" y="132">get_order +1</text></g>
+    <g class="n sel"><rect x="390" y="172" width="140" height="48" rx="12"/><text x="404" y="192">Memory</text><text class="s" x="404" y="208">save_profile +1</text></g>
+    <g class="n unseen"><rect x="390" y="248" width="140" height="48" rx="12"/><text x="404" y="268">Returns desk</text><text class="s" x="404" y="284">never seen in use</text></g>
+    <g class="n store"><rect x="590" y="42" width="120" height="48" rx="12"/><text x="604" y="71">Cart</text></g>
+    <g class="n store"><rect x="590" y="132" width="120" height="48" rx="12"/><text x="604" y="152">Profile</text><text class="s" x="604" y="168">kept for good</text></g>
+    <g class="n store"><rect x="590" y="222" width="120" height="48" rx="12"/><text x="604" y="242">Notes</text><text class="s" x="604" y="258">end with the chat</text></g>
+   </svg></div></div>
+  <div class="card cut"><div class="hd"><h2>Memory</h2><span class="sp"></span>${chip('Related code changed','warn')}</div><div class="bd col" style="gap:16px">
+   <p>Saves what a customer says about themselves. Sizes and addresses go to the profile; passing remarks go to notes.</p>
+   <div class="row wrap">${tag('save_profile','tool')}${tag('add_note','tool')}</div>
+   <div class="col" style="gap:8px"><h3>From</h3><div class="row wrap"><span class="ev">prompt · system.md "Memory"</span><span class="ev">code · tools/profile.ts:12</span><span class="ev">traces · 14 asks</span></div></div>
+   <div class="col" style="gap:8px"><h3>Is this right?</h3><div class="row wrap"><button class="btn sm">${ic('check','s')}Right</button><button class="btn sm">${ic('x','s')}Wrong</button><button class="btn sm">Fix it</button></div></div>
+   <dl class="kv"><dt>Tests on it</dt><dd><button class="btn sm ghost" data-go="test" style="height:auto;padding:0">Remembers a shoe size</button></dd></dl>
+  </div></div>
+ </div>
+ ${tabs('mp',['Tools','Typical paths','What it knows','Areas','Suggested tests'])}
+ <div data-panel="mp:0" class="card cut tw"><table><thead><tr><th>Tool</th><th>What it does</th><th class="hide-s">Takes</th><th class="r">Seen</th><th class="r">Tests</th></tr></thead><tbody>
+  ${[['search_products','Finds products in the catalog','q, size?, max_price?','24×','3'],['get_order','Looks up one order','id','11×','2'],['save_profile','Keeps a fact about the customer for good','key, value','2×','1'],['add_note','Keeps a remark for this conversation','text','12×','1'],['add_to_cart','Puts an item in the cart','product_id, qty','9×','1'],['refund_order','Refunds an order','id, amount','0×','1']].map(t=>`<tr><td>${tag(t[0],'tool')}</td><td>${t[1]}</td><td class="mono dim hide-s">${t[2]}</td><td class="r mono ${t[3]==='0×'?'dim':''}">${t[3]}</td><td class="r mono">${t[4]}</td></tr>`).join('')}</tbody></table></div>
+ <div data-panel="mp:1" hidden class="card cut"><div class="list">${[[58,['Search the catalog','Reply'],1],[26,['Look up the order','Reply'],1],[16,['Read the profile','Search the catalog','Add to cart','Reply'],1],[0,['Look up the order','Ask a person','Reply'],0]].map(p=>`<div class="item"><span class="mono" style="width:44px">${p[2]?p[0]+'%':'—'}</span><div class="meter" style="width:120px;flex:none"><i style="width:${p[0]}%;background:var(--tint)"></i></div><span class="row wrap t" style="gap:6px">${p[1].map(s=>chip(s)).join(ic('arrow','s dim'))}</span>${p[2]?'':chip('Expected, never seen')}</div>`).join('')}</div></div>
+ <div data-panel="mp:2" hidden class="card cut"><div class="hd"><h2>4 may be out of date</h2><span class="sp"></span><button class="btn sm">Update</button></div><div class="list">
+  ${[['Sizes and addresses are saved to the profile.','prompt · system.md',1],['Refunds over $200 are handed to a person.','code · tools/orders.ts:88',0],['Notes are gone when the conversation ends.','code · memory/notes.ts:9',0],['It asks before adding more than 5 of one item.','prompt · system.md',1]].map(c=>`<div class="item"><span class="t">${c[0]}</span>${c[2]?chip('May be out of date','warn'):''}<span class="ev hide-s">${c[1]}</span><span class="thumbs"><button aria-label="Right">${ic('tup','s')}</button><button aria-label="Wrong">${ic('tdown','s')}</button></span></div>`).join('')}</div></div>
+ <div data-panel="mp:3" hidden class="card cut"><div class="list">
+  ${[['tools/','9 files','Learned 2 h ago','ok',0],['agent/','6 files','Changed since learned','warn',1],['memory/','4 files','Learned 2 h ago','ok',0],['api/','7 files','Learned 2 h ago','ok',0],['checkout/','11 files','Learned 2 h ago','ok',0],['web/','21 files','Not learned · nothing the agent uses','',1],['scripts/','6 files','Not learned · nothing the agent uses','',1]].map(a=>`<div class="item"><span class="mono" style="width:110px">${a[0]}</span><span class="dim hide-s" style="width:70px">${a[1]}</span><span class="t">${chip(a[2],a[3])}</span>${a[4]?'<button class="btn sm">Learn this area</button>':''}</div>`).join('')}</div></div>
+ <div data-panel="mp:4" hidden class="card cut"><div class="list">
+  ${[['Checkout stops on an empty cart','checkout/ has no test',1],['Remembers a delivery address','save_profile, 12 uses',1],['Says so when an order is missing','get_order returned nothing in 3 of 38',0],['Refuses a refund over $200','','added']].map(s=>`<div class="item"><button class="sw ${s[2]===1?'on':''}" aria-label="Pick" ${s[2]==='added'?'disabled':''}></button><span class="t"><b>${s[0]}</b><small>${s[1]||'Already a test'}</small></span>${s[2]==='added'?chip('Added','ok'):''}</div>`).join('')}
+  <div class="item"><span class="sp"></span><button class="btn primary" data-ask>${ic('spark','s')}Add 2 tests</button></div></div></div>
+</div>`;
+
+/* ---------- Test environment ---------- */
+S.env=()=>`<div class="page">
+ <div class="head"><div class="t"><h1>Test environment</h1><div class="chips">${chip(ic('check','s')+'Proven · plan v2','ok')}${chip('Checked 2 h ago')}${chip('Resets in 2.1 s','mono')}</div></div>
+  <div class="acts"><button class="btn ghost">How this works</button><button class="btn" data-go="setup">${ic('redo','s')}Check again</button></div></div>
+ <div class="grid gmain">
+  <div class="col">
+   <div class="card cut">
+    <div class="pic"><div class="box"><h3>${ic('lock','s')}Your app · never touched</h3><div class="blk">cartly<small>:3000</small></div><div class="blk">${ic('db','s')}Postgres</div><div class="blk">${ic('db','s')}Redis</div></div>
+     <div class="arrow">${ic('arrow')}</div>
+     <div class="box copy ok"><h3>Test copy · eval-cartly-0</h3><div class="blk">${dot('pass')}cartly<small>:4012</small></div><div class="blk">${dot('pass')}${ic('db','s')}Postgres<small>empty · 12 tables</small></div><div class="blk">${dot('pass')}${ic('db','s')}Redis<small>fresh</small></div><div class="blk">${dot('pass')}${ic('user','s')}Alex Rivera<small>test person</small></div></div></div></div>
+
+   <div class="card cut tw"><div class="hd"><h2>What it puts back</h2></div><table><thead><tr><th>Store</th><th>Holds</th><th>Before every try</th><th class="r">Takes</th><th class="c">Checked</th></tr></thead><tbody>
+    ${[['Postgres','orders, profiles','New copy from a template','1.6 s','p'],['uploads/','files people send','Snapshot put back','0.4 s','p'],['Redis','cart, sessions','Restarted empty','0.1 s','p'],['Traces','what happened','Left alone, as evidence','—','-']].map(s=>`<tr><td><span class="row" style="gap:10px">${ic('db','s dim')}<b style="font-weight:500">${s[0]}</b></span></td><td class="dim">${s[1]}</td><td>${s[2]}</td><td class="r mono dim">${s[3]}</td><td class="c">${lay(s[4])}</td></tr>`).join('')}</tbody></table></div>
+
+   <div class="card cut"><div class="hd"><h2>How tests reach cartly</h2><span class="sp"></span>${seg(['Its API','Its page','Both'],2)}</div>
+    <div class="grid g2" style="gap:0"><div class="list" style="border-right:1px solid var(--rule)">
+     ${[['Opens','/chat'],['Message box','textbox "Message"'],['Send','button "Send"'],['Replies','[data-role=assistant]'],['Busy while','.typing is visible'],['New chat','button "New chat"']].map(m=>`<div class="item" style="padding:10px 20px"><span class="dim" style="width:110px;flex:none">${m[0]}</span><span class="mono clip">${m[1]}</span></div>`).join('')}</div>
+     <div class="col" style="padding:20px;gap:14px"><div class="row" style="gap:10px"><span class="thumb"><i class="me" style="top:30%"></i></span><span class="thumb"><i class="me" style="top:28%"></i><i style="top:44%"></i></span></div>
+      <div class="row wrap">${chip(ic('check','s')+'Approved 3 days ago','ok')}<button class="btn sm">Re-learn the page</button></div>
+      <dl class="kv"><dt>Screenshots</dt><dd><span class="pick" style="height:30px">Always${ic('down','s dim')}</span></dd><dt>Video</dt><dd><span class="pick" style="height:30px">On failure${ic('down','s dim')}</span></dd></dl></div></div></div>
+
+   <div class="card cut"><div class="hd"><h2>How another version is built</h2>${chip('Proven','ok')}<span class="sp"></span><span class="mono dim">38 GB free</span></div>
+    <div class="bd col" style="gap:14px"><pre class="code">docker compose build web worker</pre>
+     <div class="list card" style="box-shadow:none">${[['main · a41c9e2','1.2 GB','3 min 12 s','2 h ago'],['#412 · e77b0a4','1.2 GB','41 s','8 min ago']].map(b=>`<div class="item" style="padding:10px 16px">${chip(b[0],'mono')}<span class="mono dim">${b[1]}</span><span class="mono dim hide-s">built in ${b[2]}</span><span class="sp"></span><span class="dim">${b[3]}</span><button class="btn sm">Remove</button></div>`).join('')}</div></div></div>
+  </div>
+  <div class="col">
+   <div class="card"><div class="bd col" style="gap:18px"><h2>Test setup</h2>
+    <div class="row"><span class="av" style="border-radius:50%">AR</span><span class="t" style="flex:1"><b style="font-weight:500;display:block">Alex Rivera</b><span class="dim" style="font-size:14px">English · UTC</span></span><button class="btn sm">Edit</button></div>
+    <div class="row"><span>New person every try</span><span class="sp"></span><button class="sw" aria-label="New person every try"></button></div>
+    <div class="col" style="gap:8px"><h3>Starts with</h3>${seg(['Nothing','Sample data'])}</div>
+    <div class="col" style="gap:8px"><h3>Reset</h3>${seg(['Before every try','Before every test'])}</div>
+    <div class="row"><span>Copies side by side</span><span class="sp"></span><span class="step"><button aria-label="Fewer">−</button><b>1</b><button aria-label="More">+</button></span></div></div></div>
+   <div class="card"><div class="bd col" style="gap:14px"><h2>Leaves the copy</h2>
+    ${[['Model provider',1],['Traces to evalution',1],['Stripe',0],['SendGrid',0]].map(o=>`<div class="row">${o[1]?dot('pass'):ic('lock','s bad')}<span class="${o[1]?'':'dim'}">${o[0]}</span><span class="sp"></span><button class="sw ${o[1]?'on':''}" aria-label="${o[0]}"></button></div>`).join('')}</div></div>
+   <div class="card"><div class="bd col" style="gap:12px"><h2>Last check</h2>
+    ${[['Find where it keeps things','3 s'],['Copy cartly','18 s'],['Give it its own Postgres','2 s'],['Give it its own Redis','1 s'],['Make a test person','1 s'],['Check it resets cleanly','41 s']].map(c=>`<div class="row">${ic('check','s good')}<span>${c[0]}</span><span class="sp"></span><span class="mono dim">${c[1]}</span></div>`).join('')}</div></div>
+  </div>
+ </div>
+</div>`;
+
+/* ---------- Settings ---------- */
+S.settings=()=>`<div class="page narrow">
+ <div class="head"><div class="t"><h1>Settings</h1></div></div>
+ <div class="card"><div class="bd col" style="gap:18px"><h2>Model</h2>
+  <div class="col" style="gap:8px"><h3>Provider</h3>${seg(['Claude','OpenAI','Other'])}</div>
+  <div class="col" style="gap:8px"><h3>API key</h3><div class="field"><span class="mono dim">•••• 4f2a</span><span class="sp"></span>${chip('Saved','ok')}</div></div>
+  <div class="grid g2" style="gap:14px"><div class="col" style="gap:8px"><h3>For thinking</h3><span class="pick" style="height:40px"><span class="mono">claude-sonnet-5-5</span><span class="sp"></span>${ic('down','s dim')}</span></div><div class="col" style="gap:8px"><h3>For filler</h3><span class="pick" style="height:40px"><span class="mono">claude-haiku-5-5</span><span class="sp"></span>${ic('down','s dim')}</span></div></div>
+  <div class="row wrap"><button class="btn">Test model</button>${chip(ic('check','s')+'Thinking · 0.8 s','ok')}${chip(ic('check','s')+'Filler · 0.3 s','ok')}</div></div></div>
+ <div class="card"><div class="bd col" style="gap:16px"><h2>Connection</h2>
+  <dl class="kv"><dt>Connected as</dt><dd>HTTP</dd><dt>Sends to</dt><dd class="mono">POST localhost:3000/api/chat</dd><dt>Code</dt><dd class="mono">github.com/acme/cartly</dd></dl>
+  <div class="col" style="gap:8px"><h3>cartly sends its traces to</h3><div class="field"><span class="mono clip">http://127.0.0.1:8080/v1/traces</span><span class="sp"></span><button class="ib" aria-label="Copy">${ic('copy','s')}</button></div></div>
+  <div class="row wrap"><button class="btn">Check connection</button>${chip(ic('check','s')+'App','ok')}${chip(ic('check','s')+'Traces','ok')}${chip(ic('check','s')+'Code','ok')}</div></div></div>
+ <div class="card"><div class="bd col" style="gap:16px"><h2>Keeping current</h2>
+  <div class="row wrap"><span>Update what it knows</span><span class="sp"></span>${seg(['Automatically','When I ask'],1)}</div>
+  <div class="row"><span>Tell evalution on every commit</span><span class="sp"></span><button class="sw on" aria-label="Git hooks"></button></div></div></div>
+ <div class="card"><div class="bd col" style="gap:14px"><h2>UI testing</h2>
+  ${[['Playwright',1],['A browser',1],['ffmpeg, for video',0]].map(p=>`<div class="row">${p[1]?ic('check','s good'):ic('x','s dim')}<span>${p[0]}</span><span class="sp"></span>${p[1]?'<span class="dim" style="font-size:14px">Installed</span>':'<button class="btn sm">Install</button>'}</div>`).join('')}</div></div>
+ <div class="card"><div class="bd col" style="gap:16px"><h2>Appearance</h2>
+  <div class="row wrap"><span>Theme</span><span class="sp"></span>${seg(['Light','Dark'],document.documentElement.dataset.theme==='dark'?1:0,'js-theme')}</div>
+  <div class="row wrap"><span>Typeface</span><span class="sp"></span>${seg(['Geist','Inter','IBM Plex'],['geist','inter','plex'].indexOf(document.documentElement.dataset.font),'js-font')}</div></div></div>
+ <div class="row" style="padding:0 4px"><span class="dim" style="font-size:14px">Removing cartly keeps its tests and runs on disk.</span><span class="sp"></span><button class="btn sm" style="color:var(--fail)">Remove cartly</button></div>
+</div>`;
+
+/* ---------- Run dialog ---------- */
+function runDialog(){
+ $('#modal').innerHTML=`<div class="scrim" id="scrim"><div class="dlg pop" role="dialog" aria-label="Run tests">
+  <div class="dh"><h2 style="font-size:20px;letter-spacing:-.02em">Run tests</h2><span class="sp"></span><button class="ib" data-close aria-label="Close">${ic('x')}</button></div>
+  <div class="dr"><h3>Tests</h3><div class="row wrap">${seg(['All 7','Failing 1','Changed code touches 3'])}<span class="sp"></span><span class="row" style="gap:8px"><span class="dim" style="font-size:14px">Tries</span><span class="step"><button>−</button><b>3</b><button>+</button></span></span></div></div>
+  <div class="dr"><h3>Code</h3><div class="col" style="gap:10px">${seg(['On disk now','Branch','Pull request','Commit'],2)}<div class="field"><span class="mono">#412</span><span class="clip">Save sizes to the profile</span><span class="sp"></span>${chip('fix/profile-size · e77b0a4','mono')}</div><span class="dim" style="font-size:14px">${ic('check','s good')} Built 8 min ago, reused</span></div></div>
+  <div class="dr"><h3>How it plays</h3><div class="col" style="gap:8px;font-size:14px"><span class="row">${ic('lock','s good')}On evalution's copy. Your app isn't touched.</span><span class="row">${ic('redo','s dim')}Put back before every try · 2.1 s</span><span class="row">${ic('env','s dim')}5 through the API, 2 through the page</span></div></div>
+  <div class="dr"><h3>Keeps</h3><div class="row wrap"><span class="pick" style="height:32px">Screenshots · Always${ic('down','s dim')}</span><span class="pick" style="height:32px">Video · On failure${ic('down','s dim')}</span></div></div>
+  <div class="df"><span class="dim" style="font-size:14px;flex:1">About 3 min · 21 tries · about 60k tokens, as run 13 spent</span><button class="btn" data-close>Cancel</button><button class="btn primary" data-close data-go="runs">${ic('play','f')}Run 7 tests</button></div>
+ </div></div>`;
+}
+
+/* ---------- Assistant ---------- */
+const ASK={
+ tests:{title:'New test',ctx:'New test for cartly',ph:'What should cartly do?',hello:'What should cartly do?',sugg:['Refuse a refund over $200','Remember a delivery address','Start from a real conversation']},
+ test:{title:'Ask',ctx:'Remembers a shoe size · run 14 · try 1',ph:'Ask about this try…',hello:'Ask about this try',sugg:['Why did it fail?','What changed since it passed?','Is the test wrong, or the app?']},
+ run:{title:'Ask',ctx:'Run 14 · main a41c9e2',ph:'Ask about this run…',hello:'Ask about run 14',sugg:['What got worse?','Compare with run 13','Where did the tokens go?']},
+ runs:{title:'Ask',ctx:'Last 9 runs',ph:'Ask about your runs…',hello:'Ask about your runs',sugg:['What is flaky?','Which commit broke the most?']},
+ overview:{title:'Ask',ctx:'cartly · last 9 runs',ph:'Ask about cartly…',hello:'Ask about cartly',sugg:['Why did my last run fail?','Which test should I write next?','Where are the tokens going?']},
+ bench:{title:'Ask',ctx:'Memory benchmark · 19 of 30',ph:'Ask about these results…',hello:'Ask about this benchmark',sugg:['Where is its memory weakest?','Show what timed out']},
+ map:{title:'Ask',ctx:'What cartly does',ph:'Ask about cartly…',hello:'Ask how cartly works',sugg:['How does memory work?','Which tools change data?','What has no test?']},
+ env:{title:'Ask',ctx:'Test environment · plan v2',ph:'Ask about the test copy…',hello:'Ask about the test copy',sugg:['What can tests reach outside?','Why does a reset take 2 s?']},
+ setup:{title:'Ask',ctx:'Setting up cartly',ph:'Ask about the setup…',hello:'Ask about the setup',sugg:['What is it doing now?','Why were two keys blanked?']},
+ settings:{title:'Ask',ctx:'Settings',ph:'Ask anything…',hello:'Ask anything',sugg:['Which model grades my tests?']},
+ connect:{title:'Ask',ctx:'Connecting an app',ph:'Ask anything…',hello:'Ask anything',sugg:['What does evalution read?','Is my app touched?']}};
+const OPEN={title:'Ask',ph:'Ask anything about cartly…',hello:'Ask anything about cartly',sugg:['What does cartly do?','What is not tested yet?','Why did my last run fail?']};
+const PLAN=`<div class="plan"><div class="row" style="padding:14px 16px 0"><b>Refuses a refund over $200</b><span class="sp"></span>${chip('3 tries')}</div><div class="script">
+ <div class="st"><span class="bubble">I want a refund for order #1182. It was $240.</span></div>
+ <div class="st call">${tag('get_order','tool')}<span class="mono dim">id=1182</span></div>
+ <div class="st call">${tag('ask_human','tool')}</div>
+ <div class="st never">${tag('refund_order','bad never')}${chip('Never')}</div>
+ <div class="st chk"><span>Says a person will review it</span></div>
+ <div class="st chk"><span>Says why: over $200</span></div></div>
+ <div class="row wrap" style="padding:0 16px 14px;gap:8px;font-size:14px">${ic('alert','s')}<span style="color:var(--unj);flex:1">"Says why" passes a vague reply.</span><button class="btn sm">Use "Names the $200 limit"</button></div>
+ <div class="pf"><button class="btn primary sm" data-go="tests">Add to tests</button><button class="btn sm" data-run>Run once</button><span class="sp"></span><button class="btn sm ghost">Open full</button></div></div>`;
+const answer=(scr,q)=>{
+ if(scr==='tests'||/test for|Add|variation|Change this test/i.test(q))return `<span class="srcs">${ic('book','s')}Read the map, 6 tools, 3 real conversations</span><p>Drawn from how cartly handles refunds today.</p>${PLAN}`;
+ if(scr==='test')return `<span class="srcs">${ic('book','s')}Read the trace, the test, 1 commit</span><p>It saved the size in the wrong place. cartly called <span class="mono">add_note</span>, and notes end with the conversation, so the second conversation started without it.</p><p>On <span class="mono">9c02d11</span> the prompt said to save sizes to the profile. That line is gone in <span class="mono">a41c9e2</span>.</p><div class="row wrap"><button class="ev" data-jump="2">add_note · 1.4 s</button><button class="ev" data-jump="4">profile empty</button><span class="ev">system.md:41</span></div><div class="row wrap"><button class="btn sm" data-run>Run on #412</button><button class="btn sm ghost" data-askq="Is the test wrong, or the app?">Is the test wrong?</button></div>`;
+ if(scr==='run'||scr==='runs'||scr==='overview')return `<span class="srcs">${ic('book','s')}Read runs 13 and 14</span><p>One test got worse: <b>Remembers a shoe size</b>, 3 of 3 tries down to 1 of 3. The other six are unchanged, on the same model and grader.</p><p>Two files changed between the runs, and the test touches both.</p><div class="row wrap"><button class="btn sm" data-go="test">Open the test</button><button class="btn sm" data-run>Run it with 5 tries</button></div>`;
+ if(scr==='bench')return `<span class="srcs">${ic('book','s')}Read 30 questions, 11 traces</span><p>Facts get written but don't always come back. 24 of 28 were saved, only 20 reached the prompt. It is weakest on dates: 2 of 5.</p>`;
+ if(scr==='env')return `<span class="srcs">${ic('book','s')}Read the plan and the last check</span><p>The copy can reach your model provider and evalution's traces. Stripe and SendGrid keys are blank in the copy, so a test can't charge a card or send mail.</p>`;
+ return `<span class="srcs">${ic('book','s')}Read the map, 9 files</span><p>cartly keeps two kinds of memory. <span class="mono">save_profile</span> writes to Postgres and lasts. <span class="mono">add_note</span> writes to Redis and ends with the conversation.</p><div class="row wrap"><span class="ev">tools/profile.ts:12</span><span class="ev">memory/notes.ts:9</span></div>`};
+let screen='overview',ctxOn=true,said=[],askScr=null;const akey=()=>askScr||screen;
+function panel(){const a=ctxOn?ASK[akey()]:OPEN;$('#ptitle').textContent=a.title;$('#ctx').hidden=!ctxOn;$('#ctxt').textContent=ASK[akey()].ctx;$('#pin').placeholder=a.ph;
+ const c=$('#chat');c.innerHTML=said.length?said.join(''):`<div class="hello">${MARK}<b>${a.hello}</b><div class="sugg">${a.sugg.map(s=>`<button data-askq="${s}">${ic('spark','s dim')}${s}</button>`).join('')}</div></div>`;c.scrollTop=c.scrollHeight}
+function askOpen(on){document.body.classList.toggle('asking',on);if(on)panel()}
+function askq(q){askOpen(true);if(/: $/.test(q)){$('#pin').value=q;$('#pin').focus();return}
+ said.push(`<div class="me">${q}</div>`,`<div class="ai" id="think"><span class="srcs">${ic('spin','s spin')}Reading…</span></div>`);panel();
+ const scr=ctxOn?akey():'open';setTimeout(()=>{said.pop();said.push(`<div class="ai pop">${answer(scr,q)}</div>`);panel()},750)}
+
+/* ---------- Router ---------- */
+const NAVOF={test:'tests',run:'runs'};const BACK={test:['tests','Tests'],run:['runs','Runs'],setup:['connect','Connect']};
+function topbar(){const b=BACK[screen];const bare=screen==='connect';
+ $('#top').innerHTML=(b?`<button class="back" data-go="${b[0]}">${ic('left','s')}${b[1]}</button>`:'')+'<span class="sp"></span>'+(bare?'':`<button class="live" data-go="runs"><i></i>Run 15 · 2 of 3</button><span class="search">${ic('search','s')}Jump to a test or run<span class="kbd">⌘K</span></span>`)}
+function go(id){suTimers.forEach(clearTimeout);screen=id;ctxOn=true;said=[];askScr=null;
+ $$('#nav button,.foot button').forEach(b=>b.classList.toggle('on',b.dataset.go===(NAVOF[id]||id)&&!b.classList.contains('copystat')));
+ $('#view').innerHTML=S[id]();topbar();if(document.body.classList.contains('asking'))panel();scrollTo(0,0);
+ if(id==='setup')runSetup();if(id==='overview')mx($('#ov-mx'));if(id==='test')testInit()}
+document.addEventListener('click',e=>{const t=e.target;let b;
+ if(b=t.closest('[data-close]')){$('#modal').innerHTML='';if(!b.dataset.go)return}
+ if(t.id==='scrim'){$('#modal').innerHTML='';return}
+ if(b=t.closest('[data-run]')){e.stopPropagation();runDialog();return}
+ if(b=t.closest('[data-askq]')){askq(b.dataset.askq);return}
+ if(b=t.closest('[data-ask]')){askScr='tests';ctxOn=true;said=[];askOpen(true);$('#pin').focus();return}
+ if(b=t.closest('[data-jump]')){if(screen!=='test')go('test');$$('[data-work]').forEach(x=>x.hidden=x.dataset.work!=='0');$$('.js-work button').forEach((x,i)=>x.classList.toggle('on',i===0));window.pickStep(+b.dataset.jump);$('#tl .sel').scrollIntoView({block:'center',behavior:'smooth'});return}
+ if(b=t.closest('[data-tabgo]')){const [g,i]=b.dataset.tabgo.split(':');const tb=$(`[data-tabs="${g}"] [data-tab="${i}"]`);if(tb)tb.click();return}
+ if(b=t.closest('.tabs button')){const g=b.parentNode.dataset.tabs;$$('button',b.parentNode).forEach(x=>x.classList.toggle('on',x===b));$$(`[data-panel^="${g}:"]`).forEach(p=>p.hidden=p.dataset.panel!==g+':'+b.dataset.tab);return}
+ if(b=t.closest('.seg button')){const g=b.parentNode,i=$$('button',g).indexOf(b);$$('button',g).forEach(x=>x.classList.toggle('on',x===b));
+  if(g.classList.contains('js-work'))$$('[data-work]').forEach(x=>x.hidden=+x.dataset.work!==i);
+  if(g.classList.contains('js-theme'))document.documentElement.dataset.theme=i?'dark':'light';
+  if(g.classList.contains('js-font'))document.documentElement.dataset.font=['geist','inter','plex'][i];return}
+ if(b=t.closest('.sw')){b.classList.toggle('on');return}
+ if(b=t.closest('.egs button')){$('#src').value=b.textContent.trim();return}
+ if(b=t.closest('#su-replay')){runSetup();return}
+ if(b=t.closest('[data-go]')){go(b.dataset.go);return}
+});
+$('#orb').addEventListener('click',()=>{askScr=null;askOpen(true)});
+$('#pclose').addEventListener('click',()=>askOpen(false));
+$('#pnew').addEventListener('click',()=>{said=[];ctxOn=true;panel()});
+$('#ctxx').addEventListener('click',()=>{ctxOn=false;said=[];panel();$('#pin').focus()});
+$('#pin').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.value.trim()){askq(e.target.value.trim());e.target.value=''}});
+$('.send').addEventListener('click',()=>{const i=$('#pin');if(i.value.trim()){askq(i.value.trim());i.value=''}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#modal').innerHTML=''}});
+go('overview');
+</script>
+</body>
+</html>

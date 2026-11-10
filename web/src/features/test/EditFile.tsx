@@ -105,7 +105,7 @@ export function EditFile({
         }}
         spellCheck={false}
         aria-label="Test file"
-        className="min-h-0 flex-1 font-mono text-[12.5px] leading-[1.55]"
+        className="min-h-0 flex-1 font-mono text-sm leading-[1.55]"
       />
     </Sheet>
   );

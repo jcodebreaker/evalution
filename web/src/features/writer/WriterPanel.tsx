@@ -6,9 +6,12 @@ import { ago } from "../../lib/format";
 import type { RunSummary } from "../../lib/schema";
 import { useLoad } from "../../lib/use-load";
 import { Button } from "../../ui/button";
+import { Logo } from "../shell/Logo";
 import type { Agent } from "./agent";
 import { onEnter, TEXTAREA, useAsk } from "./ask";
 import { Bubble } from "./Bubble";
+import type { ScreenContext } from "./context";
+import { askedText, withContext } from "./context";
 import { Working } from "./Working";
 import { WriterReply } from "./WriterReply";
 
@@ -22,8 +25,6 @@ const STARTERS = [
   "Which test should I write next?",
   "Where are the tokens going?",
 ];
-
-const ABOUT_RUN = /^About benchmark run \S+, reading its traces: /;
 
 /** The app's earlier chats, latest first. */
 function PastChats({
@@ -53,7 +54,7 @@ function PastChats({
                 chat.id === current && "bg-tint-soft",
               )}
             >
-              <span className="truncate text-[14px]">{chat.asked.replace(ABOUT_RUN, "")}</span>
+              <span className="truncate text-[14px]">{askedText(chat.asked).asked}</span>
               <span className="text-[11.5px] text-ink-3">{ago(chat.at)}</span>
             </button>
           ))
@@ -76,6 +77,7 @@ export function WriterPanel({
   onLearned,
   draft,
   onDrafted,
+  context,
 }: {
   target: string | null;
   agent: Agent;
@@ -92,6 +94,12 @@ export function WriterPanel({
   /** Words put in the reply field for the owner to send. */
   draft: string;
   onDrafted: () => void;
+  /**
+   * What is on screen, when the panel was opened to ask about it: a chip in the composer, sent with
+   * each question (before it, in plain words, and its run by the API) until the person removes it.
+   * Null when it was opened to write a test.
+   */
+  context: ScreenContext | null;
 }) {
   const { session, queued } = agent;
   const [past, setPast] = useState(false);
@@ -101,7 +109,14 @@ export function WriterPanel({
     setText(draft);
     onDrafted();
   }, [draft, onDrafted]);
-  const { busy, error, send } = useAsk(agent.ask);
+  // The chip removed, for this screen: a new screen brings its own.
+  const [dropped, setDropped] = useState<string | null>(null);
+  const attached = context && context.key !== dropped ? context : null;
+  const { busy, error, send } = useAsk((words) =>
+    agent.ask(withContext(words, attached), attached?.run ?? undefined),
+  );
+  // A reply to the writer's own question (a plan's) carries no screen.
+  const reply = useAsk(agent.ask);
   const approval = useAsk(agent.approve);
   const end = useRef<HTMLDivElement>(null);
   const working = session?.status === "working";
@@ -123,7 +138,7 @@ export function WriterPanel({
     : undefined;
   // "Use this" acts only on the latest plan, the one still waiting for approval.
   const swap = useAsk((line) => agent.swapLine(lastAgent?.plan?.id ?? "", line));
-  const canAct = !working && !busy && !approval.busy && !swap.busy;
+  const canAct = !working && !busy && !reply.busy && !approval.busy && !swap.busy;
 
   return (
     <aside
@@ -131,6 +146,7 @@ export function WriterPanel({
       className="flex min-h-0 flex-col border-s border-separator bg-group max-md:fixed max-md:inset-0 max-md:z-40 max-md:border-s-0"
     >
       <header className="flex h-[52px] shrink-0 items-center gap-1 border-b border-separator ps-4 pe-2">
+        <Logo className="me-1.5 size-6 shrink-0" />
         <h2 className="m-0 flex-1 truncate text-[14px] font-semibold">Ask AI</h2>
         {working ? (
           <Button size="sm" variant="secondary" onClick={() => void agent.stop()}>
@@ -208,7 +224,7 @@ export function WriterPanel({
                 runLabel={runLabel}
                 testName={testName}
                 going={going}
-                onReply={(words) => void send(words)}
+                onReply={(words) => void reply.send(words)}
                 onApprove={(planId) => void approval.send(planId)}
                 onSwapLine={(line) => void swap.send(line)}
                 onRun={onRun}
@@ -227,24 +243,49 @@ export function WriterPanel({
       </div>
 
       <div className="px-3 pt-1 pb-3">
-        <div className="flex items-end gap-2 rounded-[10px] border border-rule-strong bg-group px-3 py-2 focus-within:border-tint focus-within:ring-3 focus-within:ring-tint-soft-2">
-          <textarea
-            // biome-ignore lint/a11y/noAutofocus: the panel opens to be written in
-            autoFocus={!session}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={onEnter(submit)}
-            placeholder="Ask about your runs, traces or tests"
-            aria-label="Ask about your runs, traces or tests"
-            className={cn(TEXTAREA, "min-h-6 py-0.5 text-[13.5px]")}
-          />
-          <Button size="icon-sm" aria-label="Send" disabled={busy || !text.trim()} onClick={submit}>
-            <ArrowUp />
-          </Button>
+        <div className="flex flex-col gap-2 rounded-[10px] border border-rule-strong bg-group px-3 py-2 focus-within:border-tint focus-within:ring-3 focus-within:ring-tint-soft-2">
+          {attached ? (
+            <span className="inline-flex h-[28px] max-w-full items-center gap-1.5 self-start rounded-[7px] bg-tint-soft ps-2.5 pe-1 text-[13px] text-tint-ink">
+              <span className="min-w-0 truncate" title={attached.label}>
+                {attached.label}
+              </span>
+              <button
+                type="button"
+                aria-label="Remove context"
+                title="Ask without it"
+                onClick={() => setDropped(attached.key)}
+                className="grid size-5 shrink-0 place-items-center rounded-full hover:bg-tint-soft-2 focus-visible:outline-2 focus-visible:outline-tint"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            </span>
+          ) : null}
+          <div className="flex items-end gap-2">
+            <textarea
+              // biome-ignore lint/a11y/noAutofocus: the panel opens to be written in
+              autoFocus={!session}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={onEnter(submit)}
+              placeholder={
+                attached ? "Ask about what's on screen" : "Ask about your runs, traces or tests"
+              }
+              aria-label="Ask about your runs, traces or tests"
+              className={cn(TEXTAREA, "min-h-6 py-0.5 text-[13.5px]")}
+            />
+            <Button
+              size="icon-sm"
+              aria-label="Send"
+              disabled={busy || !text.trim()}
+              onClick={submit}
+            >
+              <ArrowUp />
+            </Button>
+          </div>
         </div>
-        {error || approval.error || swap.error ? (
+        {error || reply.error || approval.error || swap.error ? (
           <p className="m-0 pt-2 text-[12.5px] text-fail">
-            {error ?? approval.error ?? swap.error}
+            {error ?? reply.error ?? approval.error ?? swap.error}
           </p>
         ) : null}
       </div>

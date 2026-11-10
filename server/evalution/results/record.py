@@ -9,7 +9,19 @@ from collections.abc import Mapping, Set
 from typing import Any
 
 from evalution.core.case import DEFAULT_PASS_MARKS
-from evalution.core.judgement import Judgement, Outcome, ResultKey, Role, Verdict, VerdictKind
+from evalution.core.judgement import (
+    CheckKind,
+    CheckResult,
+    Decider,
+    Judgement,
+    Outcome,
+    ResultKey,
+    Role,
+    Route,
+    Verdict,
+    VerdictKind,
+    WhyUnjudged,
+)
 from evalution.core.rules import (
     RULES_VERSION,
     current,
@@ -202,6 +214,32 @@ def same_footing(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
 def add_judgement(attempt: dict[str, Any], found: Judgement) -> None:
     """Judgements are only ever added."""
     attempt["judgements"].append(found.model_dump(mode="json"))
+
+
+def unheld(attempt: Mapping[str, Any]) -> str | None:
+    """Why a judged try can't stand on its copy: its ``isolation`` says the put back before it
+    didn't hold, found only after it was judged (the end-of-run check, :attr:`Copies.late`). A try
+    whose put back failed before it is never played, so it reads not judged already: ``None``."""
+    kept = attempt.get("isolation")
+    problem = kept.get("problem") if isinstance(kept, Mapping) else None
+    if not problem or not attempt.get("judgements"):
+        return None
+    return str(problem) if current(attempt).outcome is not Outcome.UNJUDGED else None
+
+
+def judged_unheld(problem: str, rules_from: int | None = None) -> Judgement:
+    """A try's judgement once its put back is found not to have held: not judged, as one that
+    started with what an earlier try left. Its earlier judgement stays before it."""
+    check = CheckResult(
+        id="reset",
+        kind=CheckKind.TURN,
+        decided_by=Decider.CODE,
+        role=Role.MUST,
+        outcome=Outcome.UNJUDGED,
+        why=problem,
+        unjudged=WhyUnjudged.LEFTOVER_STATE,
+    )
+    return judgement([check], None, Route.UNKNOWN, rules_from)
 
 
 def regrade_rules(run: dict[str, Any]) -> int:

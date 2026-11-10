@@ -118,11 +118,11 @@ export function Steps({
               )}
             </span>
             <div className="flex min-w-0 flex-col">
-              <span className="text-[12.5px] text-ink-3">
+              <span className="text-sm text-ink-3">
                 {numbered ? `Step ${number} · ` : ""}
                 {kindLabel(step.kind, result, appName)}
               </span>
-              {title ? <h3 className="m-0 text-[14px] font-medium">{title}</h3> : null}
+              {title ? <h3 className="m-0 text-sm font-medium">{title}</h3> : null}
               <div className="mt-1.5 flex flex-col">
                 <StepBody
                   step={before ? { ...step, actual: undefined } : step}
@@ -136,7 +136,7 @@ export function Steps({
                 {result && step.page ? <PageShown page={step.page} /> : null}
               </div>
             </div>
-            <span className="pt-0.5 font-mono text-[11.5px] text-ink-3 tabular-nums">
+            <span className="pt-0.5 font-mono text-xs text-ink-3 tabular-nums">
               {at === null ? "" : seconds(at, true)}
             </span>
           </li>

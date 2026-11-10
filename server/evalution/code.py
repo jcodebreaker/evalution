@@ -224,6 +224,30 @@ class Code:
                     return found
         return found
 
+    def left_out(self, cap: int | None = None) -> dict[str, int]:
+        """What the watch rules take but :meth:`files` leaves out, counted: ``past_cap``, files
+        past the first *cap*, and ``too_large``, those over :data:`HASH_SIZE`. Nothing is said
+        of a file the rules leave out (tests, build output, secrets): that is by choice."""
+        cap = HASH_CAP if cap is None else cap
+        kept = past = large = 0
+        for rel in self._listed():
+            if not self.allowed(rel):
+                continue
+            path = self.root / rel
+            try:
+                if not path.is_file() or not path.resolve().is_relative_to(self.root):
+                    continue
+                small = path.stat().st_size <= HASH_SIZE
+            except OSError:
+                continue
+            if not small:
+                large += 1
+            elif kept < cap:
+                kept += 1
+            else:
+                past += 1
+        return {"past_cap": past, "too_large": large}
+
     def list(self, pattern: str = "**") -> tuple[list[str], int]:
         """Readable files matching glob *pattern*, at most :data:`LIST_CAP`, and how many more
         matched, so a reader knows to narrow the glob."""

@@ -8,6 +8,7 @@ import { POLL_MS, ready, useLoad, useVisiblePoll } from "../../lib/use-load";
 import { Skeleton } from "../../ui/field";
 import { LoadingState } from "../../ui/loading";
 import { RunAll } from "../runs/RunAll";
+import { Fold } from "../shared/group";
 import { Areas } from "./Areas";
 import { CARD } from "./card";
 import { HowTestsRun } from "./HowTestsRun";
@@ -23,7 +24,8 @@ import { RunGrid } from "./RunGrid";
 /**
  * Overview (docs/mockups/design-studio.html, `home`): how the app is doing. The header and its
  * facts; what needs the person, ranked; three numbers with their run-by-run charts; each test run
- * by run; the recent runs. Below: the latest run in words, what it's good at, how tests run.
+ * by run beside what it's good at (the runs themselves on the Runs screen). Below: the latest run
+ * in words, folded, and how tests run.
  */
 export function HomeView({
   scope,
@@ -116,7 +118,7 @@ export function HomeView({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-6 px-[clamp(16px,3vw,32px)] pt-7 pb-12">
+      <div className="mx-auto flex max-w-[1320px] flex-col gap-5 px-8 pt-7 pb-14 max-md:px-4 max-md:pt-5">
         {header}
         {loadingRuns || healthLoad.status === "loading" ? (
           <>
@@ -144,16 +146,22 @@ export function HomeView({
             {runs.length ? (
               <>
                 <Numbers numbered={numbered} detail={detail} />
-                <RunGrid
-                  grid={grid(numbered)}
-                  setName={setTitle}
-                  onTest={(id, run) => onTest(id, run)}
-                  onRun={onRun}
-                />
-                <RecentRuns runs={runs} numbers={numbers} onRun={onRun} onRuns={onRuns} />
+                <div className="grid items-start gap-5 min-[1180px]:grid-cols-[minmax(0,1fr)_340px]">
+                  <RunGrid
+                    grid={grid(numbered)}
+                    setName={setTitle}
+                    onTest={(id, run) => onTest(id, run)}
+                    onRun={onRun}
+                    onRuns={onRuns}
+                  />
+                  {health?.areas.length ? <Areas areas={health.areas} /> : null}
+                </div>
+                <Fold title="Recent runs">
+                  <RecentRuns runs={runs} numbers={numbers} onRun={onRun} onRuns={onRuns} />
+                </Fold>
               </>
             ) : (
-              <p className={cn(CARD, "m-0 text-[14px] text-ink-2")} data-testid="no-runs">
+              <p className={cn(CARD, "m-0 text-sm text-ink-2")} data-testid="no-runs">
                 No runs yet. Run your tests to see how it's doing.
               </p>
             )}
@@ -162,22 +170,22 @@ export function HomeView({
                 <LoadingState label="Writing the report" />
               </section>
             ) : health?.report && runs.length ? (
-              <ReportCard
-                report={health.report}
-                runLabel={runLabel}
-                onAsk={onAsk}
-                onTest={onTest}
-              />
-            ) : null}
-            {health?.areas.length || health?.isolation ? (
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] items-start gap-4">
-                {health.areas.length ? <Areas areas={health.areas} /> : null}
-                <HowTestsRun
-                  target={scope.target}
-                  isolation={health.isolation}
-                  quiet={plan === "stale" || plan === "failed"}
+              <Fold title="The latest run in words">
+                <ReportCard
+                  report={health.report}
+                  runLabel={runLabel}
+                  onAsk={onAsk}
+                  onTest={onTest}
                 />
-              </div>
+              </Fold>
+            ) : null}
+            {health?.areas.length && !runs.length ? <Areas areas={health.areas} /> : null}
+            {health?.isolation ? (
+              <HowTestsRun
+                target={scope.target}
+                isolation={health.isolation}
+                quiet={plan === "stale" || plan === "failed"}
+              />
             ) : null}
             {healthLoad.status === "error" ? (
               <p className="m-0 text-[13px] text-ink-3">
@@ -203,7 +211,7 @@ function Numbers({
   const spent = spentCard(numbered);
   if (!passing && !typical && !spent) return null;
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-4">
+    <div className="grid grid-cols-3 gap-5 max-lg:grid-cols-1">
       {passing ? <PassingCard card={passing} /> : null}
       {typical ? <TypicalCard card={typical} /> : null}
       {spent ? <SpentCard card={spent} /> : null}

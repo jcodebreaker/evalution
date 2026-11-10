@@ -8,7 +8,23 @@ export function useWriter(
   reloadRuns: () => Promise<unknown>,
   reloadCases: () => Promise<unknown>,
 ) {
-  const [writerOpen, setWriterOpen] = useState(false);
+  const [writerOpen, setOpen] = useState(false);
+  /**
+   * Why the panel is open: `screen`, from the assistant's button, to ask about what is on screen (its
+   * chip in the composer); `write`, from a screen's own button (New test, Write a test, Ask), whose
+   * message carries what it is about.
+   */
+  const [mode, setMode] = useState<"screen" | "write">("write");
+  /** Opens (to write a test) or closes the panel. */
+  const setWriterOpen = useCallback((open: boolean) => {
+    if (open) setMode("write");
+    setOpen(open);
+  }, []);
+  /** Opens the panel from the assistant's button, about what is on screen. */
+  const openAssistant = useCallback(() => {
+    setMode("screen");
+    setOpen(true);
+  }, []);
   const [writerDraft, setWriterDraft] = useState("");
   const clearDraft = useCallback(() => setWriterDraft(""), []);
 
@@ -47,6 +63,8 @@ export function useWriter(
     setLearn,
     writerOpen,
     setWriterOpen,
+    mode,
+    openAssistant,
     writerDraft,
     setWriterDraft,
     clearDraft,

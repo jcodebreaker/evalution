@@ -17,7 +17,7 @@ export function Earlier({
 }) {
   const ordered = [...history].sort((a, b) => a.at - b.at).slice(-20);
   return (
-    <div className="flex flex-wrap items-center gap-2 px-1 text-[12.5px] text-ink-3">
+    <div className="flex flex-wrap items-center gap-2 px-1 text-sm text-ink-3">
       <span>Earlier results</span>
       <span className="flex flex-wrap gap-1">
         {ordered.map((entry) => (

@@ -17,7 +17,7 @@ const TRACES: Record<string, string> = {
 
 function Line({ label, children }: { label: string; children: string }) {
   return (
-    <div className="flex items-start gap-2.5 border-separator px-3.5 py-2.5 text-[14px] not-first:border-t">
+    <div className="flex items-start gap-2.5 border-separator px-3.5 py-2.5 text-sm not-first:border-t">
       <span className="w-16 shrink-0 font-medium">{label}</span>
       <span className="min-w-0 break-words text-ink-2">{children}</span>
     </div>
@@ -88,7 +88,7 @@ export function Probe({
     <div className="flex flex-col gap-3">
       {result ? (
         <Group>
-          <div className="flex items-start gap-3 px-4 py-2.5 text-[14px] font-medium">
+          <div className="flex items-start gap-3 px-4 py-2.5 text-sm font-medium">
             <StatusDot
               state={result.ok ? "pass" : "fail"}
               label={result.ok ? "It works" : "It didn't work"}
@@ -102,7 +102,7 @@ export function Probe({
           {result.problems.map((problem) => (
             <div
               key={problem}
-              className="border-t border-separator px-3.5 py-2.5 text-[14px] break-words text-fail"
+              className="border-t border-separator px-3.5 py-2.5 text-sm break-words text-fail"
             >
               {problem}
             </div>
@@ -110,18 +110,18 @@ export function Probe({
           {result.warnings.map((warning) => (
             <div
               key={warning}
-              className="border-t border-separator px-3.5 py-2.5 text-[14px] break-words text-ink-2"
+              className="border-t border-separator px-3.5 py-2.5 text-sm break-words text-ink-2"
             >
               {warning}
             </div>
           ))}
           {keyLeft ? (
-            <div className="border-t border-separator px-3.5 py-2.5 text-[14px] text-ink-2">
+            <div className="border-t border-separator px-3.5 py-2.5 text-sm text-ink-2">
               {KEY_LEFT_BEHIND}
             </div>
           ) : null}
           {result.next ? (
-            <div className="border-t border-separator px-3.5 py-2.5 text-[14px]">{result.next}</div>
+            <div className="border-t border-separator px-3.5 py-2.5 text-sm">{result.next}</div>
           ) : null}
         </Group>
       ) : null}
@@ -131,7 +131,7 @@ export function Probe({
           {redraft.tried.map((round, index) => (
             <div
               key={index}
-              className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-[14px] not-first:border-t"
+              className="flex flex-col gap-1 border-separator px-3.5 py-2.5 text-sm not-first:border-t"
             >
               <span className="font-medium">
                 Try {index + 1}: {round.problems.length ? "didn't work" : "worked"}
@@ -144,14 +144,14 @@ export function Probe({
               ))}
               {round.settings ? (
                 <Fold title="Settings">
-                  <pre className="m-0 overflow-x-auto rounded-[7px] bg-window px-2.5 py-2 font-mono text-[11.5px] leading-[1.55]">
+                  <pre className="m-0 overflow-x-auto rounded-[7px] bg-window px-2.5 py-2 font-mono text-[13px] leading-[1.55]">
                     {JSON.stringify(round.settings, null, 2)}
                   </pre>
                 </Fold>
               ) : null}
             </div>
           ))}
-          <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3 text-[14px]">
+          <div className="flex flex-wrap items-center gap-2.5 border-t border-separator px-3.5 py-3 text-sm">
             {redraft.options ? (
               <Button
                 size="sm"
@@ -169,10 +169,10 @@ export function Probe({
         </Group>
       ) : null}
 
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {checked && !result ? <span className="text-[14px] text-ink-2">Passed.</span> : null}
+        {checked && !result ? <span className="text-sm text-ink-2">Passed.</span> : null}
         {result?.can_redraft && !redraft ? (
           <Button disabled={drafting || busy} onClick={() => void correct()}>
             {drafting ? (

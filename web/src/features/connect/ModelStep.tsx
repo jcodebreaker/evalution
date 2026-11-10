@@ -13,17 +13,17 @@ export function ModelStep({ onChosen }: { onChosen: (chosen: boolean) => void })
   useEffect(() => onChosen(chosen), [chosen, onChosen]);
 
   if (load.status === "error" || load.status === "missing") {
-    return <p className="m-0 text-[14px] text-ink-2">Couldn't load the model. Reload to retry.</p>;
+    return <p className="m-0 text-sm text-ink-2">Couldn't load the model. Reload to retry.</p>;
   }
   if (!saved) return null;
   if (chosen && !editing) {
     return (
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-ink-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
         <span className="min-w-0 break-words">
-          Thinking: <span className="font-mono text-[12.5px] text-foreground">{saved.strong}</span>
+          Thinking: <span className="font-mono text-[13px] text-foreground">{saved.strong}</span>
         </span>
         <span className="min-w-0 break-words">
-          Filler: <span className="font-mono text-[12.5px] text-foreground">{saved.light}</span>
+          Filler: <span className="font-mono text-[13px] text-foreground">{saved.light}</span>
         </span>
         <Button variant="ghost" size="xs" onClick={() => setEditing(true)}>
           Change

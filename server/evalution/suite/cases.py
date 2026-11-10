@@ -185,11 +185,14 @@ def _matcher(value: Any, where: str) -> None:
 def _call(step: Any, where: str, *, allow_times: bool = True) -> None:
     if not isinstance(step, dict):
         raise CaseError(f"{where}: must be an object")
-    unknown = set(step) - {"name", "args", "times"}
+    unknown = set(step) - {"name", "args", "times", "in"}
     if unknown:
         raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
     if not isinstance(step.get("name"), str) or not step["name"].strip():
         raise CaseError(f"{where}.name: must be a tool name")
+    whose = step.get("in", "any")
+    if not isinstance(whose, str) or not whose.strip():
+        raise CaseError(f"{where}.in: must be main, any or a delegated agent's name")
     args = step.get("args", {})
     if not isinstance(args, dict):
         raise CaseError(f"{where}.args: must be an object")

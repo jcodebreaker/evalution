@@ -17,7 +17,15 @@ type Asked =
 
 /** "Learn this area" for an area a learn listed and didn't learn. An area learned from what it is
  * now says so, with when, and "Learn it again anyway" as the deliberate way to spend. */
-export function LearnAreaButton({ area, onLearn }: { area: string; onLearn: LearnAreaFn }) {
+export function LearnAreaButton({
+  area,
+  onLearn,
+  label = "Learn this area",
+}: {
+  area: string;
+  onLearn: LearnAreaFn;
+  label?: string;
+}) {
   const [asked, setAsked] = useState<Asked>({ kind: "idle" });
   const ask = (force: boolean) => {
     setAsked({ kind: "asking" });
@@ -37,16 +45,16 @@ export function LearnAreaButton({ area, onLearn }: { area: string; onLearn: Lear
   };
   if (asked.kind === "asking") {
     return (
-      <span className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
+      <span className="flex items-center gap-1.5 text-sm text-ink-3">
         <Spinner />
         Asking
       </span>
     );
   }
-  if (asked.kind === "asked") return <span className="text-[12.5px] text-ink-3">Asked</span>;
+  if (asked.kind === "asked") return <span className="text-sm text-ink-3">Asked</span>;
   if (asked.kind === "current") {
     return (
-      <span className="flex flex-wrap items-center justify-end gap-x-2 text-[12.5px] text-ink-3">
+      <span className="flex flex-wrap items-center justify-end gap-x-2 text-sm text-ink-3">
         <span>Current, learned {asked.at ? ago(asked.at) : "before"}</span>
         <Button variant="ghost" size="xs" onClick={() => ask(true)}>
           Learn it again anyway
@@ -57,12 +65,12 @@ export function LearnAreaButton({ area, onLearn }: { area: string; onLearn: Lear
   return (
     <span className="flex flex-wrap items-center justify-end gap-x-2">
       {asked.kind === "error" ? (
-        <span role="alert" className="text-[12.5px] text-fail">
+        <span role="alert" className="text-sm text-fail">
           {asked.text}
         </span>
       ) : null}
       <Button variant="secondary" size="xs" onClick={() => ask(false)}>
-        Learn this area
+        {label}
       </Button>
     </span>
   );

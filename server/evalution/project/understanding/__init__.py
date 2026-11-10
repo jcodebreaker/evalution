@@ -39,7 +39,13 @@ from evalution.project.understanding.document import (
     read_evidence,
     with_details,
 )
-from evalution.project.understanding.rendering import card_md, render_profile
+from evalution.project.understanding.rendering import (
+    ASK_FOR_IT,
+    card_md,
+    fit_profile,
+    only_named,
+    render_profile,
+)
 from evalution.project.understanding.steering import (
     KNOWLEDGE_DOC,
     admin_priorities,
@@ -48,6 +54,7 @@ from evalution.project.understanding.steering import (
     steers,
 )
 from evalution.project.understanding.store import (
+    WRITER_CHARS,
     keep_progress,
     load,
     progress,
@@ -60,12 +67,14 @@ from evalution.project.understanding.store import (
 
 __all__ = [
     "AREA_PREFIX",
+    "ASK_FOR_IT",
     "DETAILS",
     "EVIDENCE_KINDS",
     "KNOWLEDGE_DOC",
     "NODE_KINDS",
     "NO_TOOLS",
     "SECTION_IDS",
+    "WRITER_CHARS",
     "admin_priorities",
     "build",
     "card_md",
@@ -73,9 +82,11 @@ __all__ = [
     "clean_text",
     "details_of",
     "existing",
+    "fit_profile",
     "keep_progress",
     "load",
     "marks",
+    "only_named",
     "overlay",
     "parts",
     "patched",

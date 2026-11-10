@@ -25,8 +25,10 @@ the target's profile, reads drift and reviews runs. It never runs anything: the 
   (:mod:`evalution.code`).
 * **Approval** is explicit. Every plan the agent shows gets an id; ``save_case`` names one and
   is refused unless that plan was approved and not used yet. The page's "Add to tests" approves
-  it (:meth:`Agent.approve`); in words, the agent calls ``approve(plan_id)`` only when the admin
-  clearly said so, and only after the admin spoke since the plan. A question never approves.
+  it (:meth:`Agent.approve`) and saves its file there and then, with no model turn, unless a data
+  file its turns send is still to be written (the writer then writes it and saves); in words,
+  the agent calls ``approve(plan_id)`` only when the admin clearly said so, and only after the
+  admin spoke since the plan. A question never approves.
   An isolation proposal is approved the same way, and only then can ``rehearse_isolation`` run
   it (:mod:`evalution.writer.isolating`); so is a page map, and only then can
   ``rehearse_page_map`` spend a message on it (:mod:`evalution.writer.paging`).
@@ -57,7 +59,17 @@ from evalution.writer.linecheck import swapped
 from evalution.writer.prompts import INSTRUCTIONS, SUMMARY_INSTRUCTIONS
 from evalution.writer.schemas import TOOLS
 from evalution.writer.sessions import SessionStore
-from evalution.writer.tools import HANDLERS, OUTPUT_CHARS, AgentTurn, Tools, activity_line, say
+from evalution.writer.tools import (
+    HANDLERS,
+    OUTPUT_CHARS,
+    AgentTurn,
+    Tools,
+    activity_line,
+    files_missing,
+    said_lately,
+    save_plan,
+    say,
+)
 from evalution.writer.usage import TurnUsage
 
 _logger = logging.getLogger(__name__)
@@ -364,6 +376,11 @@ class Agent:
                 approves=plan_id,
             )
             return public(session)
+        # A plan whose data files are still to be written goes to the writer, which writes them.
+        test = plan.get("file")
+        if isinstance(test, dict) and not files_missing(self.targets, session, test):
+            await self._save_approved(session, plan_id, plan)
+            return public(session)
         edited = (
             " The admin swapped rubric lines on the page first: save_case(plan_id) alone saves the "
             "test as it is now; read_case shows it after."
@@ -378,6 +395,30 @@ class Agent:
             approves=plan_id,
         )
         return public(session)
+
+    async def _save_approved(self, session: dict[str, Any], plan_id: str, plan: dict) -> None:
+        """Save an approved plan's test with no model turn: the file can't change once approved.
+        The thread says it, and the writer is told at its next step, or its next turn."""
+        session["asks"] = int(session.get("asks", 0)) + 1
+        say(session, "admin", "Add it to the tests", approves=plan_id)
+        found = await save_plan(self.targets, session, plan_id, plan, plan.get("replaces"))
+        if isinstance(found, dict):
+            name = (plan.get("file") or {}).get("name") or found["case"]
+            say(
+                session,
+                "agent",
+                f"Added '{name}' to the tests as {found['case']}. It's ready to run from the page.",
+                saved=found["case"],
+            )
+            told = f"was saved as {found['case']} in {found['set']}: nothing to do for it"
+        else:
+            why = found.removeprefix("Refused: ")
+            say(session, "agent", f"I couldn't add it: {why}")
+            told = f"couldn't be saved: {why}"
+        session.setdefault("inbox", []).append(
+            f"(The admin approved plan {plan_id} on the page, and it {told}.)"
+        )
+        await self._save(session)
 
     async def use_line(self, session_id: str, plan_id: str, line: str) -> dict[str, Any]:
         """The admin takes the suggestion flagged on rubric *line* of plan *plan_id* (the page's
@@ -467,7 +508,10 @@ class Agent:
         full = "\n".join([full, *broken]).strip()
         if learning or len(full) > CASES_CHARS:
             full = "\n".join(f"{c.case}: {c.name}" for c in cases) + "\n(read_case for one)"
-        profile = understanding.writer_profile(self.targets, session["target"])
+        # An area's claims go only when the conversation names it; the rest by title.
+        profile = understanding.writer_profile(
+            self.targets, session["target"], said_lately(session)
+        )
         changes = len(drift.read(self.targets, session["target"]).get("changes") or [])
         adapter = self.targets.conf(session["target"]).adapter
         clean: list[str] = []

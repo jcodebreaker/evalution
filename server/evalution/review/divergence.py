@@ -10,17 +10,22 @@ itself (``automatic``) are left out: they happen whatever the agent decides. Eac
 what the model was sent when it decided on it: the last model call of the same agent begun by
 then, and for the reply the last model call of the assistant.
 
-At the first index where the two differ, in this order:
+The two tries are lined up by the longest common subsequence of ``(actor, tool)``: the main agent
+or a delegated one, and the tool called (the reply is the main agent's, with no tool). One harmless
+extra call early doesn't move every later step. The first place they part, in order:
 
-* ``missing``: one try has a tool call there and the other replied instead;
-* ``tool``: both called a tool, different ones;
-* ``args``: the same tool with different arguments, the first that differs named;
-* ``context``: the same step, and the passing try's model was sent words the failing one's wasn't
+* ``missing``: the passing try made a call the failing one didn't (the failing try's step there is
+  what it did instead), or, when nothing else differs, the failing try made one the passing didn't;
+* ``tool``: each made a call the other didn't at the same place, different ones;
+* ``args``: a step lined up, the same tool with different arguments, the first that differs named;
+* ``context``: a step lined up, and the passing try's model was sent words the failing one's wasn't
   (:func:`missing_words`).
 
+A call only the failing try made, with the passing try going straight on, is passed over while
+something else is still to be found: it is the likeliest to be harmless.
+
 Ids and timestamps differ on every try, so both arguments and the text sent are compared with
-them blanked out (:data:`NOISE`). Steps are lined up by index, with no search for a better
-alignment: a call inserted early shows as a difference there, which is where the tries parted.
+them blanked out (:data:`NOISE`).
 """
 
 from __future__ import annotations
@@ -67,24 +72,33 @@ class Step:
     :param span: The call's span; for the reply, the model call that wrote it.
     :param sent: What the model was sent when it decided this step; ``None`` when it wasn't
         captured.
+    :param actor: ``main``, or ``helper`` for a delegated agent's: span ids differ on every try,
+        so which delegated agent isn't compared.
     """
 
     tool: str | None
     args: Mapping[str, Any]
     span: str | None
     sent: str | None
+    actor: str = "main"
+
+    @property
+    def key(self) -> tuple[str, str | None]:
+        return self.actor, self.tool
 
 
 @dataclass(frozen=True)
 class Divergence:
-    """The first step where two tries differ. ``pass_span`` / ``fail_span`` are that step's span on
-    each side."""
+    """The first step where two tries differ. *step* is its index in the failing try;
+    ``pass_span`` / ``fail_span`` are that step's span on each side. *alike* is how many steps
+    lined up before it."""
 
     step: int
     kind: str
     detail: str
     pass_span: str | None
     fail_span: str | None
+    alike: int = 0
 
 
 def _quiet(text: str) -> str:
@@ -113,7 +127,14 @@ def steps_of(evidence: TryEvidence, automatic: Collection[str] = ()) -> list[Ste
     tools = sorted((t for t in evidence.tools if t.id not in automatic), key=lambda t: t.start)
     calls = evidence.model_calls
     steps = [
-        Step(t.name, _args(t.args.text), t.id, _decided_by(calls, t.start, t.helper)) for t in tools
+        Step(
+            t.name,
+            _args(t.args.text),
+            t.id,
+            _decided_by(calls, t.start, t.helper),
+            "main" if t.helper is None else "helper",
+        )
+        for t in tools
     ]
     own = [c for c in calls if c.helper is None]
     last = max(own, key=lambda c: c.t, default=None)
@@ -158,26 +179,90 @@ def _arg_differs(passing: Mapping[str, Any], failing: Mapping[str, Any]) -> str 
     return None
 
 
-def first_divergence(passing: Sequence[Step], failing: Sequence[Step]) -> Divergence | None:
-    """Where *failing* first differs from *passing*, step by step; ``None`` when nothing does."""
-    for i, (was, now) in enumerate(zip(passing, failing, strict=False)):
-        if (was.tool is None) != (now.tool is None):
-            detail = (
-                f"{was.tool} not called"
-                if now.tool is None
-                else f"{now.tool} called; the passing try replied"
-            )
-            return Divergence(i, "missing", detail, was.span, now.span)
-        if was.tool != now.tool:
-            return Divergence(i, "tool", f"{now.tool} instead of {was.tool}", was.span, now.span)
-        if differs := _arg_differs(was.args, now.args):
-            return Divergence(i, "args", f"{now.tool} {differs}", was.span, now.span)
-        if was.sent is not None and now.sent is not None:
-            lacks = missing_words(was.sent, now.sent)
-            if lacks:
-                named = ", ".join(f"“{w}”" for w in lacks[:MOST_WORDS])
-                return Divergence(i, "context", f"not sent: {named}", was.span, now.span)
+def _lined_up(passing: Sequence[Step], failing: Sequence[Step]) -> list[tuple[int, int]]:
+    """The pairs ``(i, j)`` of the longest common subsequence of the two tries' step keys, in order;
+    of equal ones, the alignment that pairs steps earliest."""
+    n, m = len(passing), len(failing)
+    table = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            if passing[i].key == failing[j].key:
+                table[i][j] = table[i + 1][j + 1] + 1
+            else:
+                table[i][j] = max(table[i + 1][j], table[i][j + 1])
+    pairs, i, j = [], 0, 0
+    while i < n and j < m:
+        if passing[i].key == failing[j].key:
+            pairs.append((i, j))
+            i, j = i + 1, j + 1
+        elif table[i + 1][j] >= table[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
+def _name(step: Step) -> str:
+    return str(step.tool) if step.tool is not None else "the reply"
+
+
+def _alike(was: Step, now: Step, at: int, alike: int) -> Divergence | None:
+    """How two lined-up steps differ, if they do."""
+    if differs := _arg_differs(was.args, now.args):
+        return Divergence(at, "args", f"{now.tool} {differs}", was.span, now.span, alike)
+    if was.sent is not None and now.sent is not None:
+        lacks = missing_words(was.sent, now.sent)
+        if lacks:
+            named = ", ".join(f"“{w}”" for w in lacks[:MOST_WORDS])
+            return Divergence(at, "context", f"not sent: {named}", was.span, now.span, alike)
     return None
+
+
+def first_divergence(passing: Sequence[Step], failing: Sequence[Step]) -> Divergence | None:
+    """Where *failing* first parts from *passing*, the two lined up by
+    :func:`_lined_up`; ``None`` when nothing does."""
+    pairs = [*_lined_up(passing, failing), (len(passing), len(failing))]
+    extra: Divergence | None = None
+    i = j = 0
+    for alike, (pi, fj) in enumerate(pairs):
+        left, added = passing[i:pi], failing[j:fj]
+        # What the failing try did at that place, else the step it went on with.
+        there = failing[fj] if fj < len(failing) else (failing[-1] if failing else None)
+        if left and added:
+            was, now = left[0], added[0]
+            if was.tool is None or now.tool is None:
+                return _parted(was, now, j, alike)
+            detail = f"{_name(now)} instead of {_name(was)}"
+            return Divergence(j, "tool", detail, was.span, now.span, alike)
+        if left:
+            span = there.span if there is not None else None
+            if left[0].tool is None:
+                detail = f"{_name(there) if there else 'nothing'} called; the passing try replied"
+            else:
+                detail = f"{left[0].tool} not called"
+            return Divergence(j, "missing", detail, left[0].span, span, alike)
+        if added and extra is None:
+            was = passing[pi] if pi < len(passing) else None
+            detail = f"{_name(added[0])} called; the passing try didn't"
+            extra = Divergence(
+                j, "missing", detail, was.span if was else None, added[0].span, alike
+            )
+        if pi < len(passing) and fj < len(failing):
+            found = _alike(passing[pi], failing[fj], fj, alike)
+            if found is not None:
+                return found
+        i, j = pi + 1, fj + 1
+    return extra
+
+
+def _parted(was: Step, now: Step, at: int, alike: int) -> Divergence:
+    """One try replied where the other called a tool."""
+    detail = (
+        f"{was.tool} not called"
+        if now.tool is None
+        else f"{now.tool} called; the passing try replied"
+    )
+    return Divergence(at, "missing", detail, was.span, now.span, alike)
 
 
 @dataclass(frozen=True)
@@ -203,7 +288,7 @@ def divergence(passed: Iterable[Tried], failed: Iterable[Tried]) -> dict[str, An
     for bad in failed:
         for good in passes:
             found = first_divergence(good.steps, bad.steps)
-            if found is not None and (best is None or found.step > best[2].step):
+            if found is not None and (best is None or found.alike > best[2].alike):
                 best = (good, bad, found)
     if best is None:
         return None

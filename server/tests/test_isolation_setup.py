@@ -450,10 +450,10 @@ async def test_copies_load_the_sample_data_before_keeping_and_play_as_the_person
 ) -> None:
     setup = _seeded(config)
     found = isolated.Footing("proven", _plan(), 1)
-    copies = isolated.Copies(config, "bot", found, None, setup)
-    await copies.start(2)
-    one = fakes[: fakes.index("persona Alex") + 1]
-    assert one == [
+    first = isolated.Copies(config, "bot", found, None, setup)
+    await first.start(1)
+    first.lock.release()  # as its close would
+    assert fakes == [
         "copy start",
         "load_sql postgres-app seed.sql",
         "copy stop",
@@ -462,9 +462,18 @@ async def test_copies_load_the_sample_data_before_keeping_and_play_as_the_person
         "keep postgres-app",
         "keep volume-artifact-data",
         "copy start",
+        # Started again: still as kept, so its first try needs no put back.
+        "digest postgres-app",
+        "digest volume-artifact-data",
         "persona Alex",
     ]
+    fakes.clear()
+    # Side by side, each copy does the same.
+    copies = isolated.Copies(config, "bot", found, None, setup)
+    await copies.start(2)
+    assert all(slot.fresh for slot in copies.slots)
     assert fakes.count("load_sql postgres-app seed.sql") == 2 and len(copies.slots) == 2
+    assert fakes.count("persona Alex") == 2
     assert copies.person == "Alex" and copies.reset == "try"
     assert copies.unrestored() == {
         "how": "proven",

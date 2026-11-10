@@ -420,8 +420,21 @@ def test_a_failed_build_says_its_last_lines_and_what_was_asked(setup, repo, dock
         None,
     )
     assert RecipeStore(config.data_dir).built("app") == {}
+    # A run that failed holds nothing.
+    assert [k.in_use for k in Versions("app", repo["person"], config.data_dir).kept()] == [False]
     with pytest.raises(versioned.NotBuilt, match="nope couldn't be checked out: nope: no branch"):
         asyncio.run(versioned.prepare(config, "app", "nope", _found(config).plan))
+
+
+def test_a_run_holds_its_version_until_it_releases_it(setup, repo, docker) -> None:
+    config = setup
+    ready = asyncio.run(versioned.prepare(config, "app", "feature", _found(config).plan))
+    other = Versions("app", repo["person"], config.data_dir)
+    assert [k.in_use for k in other.kept()] == [True]
+    with pytest.raises(versions.InUse):
+        other.remove(ready.commit)
+    ready.release()
+    assert other.remove(ready.commit).commit == ready.commit
 
 
 def test_a_remote_branch_not_here_is_fetched_into_evalutions_refs_only(setup, repo, docker) -> None:
@@ -431,6 +444,24 @@ def test_a_remote_branch_not_here_is_fetched_into_evalutions_refs_only(setup, re
     assert ready.commit == repo["remote_only"] and ready.name == "origin/remote-only"
     assert "remote-only" not in git(person, "for-each-ref", "refs/heads", "refs/remotes")
     assert state(person) == before
+
+
+def test_a_pull_request_is_estimated_then_fetched_and_played(setup, repo, docker, tmp_path) -> None:
+    config, person = setup, repo["person"]
+    seed = tmp_path / "pr-seed"
+    git(tmp_path, "clone", "-q", str(repo["origin"]), str(seed))
+    head = commit(seed, {"app/serve.py": "print('pull request')\n"})
+    git(seed, "push", "-q", "origin", "HEAD:refs/pull/7/head")
+    before = state(person)
+
+    said = versioned.preview(config, "app", "#7")
+    assert said["commit"] is None and said["cost"].startswith("Fetches #7, checks it out")
+    ready = asyncio.run(versioned.prepare(config, "app", "#7", _found(config).plan))
+    assert ready.commit == head and ready.name == "pull/7" and ready.where.startswith("pull/7 @ ")
+    assert "pull" not in git(person, "for-each-ref", "refs/heads", "refs/remotes")
+    assert state(person) == before
+    again = versioned.preview(config, "app", "pull/7")
+    assert again["commit"] == head and again["cost"].startswith("Fetches pull/7 again")
 
 
 # The reset plan on the version
@@ -533,6 +564,14 @@ def test_the_estimate_says_the_build_and_its_cost_or_built_already(setup, repo) 
     later = versioned.preview(config, "app", "origin/remote-only")
     assert later["commit"] is None
     assert later["cost"].startswith("Fetches origin/remote-only, checks it out and builds it")
+    # Fetched before: still fetched again at Run, so the commit is only what was last seen.
+    Versions("app", repo["person"], config.data_dir).fetch("origin", "remote-only")
+    seen = versioned.preview(config, "app", "origin/remote-only")
+    assert seen["commit"] == repo["remote_only"]
+    assert seen["cost"].startswith(
+        "Fetches origin/remote-only again (last seen at "
+        f"{repo['remote_only'][:7]}), checks it out and builds it"
+    )
     with pytest.raises(versioned.VersionRefused, match="no branch, tag or commit"):
         versioned.preview(config, "app", "nope")
 
@@ -573,6 +612,7 @@ def test_what_was_built_counts_with_its_version_and_goes_with_it(setup, repo, do
     )
     [kept] = found.kept()
     assert kept.size > 7_000_000_000 and kept.parts == {"BuiltPart": 7_000_000_000}
+    ready.release()  # the run is over
     found.remove(ready.commit)
     assert docker.removed == [f"evalution/app/engine:{tag}"]
     assert store.built("app") == {} and found.kept() == []

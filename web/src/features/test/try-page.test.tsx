@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
-import { CaseFileViewSchema, CompareSchema } from "../../lib/schema";
+import { CaseFileViewSchema, CompareSchema, TryResultSchema } from "../../lib/schema";
 import { clock, PageFilm } from "./PageFilm";
 import { Steps } from "./Steps";
 import { TestView } from "./TestView";
@@ -324,9 +324,9 @@ describe("A test's page", () => {
     history: [{ run: "20261108-162620-839b", at: 1794155180, verdict: "fail" }],
   });
 
-  function open(onRun = vi.fn(), back = vi.fn()) {
+  function open(onRun = vi.fn()) {
     vi.spyOn(api, "testPlan").mockResolvedValue(refused());
-    vi.spyOn(api, "compare").mockResolvedValue(refused());
+    vi.spyOn(api, "tryResult").mockResolvedValue(TryResultSchema.parse(refused()));
     vi.spyOn(api, "finding").mockRejectedValue(new Error("none"));
     render(
       <TestView
@@ -339,33 +339,37 @@ describe("A test's page", () => {
         runLabel={() => "Run 9"}
         stale={null}
         going={false}
-        back={{ label: "Run 9", onClick: back }}
         onRun={onRun}
         onRunResult={vi.fn()}
         onAsk={vi.fn()}
         onEdited={vi.fn()}
       />,
     );
-    return { onRun, back };
+    return { onRun };
   }
 
-  it("heads the try with the way back, its facts and its two actions", async () => {
-    const { onRun, back } = open();
-    await waitFor(() => expect(screen.getByText("/ Try 1 of 1")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "relay-lite · Run 9" }));
-    expect(back).toHaveBeenCalledTimes(1);
+  it("heads the try once, with its facts and its actions, and no way back of its own", async () => {
+    const { onRun } = open();
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Where it broke" })).toBeTruthy(),
+    );
+    // The shell's top bar holds the way back; the screen's title appears once.
+    expect(screen.queryByRole("button", { name: /relay-lite · Run 9/ })).toBeNull();
+    expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([
+      "A code block shows",
+    ]);
     expect(
       within(screen.getByTestId("facts"))
         .getAllByText(/./)
         .map((chip) => chip.textContent),
-    ).toEqual(["123 s", "1 message", "Through the page"]);
+    ).toEqual(["123 s", "1 message", "Through the page", "Run 9 · try 1 of 1"]);
     fireEvent.click(screen.getByRole("button", { name: "Run this test again" }));
     expect(onRun).toHaveBeenCalledWith("A code block shows");
     expect(screen.getByRole("button", { name: "Edit test" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Where it broke" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "What the page showed" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Turn by turn" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Steps" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Step by step" })).toBeTruthy();
+    // The turns side by side are kept, under a fold.
+    expect(screen.getByText("Each turn, side by side")).toBeTruthy();
   });
 
   it("switches to what it checks, and back to the latest result", async () => {
@@ -373,11 +377,13 @@ describe("A test's page", () => {
     await waitFor(() =>
       expect(screen.getByRole("region", { name: "Where it broke" })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "What it checks" }));
+    fireEvent.click(screen.getByRole("tab", { name: "What it checks" }));
     expect(screen.getByTestId("how-it-plays")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Where it broke" })).toBeNull();
     expect(screen.getByText("Through the page")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Latest result" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Latest result" }));
     expect(screen.getByRole("region", { name: "Where it broke" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "History 1" }));
+    expect(screen.getByRole("region", { name: "History" })).toBeTruthy();
   });
 });

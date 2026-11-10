@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { PANEL } from "./card";
+import { PANEL, PANEL_HEAD } from "./card";
 import type { CellState, Grid } from "./overview";
 
 const FILL: Record<CellState, string> = {
@@ -12,7 +12,7 @@ const FILL: Record<CellState, string> = {
     "border-separator bg-[repeating-linear-gradient(135deg,var(--sunk-2)_0_4px,var(--group)_4px_8px)]",
 };
 
-const CELL = "h-[26px] min-w-0 rounded-[5px] border border-transparent";
+const CELL = "h-[30px] min-w-0 rounded-[7px] border border-transparent";
 
 /** The latest run's column: a purple ring, apart from the cell by the card's own colour. */
 const NOW = "shadow-[0_0_0_2px_var(--group),0_0_0_4px_var(--tint)]";
@@ -23,26 +23,38 @@ export function RunGrid({
   setName,
   onTest,
   onRun,
+  onRuns,
 }: {
   grid: Grid;
   /** The set as people name it, when known. */
   setName: string | null;
   onTest: (id: string, run: string) => void;
   onRun: (run: string) => void;
+  /** The Runs screen, where every run is listed. */
+  onRuns?: () => void;
 }) {
   const { columns, rows } = grid;
   if (!rows.length || !columns.length) return null;
   const states = new Set(rows.flatMap((row) => row.cells.map((cell) => cell.state)));
   return (
     <section className={PANEL} aria-labelledby="run-grid" data-testid="run-grid">
-      <div className="flex flex-wrap items-baseline gap-3 px-5 pt-4">
-        <h2 id="run-grid" className="m-0 text-[16px] font-semibold">
+      <div className={PANEL_HEAD}>
+        <h2 id="run-grid" className="m-0 text-[15px] font-semibold">
           Each test, run by run
         </h2>
-        <span className="ms-auto text-[12px] text-ink-3">
+        <span className="ms-auto text-[13px] text-ink-3">
           {setName ? `${setName} · ` : ""}last{" "}
           {columns.length === 1 ? "run" : `${columns.length} runs`}
         </span>
+        {onRuns ? (
+          <button
+            type="button"
+            onClick={onRuns}
+            className="text-[13px] font-medium text-tint-ink hover:underline hover:underline-offset-[3px] focus-visible:outline-2 focus-visible:outline-tint"
+          >
+            All runs →
+          </button>
+        ) : null}
       </div>
       <div className="overflow-x-auto px-5 pt-4 pb-5">
         <table
@@ -65,7 +77,7 @@ export function RunGrid({
                   key={column.run}
                   scope="col"
                   className={cn(
-                    "p-0 text-center font-mono text-[11px] font-medium text-ink-3",
+                    "p-0 text-center font-mono text-xs font-medium text-ink-3",
                     column.latest && "font-semibold text-tint-ink",
                   )}
                 >
@@ -122,7 +134,7 @@ export function RunGrid({
             ))}
           </tbody>
         </table>
-        <div className="mt-4 flex flex-wrap gap-4 text-[12px] text-ink-2" aria-hidden>
+        <div className="mt-4 flex flex-wrap gap-4 text-[13px] text-ink-2" aria-hidden>
           <Key fill={FILL.pass}>Passed</Key>
           <Key fill={FILL.fail}>Failed</Key>
           {states.has("unjudged") ? <Key fill={FILL.unjudged}>Couldn't judge</Key> : null}

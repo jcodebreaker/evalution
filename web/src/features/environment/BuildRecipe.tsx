@@ -71,7 +71,7 @@ function Badge({ status }: { status: Build["status"] }) {
   return (
     <span
       className={cn(
-        "inline-flex h-[22px] items-center rounded-full px-2 text-[12px] font-medium",
+        "inline-flex h-[22px] items-center rounded-full px-2 text-sm font-medium",
         words.tone,
       )}
     >
@@ -81,7 +81,7 @@ function Badge({ status }: { status: Build["status"] }) {
 }
 
 /**
- * The step "How a version is built": the recipe that builds any version of the app's code into
+ * The step "How another version is built": the recipe that builds any version of the app's code into
  * evalution's own names (never the person's images) in plain words, what it rests on, the last
  * build's time and size, and Propose, Prove (its cost said first) and Undo. Proving is a job the
  * card follows: its steps and the build's last lines.
@@ -108,9 +108,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
 
   if (!build) {
     return failed ? (
-      <p className="m-0 text-[14px] text-ink-2">
-        Couldn't load how a version of {target} is built.
-      </p>
+      <p className="m-0 text-sm text-ink-2">Couldn't load how a version of {target} is built.</p>
     ) : null;
   }
 
@@ -136,12 +134,12 @@ export function BuildRecipeCard({ target }: { target: string }) {
 
   return (
     <section
-      className="flex min-w-0 flex-col gap-3 rounded-[12px] border border-separator bg-group p-5 text-[14px] max-md:p-4"
-      aria-label="How a version is built"
+      className="flex min-w-0 flex-col gap-3 rounded-2xl border border-rule bg-group p-5 shadow-[0_1px_2px_var(--shadow)] text-sm max-md:p-4"
+      aria-label="How another version is built"
       data-testid="build-recipe"
     >
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="m-0 text-[15px] font-semibold">How a version is built</h3>
+        <h3 className="m-0 text-[15px] font-semibold">How another version is built</h3>
         <Badge status={build.status} />
       </div>
 
@@ -152,7 +150,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
           </p>
           {said ? <p className={cn("m-0 max-w-[68ch]", said.tone)}>{said.text}</p> : null}
           {recipe.by === "agent" && recipe.why ? (
-            <p className="m-0 text-[13px] text-ink-2">Adjusted by the test writer: {recipe.why}</p>
+            <p className="m-0 text-sm text-ink-2">Adjusted by the test writer: {recipe.why}</p>
           ) : null}
           {recipe.evidence.length ? (
             <div className="flex flex-col gap-1">
@@ -160,8 +158,8 @@ export function BuildRecipeCard({ target }: { target: string }) {
               <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="What it rests on">
                 {recipe.evidence.map((claim) => (
                   <li key={`${claim.at} ${claim.says}`} className="flex min-w-0 flex-wrap gap-x-2">
-                    <span className="font-mono text-[12px] text-ink-3">{claim.at}</span>
-                    <span className="min-w-0 text-[13px] text-ink-2">{claim.says}</span>
+                    <span className="font-mono text-[13px] text-ink-3">{claim.at}</span>
+                    <span className="min-w-0 text-sm text-ink-2">{claim.says}</span>
                   </li>
                 ))}
               </ul>
@@ -176,7 +174,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
       )}
 
       {build.last_build && !running ? (
-        <p className="m-0 text-[13px] text-ink-2" data-testid="last-build">
+        <p className="m-0 text-sm text-ink-2" data-testid="last-build">
           Last built {took(build.last_build)} of this computer's disk.
         </p>
       ) : null}
@@ -185,8 +183,8 @@ export function BuildRecipeCard({ target }: { target: string }) {
         <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Built versions">
           {build.built.map((built) => (
             <li key={built.tag} className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="min-w-0 truncate font-mono text-[12px]">{built.tag}</span>
-              <span className="text-[12.5px] text-ink-3">
+              <span className="min-w-0 truncate font-mono text-[13px]">{built.tag}</span>
+              <span className="text-sm text-ink-3">
                 {sizeWords(built.disk_bytes || built.image_bytes || 0)}
               </span>
               <Button
@@ -208,7 +206,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
         </ul>
       ) : null}
       {build.removed ? (
-        <p className="m-0 text-[13px] text-ink-2">
+        <p className="m-0 text-sm text-ink-2">
           Removed {build.removed.images.join(", ") || "nothing"}. {build.removed.note}
         </p>
       ) : null}
@@ -218,7 +216,7 @@ export function BuildRecipeCard({ target }: { target: string }) {
           <Checklist steps={job.steps} />
           {lines.length && job.state === "running" ? (
             <pre
-              className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[11.5px] leading-snug text-ink-2"
+              className="m-0 overflow-hidden rounded-md bg-sunk px-2.5 py-1.5 font-mono text-[13px] leading-snug text-ink-2"
               role="log"
               aria-label="What the build says"
             >
@@ -226,16 +224,16 @@ export function BuildRecipeCard({ target }: { target: string }) {
             </pre>
           ) : null}
           {job.state === "failed" && job.error ? (
-            <p className="m-0 text-[13px] whitespace-pre-wrap text-warning">{job.error}</p>
+            <p className="m-0 text-sm whitespace-pre-wrap text-warning">{job.error}</p>
           ) : null}
         </div>
       ) : null}
       {build.status === "failed" && job?.error && job.state === "done" ? (
-        <p className="m-0 text-[13px] whitespace-pre-wrap text-fail">{job.error}</p>
+        <p className="m-0 text-sm whitespace-pre-wrap text-fail">{job.error}</p>
       ) : null}
 
       {low ? (
-        <p className="m-0 text-[13px] text-warning" data-testid="low-disk">
+        <p className="m-0 text-sm text-warning" data-testid="low-disk">
           Only {sizeWords(build.free_bytes)} is free on this computer's disk, and a build needs{" "}
           {sizeWords(build.min_free_bytes)}: remove built versions or free space elsewhere first.
         </p>
@@ -284,18 +282,18 @@ export function BuildRecipeCard({ target }: { target: string }) {
             ) : null}
           </div>
           {recipe && build.cost ? (
-            <p className="m-0 max-w-[68ch] text-[12.5px] text-ink-3" data-testid="build-cost">
+            <p className="m-0 max-w-[68ch] text-sm text-ink-3" data-testid="build-cost">
               Proving {build.cost}.
             </p>
           ) : null}
           {!build.can_propose ? (
-            <p className="m-0 text-[12.5px] text-ink-3">
+            <p className="m-0 text-sm text-ink-3">
               Say where the app's code is first: the recipe is found from it.
             </p>
           ) : null}
         </div>
       )}
-      {error ? <p className="m-0 text-[13px] text-fail">{error}</p> : null}
+      {error ? <p className="m-0 text-sm text-fail">{error}</p> : null}
     </section>
   );
 }

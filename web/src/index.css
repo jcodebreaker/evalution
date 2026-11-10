@@ -2,136 +2,163 @@
 
 /*
  * The design tokens: every colour of the look lives here, so a finish swaps in one place.
- * Flat white cards on a pale ground, hairline borders, indigo for marks and what's selected, teal as
- * the second chart colour and for what went up, red for failures, orange for what needs attention.
+ * From docs/mockups/evalution-next.html: warm paper, white cards on hairlines, evalution violet for the
+ * one primary action, what's selected and links; green, red and amber mean only an outcome. One family:
+ * Geist, with Geist Mono for machine text. The older names (background, card, muted, ...) stay and
+ * point at the same palette, so every screen reads it; unj/unj-soft are the mock-up's names for unjudged.
  */
 :root {
   color-scheme: light;
   --background: #ffffff;
-  --foreground: #1a1c2e;
+  --foreground: #191820;
   --card: #ffffff;
-  --card-foreground: #1a1c2e;
+  --card-foreground: #191820;
   --popover: #ffffff;
-  --popover-foreground: #1a1c2e;
-  --primary: #1a1c2e;
+  --popover-foreground: #191820;
+  --primary: #191820;
   --primary-foreground: #ffffff;
-  --secondary: #f2f3f6;
-  --secondary-foreground: #1a1c2e;
-  --muted: #f2f3f6;
-  --muted-foreground: #5b5f73;
-  --destructive: #c4372a;
+  --secondary: #f3f1ed;
+  --secondary-foreground: #191820;
+  --muted: #f3f1ed;
+  --muted-foreground: #514f5b;
+  --destructive: #c2372a;
   --destructive-foreground: #ffffff;
-  --border: #e6e7ec;
-  --input: #d9dbe3;
+  --border: #ebe8e2;
+  --input: #d6d2ca;
   --ring: rgba(85, 70, 216, 0.5);
-  --success: #1b8a72;
-  --warning: #b26b00;
-  --overlay: rgba(17, 18, 22, 0.32);
-  --scrollbar: #d0d4dd;
-  --window: #f8f9fb;
-  --content: #f8f9fb;
+  --success: #17806a;
+  --warning: #a86c00;
+  --overlay: rgba(25, 24, 32, 0.36);
+  --scrollbar: #d6d2ca;
+  --window: #f8f7f4;
+  --content: #f8f7f4;
   --glass: #ffffff;
-  --glass-line: #e6e7ec;
+  --glass-line: #ebe8e2;
   --group: #ffffff;
-  --separator: #e6e7ec;
-  --selection-strong: #efedfd;
+  --separator: #ebe8e2;
+  --selection-strong: #f0eefc;
   --tint: #5546d8;
-  --ink: #1a1c2e;
-  --ink-2: #5b5f73;
-  --ink-3: #74788a;
-  --bubble: #f2f3f6;
-  --selection: rgba(20, 22, 43, 0.04);
-  --mid: #747990;
-  --radius: 0.75rem;
+  --ink: #191820;
+  --ink-2: #514f5b;
+  --ink-3: #827f8a;
+  --bubble: #f3f1ed;
+  --selection: #f3f1ed;
+  --mid: #827f8a;
+  --radius: 0.625rem;
   --chart: #5546d8;
-  --chart-2: #14b8a6;
+  --chart-2: #0b8577;
   --chart-3: #8b7ff0;
-  --chart-4: #5a8bf0;
+  --chart-4: #3b6fd9;
   --chart-5: #7fe3d6;
-  --chart-soft: #eceef3;
-  --head: #f6f7f9;
-  --up: #e3f4ee;
-  --down: #fbe9e6;
-  /* The redesign (docs/mockups/design-studio.html): outcome colours mean only an outcome; the
-     purple is the one primary action, what's selected, and links. */
-  --tint-soft: #efedfd;
-  --tint-soft-2: #e0dcfb;
-  --tint-ink: #4a3cc4;
-  --pass: #1b8a72;
-  --pass-soft: #e3f4ee;
-  --fail: #c4372a;
-  --fail-soft: #fbe9e6;
-  --unjudged: #c98a14;
-  --unjudged-soft: #fbf1dc;
-  --sunk: #f2f3f6;
-  --sunk-2: #ebecf1;
-  --rule-strong: #d9dbe3;
+  --chart-soft: #e8e5df;
+  --head: #f3f1ed;
+  --up: #e1f2ec;
+  --down: #fbeae6;
+  --tint-hover: #4638bd;
+  --tint-2: #8b7ff0;
+  --tint-soft: #f0eefc;
+  --tint-soft-2: #dedafa;
+  --tint-ink: #4336b8;
+  --on-tint: #ffffff;
+  --pass: #17806a;
+  --pass-soft: #e1f2ec;
+  --fail: #c2372a;
+  --fail-soft: #fbeae6;
+  --fail-line: #f1c4bd;
+  --unjudged: #a86c00;
+  --unjudged-soft: #fbf0d9;
+  --unj: var(--unjudged);
+  --unj-soft: var(--unjudged-soft);
+  --sunk: #f3f1ed;
+  --sunk-2: #e8e5df;
+  --rule: #ebe8e2;
+  --rule-strong: #d6d2ca;
+  --k-tool: #0b8577;
+  --k-tool-soft: #dcf3ef;
+  --k-agent: #3b6fd9;
+  --k-agent-soft: #e6edfb;
+  --shadow: rgba(40, 34, 20, 0.07);
+  --shadow-2: rgba(40, 34, 20, 0.16);
+  --scrim: rgba(25, 24, 32, 0.36);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #0c0f16;
-  --foreground: #eef0f6;
-  --card: #1b1e28;
-  --card-foreground: #eef0f6;
-  --popover: #232733;
-  --popover-foreground: #eef0f6;
-  --primary: #eef0f6;
-  --primary-foreground: #0c0f16;
-  --secondary: rgba(255, 255, 255, 0.1);
-  --secondary-foreground: #eef0f6;
-  --muted: #262a36;
-  --muted-foreground: #aeb4c2;
+  --background: #17181f;
+  --foreground: #f0eff4;
+  --card: #17181f;
+  --card-foreground: #f0eff4;
+  --popover: #1f2029;
+  --popover-foreground: #f0eff4;
+  --primary: #f0eff4;
+  --primary-foreground: #0e0f14;
+  --secondary: #1f2029;
+  --secondary-foreground: #f0eff4;
+  --muted: #1f2029;
+  --muted-foreground: #b6b4c0;
   --destructive: #ff8577;
-  --destructive-foreground: #ffffff;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.14);
-  --ring: rgba(160, 140, 255, 0.6);
-  --success: #8c9bff;
-  --warning: #f0a95a;
+  --destructive-foreground: #0e0f14;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.17);
+  --ring: rgba(140, 155, 255, 0.6);
+  --success: #2dd4bf;
+  --warning: #f0b65a;
   --overlay: rgba(0, 0, 0, 0.6);
-  --scrollbar: #343946;
-  --window: #0c0f16;
-  --content: #0c0f16;
-  --glass: #1b1e28;
-  --glass-line: rgba(255, 255, 255, 0.09);
-  --group: #1b1e28;
-  --separator: rgba(255, 255, 255, 0.09);
-  --selection-strong: rgba(140, 155, 255, 0.16);
+  --scrollbar: #2b2c38;
+  --window: #0e0f14;
+  --content: #0e0f14;
+  --glass: #17181f;
+  --glass-line: rgba(255, 255, 255, 0.08);
+  --group: #17181f;
+  --separator: rgba(255, 255, 255, 0.08);
+  --selection-strong: #23264a;
   --tint: #8c9bff;
-  --ink: #eef0f6;
-  --ink-2: #aeb4c2;
-  --ink-3: #979eae;
-  --bubble: #262a36;
-  --selection: rgba(255, 255, 255, 0.06);
-  --mid: #9098ab;
+  --ink: #f0eff4;
+  --ink-2: #b6b4c0;
+  --ink-3: #8b8996;
+  --bubble: #1f2029;
+  --selection: #1f2029;
+  --mid: #8b8996;
   --chart: #8c9bff;
   --chart-2: #2dd4bf;
-  --chart-3: #6c60e0;
-  --chart-4: #6f9cf5;
+  --chart-3: #b3a8ff;
+  --chart-4: #7da7ff;
   --chart-5: #1b8f82;
-  --chart-soft: #2c3040;
-  --head: #20232f;
-  --up: #123c37;
-  --down: #47211d;
-  --tint-soft: #272b45;
-  --tint-soft-2: #343a5e;
-  --tint-ink: #b3bcff;
+  --chart-soft: #2b2c38;
+  --head: #1f2029;
+  --up: #103a35;
+  --down: #40201c;
+  --tint-hover: #a3afff;
+  --tint-2: #b3a8ff;
+  --tint-soft: #23264a;
+  --tint-soft-2: #343a66;
+  --tint-ink: #b9c1ff;
+  --on-tint: #0e0f14;
   --pass: #2dd4bf;
-  --pass-soft: #123c37;
+  --pass-soft: #103a35;
   --fail: #ff8577;
-  --fail-soft: #47211d;
+  --fail-soft: #40201c;
+  --fail-line: #6b2e27;
   --unjudged: #f0b65a;
   --unjudged-soft: #3a2a14;
-  --sunk: #20232f;
-  --sunk-2: #2a2e3b;
-  --rule-strong: rgba(255, 255, 255, 0.18);
+  --sunk: #1f2029;
+  --sunk-2: #2b2c38;
+  --rule: rgba(255, 255, 255, 0.08);
+  --rule-strong: rgba(255, 255, 255, 0.17);
+  --k-tool: #2dd4bf;
+  --k-tool-soft: #103a35;
+  --k-agent: #7da7ff;
+  --k-agent-soft: #1c2a4a;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --shadow-2: rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
-  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -187,6 +214,20 @@
   --color-sunk: var(--sunk);
   --color-sunk-2: var(--sunk-2);
   --color-rule-strong: var(--rule-strong);
+  --color-rule: var(--rule);
+  --color-tint-hover: var(--tint-hover);
+  --color-tint-2: var(--tint-2);
+  --color-on-tint: var(--on-tint);
+  --color-fail-line: var(--fail-line);
+  --color-unj: var(--unj);
+  --color-unj-soft: var(--unj-soft);
+  --color-k-tool: var(--k-tool);
+  --color-k-tool-soft: var(--k-tool-soft);
+  --color-k-agent: var(--k-agent);
+  --color-k-agent-soft: var(--k-agent-soft);
+  --color-shadow: var(--shadow);
+  --color-shadow-2: var(--shadow-2);
+  --color-scrim: var(--scrim);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
 }
@@ -202,9 +243,9 @@
     background: var(--window);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 400;
-    line-height: 1.55;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
   h1,
@@ -214,6 +255,9 @@
   }
   button {
     cursor: default;
+  }
+  :focus-visible {
+    outline-color: var(--tint);
   }
   * {
     scrollbar-color: var(--scrollbar) transparent;
@@ -260,6 +304,38 @@
   50% {
     opacity: 0.35;
     transform: scale(1.4);
+  }
+}
+
+/* The assistant's button: its mark bobs and a soft halo breathes behind it, only where motion is welcome. */
+.assistant-halo {
+  background: radial-gradient(circle, var(--tint-2) 0, transparent 66%);
+  opacity: 0.45;
+}
+.assistant-mark {
+  filter: drop-shadow(0 8px 14px var(--shadow-2));
+  transition: scale 0.15s var(--ease);
+}
+.assistant-orb:hover .assistant-mark {
+  scale: 1.08;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-halo {
+    animation: breathe 3.2s ease-in-out infinite;
+  }
+  .assistant-mark {
+    animation: bob 3.2s ease-in-out infinite;
+  }
+}
+@keyframes breathe {
+  50% {
+    transform: scale(1.18);
+    opacity: 0.2;
+  }
+}
+@keyframes bob {
+  50% {
+    transform: translateY(-4px);
   }
 }
 

@@ -59,9 +59,24 @@ class FileStore:
         self.path = path.resolve()
         self.allowed_roots = None if allowed_roots is None else [r.resolve() for r in allowed_roots]
 
+    #: A file the app may hold open: the app is stopped while it is put back.
+    needs_stop = "all"
+
     @property
     def name(self) -> str:
         return str(self.path)
+
+    def shape(self) -> str:
+        """Every file there is, with its size, read from the folder alone and never a file's
+        content: the cheap check between full hashes."""
+        lines = []
+        for part in self._parts():
+            files = sorted(part.rglob("*")) if part.is_dir() else [part]
+            for f in files:
+                if f.is_file():
+                    rel = f.relative_to(part.parent).as_posix()
+                    lines.append(f"{rel}: {f.stat().st_size}")
+        return "\n".join(lines)
 
     def _parts(self) -> list[Path]:
         return [self.path, *(self.path.with_name(self.path.name + s) for s in SIDECARS)]

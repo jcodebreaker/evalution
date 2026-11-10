@@ -27,16 +27,16 @@ function Shell({
   testId: string;
 }) {
   return (
-    <section className={cn(CARD, "flex min-w-0 flex-col px-5 py-4")} data-testid={testId}>
-      <h2 className="m-0 text-[13px] font-normal text-ink-2">{label}</h2>
-      <div className="mt-1 flex flex-wrap items-baseline gap-2">
-        <span className="text-[28px] leading-[1.1] font-semibold tracking-[-0.03em] tabular-nums">
+    <section className={cn(CARD, "flex min-w-0 flex-col")} data-testid={testId}>
+      <h2 className="m-0 text-[13px] font-medium text-ink-3">{label}</h2>
+      <div className="mt-2 flex flex-wrap items-baseline gap-2.5">
+        <span className="text-[40px] leading-none font-semibold tracking-[-0.035em] tabular-nums">
           {value}
         </span>
         {beside}
       </div>
-      {sub ? <p className="m-0 mt-0.5 text-[12px] text-ink-3">{sub}</p> : null}
-      <div className="mt-3">{chart}</div>
+      {sub ? <p className="m-0 mt-0.5 text-[13px] text-ink-3">{sub}</p> : null}
+      <div className="mt-3.5">{chart}</div>
     </section>
   );
 }
@@ -45,7 +45,7 @@ function Delta({ tone, children }: { tone: "ok" | "bad" | "same"; children: Reac
   return (
     <span
       className={cn(
-        "rounded-full px-1.5 py-px text-[12px] font-medium",
+        "rounded-full px-2 py-0.5 text-[13px] font-medium whitespace-nowrap",
         tone === "ok" && "bg-pass-soft text-pass",
         tone === "bad" && "bg-fail-soft text-fail",
         tone === "same" && "bg-sunk text-ink-2",

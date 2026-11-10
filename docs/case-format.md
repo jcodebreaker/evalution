@@ -77,9 +77,11 @@ At least one. They play in order, each waiting until the app is done.
 
 ## Tools
 
-- `order`: `exact` (in order, with nothing extra), `in_order` (default; other calls may come between) or `any_order`.
-- `extras`: `true` by default; `false` makes an unexpected call a miss and costs score.
-- `expected`: each step is a call, `{"name", "args", "times"}` (`times` is a whole number of at least 1), or `{"parallel": [...]}` with at least two calls, which take no `times`.
+- `order`: `exact` (every expected call, in order, with nothing else; one extra call or one out of place fails the steps, whatever the score), `in_order` (default; other calls may come between) or `any_order`.
+- `extras`: `true` by default; `false` makes any unexpected call fail the steps, and costs score.
+- `expected`: each step is a call, `{"name", "args", "times", "in"}` (`times` is a whole number of at least 1), or `{"parallel": [...]}` with at least two calls, which take no `times`. `in` says whose call it must be: `any` (default: the assistant's or any delegated agent's), `main` (the assistant's own), or a delegated agent's name as its span gives it (`gen_ai.agent.name`, `agent.name`, else the span name).
+- A tool's name is written without its MCP server prefix (`search` for `mcp__crm__search`), or with the server to say which (`crm__search`), in `expected` and `never` alike. When a try calls tools of one bare name on two servers and a step wrote only the bare name, that step isn't judged: "two tools are named search: say which".
+- A delegated agent's own calls that match no step are shown and never count as extras, unless a step names that agent with `in`. Only the assistant's own extra calls cost score or fail `exact` and `"extras": false`.
 - `never`: tool names. Any call to one always fails the try.
 - `strict`: `true` makes the steps decide the try.
 
@@ -139,4 +141,4 @@ A case has no cost limit: a `usd` in an older file is accepted and not read.
 
 ## Verdicts
 
-Tries no one could judge don't count. Of the rest, a case that passes every one is a `pass`, one that passes none a `fail`, anything between `flaky`, or `fail` with `"must_hold": true` at the top of the case. With none judged it is `unjudged`. A try passes when nothing went wrong playing it, no limit broke, every state check held, no `never` tool was called, the steps score reached `pass_marks.tools` if the steps decide the try, and the reply passed. The rules in full are in [judging.md](judging.md).
+Tries no one could judge don't count. Of the rest, a case that passes every one is a `pass`, one that passes none a `fail`, anything between `flaky`, or `fail` with `"must_hold": true` at the top of the case. With none judged it is `unjudged`. A try passes when nothing went wrong playing it, no limit broke, every state check held, no `never` tool was called, the steps held if they decide the try (the steps score reached `pass_marks.tools`; with an `exact` order or `extras: false`, the strict rule above), and the reply passed. The rules in full are in [judging.md](judging.md).

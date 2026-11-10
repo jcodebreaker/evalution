@@ -225,6 +225,10 @@ export const BenchmarksSchema = z.object({
           compact_measured: z.number().default(0),
           compacted: z.number().default(0),
         }),
+        range: z.tuple([z.number(), z.number()]).nullable().default(null),
+        previous_accuracy: z.number().nullable().default(null),
+        change_is_real: z.boolean().default(false),
+        broke_off: z.number().default(0),
       }),
       questions: z.array(
         z.object({
@@ -254,6 +258,7 @@ export const BenchmarksSchema = z.object({
           messages: z.number().nullable().default(null),
           trace_url: z.string().nullable().default(null),
           models: z.array(z.string()).default([]),
+          broke_off: z.boolean().default(false),
         }),
       ),
     }),
@@ -1623,7 +1628,7 @@ export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 export const LearnAreaSchema = z.object({
   id: z.string(),
   files: z.number(),
-  state: z.enum(["waiting", "running", "learned", "failed", "kept", "listed"]),
+  state: z.enum(["waiting", "running", "learned", "failed", "kept", "listed", "outside", "later"]),
   weight: z.number().optional(),
   steps: z.number().optional(),
   calls: z.number().default(0),
@@ -1653,7 +1658,7 @@ export type LearnProgress = z.infer<typeof LearnProgressSchema>;
  * `learned_at`), and nothing was spent unless asked again anyway. */
 export const AreaStateSchema = z.object({
   id: z.string(),
-  state: z.enum(["current", "moved", "due", "listed"]),
+  state: z.enum(["current", "moved", "due", "listed", "outside"]),
   weight: z.number().default(0),
   files: z.number().default(0),
   learned_at: z.number().nullable().default(null),
@@ -2269,3 +2274,170 @@ export const NewTokenSchema = z.object({
   prefix: z.string(),
   token: z.string(),
 });
+
+// ---- Connect, setup, test environment, what it learned (next level, U2) ----
+
+/** A setting that would reach a service outside the test copy, by name only (B7): it starts
+ * empty on the copy unless `allowed`. */
+export const OutboundSchema = z.object({
+  name: z.string(),
+  kind: z.string().default("credential"),
+  allowed: z.boolean().default(false),
+});
+export type Outbound = z.infer<typeof OutboundSchema>;
+
+/** How a run puts the copy back between tries (B1): `hot` is what the rehearsal proved of doing
+ * it with the app up; `restart`, every put back stops and starts the whole copy. */
+export const PutBackSchema = z.object({
+  hot: z.enum(["proven", "failed"]).nullable().catch(null).default(null),
+  app_holds_state: z.boolean().default(false),
+  restart: z.boolean().default(true),
+});
+export type PutBack = z.infer<typeof PutBackSchema>;
+
+/** The isolation view with what leaves the copy and how it is put back. */
+export const IsolationViewSchema = IsolationSchema.extend({
+  outbound: z.array(OutboundSchema).catch([]).default([]),
+  put_back: PutBackSchema.nullable().catch(null).default(null),
+});
+export type IsolationView = z.infer<typeof IsolationViewSchema>;
+
+export const OutboundListSchema = z.object({ outbound: z.array(OutboundSchema).default([]) });
+
+/** The repository a discovery cloned, when the field named one (`owner/repo#412`). */
+export const RepositorySchema = z.object({
+  host: z.string().default("github.com"),
+  owner: z.string(),
+  repo: z.string(),
+  pull: z.number().nullable().default(null),
+  ref: z.string().nullable().default(null),
+  said: z.string().default(""),
+});
+export type Repository = z.infer<typeof RepositorySchema>;
+
+export const DiscoveryViewSchema = DiscoverySchema.extend({
+  repository: RepositorySchema.nullable().catch(null).default(null),
+});
+export type DiscoveryView = z.infer<typeof DiscoveryViewSchema>;
+
+/** An area as What it learned lists it, with `outside` (not part of the agent, learned only
+ * when asked) and, for a failed one, why. */
+export const AreaViewSchema = LearnedAreaSchema.extend({
+  state: z.enum(["current", "learning", "done", "due", "listed", "failed", "outside"]).catch("due"),
+  reason: z.string().nullable().catch(null).default(null),
+});
+export type AreaView = z.infer<typeof AreaViewSchema>;
+
+/** Where the latest learn stands, with what the code's watch left out. */
+export const LearnStateViewSchema = LearnStateSchema.extend({
+  areas: z.array(AreaViewSchema).default([]),
+  left_out: z
+    .object({
+      past_cap: z.number().default(0),
+      too_large: z.number().default(0),
+    })
+    .catch({ past_cap: 0, too_large: 0 })
+    .prefault({}),
+});
+export type LearnStateView = z.infer<typeof LearnStateViewSchema>;
+
+/** What the rendered profile holds: `areas` of `of`, and the titles it left out to fit. */
+export const ProfileFitSchema = z.object({
+  areas: z.number().default(0),
+  of: z.number().default(0),
+  left_out: z.array(z.string()).default([]),
+});
+export type ProfileFit = z.infer<typeof ProfileFitSchema>;
+
+export const UnderstandingViewSchema = UnderstandingSchema.extend({
+  progress: LearnStateViewSchema.nullable().catch(null).default(null),
+  profile: ProfileFitSchema.nullable().catch(null).default(null),
+});
+export type UnderstandingView = z.infer<typeof UnderstandingViewSchema>;
+
+// ---- U3: the result screens (appended; see docs/judging.md "Timeline" and docs/versions.md) ----
+
+/** Text the server may send as a string or as something else: kept as words either way. */
+const WordsSchema = z
+  .string()
+  .nullable()
+  .catch((ctx) => (ctx.input === undefined ? null : JSON.stringify(ctx.input)))
+  .default(null);
+
+/** One line a reply was held to: a rubric line, the reference, `reply.contains` / `reply.lacks`. */
+export const TimelineLineSchema = z.object({
+  id: z.string(),
+  text: z.string().default(""),
+  status: TryOutcomeSchema.nullable().catch(null).default(null),
+  /** `code` or `model`. */
+  by: z.string().nullable().default(null),
+  /** `must` or `guide`. */
+  role: z.string().nullable().default(null),
+  reason: z.string().nullable().default(null),
+});
+export type TimelineLine = z.infer<typeof TimelineLineSchema>;
+
+/**
+ * One entry of a try's "Step by step" (docs/judging.md, "Timeline"): a message, an expected call
+ * against the one made, a reply with its graded lines, a state check, a page frame, a break, how
+ * the copy was put back before, or the page's health. In time order.
+ */
+export const TimelineEntrySchema = z.object({
+  kind: z.string(),
+  status: TryOutcomeSchema.nullable().catch(null).default(null),
+  span: z.string().nullable().catch(null).default(null),
+  at: z.number().nullable().catch(null).default(null),
+  /** `person`, `main`, a delegated agent's name or `helper`, `page`, `code`. */
+  actor: z.string().nullable().catch(null).default(null),
+  turn: z.number().nullable().catch(null).default(null),
+  text: z.string().nullable().catch(null).default(null),
+  filler: z.boolean().catch(false).default(false),
+  /** A call's step: `matched`, `missing`, `wrong_args`, `late`, `never`, `extra`, `unjudged`,
+   * `automatic`. */
+  step: z.string().nullable().catch(null).default(null),
+  expected: WordsSchema,
+  made: WordsSchema,
+  reason: z.string().nullable().catch(null).default(null),
+  automatic: z.boolean().catch(false).default(false),
+  error: z.string().nullable().catch(null).default(null),
+  lines: z.array(TimelineLineSchema).catch([]).default([]),
+  shown_at: z.number().nullable().catch(null).default(null),
+  instead: z.string().nullable().catch(null).default(null),
+  shot: z.string().nullable().catch(null).default(null),
+  key: z.string().nullable().catch(null).default(null),
+  how: z.string().nullable().catch(null).default(null),
+  seconds: z.number().nullable().catch(null).default(null),
+  checked: z.array(z.string()).catch([]).default([]),
+  problem: z.string().nullable().catch(null).default(null),
+  why: z.string().nullable().catch(null).default(null),
+});
+export type TimelineEntry = z.infer<typeof TimelineEntrySchema>;
+
+/** A try's result with its one list, when the server sends it (`steps_timeline`); older servers
+ * don't, and the page builds the same list from the plan steps, `tool_rows` and the trajectory. */
+export const TryResultSchema = CompareSchema.extend({
+  steps_timeline: z.array(TimelineEntrySchema).nullable().catch(null).default(null),
+});
+export type TryResult = z.infer<typeof TryResultSchema>;
+
+/** A pull request fetched into evalution's own refs (`POST .../versions/fetch {pull}`). */
+export const FetchedPullSchema = z.object({
+  remote: z.string().default(""),
+  pull: z.number(),
+  /** The ref a run plays it by: `pull/412`. */
+  ref: z.string(),
+  commit: z.string(),
+});
+export type FetchedPull = z.infer<typeof FetchedPullSchema>;
+
+/** A ref of the app's repository, with the kinds newer servers send (`pull`). */
+export const VersionRefNextSchema = VersionRefSchema.extend({
+  kind: z.enum(["local", "remote", "fetched", "tag", "pull"]).catch("local"),
+});
+export type VersionRefNext = z.infer<typeof VersionRefNextSchema>;
+
+/** The app's repository, its pull requests listed among the refs. */
+export const VersionsNextSchema = VersionsSchema.extend({
+  refs: z.array(VersionRefNextSchema).default([]),
+});
+export type VersionsNext = z.infer<typeof VersionsNextSchema>;

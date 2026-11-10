@@ -4,7 +4,13 @@ are its own.
 Spans come after a turn ends, in batches. A read is taken as complete when the count of AI spans has
 held still across two reads more than ``traces.settle_seconds`` apart (the default is above
 OpenTelemetry's 5 s batch) and every turn that finished has AI spans of its own. That second part is
-what catches one batch much later than the rest, which a still count can't. Either still not so at
+what catches one batch much later than the rest, which a still count can't.
+
+A read that is plainly whole doesn't wait that long (:func:`whole`): every trace in it has its root
+span, and every span's parent is in it. Spans are sent when they end, so a root that has come has
+ended, and so has everything under it. Then nothing new for :data:`QUIET_SECONDS` is enough, with
+every finished turn covered as before. A root that can't be told (it hasn't come, or it hangs from a
+span of the caller's that is never sent) falls back to ``settle_seconds``. Either still not so at
 :data:`TRACE_WAIT`, or a read cut by the span cap, and the read is partial. A read costs the whole
 window, since a late batch carries old start times, so the reads space out up to ``settle_seconds``.
 
@@ -53,6 +59,10 @@ TRACE_WAIT = 20.0
 _POLL = 2.0
 #: Seconds a turn's first span may seem to start outside the turn: clocks differ a little.
 _TURN_SKEW = 1.0
+#: Seconds with nothing new that end the wait on a read that is plainly whole.
+QUIET_SECONDS = 1.5
+#: Spans that, with nothing above them, show no turn that ended.
+_NOT_A_TURN = frozenset({"LLM", "TOOL"})
 
 
 @dataclass(frozen=True)
@@ -226,6 +236,21 @@ def _covered(spans: Sequence[Span], windows: Sequence[tuple[float, float]]) -> b
     )
 
 
+def whole(spans: Sequence[Span]) -> bool:
+    """Whether *spans* are plainly all there: each span's parent is among them, so every span hangs
+    from a root that has come (a span with no parent; delegated work in a trace of its own hangs
+    from the try's), and every root encloses a turn: no model call or tool call stands alone, since
+    one of those shows no turn that ended, and the agent may go on after it. A span comes only once
+    it ends, so this holds only when every root, and everything under it, has ended."""
+    ids = {s.id for s in spans}
+    roots = [s for s in spans if s.parent is None]
+    return (
+        bool(roots)
+        and all(s.kind not in _NOT_A_TURN for s in roots)
+        and all(s.parent is None or s.parent in ids for s in spans)
+    )
+
+
 async def collect(
     source: TraceSource,
     wanted: Wanted,
@@ -241,6 +266,7 @@ async def collect(
     stop = began + (max(TRACE_WAIT, settle + 2 * _POLL) if wait is None else wait)
     spans: list[Span] = []
     count, since = -1, time.time()
+    seen, quiet_since = -1, since
     settled = False
     wait = _POLL
     while True:
@@ -256,7 +282,12 @@ async def collect(
         ai = sum(map(is_ai, spans))
         if ai != count:
             count, since = ai, now
-        settled = ai > 0 and now - since > settle and _covered(spans, wanted.windows)
+        if len(spans) != seen:
+            seen, quiet_since = len(spans), now
+        covered = ai > 0 and _covered(spans, wanted.windows)
+        # Plainly whole and quiet a moment, or else still for the whole settle.
+        quick = now - quiet_since > min(QUIET_SECONDS, settle) and whole(spans)
+        settled = covered and (quick or now - since > settle)
         if cut:
             return Collected(spans, TraceStatus.PARTIAL, "the read hit the span cap")
         if settled or once or now >= stop:

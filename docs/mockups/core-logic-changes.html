@@ -1,0 +1,277 @@
+<title>Core Logic Changes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column, three views (trajectory, environment, learning). Each view = a today/after picture, then the change rows. */
+:root{
+  --bg:#f8f7f4; --card:#ffffff; --sunk:#f3f1ed; --sunk-2:#e8e5df; --rule:#ebe8e2; --rule-2:#d6d2ca;
+  --fg:#191820; --fg-2:#514f5b; --fg-3:#827f8a;
+  --tint:#5546d8; --tint-soft:#f0eefc; --tint-line:#dedafa; --tint-ink:#4336b8; --on-tint:#ffffff;
+  --pass:#17806a; --pass-soft:#e1f2ec; --fail:#c2372a; --fail-soft:#fbeae6; --unj:#a86c00; --unj-soft:#fbf0d9;
+  --tool:#0b8577; --tool-soft:#dcf3ef;
+  --font:"Geist",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --mono:"Geist Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e0f14; --card:#17181f; --sunk:#1f2029; --sunk-2:#2b2c38; --rule:#262733; --rule-2:#3a3b49;
+  --fg:#f0eff4; --fg-2:#b6b4c0; --fg-3:#8b8996;
+  --tint:#8c9bff; --tint-soft:#23264a; --tint-line:#343a66; --tint-ink:#b9c1ff; --on-tint:#0e0f14;
+  --pass:#2dd4bf; --pass-soft:#103a35; --fail:#ff8577; --fail-soft:#40201c; --unj:#f0b65a; --unj-soft:#3a2a14;
+  --tool:#2dd4bf; --tool-soft:#103a35; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e0f14; --card:#17181f; --sunk:#1f2029; --sunk-2:#2b2c38; --rule:#262733; --rule-2:#3a3b49;
+  --fg:#f0eff4; --fg-2:#b6b4c0; --fg-3:#8b8996;
+  --tint:#8c9bff; --tint-soft:#23264a; --tint-line:#343a66; --tint-ink:#b9c1ff; --on-tint:#0e0f14;
+  --pass:#2dd4bf; --pass-soft:#103a35; --fail:#ff8577; --fail-soft:#40201c; --unj:#f0b65a; --unj-soft:#3a2a14;
+  --tool:#2dd4bf; --tool-soft:#103a35; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+.lab{align-self:flex-start}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--tint);outline-offset:2px}
+.wrap{max-width:1080px;margin:0 auto;padding-block:28px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+h1{margin:0;font:600 30px/1.15 var(--font);letter-spacing:-.025em;text-wrap:balance}
+h2{margin:0;font:600 19px/1.25 var(--font);letter-spacing:-.015em;text-wrap:balance}
+h3{margin:0;font:500 13px/1.3 var(--font);color:var(--fg-3)}
+p{margin:0}
+.mono{font-family:var(--mono);font-size:13px}
+.dim{color:var(--fg-3)}
+.tabs{display:flex;gap:6px;padding:4px;border-radius:14px;background:var(--sunk);overflow-x:auto}
+.tabs button{flex:1 0 auto;height:44px;padding:0 16px;border:0;border-radius:10px;background:none;color:var(--fg-2);font-weight:500;white-space:nowrap}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.view{display:flex;flex-direction:column;gap:18px}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:16px;min-width:0}
+.pad{padding:20px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.lab{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:7px;font:600 12px var(--font);letter-spacing:.03em;text-transform:uppercase}
+.lab.today{background:var(--sunk-2);color:var(--fg-2)} .lab.after{background:var(--tint-soft);color:var(--tint-ink)}
+.tag{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:7px;font:500 13px var(--mono);background:var(--sunk);color:var(--fg-2);white-space:nowrap}
+.tag.tool{background:var(--tool-soft);color:var(--tool)} .tag.bad{background:var(--fail-soft);color:var(--fail)} .tag.helper{background:var(--tint-soft);color:var(--tint-ink)} .tag.ghost{background:none;box-shadow:inset 0 0 0 1.5px var(--rule-2);color:var(--fg-3)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:99px;font-weight:600;font-size:14px;white-space:nowrap}
+.pill.pass{background:var(--pass-soft);color:var(--pass)} .pill.fail{background:var(--fail-soft);color:var(--fail)} .pill.unj{background:var(--unj-soft);color:var(--unj)}
+.seq{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.seq .ar{color:var(--fg-3)}
+.pick{display:flex;flex-wrap:wrap;gap:8px}
+.pick button{height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--rule-2);background:var(--card);font-weight:500}
+.pick button[aria-pressed="true"]{border-color:var(--tint);background:var(--tint-soft);color:var(--tint-ink)}
+.out{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:12px;background:var(--sunk)}
+.out.after{background:var(--tint-soft)}
+.strip{display:flex;gap:4px;min-height:64px}
+.blk{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:10px 12px;border-radius:10px;background:var(--sunk-2);font-size:14px;font-weight:500;line-height:1.25}
+.blk small{font:400 12px var(--mono);color:var(--fg-3)}
+.blk.cut{background:repeating-linear-gradient(135deg,var(--fail-soft) 0 6px,transparent 6px 12px);color:var(--fail);box-shadow:inset 0 0 0 1px var(--fail-soft)}
+.blk.cut span{text-decoration:line-through}
+.blk.new{background:var(--tint-soft);color:var(--tint-ink)}
+.blk.keep{background:var(--pass-soft);color:var(--pass)}
+.blk.w2{flex-grow:2}.blk.w3{flex-grow:3}.blk.w5{flex-grow:5}
+.rows{display:flex;flex-direction:column}
+.r{display:grid;grid-template-columns:44px minmax(0,1.5fr) minmax(0,1fr);gap:14px;padding:14px 20px;border-top:1px solid var(--rule);align-items:start}
+.r:first-child{border-top:0}
+.r .id{font:500 13px var(--mono);color:var(--tint-ink)}
+.r b{font-weight:600;display:block}
+.r span{color:var(--fg-2);font-size:14px;display:block}
+.r code{font:400 12.5px var(--mono);color:var(--fg-3);overflow-wrap:anywhere}
+.merge{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;align-items:center}
+.stack{display:flex;flex-direction:column;gap:6px}
+.node{padding:10px 12px;border-radius:10px;background:var(--sunk);font-size:14px}
+.node.new{background:var(--tint-soft);color:var(--tint-ink);font-weight:500}
+.node small{display:block;font:400 12px var(--mono);color:var(--fg-3)}
+.arrow{text-align:center;color:var(--fg-3);font-size:20px}
+.areas{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.areas i{height:34px;border-radius:8px;background:var(--sunk-2);display:block}
+.areas i.on{background:var(--tint)}
+.areas i.free{background:var(--pass)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--fg-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:12px;height:12px;border-radius:4px;display:inline-block}
+@media (max-width:760px){
+  .two,.merge{grid-template-columns:minmax(0,1fr)}
+  .arrow{transform:rotate(90deg)}
+  .strip{flex-direction:column}
+  .r{grid-template-columns:36px minmax(0,1fr)}.r code{grid-column:2}
+  h1{font-size:24px}
+}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:6px">
+    <h1>What changes in evalution's core</h1>
+    <p class="dim">Three areas. Each shows today's behaviour, read from the code, next to what replaces it.</p>
+  </header>
+
+  <div class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-v="trajectory" aria-selected="true">Agent trajectory</button>
+    <button role="tab" data-v="environment" aria-selected="false">Test environment</button>
+    <button role="tab" data-v="learning" aria-selected="false">Learning</button>
+  </div>
+
+  <!-- TRAJECTORY -->
+  <section class="view" data-view="trajectory">
+    <div class="card pad" style="display:flex;flex-direction:column;gap:16px">
+      <h2>Try a case. The verdict today, and after.</h2>
+      <div class="pick" id="cases"></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <h3>The test expects</h3><div class="seq" id="exp"></div>
+        <h3>The agent did</h3><div class="seq" id="act"></div>
+      </div>
+      <div class="two">
+        <div class="out"><span class="lab today">Today</span><span id="t-verdict"></span><p class="mono dim" id="t-why"></p></div>
+        <div class="out after"><span class="lab after">After</span><span id="a-verdict"></span><p class="mono" id="a-why" style="color:var(--tint-ink)"></p></div>
+      </div>
+    </div>
+    <div class="card"><div class="rows">
+      <div class="r"><span class="id">A1</span><div><b>"Exact" means exact</b><span>Any extra call, or a reorder, fails. No more 0.1 off per extra against a 0.8 pass mark.</span></div><code>judging/steps.py · grade_tools<br>judging/checks.py:589</code></div>
+      <div class="r"><span class="id">A2</span><div><b>Helper agents graded apart</b><span>A step can say whose call it is. A helper's own calls stop counting as the main agent's extras.</span></div><code>judging/steps.py · chosen_calls<br>core/trace.py · Call.helper</code></div>
+      <div class="r"><span class="id">A3</span><div><b>Two tools, one name</b><span>The server stays on the call. An ambiguous name is not judged and says which to name.</span></div><code>core/trace.py:35 · tool_name</code></div>
+      <div class="r"><span class="id">A4</span><div><b>First difference lands on the right step</b><span>Tries are lined up by what was called, not by step number.</span></div><code>review/divergence.py:163</code></div>
+      <div class="r"><span class="id">A5</span><div><b>One timeline per try</b><span>The API sends the alignment once. Today it sends it three ways and the page draws all three.</span></div><code>results/views.py<br>tool_rows · trajectory · steps</code></div>
+      <div class="r"><span class="id">A6</span><div><b>Stop waiting when the trace is whole</b><span>Judge as soon as every root span has ended. The 6 s quiet wait stays as the fallback.</span></div><code>runs/collect.py:229-271</code></div>
+    </div></div>
+  </section>
+
+  <!-- ENVIRONMENT -->
+  <section class="view" data-view="environment" hidden>
+    <div class="card pad" style="display:flex;flex-direction:column;gap:14px">
+      <h2>Before every try</h2>
+      <span class="lab today" style="align-self:flex-start">Today</span>
+      <div class="strip">
+        <div class="blk w3"><span>Stop the app</span><small>up to 180 s allowed</small></div>
+        <div class="blk w2"><span>Put stores back</span><small>template, untar</small></div>
+        <div class="blk w3"><span>Start, wait for healthy</span><small>up to 180 s allowed</small></div>
+        <div class="blk w5"><span>Hash every row and file</span><small>grows with the data</small></div>
+      </div>
+      <span class="lab after" style="align-self:flex-start">After</span>
+      <div class="strip">
+        <div class="blk cut w3"><span>Stop the app</span></div>
+        <div class="blk keep w2"><span>Put stores back</span><small>app still running</small></div>
+        <div class="blk new"><span>One health call</span></div>
+        <div class="blk new"><span>Quick check</span></div>
+        <div class="blk cut w5"><span>Hash every row and file</span><small>start and end of run only</small></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+        <h2>Between runs</h2>
+        <span class="lab today" style="align-self:flex-start">Today</span>
+        <div class="strip"><div class="blk"><span>Start copy</span></div><div class="blk w2"><span>Run</span></div><div class="blk"><span>Take down</span></div><div class="blk"><span>Start copy</span></div><div class="blk w2"><span>Run</span></div><div class="blk"><span>Take down</span></div></div>
+        <span class="lab after" style="align-self:flex-start">After</span>
+        <div class="strip"><div class="blk"><span>Start copy</span></div><div class="blk w2"><span>Run</span></div><div class="blk new w2"><span>Kept warm</span><small>10 min</small></div><div class="blk w2"><span>Run</span></div><div class="blk new"><span>Swept if orphaned</span></div></div>
+      </div>
+      <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+        <h2>What the copy can reach</h2>
+        <span class="lab today" style="align-self:flex-start">Today</span>
+        <div class="seq"><span class="tag">MODEL_KEY</span><span class="tag">STRIPE_SECRET_KEY</span><span class="tag">SENDGRID_API_KEY</span><span class="tag">WEBHOOK_URL</span></div>
+        <p class="dim" style="font-size:14px">The copy starts with your env file as it is. A test can charge a card.</p>
+        <span class="lab after" style="align-self:flex-start">After</span>
+        <div class="seq"><span class="tag tool">MODEL_KEY</span><span class="tag bad" style="text-decoration:line-through">STRIPE_SECRET_KEY</span><span class="tag bad" style="text-decoration:line-through">SENDGRID_API_KEY</span><span class="tag bad" style="text-decoration:line-through">WEBHOOK_URL</span></div>
+        <p class="dim" style="font-size:14px">Third-party keys are blank in the copy unless you allow one.</p>
+      </div>
+    </div>
+    <div class="card"><div class="rows">
+      <div class="r"><span class="id">B1</span><div><b>Put it back without stopping the app</b><span>Postgres is recreated from its template under the running app. Only services that mount a restored volume stop.</span></div><code>runs/isolated.py · restore, _pause<br>isolation/drivers/postgres.py</code></div>
+      <div class="r"><span class="id">B2</span><div><b>Full hash twice a run, not every try</b><span>A quick check in between. A broken reset is still caught at the end.</span></div><code>runs/isolated.py · _digests</code></div>
+      <div class="r"><span class="id">B3</span><div><b>No restore before try 1</b><span>The copy was kept a moment earlier.</span></div><code>runs/runner.py:977</code></div>
+      <div class="r"><span class="id">B4</span><div><b>Copies start together</b><span>Today one after another.</span></div><code>runs/isolated.py · Copies.start</code></div>
+      <div class="r"><span class="id">B5</span><div><b>Volumes copied inside Docker</b><span>Today a tar is streamed through the host and back.</span></div><code>isolation/drivers/volume.py</code></div>
+      <div class="r"><span class="id">B6</span><div><b>Warm copy, and nothing left behind</b><span>Reused for 10 minutes. Orphans are swept at start. Today a crash blocks the next run until a manual teardown.</span></div><code>isolation/launch.py:579<br>runs/isolated.py · close</code></div>
+      <div class="r"><span class="id">B7</span><div><b>Live keys blanked in the copy</b><span>Listed by name, off by default, one switch each.</span></div><code>isolation/launch.py:516 · env_file<br>isolation/plan.py</code></div>
+      <div class="r"><span class="id">B8</span><div><b>Refuse what can't be isolated</b><span>A folder shared with the real app stops the plan. Only Postgres gets the Postgres driver.</span></div><code>isolation/launch.py:226<br>isolation/isolate.py:351</code></div>
+      <div class="r"><span class="id">B9</span><div><b>Find stores from what learning already read</b><span>Today a second scan of up to 4,000 files with its own patterns.</span></div><code>isolation/discover.py:29<br>project/codemap/facts.py</code></div>
+    </div></div>
+  </section>
+
+  <!-- LEARNING -->
+  <section class="view" data-view="learning" hidden>
+    <div class="two">
+      <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+        <span class="lab today" style="align-self:flex-start">Today</span>
+        <h2>Everything is read before anything is usable</h2>
+        <div class="areas"><i class="free"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+        <p class="dim" style="font-size:14px">Up to 12 areas, each with its own agent and up to 200k tokens.</p>
+      </div>
+      <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+        <span class="lab after" style="align-self:flex-start">After</span>
+        <h2>Facts first. An area is read when a test needs it.</h2>
+        <div class="areas"><i class="free"></i><i></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="dim" style="font-size:14px">Tools, state and entry points come from the code, with no model. Enough to set up the copy and write a first test.</p>
+      </div>
+    </div>
+    <div class="legend"><span><i style="background:var(--pass)"></i>Facts, no model</span><span><i style="background:var(--tint)"></i>Area read by a model</span><span><i style="background:var(--sunk-2)"></i>Not read until asked</span></div>
+
+    <div class="card pad" style="display:flex;flex-direction:column;gap:14px">
+      <h2>"Has the code moved?" is answered four ways today</h2>
+      <div class="merge">
+        <div class="stack">
+          <div class="node">Since the profile was written<small>fingerprint.json</small></div>
+          <div class="node">Since the last learn<small>files.json</small></div>
+          <div class="node">Since the last refresh<small>knowledge.json · checked</small></div>
+          <div class="node">Since the last run<small>tested.json</small></div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="stack">
+          <div class="node new">One record, three marks<small style="color:inherit;opacity:.75">state.json · learned · refreshed · tested</small></div>
+          <div class="node new">One signal on the page<small style="color:inherit;opacity:.75">files · areas · claims · tests</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card pad" style="display:flex;flex-direction:column;gap:14px">
+      <h2>What a large repository did to it</h2>
+      <div class="strip">
+        <div class="blk keep w2"><span>13 learned</span></div>
+        <div class="blk cut w3"><span style="text-decoration:none">22 failed</span><small>504 from the model gateway</small></div>
+      </div>
+      <div class="seq"><span class="tag bad">35 areas, cap is 12</span><span class="tag bad">stopped after 20 minutes</span><span class="tag bad">504: Gateway Timeout</span><span class="tag bad">profile: at most 400000 characters</span><span class="tag bad">17 boxes + 94 more</span></div>
+    </div>
+    <div class="card"><div class="rows">
+      <div class="r"><span class="id">C7</span><div><b>Learn the agent, not the whole repository</b><span>Scope comes from the agent's own prompts, tools and what they import. UI, mobile and migrations are listed, not learned. At most 12 pieces a go.</span></div><code>code.py:162 · include is by hand<br>project/areas.py:40 · split</code></div>
+      <div class="r"><span class="id">C8</span><div><b>Survive a gateway that cuts long calls</b><span>Calls stream. A 504 asks for a smaller answer, not the same one again. Today one call waits up to 300 s in silence.</span></div><code>llm.py:41 · TIMEOUT<br>llm.py:153 · _post</code></div>
+      <div class="r"><span class="id">C9</span><div><b>A learn never fails at the save</b><span>The profile is cut to fit and says what it left out. Today it raises and nothing is written.</span></div><code>project/profile.py:30, :96</code></div>
+      <div class="r"><span class="id">C10</span><div><b>No "go on"</b><span>Learning is a background job with progress, not a 20-minute chat turn.</span></div><code>writer/agent.py:80 · MAX_SECONDS</code></div>
+      <div class="r"><span class="id">C11</span><div><b>A diagram a person can read</b><span>Eight boxes a column, the rest grouped. A platform hosting many agents is asked which one to test.</span></div><code>project/understanding/computed.py</code></div>
+    </div></div>
+    <div class="card"><div class="rows">
+      <div class="r"><span class="id">C1</span><div><b>Two levels: facts, then areas on demand</b><span>Connect, setup and the first test no longer wait for the full learn.</span></div><code>writer/learn.py · _begin<br>writer/areas.py</code></div>
+      <div class="r"><span class="id">C2</span><div><b>One record of what the code was</b><span>Today the page can show three different "out of date" signals at once.</span></div><code>project/drift.py · knowledge.py<br>impact.py · filememory.py</code></div>
+      <div class="r"><span class="id">C3</span><div><b>A refresh survives the next learn</b><span>Today a refreshed claim goes back to its old text when its area didn't move.</span></div><code>writer/learn.py:734, :745</code></div>
+      <div class="r"><span class="id">C4</span><div><b>Remove dead inputs</b><span>Folder summaries nothing writes any more are still read into every overview. The first overview's two calls go.</span></div><code>writer/learn.py:518, :955, :1160<br>project/modules.py</code></div>
+      <div class="r"><span class="id">C5</span><div><b>The test writer carries less</b><span>Overview, tools and state always. An area's claims only when the conversation touches it.</span></div><code>project/understanding/rendering.py:35<br>writer/agent.py:470</code></div>
+      <div class="r"><span class="id">C6</span><div><b>Say what was left out</b><span>Files past 2,000, submodules and LFS are dropped silently today.</span></div><code>code.py:25 · HASH_CAP</code></div>
+    </div></div>
+  </section>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+function show(v){$$('#tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v));$$('[data-view]').forEach(s=>s.hidden=s.dataset.view!==v)}
+$('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)show(b.dataset.v)});
+
+const t=(n,k='tool')=>`<span class="tag ${k}">${n}</span>`,ar='<span class="ar">→</span>';
+const CASES=[
+ {name:'Exact, one extra call',exp:[t('get_order'),t('refund_order')],note:'order: exact',
+  act:[t('get_order'),t('search_products','bad'),t('refund_order')],
+  tv:['pass','Steps hold'],tw:'2 of 2 matched − 0.1 for the extra = 0.90 ≥ 0.80',
+  av:['fail','Steps fail'],aw:'exact: a call the test did not name was made'},
+ {name:'A helper makes its own calls',exp:[t('search_products'),t('add_to_cart')],note:'extras: false',
+  act:[t('search_products'),t('rank','helper'),t('fetch_reviews','helper'),t('summarize','helper'),t('add_to_cart')],
+  tv:['fail','Steps fail'],tw:'2 of 2 matched − 0.3 for three extras = 0.70 < 0.80',
+  av:['pass','Steps hold'],aw:"the helper's calls are not the main agent's extras"},
+ {name:'Two tools named search',exp:[t('search')],note:'',
+  act:[t('docs__search')],
+  tv:['pass','Steps hold'],tw:'prefix stripped: docs__search reads as search',
+  av:['unj',"Couldn't judge"],aw:'crm__search and docs__search both exist: say which'},
+ {name:'An extra call early',exp:[t('a'),t('b'),t('c')],note:'compared with a passing try',
+  act:[t('x','bad'),t('a'),t('b'),t('d','bad')],
+  tv:['unj','Points at step 1'],tw:'lined up by step number: x against a',
+  av:['pass','Points at step 4'],aw:'lined up by what was called: d against c'}];
+function pick(i){const c=CASES[i];$$('#cases button').forEach((b,j)=>b.setAttribute('aria-pressed',j===i));
+ $('#exp').innerHTML=c.exp.join(ar)+(c.note?` <span class="tag ghost">${c.note}</span>`:'');$('#act').innerHTML=c.act.join(ar);
+ $('#t-verdict').innerHTML=`<span class="pill ${c.tv[0]}">${c.tv[1]}</span>`;$('#t-why').textContent=c.tw;
+ $('#a-verdict').innerHTML=`<span class="pill ${c.av[0]}">${c.av[1]}</span>`;$('#a-why').textContent=c.aw}
+$('#cases').innerHTML=CASES.map((c,i)=>`<button aria-pressed="false" data-i="${i}">${c.name}</button>`).join('');
+$('#cases').addEventListener('click',e=>{const b=e.target.closest('button');if(b)pick(+b.dataset.i)});
+pick(0);
+</script>

@@ -38,7 +38,7 @@ from evalution.core.judgement import (
 )
 from evalution.core.rendered import NOTHING_SHOWN, reply_words, shows
 from evalution.core.rules import route_of, steps_bind, timeout_outcome
-from evalution.judging.steps import EXTRA_OK, Step, arg_problem
+from evalution.core.steps import EXTRA_HELPER, EXTRA_OK, Step, arg_problem, strict_ok
 
 _TRACE_WHY = {
     TraceStatus.NO_SOURCE: (WhyUnjudged.NO_TRACE_SOURCE, "this app has no traces to read"),
@@ -463,7 +463,7 @@ def _result_check(index: int, spec: Mapping[str, Any], evidence: TryEvidence) ->
 
 def _first_miss(steps: Sequence[Step]) -> str:
     for step in steps:
-        if step.status == "matched" or step.reason == EXTRA_OK or step.status == "never":
+        if step.status in ("matched", "never") or step.reason in (EXTRA_OK, EXTRA_HELPER):
             continue
         label = step.expected or step.actual
         return f"{label}: {step.reason}" if label else step.reason
@@ -486,6 +486,17 @@ def _steps_check(
     whole_route = tools.get("extras") is False or tools.get("order") == "exact"
     if evidence.trace is TraceStatus.PARTIAL and (not held or whole_route):
         return _no_read("steps", CheckKind.STEPS, evidence.trace, role)
+    unclear = next((s for s in steps if s.status == "unjudged"), None)
+    if unclear is not None:
+        # A step whose bare name is two servers' tools: the test has to say which.
+        return _code(
+            "steps",
+            CheckKind.STEPS,
+            Outcome.UNJUDGED,
+            f"{unclear.expected}: {unclear.reason}",
+            role=role,
+            unjudged=WhyUnjudged.AMBIGUOUS_TOOL,
+        )
     refs = [
         EvidenceRef(ref=f"span:{s.span}")
         for s in steps
@@ -585,8 +596,10 @@ def code_checks(
     marks: Mapping[str, float],
 ) -> CodeChecks:
     """What the code decides of a try. *steps* and *score* are its aligned tool calls; *marks* the
-    pass marks it is held to."""
-    held = score >= marks["tools"]
+    pass marks it is held to. An ``exact`` order or ``extras: false`` is held to strictly
+    (:func:`~evalution.core.steps.strict_ok`); otherwise the score against its mark decides."""
+    strict = strict_ok(case.tools, steps)
+    held = strict if strict is not None else score >= marks["tools"]
     states = [(state, _state_check(state, evidence)) for state in evidence.states]
     found: list[CheckResult] = [c for _, c in states]
     found += _reply_checks(case, evidence)
@@ -615,7 +628,11 @@ def code_checks(
     return CodeChecks(
         found,
         [_state_step(state, check, evidence) for state, check in states],
-        route_of(evidence.trace is TraceStatus.COMPLETE, held),
+        route_of(
+            evidence.trace is TraceStatus.COMPLETE
+            and not any(s.status == "unjudged" for s in steps),
+            held,
+        ),
     )
 
 

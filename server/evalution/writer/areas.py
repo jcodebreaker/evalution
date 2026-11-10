@@ -12,15 +12,16 @@ tools, agents, routes and state of its part of the skeleton are named up front, 
 on reminding it, and a section may come in parts, each within the output limit. Once written,
 a section that leaves some of them unnamed gets one more step, told which (:data:`FOLLOW_UP`):
 in its own conversation when a step and the budget remain, else in one small call of its own that
-carries only those names (:func:`_say_missing`), so a long read never leaves them unasked; never
-a second. The orchestrator
-(:mod:`evalution.writer.learn`) runs several at a time, heaviest first, retries one that fails
-while its budget lasts, and keeps each section as it lands.
+carries only those names (:func:`_say_missing`), paid from a part of the budget kept back for it
+(:data:`MISSING_RESERVE`), so a long read never leaves them unasked; never a second. The
+orchestrator (:mod:`evalution.writer.learn`) runs several at a time, heaviest first, retries one
+that fails while its budget lasts, and keeps each section as it lands.
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import time
@@ -214,24 +215,34 @@ def allowance(weight: int) -> tuple[int, int]:
     return steps, BUDGET + round(share * max(0, MAX_BUDGET - BUDGET))
 
 
+#: Of an area's budget, what is kept back for the one call that asks for the names its section
+#: left out (:func:`_say_missing`): about its brief (:data:`MISSING_CHARS` at ~3 characters a
+#: token, with the instructions and the tool) and its answer (:data:`TOKENS`).
+MISSING_RESERVE = 8_000
+
+
 @dataclass
 class Budget:
     """The tokens an area has left, shared by its runs: a retry or a half spends from it too. A
     call is made only while what is left covers one more like the last, so it is never passed.
-    *steps*: the calls one run may make."""
+    *steps*: the calls one run may make. *reserve*: kept back from the steps for the call that
+    asks for the names left out, so that call spends from the area's budget, not past it."""
 
     left: int = field(default_factory=lambda: BUDGET)
     last: int = 0
     steps: int = field(default_factory=lambda: STEPS)
+    reserve: int = 0
 
     @classmethod
     def of(cls, weight: int) -> Budget:
-        """The budget of an area of *weight* (:func:`allowance`)."""
+        """The budget of an area of *weight* (:func:`allowance`), :data:`MISSING_RESERVE` of it
+        kept back."""
         steps, tokens = allowance(weight)
-        return cls(left=tokens, steps=steps)
+        return cls(left=tokens, steps=steps, reserve=min(MISSING_RESERVE, tokens // 4))
 
     def out(self) -> bool:
-        return self.left <= 0 or self.left < self.last
+        free = self.left - self.reserve
+        return free <= 0 or free < self.last
 
     def spend(self, reply: Reply) -> None:
         self.last = reply.tokens_in + reply.tokens_out
@@ -465,11 +476,32 @@ def piece_title(area: Area) -> str:
     return f"{where}, {area.label}" if area.label else where
 
 
+def plain(text: str) -> str:
+    """*text* with HTML entities a model wrote read back (``&amp;`` is ``&``, even escaped
+    twice): a title is plain text, which the page escapes once itself."""
+    for _ in range(3):
+        unescaped = html.unescape(text)
+        if unescaped == text:
+            break
+        text = unescaped
+    return text
+
+
+def short_title(area: Area) -> str:
+    """A short name for *area* from its folders' last parts ("writer, project"), and for a piece
+    which part it is: what the page calls an area it has no section title for, rather than its
+    paths."""
+    names = [f.rsplit("/", 1)[-1] if f else "top folder" for f in area.folders]
+    said = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+    part = re.match(r"part \d+ of \d+", area.label or "")
+    return f"{said or area.id}, {part[0]}" if part else said or area.id
+
+
 def _titled(area: Area, title: str) -> str:
     """*title* as the agent gave it, unless it is no more than the area's id (an agent titles its
     section ``tools.1`` or ``engine-tools``): then what the area covers, its folders and, for a
     piece, its label."""
-    title = title.strip()
+    title = plain(title).strip()
     ids = {area.id, area.id.split("~")[0], area.of} - {""}
     if title and title.lower() not in {i.lower() for i in ids}:
         return title
@@ -503,9 +535,11 @@ async def _say_missing(area: Area, ctx: Context, run: Run, budget: Budget) -> No
     """The names *run*'s section left out, asked for in one small call of their own when there was
     no step or budget left to ask in its conversation: the skeleton's lines for them alone, and
     only ``write_section`` to answer with. Its size is bounded by :data:`MISSING_CHARS` and
-    :data:`TOKENS`, not by what the area spent before, so it is made even past the budget."""
+    :data:`TOKENS`, not by what the area spent before, and it spends what the budget kept back
+    for it (:data:`MISSING_RESERVE`): when nothing is left at all (a retry or a half spent it),
+    it is not made and the names are reported as before."""
     missing = unnamed(area, ctx, [run.section, run.nodes])
-    if not missing or run.section is None:
+    if not missing or run.section is None or budget.left <= 0:
         return
     run.followed = missing
     wanted = set(missing)

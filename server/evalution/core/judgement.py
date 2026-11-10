@@ -53,6 +53,9 @@ class WhyUnjudged(StrEnum):
     #: A turn ended in an error, so there was no reply for the page to show: the try's own turn
     #: check decides it.
     NO_REPLY = "no_reply"
+    #: A step names a tool by a bare name two of the try's MCP servers share: the test has to say
+    #: which (``crm__search``).
+    AMBIGUOUS_TOOL = "ambiguous_tool"
 
 
 class CheckKind(StrEnum):
