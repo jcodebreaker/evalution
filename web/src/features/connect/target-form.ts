@@ -204,6 +204,15 @@ export function bodyOf(form: Form, keep: Record<string, unknown>): TargetBody | 
   };
 }
 
+/** The line a form shows before a save that leaves *keys* behind, naming each; `null` for none. */
+export function leftBehindLine(keys: readonly string[]): string | null {
+  const names = keys.map((key) => (key === "phoenix_api_key" ? "Phoenix API key" : labelOf(key)));
+  const last = names.pop();
+  if (last === undefined) return null;
+  const list = names.length ? `${names.join(", ")} and ${last}` : last;
+  return `Saving won't keep the stored ${list}: it isn't sent to a new address. Type it again to keep it.`;
+}
+
 /** The stored secrets a save of *body* leaves behind: a secret goes only to the hosts it was given
  * for, so a new host needs it typed again. */
 export function secretsLeftBehind(saved: TargetDetail, body: TargetBody): string[] {

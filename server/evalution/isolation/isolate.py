@@ -714,14 +714,14 @@ async def isolate(
     )
     left: list[str] = []
     downed = failed = False
-    lock = TargetLock(config.data_dir, target)
+    lock = TargetLock(config.data_dir, target, "search")
     lock.acquire()
     try:
         stage("start")
         stage("copy")
         if isinstance(copy, ComposeCopy):
             # Held, the lock says no run plays on it: a copy still up is one a server parked.
-            await down_idle(copy.project, config.data_dir)
+            await down_idle(copy.project, config.data_dir, target)
             await copy.start()
             pid = None
         else:
@@ -823,13 +823,13 @@ async def rehearse_plan(
     copy = copy_of(spec, target, slot, work, env={**shut, **(env or {})})
     left: list[str] = []
     downed = failed = False
-    lock = TargetLock(config.data_dir, target)
+    lock = TargetLock(config.data_dir, target, "rehearsal")
     lock.acquire()
     try:
         stage("start")
         stage("copy")
         if isinstance(copy, ComposeCopy):
-            await down_idle(copy.project, config.data_dir)  # parked by a server: idle
+            await down_idle(copy.project, config.data_dir, target)  # parked by a server: idle
         await copy.start()
         adapter = adapter_on(config, target, copy.url)
         run = f"isolation-rehearse-{secrets.token_hex(4)}"

@@ -387,12 +387,15 @@ export function RunConfirm({
   target,
   known = {},
   onClose,
+  onStarting,
   onStarted,
 }: {
   target: RunTarget;
   /** The set's runs and tests as the screen holds them, when it shows that set. */
   known?: Known;
   onClose: () => void;
+  /** Whether a start is asked for and not yet answered: the page's Run buttons wait for it. */
+  onStarting?: (on: boolean) => void;
   onStarted: (run: RunSummary) => void;
 }) {
   const [estimate, setEstimate] = useState<Estimate | null>(target.estimate ?? null);
@@ -458,10 +461,12 @@ export function RunConfirm({
   const start = async () => {
     if (!estimate) return;
     setBusy(true);
+    onStarting?.(true);
     setError(null);
     try {
       onStarted(await api.start(estimate.token));
     } catch (failure) {
+      onStarting?.(false);
       setError(
         failure instanceof ApiError && failure.status === 409
           ? "Another run is going. Wait for it, or stop it."

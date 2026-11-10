@@ -24,6 +24,9 @@ import { useWriter } from "./use-writer";
 export function App() {
   const [place, go] = usePlace();
   const [confirm, setConfirm] = useState<RunTarget | null>(null);
+  // A start asked for and not yet answered: the Run buttons wait for it. A run playing doesn't
+  // hold them: the server queues the next one after it.
+  const [starting, setStarting] = useState(false);
   const workspace = useWorkspace(place);
   const {
     targetList,
@@ -40,7 +43,6 @@ export function App() {
     runLabel,
     testName,
     going,
-    busy,
     goingBenchmark,
     reloadBenchmarkRuns,
   } = workspace;
@@ -66,22 +68,22 @@ export function App() {
   }, [followTarget, followSet, go]);
 
   const runTest = (id: string, name: string) => {
-    if (scope && !busy) setConfirm({ scope, test: { id, name } });
+    if (scope && !starting) setConfirm({ scope, test: { id, name } });
   };
   const runAll = () => {
-    if (scope && !busy) setConfirm({ scope });
+    if (scope && !starting) setConfirm({ scope });
   };
   const runMore = (ids: readonly string[], tries: number) => {
-    if (scope && !busy) setConfirm({ scope, cases: ids, tries });
+    if (scope && !starting) setConfirm({ scope, cases: ids, tries });
   };
   const runSome = (inSet: string, ids: readonly string[]) => {
-    if (target && !busy) setConfirm({ scope: { target, set: inSet }, cases: ids });
+    if (target && !starting) setConfirm({ scope: { target, set: inSet }, cases: ids });
   };
   const runSet = (inSet: string) => {
     if (target) setConfirm({ scope: { target, set: inSet } });
   };
   const runOn = (inSet: string, ref: string) => {
-    if (target && !busy) setConfirm({ scope: { target, set: inSet }, ref });
+    if (target && !starting) setConfirm({ scope: { target, set: inSet }, ref });
   };
   const showRun = (id: string) => go({ view: "runs", run: id, case: null, base: null });
   const showBenchmark = (id: string) => go({ view: "benchmarks", run: id, case: null, base: null });
@@ -90,6 +92,7 @@ export function App() {
   };
   const started = (summary: RunSummary) => {
     const benchmark = confirm ? isBenchmark(confirm.scope.set) : false;
+    setStarting(false);
     setConfirm(null);
     void reloadRuns();
     if (benchmark) {
@@ -202,6 +205,7 @@ export function App() {
             runSome={runSome}
             runSet={runSet}
             runOn={runOn}
+            starting={starting}
             showRun={showRun}
             showGoing={showGoing}
             openTest={openTest}
@@ -215,7 +219,7 @@ export function App() {
             runs={runs}
             runLabel={runLabel}
             testName={testName}
-            going={going !== null}
+            going={starting}
             onClose={() => setWriterOpen(false)}
             onRun={showRun}
             onRunTest={(id) => runTest(id, testName(id))}
@@ -242,6 +246,7 @@ export function App() {
                 : {}
             }
             onClose={() => setConfirm(null)}
+            onStarting={setStarting}
             onStarted={started}
           />
         ) : null}

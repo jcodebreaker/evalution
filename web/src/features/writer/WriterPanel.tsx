@@ -118,7 +118,7 @@ export function WriterPanel({
   runs: readonly RunSummary[];
   runLabel: (run: string) => string;
   testName: (id: string) => string;
-  /** A run is going: Run it waits for it. */
+  /** A run's start is unanswered: Run it waits for it. */
   going: boolean;
   onClose: () => void;
   onRun: (run: string) => void;

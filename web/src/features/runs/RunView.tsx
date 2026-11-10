@@ -49,7 +49,7 @@ export function RunView({
   runs: RunSummary[];
   label: (run: string) => string;
   scopeLabel: string;
-  /** A run is going: run actions wait for it. */
+  /** A run's start is unanswered: run actions wait for it. */
   going: boolean;
   /** The way back: the shell's top bar draws it, so the screen doesn't. */
   onBack?: () => void;

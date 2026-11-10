@@ -84,7 +84,7 @@ describe("The tests list", () => {
     expect(onRun).toHaveBeenCalledWith(ROWS[1]);
   });
 
-  it("keeps the run buttons while a run goes, but they can't start another", () => {
+  it("keeps the run buttons while a start is unanswered, but they can't start another", () => {
     open({ going: true });
     const button = screen.getByRole("button", { name: "Run Finds the right order" });
     expect((button as HTMLButtonElement).disabled).toBe(true);

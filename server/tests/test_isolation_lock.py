@@ -18,8 +18,8 @@ from evalution.runs import isolated
 def test_a_second_holder_is_told_at_once(tmp_path) -> None:
     first = TargetLock(tmp_path, "bot")
     first.acquire()
-    with pytest.raises(Busy, match="in use by another run"):
-        TargetLock(tmp_path, "bot").acquire()
+    with pytest.raises(Busy, match=r"^bot's copy is in use by a run: wait for it or stop it$"):
+        TargetLock(tmp_path, "bot", "search").acquire()
     with TargetLock(tmp_path, "other") as other:  # another target's copies are its own
         assert other.held
     first.release()
@@ -28,6 +28,8 @@ def test_a_second_holder_is_told_at_once(tmp_path) -> None:
     assert not again.held
     with pytest.raises(ValueError, match="not a target name"):
         TargetLock(tmp_path, "../bot")
+    with TargetLock(tmp_path, "bot", "rehearsal"), pytest.raises(Busy, match="by a rehearsal:"):
+        TargetLock(tmp_path, "bot").acquire()
 
 
 @pytest.fixture
@@ -163,15 +165,18 @@ async def test_a_copy_a_server_parked_goes_for_the_command_line_unless_a_run_hol
         async def start(self) -> None:
             events.append(f"start {self.project}")
 
-    async def down_idle(project: str, data_dir) -> bool:
-        events.append(f"down {project}")
+    async def down_idle(project: str, data_dir, app: str | None = None) -> bool:
+        events.append(f"down {project} of {app}")
         return True
 
     monkeypatch.setattr(iso, "copy_of", lambda *a, **k: Parked())
     monkeypatch.setattr(iso, "down_idle", down_idle)
-    with TargetLock(config.data_dir, "bot"), pytest.raises(Busy, match="in use by another run"):
+    with (
+        TargetLock(config.data_dir, "bot"),
+        pytest.raises(Busy, match="bot's copy is in use by a run: wait for it or stop it"),
+    ):
         await iso.rehearse_plan(config, "bot", Plan(target="bot"))
     assert events == []
     plan = await iso.rehearse_plan(config, "bot", Plan(target="bot"))
     assert plan.status == "proven"
-    assert events == ["down eval-bot-0", "start eval-bot-0"]
+    assert events == ["down eval-bot-0 of bot", "start eval-bot-0"]

@@ -8,11 +8,18 @@ import { CopyField } from "../../ui/copy-field";
 import { Input, Select, Textarea } from "../../ui/field";
 import { Spinner } from "../../ui/loading";
 import { Group, GroupHeading } from "../shared/group";
-import { KEY_LEFT_BEHIND } from "../shared/hosts";
 import { Row } from "../shared/Row";
 import { CheckResult } from "./CheckResult";
 import type { Form, TextKey } from "./target-form";
-import { BLANK, bodyOf, formOf, HTTP, labelOf, secretsLeftBehind } from "./target-form";
+import {
+  BLANK,
+  bodyOf,
+  formOf,
+  HTTP,
+  labelOf,
+  leftBehindLine,
+  secretsLeftBehind,
+} from "./target-form";
 import { useCheck } from "./use-check";
 
 /**
@@ -59,10 +66,11 @@ export function TargetFields({
   const secretKeys = http ? ["authorization"] : (info?.secrets ?? []);
   const changing = !!saved && form.adapter !== saved.adapter;
   const asItStands = saved && !fresh ? bodyOf(form, keep) : null;
+  // Named before the save, which stays one click: what it won't keep unless typed again.
   const leavesKey =
     saved && asItStands && typeof asItStands !== "string"
-      ? secretsLeftBehind(saved, asItStands).length > 0
-      : false;
+      ? leftBehindLine(secretsLeftBehind(saved, asItStands))
+      : null;
 
   const body = () => {
     const made = bodyOf(form, keep);
@@ -256,7 +264,11 @@ export function TargetFields({
         </Group>
       </section>
 
-      {leavesKey ? <p className="m-0 text-sm text-ink-2">{KEY_LEFT_BEHIND}</p> : null}
+      {leavesKey ? (
+        <p className="m-0 text-sm text-ink-2" data-testid="left-behind">
+          {leavesKey}
+        </p>
+      ) : null}
       {checker.check ? <CheckResult check={checker.check} /> : null}
       {checker.error || error ? (
         <p className="m-0 text-sm text-fail">{checker.error ?? error}</p>

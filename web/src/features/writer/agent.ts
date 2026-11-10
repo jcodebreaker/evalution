@@ -26,31 +26,52 @@ function store(scope: Scope, id: string | null) {
   }
 }
 
+type Waiting = { text: string; run?: string; learn?: boolean };
+const NONE: readonly Waiting[] = [];
+
 /**
  * The app's test writer thread: the open one is remembered per app, followed while the writer
- * works, and opened on the first ask. A message written while the agent works waits here
- * and is sent as soon as it stops.
+ * works, and opened on the first ask. A message written while the agent works waits here, kept
+ * per app like the draft, and is sent as soon as that app's agent stops.
  */
 export function useAgent(scope: Scope | null) {
   const [session, setSession] = useState<AgentSession | null>(null);
-  const [queued, setQueued] = useState<{ text: string; run?: string; learn?: boolean }[]>([]);
+  const [queues, setQueues] = useState<Record<string, readonly Waiting[]>>({});
   const key = scope?.target ?? null;
+  const queued = (key && queues[key]) || NONE;
+  /** The app whose thread is read: until it is, what waits for that app isn't sent. */
+  const [readFor, setReadFor] = useState<string | null>(null);
   const current = useRef(key);
   current.current = key;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
 
+  const setQueued = useCallback(
+    (app: string | null, change: (now: readonly Waiting[]) => readonly Waiting[]) => {
+      if (app) setQueues((all) => ({ ...all, [app]: change(all[app] ?? NONE) }));
+    },
+    [],
+  );
+
   useEffect(() => {
     setSession(null);
-    setQueued([]);
+    setReadFor(null);
     const asked = scopeRef.current;
     const id = asked ? stored(asked) : null;
-    if (!asked || !id) return;
+    if (!asked || !id) {
+      setReadFor(key);
+      return;
+    }
     api.agent.session(id).then(
       (found) => {
-        if (current.current === key) setSession(found);
+        if (current.current !== key) return;
+        setSession(found);
+        setReadFor(key);
       },
-      () => store(asked, null),
+      () => {
+        store(asked, null);
+        if (current.current === key) setReadFor(key);
+      },
     );
   }, [key]);
 
@@ -59,17 +80,20 @@ export function useAgent(scope: Scope | null) {
     const asked = scopeRef.current;
     if (asked) store(asked, null);
     setSession(null);
-    setQueued([]);
-  }, []);
+    setQueued(current.current, () => NONE);
+  }, [setQueued]);
 
   /** Back to an earlier thread of this app. */
-  const openChat = useCallback(async (id: string) => {
-    const asked = scopeRef.current;
-    const found = await api.agent.session(id);
-    if (asked) store(asked, id);
-    setQueued([]);
-    setSession(found);
-  }, []);
+  const openChat = useCallback(
+    async (id: string) => {
+      const asked = scopeRef.current;
+      const found = await api.agent.session(id);
+      if (asked) store(asked, id);
+      setQueued(asked?.target ?? null, () => NONE);
+      setSession(found);
+    },
+    [setQueued],
+  );
 
   const refresh = useCallback(async () => {
     if (!session) return;
@@ -95,23 +119,23 @@ export function useAgent(scope: Scope | null) {
    * agent; it isn't part of what the person said. `learn`: it asks to learn the app. */
   const ask = useCallback(
     async (text: string, run?: string, learn?: boolean) => {
-      if (working) setQueued((now) => [...now, { text, run, learn }]);
+      if (working) setQueued(key, (now) => [...now, { text, run, learn }]);
       else await sendNow(text, run, learn);
     },
-    [working, sendNow],
+    [working, sendNow, key, setQueued],
   );
 
-  // The agent stopped working: send what waited, one message at a time.
-  const sending = useRef(false);
+  // This app's agent stopped working, its thread read: send what waited, one message at a time.
+  const [sending, setSending] = useState(false);
   useEffect(() => {
     const next = queued[0];
-    if (working || next === undefined || sending.current) return;
-    sending.current = true;
+    if (working || next === undefined || sending || readFor !== key) return;
+    setSending(true);
     sendNow(next.text, next.run, next.learn).finally(() => {
-      sending.current = false;
-      setQueued((now) => now.slice(1));
+      setSending(false);
+      setQueued(key, (now) => now.slice(1));
     });
-  }, [working, queued, sendNow]);
+  }, [working, queued, sending, readFor, key, sendNow, setQueued]);
 
   /** The admin takes the suggestion on a flagged rubric line of a plan, before approving it. */
   const swapLine = useCallback(
@@ -146,9 +170,9 @@ export function useAgent(scope: Scope | null) {
 
   const stop = useCallback(async () => {
     if (!session) return;
-    setQueued([]);
+    setQueued(key, () => NONE);
     setSession(await api.agent.stop(session.id));
-  }, [session]);
+  }, [session, key, setQueued]);
 
   return { session, queued, ask, approve, swapLine, adopt, refresh, stop, newChat, openChat };
 }

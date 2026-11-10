@@ -268,3 +268,46 @@ it("reads no runs or tests again when the screen holds the set's already", async
   expect(runs).not.toHaveBeenCalled();
   expect(cases).not.toHaveBeenCalled();
 });
+
+it("holds the Run buttons only while the start is unanswered, not while a run plays", async () => {
+  let answer: (value: Response) => void = () => undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string) =>
+      path.startsWith("/v1/evals/runs") && !path.includes("?")
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : Promise.resolve(
+            new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
+          ),
+    ),
+  );
+  const onStarting = vi.fn();
+  const estimate = EstimateSchema.parse({
+    token: "t",
+    cases: 1,
+    tries: 1,
+    chats: 1,
+    plays: [{ how: "api", cases: ["a"], seconds: 5, text: "" }],
+  });
+  render(
+    <RunConfirm
+      target={{
+        scope: { target: "relay-lite", set: "main" },
+        test: { id: "a", name: "A" },
+        estimate,
+      }}
+      onClose={vi.fn()}
+      onStarting={onStarting}
+      onStarted={vi.fn()}
+    />,
+  );
+  const go = await screen.findByRole("button", { name: "Run 1 test" });
+  await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+  expect(onStarting).not.toHaveBeenCalled();
+  fireEvent.click(go);
+  expect(onStarting.mock.calls).toEqual([[true]]);
+  answer(new Response(JSON.stringify({ detail: "no" }), { status: 500 }));
+  await waitFor(() => expect(onStarting.mock.calls).toEqual([[true], [false]]));
+});

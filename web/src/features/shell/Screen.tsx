@@ -36,6 +36,7 @@ export function Screen({
   runSome,
   runSet,
   runOn,
+  starting,
   showRun,
   showGoing,
   openTest,
@@ -53,6 +54,8 @@ export function Screen({
   runSet: (inSet: string) => void;
   /** The Run dialog for a set, on a version other than what's on disk. */
   runOn?: (inSet: string, ref: string) => void;
+  /** A run's start is asked for and not yet answered: the Run buttons wait for it. */
+  starting: boolean;
   showRun: (id: string) => void;
   showGoing: () => void;
   openTest: (id: string, inRun?: string) => void;
@@ -76,7 +79,6 @@ export function Screen({
     runs,
     runLabel,
     scopeLabel,
-    busy,
   } = workspace;
   const { agent, ask, startLearn, setWriterOpen, setWriterDraft } = writer;
   const { row, testRun, detail, reloadDetail, file, reloadFile, testLive } = shown;
@@ -188,7 +190,7 @@ export function Screen({
         lastRunAt={runs[0]?.started_at ?? null}
         tests={rows.length}
         stamp={runs[0]?.run ?? ""}
-        going={busy}
+        going={starting}
         runLabel={runLabel}
         onRunAll={runAll}
         onRunSome={runSome}
@@ -217,7 +219,7 @@ export function Screen({
         live={testLive}
         runLabel={runLabel}
         stale={row?.stale ?? null}
-        going={busy}
+        going={starting}
         back={
           fromRun
             ? { label: runLabel(place.run ?? ""), onClick: () => go({ case: null }) }
@@ -243,7 +245,7 @@ export function Screen({
         runs={runs}
         label={runLabel}
         scopeLabel={summary ? scopeLabel(summary) : ""}
-        going={busy}
+        going={starting}
         onBack={() => nav({ view: "runs" })}
         onBase={(id) => go({ base: id })}
         onTest={(id) => go({ case: id })}
@@ -270,7 +272,7 @@ export function Screen({
         label={runLabel}
         onOpen={(id, test) => go({ run: id, case: test })}
         {...benchmarks}
-        empty={rows.length ? <RunAll going={busy} onGoing={showGoing} onRun={runAll} /> : null}
+        empty={rows.length ? <RunAll going={starting} onGoing={showGoing} onRun={runAll} /> : null}
       />
     );
   }
@@ -279,7 +281,7 @@ export function Screen({
       scope={scope}
       rows={rows}
       passMarks={passMarks}
-      going={busy}
+      going={starting}
       onAsk={ask}
       onPassMarks={reloadSets}
       onGoing={showGoing}

@@ -7,6 +7,7 @@ fake that answers what was asked of it."""
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -149,7 +150,7 @@ async def test_a_runs_compose_copies_are_labelled_and_left_copies_swept_first(
 
 
 async def test_an_idle_copy_of_this_data_folders_evalution_is_taken_down_and_no_other(
-    docker, tmp_path: Path
+    docker, tmp_path: Path, caplog
 ) -> None:
     # A server of this data folder runs and parked its copy: its owner file is there, held.
     server = "0123456789abcdef"
@@ -161,9 +162,14 @@ async def test_an_idle_copy_of_this_data_folders_evalution_is_taken_down_and_no_
         ("eval-bare-0", ""),  # no owner label: not known to be evalution's
         ("eval-other-0", "aaaaaaaaaaaaaaaa"),  # another data folder's
     ]
-    assert await launch.down_idle("eval-shop-0", tmp_path)
-    for project in ("eval-bare-0", "eval-other-0", "eval-none-0"):
-        assert not await launch.down_idle(project, tmp_path)
+    with caplog.at_level(logging.WARNING, logger="evalution.isolation.launch"):
+        assert await launch.down_idle("eval-shop-0", tmp_path, "shop")
+        for project in ("eval-bare-0", "eval-other-0", "eval-none-0"):
+            assert not await launch.down_idle(project, tmp_path)
     assert docker.removed == ["eval-shop-0"]
+    # The command line says what it did, so the server's next run starting a new copy is no news.
+    assert [r.getMessage() for r in caplog.records] == [
+        "evals: took down the server's idle copy of shop to start this one"
+    ]
     with pytest.raises(LaunchError, match="isn't evalution's"):
         await launch.down_idle("shop", tmp_path)

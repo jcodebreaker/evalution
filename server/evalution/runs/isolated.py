@@ -502,7 +502,7 @@ class Copies:
         if isinstance(copy, ComposeCopy):
             # Another process's parked copy (this one's were reused or taken down): idle, as
             # the lock held says, so it goes.
-            await down_idle(copy.project, self.config.data_dir)
+            await down_idle(copy.project, self.config.data_dir, self.target)
         await slot.copy.start()
         roots = roots_of(slot.copy, self.spec)
         slot.drivers = await stores_on(

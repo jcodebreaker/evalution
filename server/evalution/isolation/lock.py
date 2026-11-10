@@ -29,13 +29,21 @@ class Busy(LaunchError):
     """Another run, rehearsal or search holds the target's copies."""
 
 
-class TargetLock:
-    """The lock on *target*'s copies in *data_dir* (see the module's docstring)."""
+#: What may hold the lock, written in its file beside the pid so a second holder is told which.
+HOLDERS = ("run", "rehearsal", "search")
 
-    def __init__(self, data_dir: Path, target: str) -> None:
+
+class TargetLock:
+    """The lock on *target*'s copies in *data_dir* (see the module's docstring), held by a
+    *holder* of :data:`HOLDERS`."""
+
+    def __init__(self, data_dir: Path, target: str, holder: str = "run") -> None:
         if not _TARGET.match(target):
             raise ValueError(f"not a target name: {target!r}")
+        if holder not in HOLDERS:
+            raise ValueError(f"not a holder: {holder!r}")
         self.target = target
+        self.holder = holder
         self.path = data_dir / "isolation" / target / "copy.lock"
         self._fd: int | None = None
 
@@ -57,12 +65,19 @@ class TargetLock:
         except OSError as exc:
             os.close(fd)
             raise Busy(
-                f"{self.target}'s copy of the app is in use by another run, rehearsal or search "
-                "(here or from the command line): try again when it ends"
+                f"{self.target}'s copy is in use by a {self._holder()}: wait for it or stop it"
             ) from exc
         os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()}\n".encode())
+        os.write(fd, f"{os.getpid()} {self.holder}\n".encode())
         self._fd = fd
+
+    def _holder(self) -> str:
+        """Who holds the lock, as its file says; all three when it doesn't say (yet)."""
+        try:
+            said = self.path.read_text().split()
+        except OSError:
+            said = []
+        return said[1] if len(said) > 1 and said[1] in HOLDERS else "run, rehearsal or search"
 
     def release(self) -> None:
         """Let it go; nothing when not held."""
