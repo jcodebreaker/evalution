@@ -53,7 +53,15 @@ from evalution.config import TargetConfig
 from evalution.core import net
 from evalution.core.case import MOST_TRIES, Case, EvalSet
 from evalution.core.evidence import VIDEO, Failure, TraceStatus, TryEvidence, is_shot
-from evalution.core.judgement import CheckKind, Decider, JudgeStamp, Outcome, Verdict, WhyUnjudged
+from evalution.core.judgement import (
+    CheckKind,
+    CheckResult,
+    Decider,
+    JudgeStamp,
+    Outcome,
+    Verdict,
+    WhyUnjudged,
+)
 from evalution.core.rules import (
     ADAPTER_BROKEN,
     APP_NOT_READY,
@@ -68,7 +76,7 @@ from evalution.core.rules import (
 )
 from evalution.core.version import DISK, Checkout, asked, described, unstarted
 from evalution.isolation.setup import setup_for
-from evalution.judging import labels
+from evalution.judging import labels, vision
 from evalution.judging.checks import code_checks
 from evalution.judging.claims import index_of
 from evalution.judging.memory import grade_memory, with_fold
@@ -779,10 +787,18 @@ class Runs:
         if attempt is None or not _to_grade(doc, evidence):
             return None
         before = current(attempt)
-        code = [c for c in before.checks if c.decided_by is Decider.CODE]
+        # The code's checks stand, and so do the questions about its screenshots: a passed try's
+        # screenshots may be gone, and only its reply is graded again.
+        code = [
+            c
+            for c in before.checks
+            if c.decided_by is Decider.CODE or c.kind is CheckKind.PAGE_LOOK
+        ]
         graded = await self._graded_again(doc, attempt, evidence, caller)
         if any(c.unjudged is WhyUnjudged.JUDGE_FAILED for c in graded.checks):
             return False
+        if before.judge is not None and before.judge.look_hash:
+            stamp = stamp.model_copy(update={"look_hash": before.judge.look_hash})
         add_judgement(attempt, judgement([*code, *graded.checks], stamp, before.route))
         if graded.retried:
             attempt.setdefault("retried", []).append({"what": "grader", "why": graded.retried})
@@ -1113,6 +1129,8 @@ class Runs:
                         if isinstance(adapter, PageTarget):
                             # What the try keeps of the page: the test's own proof over the map's.
                             adapter.prove(case.page_proof)
+                            # And the elements its UI checks look for after each turn.
+                            adapter.look_for((*case.shows, *case.hides))
                         if index not in sessions:
                             sessions[index] = await _in_time("open a session", adapter.open(key))
                             opened()
@@ -1467,6 +1485,26 @@ class Runs:
         doc["totals"] = totals(doc)
         await asyncio.shield(self._save(doc))
 
+    async def _looks(
+        self, doc: Mapping[str, Any], case: Case, evidence: TryEvidence, n: int
+    ) -> list[CheckResult]:
+        """The test's questions about how the page looks (``page.looks``), each asked of its
+        turn's screenshot in the try's files by the set's grader model."""
+        if not case.looks:
+            return []
+        key = doc["judge"]["key"]
+        files, run = self.store.files, doc["run"]
+
+        def shot(name: str) -> bytes | None:
+            if files is None:
+                return None
+            with files.open(run, case.case, n, name) as found:
+                return found.read()
+
+        looker = self.llm.looker(key) if self.llm else None
+        model = self.llm.model_id(key) if self.llm else None
+        return await vision.look_checks(case, evidence, looker, model, shot)
+
     async def _drop_passed_proof(self, run: str, evidence: TryEvidence, outcome: Outcome) -> None:
         """Delete a passed try's video, and its screenshots, when its proof keeps them only when
         a try fails. Its evidence still names the files; the try view says why there are none."""
@@ -1572,12 +1610,16 @@ class Runs:
         memory = await grade_memory(
             grader, evidence.memory, evidence.model_calls, _last_turn(evidence)
         )
-        checks = [*code.checks, *graded.checks]
+        looked = await self._looks(doc, case, evidence, n)
+        checks = [*code.checks, *graded.checks, *looked]
         graded_by = (
             JudgeStamp.model_validate(doc["judge"])
             if any(c.decided_by is Decider.MODEL for c in checks)
             else None
         )
+        if graded_by is not None and any(c.unjudged is not WhyUnjudged.NO_PAGE_MAP for c in looked):
+            # Questions about a screenshot were asked by prompts of their own: stamped beside.
+            graded_by = graded_by.model_copy(update={"look_hash": vision.PROMPT_HASH})
         found = judgement(checks, graded_by, code.route)
         await self._drop_passed_proof(doc["run"], evidence, found.outcome)
         attempt = {

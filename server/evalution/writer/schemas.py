@@ -24,6 +24,47 @@ _NEW_STORE = {
     "required": ["id", "kind", "locator"],
 }
 
+#: Where an element is looked for, and on which turn: a page check's element (decided by code).
+_ELEMENT = {
+    "type": "object",
+    "description": "Found as a person finds it: role and accessible name, a test id, or its text",
+    "properties": {
+        "role": {"type": "string"},
+        "name": {"type": "string"},
+        "test_id": {"type": "string"},
+        "text": {"type": "string"},
+        "within": {"type": "string", "enum": ["reply", "page"]},
+        "count": {
+            "type": ["integer", "object"],
+            "description": "How many: a number, or {min, max}",
+            "properties": {"min": {"type": "integer"}, "max": {"type": "integer"}},
+        },
+        "turn": {"type": "integer"},
+    },
+}
+#: A test's checks of what its page showed (played through the page, with an approved map).
+PAGE_CHECKS = {
+    "type": "object",
+    "description": (
+        "What each turn's page showed. shows/hides: elements, decided by code: use them whenever "
+        "the element has a role and name, a test id or text. looks: a yes/no question about a "
+        "turn's screenshot, read by a vision model, only for what has none (an image, a colour, "
+        "a layout). Without a page map they are saved and wait for the page to be learned."
+    ),
+    "properties": {
+        "shows": {"type": "array", "items": _ELEMENT},
+        "hides": {"type": "array", "items": _ELEMENT},
+        "looks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"question": {"type": "string"}, "turn": {"type": "integer"}},
+                "required": ["question"],
+            },
+        },
+    },
+}
+
 _PLAN_SCHEMA = {
     "type": "object",
     "description": "When you propose a case: what it does and its tries.",
@@ -56,6 +97,7 @@ _PLAN_SCHEMA = {
                 "any change is a new plan. Leave limits.seconds out unless the admin named a "
                 "time: the plan fills it in from how long messages take here."
             ),
+            "properties": {"page": PAGE_CHECKS},
         },
     },
     "required": ["steps", "tries", "case", "file"],
@@ -544,7 +586,9 @@ TOOLS = [
         "Say something to the admin. The only way to speak. plan: when you propose a "
         "case. run: a run this message is about. review: after reading a run. isolation: the id "
         "of an isolation proposal to show for approval (its changes are added in words). "
-        "page_map: the id of a page map proposal to show for approval (added in words).",
+        "page_map: the id of a page map proposal to show for approval (added in words). "
+        "learn_page: true gives the admin one button to learn the page now, when the target "
+        "has no page map; a plan with page checks gets it without asking.",
         {
             "text": _STR,
             "plan": _PLAN_SCHEMA,
@@ -552,6 +596,7 @@ TOOLS = [
             "review": _REVIEW_SCHEMA,
             "isolation": _STR,
             "page_map": _STR,
+            "learn_page": {"type": "boolean"},
         },
         ["text"],
     ),

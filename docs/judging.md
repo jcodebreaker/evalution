@@ -12,7 +12,7 @@ The arrows go one way. Nothing downstream changes an outcome: a model's reading 
 
 **Code:** whether the expected steps happened, `never`, limits, state and context checks, the reply's exact words (`reply.contains`, `reply.lacks`), what tools returned (`tools.results`), what the app's page showed (below), why something couldn't be judged, the verdict, what can be compared, regressions and counts.
 
-**A model:** rubric lines, the reference score, and, as its reading only, the cause, the fix and where it suspects the fault is (`app`, `test` or `unclear`). `flaky` and "the setup failed" aren't its to say: the code knows those.
+**A model:** rubric lines, the reference score, the test's yes/no questions about a turn's screenshot (`page.looks`, below), and, as its reading only, the cause, the fix and where it suspects the fault is (`app`, `test` or `unclear`). `flaky` and "the setup failed" aren't its to say: the code knows those.
 
 ## One try
 
@@ -65,8 +65,17 @@ A target may play its tries through the app's own page as well as its API (ADR 0
 | `shown:<turn>` | `shown` | The turn's reply appears among what the page's replies showed after it, both read without Markdown's marks, links' targets, list numbers and table bars, spacing and case aside | The reply never showed (the check quotes what showed instead), or something else did. Not judged, `no_reply`, when the turn ended in an error: there was no reply to show |
 | `shown:contains:<i>`, `shown:lacks:<i>` | `shown` | The test's `page.contains` words are in what showed of the last reply, and its `page.lacks` words aren't | Otherwise. A reply that never showed fails both, as an empty reply does. A try cut short has none |
 | `page_health` | `page_health` | No console error and no failed request to the copy over the whole try | Any: the first few are cited (`console:<n>`, `request:<n>`). A warning is kept and decides nothing |
+| `element:shows:<i>` | `page_element` | The test's `page.shows` element is there, visible, as many times as its `count` asks (at least once by default): under the turn's reply, as the page map finds replies, or anywhere on the page (`within`). After its `turn`, or after every message turn that had a reply | It isn't, on the first turn it isn't: "no button named 'Thumbs up' under turn 2's reply; nearest: button 'Copy'", or "found 3 …, wanted exactly 1". A reply that never showed has nothing under it, and fails |
+| `element:hides:<i>` | `page_element` | The test's `page.hides` element isn't visible there | It is: "found 1 … under turn 2's reply, which must not show" |
+| `look:<i>` | `page_look` | A model shown the turn's screenshot answers the test's `page.looks` question yes. Decided by a **model**, and its one-sentence reason is the check's | It answers no |
 
-Each message turn with a reply gets a `shown` check, and every page try one `page_health`. They are guides, shown like steps that don't bind, unless the test sets `"page": {"decides": true}`. A try played through the API alone has none of them, whatever its test says. A `shown` pass doesn't make a pass `checked`: it shows the reply reached the person, not that it was right.
+Each message turn with a reply gets a `shown` check, and every page try one `page_health`. They are guides, shown like steps that don't bind, unless the test sets `"page": {"decides": true}`, and so are the test's own UI checks (`shows`, `hides`, `looks`). A try played through the API alone has none of the page's checks, whatever its test says. A `shown` pass doesn't make a pass `checked`: it shows the reply reached the person, not that it was right.
+
+**UI checks** (`page.shows`, `page.hides`, `page.looks`) are one check each. An element is read by code, in the browser, after its turn's reply settled and before the turn's screenshot: how many are visible, and when none is, the three elements there most like it (same role first, then the closest name, from the page's accessibility tree). Those readings are kept with the try (`page.turns[].elements`), so a kept try is judged again the same way without a browser; a test that changed an element since has nothing read for it, and the check isn't judged (`not_supported`). A turn that ended in an error, or a try that ended before the turn, isn't judged (`no_reply`).
+
+A look question goes to the set's grader model with the turn's screenshot as an image (the last message turn's when it names none), asking for `{"answer": "yes" | "no" | "unsure", "reason"}`. `unsure` is never a pass or a fail: not judged, `judge_unsure`, with the model's reason. An answer that doesn't read twice, or a failed call, is `judge_failed`; a model that refuses images is `no_vision` ("the grader model can't read images"); a turn with no screenshot kept (screenshots `off`, say) is `no_screenshot`. Answers are kept in memory by the screenshot's hash, the question and the model, so asking again costs nothing. The judgement's stamp says which prompt asked (`judge.look_hash`, beside `prompt_hash`). Grading a run again (`--judge`) grades its replies, and keeps its look answers as they were: a passed try's screenshots may be gone.
+
+On a try played through the API alone, because its target has no approved page map yet, a test's UI checks are each not judged, `no_page_map` ("the page hasn't been learned yet"), and are guides whatever `page.decides` says: the rest of the test still plays through the API and decides the try. A test with UI checks is saved whether or not its target has a page map (draft first, learn after: the test writer offers to learn the page); only a test that says itself it plays through the API alone (`"plays": "api"`) is refused: "UI checks need the test to play through the page".
 
 A try's view says which **layer** held, from its check kinds, guides included: `stored` (state checks), `answered` (the reply's words and context checks) and `shown` (the page's). Each is `fail` when any of its checks failed, else `unjudged` when any couldn't be judged, else `pass`, or `absent` with none. "Remembered and answered, and the person never saw it" is stored `pass`, answered `pass`, shown `fail`.
 
@@ -91,6 +100,9 @@ A try's view says which **layer** held, from its check kinds, guides included: `
 | `grader_unreliable` | The grader passed a rubric line a person found it too often wrong on (below). |
 | `page_map` | Playing through the app's page, an element its page map names wasn't there (ADR 0010). The map is off, not the app or the adapter, and every try would meet the same: the run ends there. |
 | `no_reply` | A page check of a turn that ended in an error: there was no reply for the page to show. The turn's own check decides the try. |
+| `no_screenshot` | A question about how the page looks (`page.looks`), and no screenshot of its turn was kept to show the model. |
+| `no_vision` | A question about how the page looks, and the grader's model can't read images. Labelled *Grader unavailable*. |
+| `no_page_map` | A UI check (`page.shows`, `hides`, `looks`) on a try played through the API alone, because its target has no approved page map yet: the page hasn't been learned yet. Not `page_map`, which is a map the page doesn't match. |
 
 An app error is not on this list: the app did that, and the try failed. Failed work is the same, with the app's own reason when it gives one. An exception out of `send` isn't an app error: it is the adapter's, and reads as such, unless it is the session going away, the app not being there, or running out of time.
 
@@ -189,7 +201,7 @@ When the test writer shows a plan, its rubric lines are tried first, so a line t
 
 ## When a person disagrees
 
-On a try's page, each rubric line the grader decided takes an answer: agree or disagree (`a` or `d` on the focused line). An answer is a labelled example, kept in the workspace under the line's identity, the hash of its words (lines have no id, and a line reworded is another line), with the run, the test, the try, what the grader said then and what it says now.
+On a try's page, each rubric line the grader decided takes an answer: agree or disagree (`a` or `d` on the focused line). An answer is a labelled example, kept in the workspace under the line's identity, the hash of its words (lines have no id, and a line reworded is another line), with the run, the test, the try, what the grader said then and what it says now. A question about how the page looks (`page.looks`) takes an answer the same way, by its check's id (`look:<i>`, sent with the try as `agreement["look:<i>"]`), kept under the hash of its question apart from any rubric line; its agreement is shown, and it never holds back a try's pass.
 
 A line's **agreement** is how many of its labelled tries the grader matched the person on: "3/4". With at least 3 labels and fewer than 2 in 3 agreed (`judging/agreement.py`), the grader is **unreliable** on that line: its passes on it, in every run of the set, are unjudged, `grader_unreliable`, so they count neither way, in totals and comparisons alike, where the test says "grader unreliable here". Its fails stand: a real failure beats a doubtful grader. Each change adds a judgement, as a regrade does; agreement back over the bar gives the passes back.
 
@@ -207,7 +219,7 @@ evalution doesn't track, estimate or show what model calls cost: a run's confirm
 
 Each try is kept in the database as an entry of its run's evidence: the whole transcript including generated messages, tool arguments and results, what each model call was sent and said, and every state check. An item over 64 KB keeps its head and tail, how much was left out, and a hash of the whole.
 
-A try played through the page also keeps what it showed (`page`): for each turn, what the page showed, when the reply appeared, what showed instead when it didn't, and its screenshot; the page's console errors and warnings and its failed requests to the copy (method, path without its query, status or no answer), the first 200 of each; the names of its screenshots and video, which are kept beside the run (`<data_dir>/files`) and deleted with it; why a video is missing; and whether the try was cut short. A try played through the API alone has no `page`.
+A try played through the page also keeps what it showed (`page`): for each turn, what the page showed, when the reply appeared, what showed instead when it didn't, its screenshot, and what was read of each element the test's UI checks look for (`elements`: `{key, count, scope, nearest, error}`); the page's console errors and warnings and its failed requests to the copy (method, path without its query, status or no answer), the first 200 of each; the names of its screenshots and video, which are kept beside the run (`<data_dir>/files`) and deleted with it; why a video is missing; and whether the try was cut short. A try played through the API alone has no `page`.
 
 The grader reads it through one function with a budget of about 24,000 characters. State and check lines, the reference and the rubric are never cut. Other items keep their head and tail with a visible `[3,200 chars cut]`, and how much was cut is recorded on the check.
 

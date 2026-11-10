@@ -29,6 +29,7 @@ model is falsy.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -57,6 +58,53 @@ _CACHED = {"type": "ephemeral"}
 
 #: ``(instructions=, input_text=) -> text``: one plain model call.
 Caller = Callable[..., Awaitable[str]]
+#: ``(instructions=, input_text=, image=, media_type=) -> text``: one model call shown an image.
+Looker = Callable[..., Awaitable[str]]
+#: The most a question about an image is answered in: one short JSON object.
+LOOK_TOKENS = 1_024
+
+
+def image_block(data: bytes, media_type: str = "image/png") -> dict[str, Any]:
+    """An image in a provider-neutral message's content: ``{"type": "image", "media_type",
+    "data"}``, its bytes in base64. :func:`anthropic_body` and :func:`openai_body` say it each
+    provider's way."""
+    return {
+        "type": "image",
+        "media_type": media_type,
+        "data": base64.b64encode(data).decode("ascii"),
+    }
+
+
+def _anthropic_content(content: Any) -> Any:
+    """A user message's content as the messages API takes it: text as it is; a list of blocks
+    with each image a base64 ``image`` block."""
+    if not isinstance(content, list):
+        return content
+    return [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": b["media_type"], "data": b["data"]},
+        }
+        if b.get("type") == "image"
+        else b
+        for b in content
+    ]
+
+
+def _openai_content(content: Any) -> Any:
+    """A user message's content as chat completions take it: text as it is; a list of parts with
+    each image an ``image_url`` part holding a data URI."""
+    if not isinstance(content, list):
+        return content
+    return [
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{b['media_type']};base64,{b['data']}"},
+        }
+        if b.get("type") == "image"
+        else b
+        for b in content
+    ]
 
 
 #: The model key that grades, by default.
@@ -73,9 +121,29 @@ class LLMError(RuntimeError):
     :param transient: It might work in a moment: the network or the provider's side, not a refusal.
     """
 
-    def __init__(self, message: str, *, transient: bool = False) -> None:
+    def __init__(self, message: str, *, transient: bool = False, status: int | None = None) -> None:
         super().__init__(message)
         self.transient = transient
+        #: The HTTP status the provider refused the call with, when it did.
+        self.status = status
+
+
+#: How a provider says a model takes no images: in the error it answers a call that sends one.
+_NO_IMAGES = re.compile(
+    r"image|vision|multi-?modal|modalit|content type|image_url|does not support",
+    re.IGNORECASE,
+)
+
+
+def cant_read_images(exc: Exception) -> bool:
+    """Whether *exc* is the provider refusing a call because its model can't read the image sent:
+    a refusal (400, 404, 415, 422) that says so, never a passing failure."""
+    return (
+        isinstance(exc, LLMError)
+        and not exc.transient
+        and exc.status in (400, 404, 415, 422)
+        and bool(_NO_IMAGES.search(str(exc)))
+    )
 
 
 class _Cut(Exception):
@@ -142,6 +210,21 @@ class LLM:
             return reply.text
 
         return call
+
+    def looker(self, key: str) -> Looker:
+        """A call on model *key* that shows it one image with a text, the shape a question about
+        a screenshot takes (:mod:`evalution.judging.vision`)."""
+
+        async def look(
+            *, instructions: str, input_text: str, image: bytes, media_type: str = "image/png"
+        ) -> str:
+            content = [image_block(image, media_type), {"type": "text", "text": input_text}]
+            reply = await self.chat(
+                key, instructions, [{"role": "user", "content": content}], max_tokens=LOOK_TOKENS
+            )
+            return reply.text
+
+        return look
 
     async def chat(
         self,
@@ -237,7 +320,7 @@ class LLM:
                         raise _Cut(f"the model's gateway timed out (504): {text[:200]}")
                     if response.status_code == 429 or response.status_code >= 500:
                         raise _Busy(said)
-                    raise LLMError(said)
+                    raise LLMError(said, status=response.status_code)
                 if "event-stream" not in response.headers.get("content-type", ""):
                     data = json.loads(await response.aread())
                     return read_anthropic(data) if anthropic else read_openai(data)
@@ -305,7 +388,7 @@ def anthropic_body(
             ]
             out.append({"role": "assistant", "content": blocks or [{"type": "text", "text": "…"}]})
         else:
-            out.append({"role": "user", "content": message["content"]})
+            out.append({"role": "user", "content": _anthropic_content(message["content"])})
     body: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
@@ -355,7 +438,10 @@ def openai_body(
                 }
             )
         else:
-            out.append({k: v for k, v in message.items() if k != "tool_calls"})
+            kept = {k: v for k, v in message.items() if k != "tool_calls"}
+            if message["role"] == "user":
+                kept["content"] = _openai_content(message["content"])
+            out.append(kept)
     body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": out}
     if tools:
         body["tools"] = [{"type": "function", "function": dict(t)} for t in tools]

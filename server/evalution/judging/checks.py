@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from evalution.core.case import Case
+from evalution.core.case import Case, UiElement
 from evalution.core.evidence import (
     Failure,
     ModelCallRecord,
@@ -395,8 +395,10 @@ def _page_health(page: PageRecord, role: Role) -> CheckResult:
 
 def page_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
     """What the page showed, on a try played through it (ADR 0010): each message turn's reply
-    showed, the test's own words, and the page's health. A guide unless the test says the page
-    decides (``page.decides``). A try played through the API alone has none."""
+    showed, the test's own words, the elements it must show and must not (``page.shows``,
+    ``page.hides``), and the page's health. A guide unless the test says the page decides
+    (``page.decides``). A try played through the API alone has none (its UI checks are
+    :func:`ui_without_page`'s)."""
     if evidence.page is None:
         return []
     role = Role.MUST if case.page_decides else Role.GUIDE
@@ -406,7 +408,180 @@ def page_checks(case: Case, evidence: TryEvidence) -> list[CheckResult]:
         if turn.kind == "message" and (check := _shown_check(evidence, at, role))
     ]
     found += _shown_words(case, evidence, role)
+    found += element_checks(case, evidence, role)
     found.append(_page_health(evidence.page, role))
+    return found
+
+
+#: Why a test's UI checks weren't judged on a try played through the API alone.
+NO_PAGE_MAP = "the page hasn't been learned yet"
+
+
+def ui_without_page(case: Case, evidence: TryEvidence) -> list[CheckResult]:
+    """A test's UI checks on a try played through the API alone, as when its target has no
+    approved page map yet: each not judged (``no_page_map``), and a guide whatever ``page.decides``
+    says, so the rest of the test still decides the try. ``look:<i>`` included, as no model is
+    asked."""
+    if evidence.page is not None:
+        return []
+    ids = [f"element:shows:{i}" for i in range(len(case.shows))]
+    ids += [f"element:hides:{i}" for i in range(len(case.hides))]
+    found = [
+        _code(
+            id_,
+            CheckKind.PAGE_ELEMENT,
+            Outcome.UNJUDGED,
+            NO_PAGE_MAP,
+            role=Role.GUIDE,
+            unjudged=WhyUnjudged.NO_PAGE_MAP,
+        )
+        for id_ in ids
+    ]
+    found += [
+        CheckResult(
+            id=f"look:{i}",
+            kind=CheckKind.PAGE_LOOK,
+            decided_by=Decider.MODEL,
+            role=Role.GUIDE,
+            outcome=Outcome.UNJUDGED,
+            why=NO_PAGE_MAP,
+            unjudged=WhyUnjudged.NO_PAGE_MAP,
+        )
+        for i in range(len(case.looks))
+    ]
+    return found
+
+
+def message_turn_at(evidence: TryEvidence, n: int) -> int | None:
+    """Where the test's message turn *n* (from 1) is among the try's turns (from 1), which count
+    filler messages too; ``None`` when the try ended before it."""
+    found = [at for at, turn in enumerate(evidence.turns, 1) if turn.kind == "message"]
+    return found[n - 1] if 0 < n <= len(found) else None
+
+
+def _where(element: UiElement, n: int) -> str:
+    return f"under turn {n}'s reply" if element.within == "reply" else f"on the page after turn {n}"
+
+
+def _named(element: UiElement) -> str:
+    """The element as a missing one is said: ``button named 'Thumbs up'``."""
+    if (
+        element.role is not None
+        and element.name is not None
+        and not (element.test_id or element.text)
+    ):
+        return f"{element.role} named {element.name!r}"
+    return element.said
+
+
+def _wanted(element: UiElement) -> str:
+    if element.most == element.least:
+        return f"exactly {element.least}"
+    if element.most is None:
+        return f"at least {element.least}"
+    return f"{element.least} to {element.most}"
+
+
+def _read_at(
+    element: UiElement, hides: bool, evidence: TryEvidence, n: int, at: int
+) -> tuple[Outcome, str, WhyUnjudged | None]:
+    """How *element* stood after message turn *n* (the try's turn *at*), from what was read."""
+    page = evidence.page
+    turn = page.turns[at - 1] if page is not None and at <= len(page.turns) else None
+    reading = next((r for r in turn.elements if r.key == element.key), None) if turn else None
+    where = _where(element, n)
+    if reading is None:
+        why = (
+            f"{element.said} wasn't looked for after turn {n}: the try was played before the "
+            "test asked for it"
+        )
+        return Outcome.UNJUDGED, why, WhyUnjudged.NOT_SUPPORTED
+    if reading.error is not None or reading.count is None:
+        why = f"{element.said} couldn't be read {where}: {reading.error or 'no count'}"
+        return Outcome.UNJUDGED, why, WhyUnjudged.NOT_SUPPORTED
+    if not reading.scope:
+        why = f"turn {n}'s reply never showed on the page, so there was nothing to look under"
+        if hides:
+            return Outcome.UNJUDGED, why, WhyUnjudged.NO_REPLY
+        return Outcome.FAILED, f"no {_named(element)} {where}: {why}", None
+    count = reading.count
+    if hides:
+        if count:
+            return (
+                Outcome.FAILED,
+                f"found {count} {element.said} {where}, which must not show",
+                None,
+            )
+        return Outcome.PASSED, f"no {_named(element)} {where}", None
+    if count == 0:
+        nearest = f"; nearest: {', '.join(reading.nearest)}" if reading.nearest else ""
+        return Outcome.FAILED, f"no {_named(element)} {where}{nearest}", None
+    if count < element.least or (element.most is not None and count > element.most):
+        return (
+            Outcome.FAILED,
+            f"found {count} {element.said} {where}, wanted {_wanted(element)}",
+            None,
+        )
+    return Outcome.PASSED, f"found {count} {element.said} {where}", None
+
+
+def _element_check(
+    index: int, element: UiElement, hides: bool, evidence: TryEvidence, role: Role
+) -> CheckResult:
+    """One element of ``page.shows`` or ``page.hides``, from what the page held of it after its
+    turn, or after every turn that had a reply: the first turn it didn't hold on decides."""
+    id_ = f"element:{'hides' if hides else 'shows'}:{index}"
+    kind = CheckKind.PAGE_ELEMENT
+
+    def unjudged(why: str, reason: WhyUnjudged, refs: Sequence[EvidenceRef] = ()) -> CheckResult:
+        return _code(id_, kind, Outcome.UNJUDGED, why, role=role, unjudged=reason, evidence=refs)
+
+    if element.turn is not None:
+        at = message_turn_at(evidence, element.turn)
+        if at is None:
+            return unjudged(f"the try ended before turn {element.turn}", WhyUnjudged.NO_REPLY)
+        turn = evidence.turns[at - 1]
+        if turn.error and element.within == "reply":
+            why = f"turn {element.turn} ended in an error, so there was no reply to look under"
+            return unjudged(why, WhyUnjudged.NO_REPLY, _page_turn_refs(evidence, at))
+        picked = [(element.turn, at)]
+    else:
+        picked = [
+            (n, at)
+            for n, at in enumerate(
+                (at for at, t in enumerate(evidence.turns, 1) if t.kind == "message"), 1
+            )
+            if not evidence.turns[at - 1].error and reply_words(evidence.turns[at - 1].reply.text)
+        ]
+        if not picked:
+            return unjudged("no turn had a reply to look under", WhyUnjudged.NO_REPLY)
+    read = [(n, at, *_read_at(element, hides, evidence, n, at)) for n, at in picked]
+    failed = next((r for r in read if r[2] is Outcome.FAILED), None)
+    if failed is not None:
+        _, at, outcome, why, _ = failed
+        return _code(id_, kind, outcome, why, role=role, evidence=_page_turn_refs(evidence, at))
+    missing = next((r for r in read if r[2] is Outcome.UNJUDGED), None)
+    if missing is not None:
+        _, at, _, why, reason = missing
+        assert reason is not None
+        return unjudged(why, reason, _page_turn_refs(evidence, at))
+    refs = [ref for _, at, *_ in read for ref in _page_turn_refs(evidence, at)]
+    if len(read) == 1:
+        why = read[0][3]
+    else:
+        turns = ", ".join(str(n) for n, *_ in read)
+        place = "under the reply" if element.within == "reply" else "on the page after"
+        held = f"no {_named(element)}" if hides else f"found {element.said}"
+        why = f"{held} {place} of each of turns {turns}"
+    return _code(id_, kind, Outcome.PASSED, why, role=role, evidence=refs[: 2 * _MAX_REFS])
+
+
+def element_checks(case: Case, evidence: TryEvidence, role: Role) -> list[CheckResult]:
+    """The test's ``page.shows`` and ``page.hides``, one check each, judged from the readings the
+    try kept (:attr:`~evalution.core.evidence.PageTurn.elements`): no browser needed, so a kept
+    try is judged again the same way."""
+    found = [_element_check(i, e, False, evidence, role) for i, e in enumerate(case.shows)]
+    found += [_element_check(i, e, True, evidence, role) for i, e in enumerate(case.hides)]
     return found
 
 
@@ -623,6 +798,8 @@ def code_checks(
     if not case.page_decides:
         # Page checks that only guide leave a test with nothing else to check as it was.
         found += page
+    # UI checks with no page to read them on are guides: the rest of the test decides.
+    found += [c for c in ui_without_page(case, evidence) if c.kind is CheckKind.PAGE_ELEMENT]
     limit = _limit_check(case, evidence)
     found += [limit] if limit else []
     return CodeChecks(

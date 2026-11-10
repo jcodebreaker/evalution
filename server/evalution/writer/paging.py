@@ -36,7 +36,15 @@ from evalution.code import HASH_CAP, HASH_SIZE, READ_CAP, SKIP_DIRS, CodeError, 
 from evalution.config import ConfigError
 from evalution.project import pagemaps
 from evalution.project.pagemaps import KeptMap
-from evalution.runs.page.map import ENTRIES, PageMap, as_block, described, entry_of, read_map
+from evalution.runs.page.map import (
+    ENTRIES,
+    PageMap,
+    as_block,
+    described,
+    entry_of,
+    page_map_of,
+    read_map,
+)
 
 if TYPE_CHECKING:
     from evalution.adapters.base import Capabilities
@@ -181,6 +189,65 @@ async def guarded(work: Any) -> Any:
         return await work
     except _Refused as exc:
         return str(exc)
+
+
+# What the writer knows of the page when it writes a test
+
+
+#: A test's checks of what its page showed.
+PAGE_CHECKS = ("shows", "hides", "looks", "contains", "lacks")
+
+
+def checks_page(test: Any) -> bool:
+    """Whether *test* (a case as the writer wrote it) checks what its page showed."""
+    page = test.get("page") if isinstance(test, dict) else None
+    return isinstance(page, dict) and any(page.get(key) for key in PAGE_CHECKS)
+
+
+def known_map(targets: Targets, target: str) -> PageMap | None:
+    """*target*'s page map as its runs read it; ``None`` when it has none or it doesn't read."""
+    try:
+        return page_map_of(targets.conf(target))
+    except (ConfigError, LookupError):
+        return None
+
+
+def page_words(targets: Targets, target: str) -> str:
+    """The page as the writer is told it with the profile: its map's words for a test's page
+    checks, or that it isn't learned yet."""
+    page = known_map(targets, target)
+    if page is None:
+        return (
+            "The page: not learned yet (no page map). A test's page checks are saved and wait "
+            "for it; reply(learn_page=true) offers the admin to learn it now."
+        )
+    rows = "\n".join(f"- {row['what']}: {row['where']}" for row in described(page))
+    return 'The page: learned. "within": "reply" means where its replies show. Its map:\n' + rows
+
+
+def learn_offer(targets: Targets, target: str) -> dict[str, Any] | None:
+    """The offer to learn *target*'s page, as the page's UI testing offer says it (``GET
+    /targets/{t}/page/offer``; **Set up UI testing** starts :mod:`evalution.writer.pagelearn`):
+    ``None`` once it has a page map."""
+    if pagemaps.block_of(targets, target) is not None:
+        return None
+    try:
+        waiting = pagemaps.store(targets).proposed(target) is not None
+    except ValueError:
+        waiting = False
+    try:
+        why_not = refusal(targets.config, target, targets.adapter(target).capabilities)
+    except Exception as exc:  # an adapter that can't be made can't be played through its page
+        why_not = f"{target}'s adapter can't be made: {exc}"
+    return {
+        "target": target,
+        "offer": not waiting,
+        "underway": waiting,
+        "found_in": chat_page(targets, target),
+        "dismissed": False,
+        "can_learn": why_not is None and not waiting,
+        "why_not": why_not,
+    }
 
 
 # Reading the code

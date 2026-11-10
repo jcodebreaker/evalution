@@ -328,7 +328,7 @@ def test_a_test_s_own_page_words_are_read_from_what_showed() -> None:
     # The reply's own words still read the reply, never what the page showed.
     replied = _case(reply={"contains": ["Biscuit"]})
     assert _checks(replied, unseen)["reply:contains:0"].outcome is Outcome.PASSED
-    for bad in ({"contains": "x"}, {"decides": "yes"}, {"shows": []}, []):
+    for bad in ({"contains": "x"}, {"decides": "yes"}, {"shows": "x"}, {"glows": []}, []):
         with pytest.raises(CaseError, match="page"):
             _case(page=bad)
 

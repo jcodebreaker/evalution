@@ -2,7 +2,7 @@
 
 ## What it is
 
-UI testing plays a test through your app's own page, the way a person uses it: evalution opens the page in a browser on its own copy of your app, types each message, presses Send, and checks what showed on screen beside what was stored and what reached the model. So a result can say which layer broke: a reply your app stored and answered but the page never showed fails on the page (**Answered ✓, Shown ✕**), a result a tester that only calls the API can't give. Every turn keeps a screenshot, and a failed try keeps a video. Nothing runs against your own app: the page is only ever driven on evalution's copy ([ADR 0010](adr/0010-the-page-is-a-second-observation.md)).
+UI testing plays a test through your app's own page, the way a person uses it: evalution opens the page in a browser on its own copy of your app, types each message, presses Send, and checks what showed on screen beside what was stored and what reached the model: the reply's words, the elements a test names (a thumbs-up under the reply, say), and, by a model reading the screenshot, how it looks. So a result can say which layer broke: a reply your app stored and answered but the page never showed fails on the page (**Answered ✓, Shown ✕**), a result a tester that only calls the API can't give. Every turn keeps a screenshot, and a failed try keeps a video. Nothing runs against your own app: the page is only ever driven on evalution's copy ([ADR 0010](adr/0010-the-page-is-a-second-observation.md)).
 
 ## Try the demo
 
@@ -30,10 +30,31 @@ A map is kept current like everything else evalution learns: a commit that touch
 - **Video** of the try, kept when it fails (Playwright's ffmpeg records it; without it the try plays on and says it has none).
 - **Console and failed requests**: what the page logged, and whether it stayed healthy.
 
+## What it checks
+
+Every page try is checked, by code, for these, whatever the test says:
+
+- **The reply showed** (`shown`): each turn's reply appeared on the page, matching what the API returned.
+- **The page stayed healthy** (`page_health`): no console errors, no failed requests to the copy.
+
+And a test may ask for more in its `page` block ([case format](case-format.md)):
+
+- **Words** (`contains`, `lacks`): text the last reply showed with, or without. Code reads the page's text.
+- **Elements** (`shows`, `hides`): a button, a link, an image, a test id or a piece of text that must, or must not, be on the page, under the turn's reply or anywhere: "a thumbs-up under the reply" is `{"role": "button", "name": "Thumbs up", "within": "reply"}`. Code counts them in the browser, after the reply settles and before the screenshot, with the page map's own way of finding things (a role with its accessible name, a test id, visible text). A missing one names what was there instead: "no button named 'Thumbs up' under turn 2's reply; nearest: button 'Copy'". What was read is kept with the try, so it can be judged again without a browser.
+- **Looks** (`looks`): a yes/no question about a turn's screenshot, "Is the chart drawn with labelled axes?", answered by the grader model shown the screenshot, with its one-sentence reason. For what has no name on the page: layout, colour, a picture's content.
+
+Each guides unless the test sets `"page": {"decides": true}`, which makes all the page's checks must-checks.
+
+What they can't do:
+
+- An element is found by what it is named in the page's accessibility tree, never by CSS or where it sits on screen: a button with no accessible name is found by its role alone, or by a test id. Only visible elements count, and only in the main page, not inside iframes. "Under the reply" is the newest reply the page map finds; on a page whose map can't tell replies apart, it is the replies' whole region.
+- A look is a model's reading of one 1280 × 720 screenshot: it can be wrong, and it sees only what is in view. It needs a grader model that reads images (one that can't leaves it not judged, never failed), a screenshot kept for the turn (screenshots `off` leaves it not judged), and it costs a model call, kept and reused for the same screenshot and question. `unsure` is never a pass or a fail.
+- Both need the page. A test with them is saved even when the app has no page map yet: until one is approved they read as not judged, `no_page_map` ("the page hasn't been learned yet"), with the rest of the test played through the API, and the test writer offers to learn the page. Only a test that says it plays through the API alone (`"plays": "api"`) can't hold them.
+
 ## Proof settings
 
 - What a try keeps is the page map's `proof`: `screenshots` (one after each message) and `video`, each `always`, `failed` (kept only when a try fails) or `off`. By default every screenshot is kept, and the video only when a try fails. Set it per target on the **How tests reach** card, or per test under **What it checks** (its `page.proof`, which wins). The older `video` setting still reads, as `proof.video`. Over 50 MB a video is dropped, and the try says so.
-- Whether the page decides: page checks guide by default. A test's `"page": {"decides": true}` makes "the reply showed" and the page's health must-checks; `"page": {"contains": [...], "lacks": [...]}` adds checks of its own ([case format](case-format.md)).
+- Whether the page decides: page checks guide by default. A test's `"page": {"decides": true}` makes "the reply showed", the page's health and its own page checks must-checks; `contains`, `lacks`, `shows`, `hides` and `looks` add checks of its own ([case format](case-format.md)).
 
 ## Limits
 

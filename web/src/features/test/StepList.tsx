@@ -4,9 +4,10 @@ import { cn } from "../../lib/cn";
 import { seconds } from "../../lib/format";
 import { beforeWords } from "../../lib/isolation";
 import type { LineAgreement, TimelineLine, TryIsolation, TryOutcome } from "../../lib/schema";
+import { unjudgedWords } from "../../lib/verdict";
 import { Chip, Tag } from "../shared/kit";
 import { AGREE_KEYS, Agree } from "./Agree";
-import { agreementKey, type Entry, type StepRow } from "./one-list";
+import { agreementKey, type Entry, isUi, type StepRow } from "./one-list";
 
 // "Step by step": the try as one time-ordered list, each row with its mark in a gutter line,
 // clicked to inspect it beside.
@@ -39,7 +40,95 @@ export function rowLabel(row: StepRow, app: string): string {
       return "Break";
     case "health":
       return "Page healthy";
+    case "ui":
+      return "On the page";
   }
+}
+
+/** A UI check's key in the list: its id, else its place in its row. */
+export const uiKey = (entry: Entry, index: number) => entry.id ?? `${entry.kind}:${index}`;
+
+/** What a UI check found, in plain words; one not judged says why. */
+export function uiWords(entry: Entry): string {
+  if (entry.status === "unjudged") {
+    const plain = entry.unjudged ? unjudgedWords([entry.unjudged]) : null;
+    const why = plain && plain !== entry.unjudged ? plain : entry.why || plain;
+    return why ? `Couldn't judge: ${why}` : "Couldn't judge";
+  }
+  return entry.why || entry.text || "";
+}
+
+/** A turn's UI check results, each picked to see the turn's screenshot beside; a model's look
+ * carries the "model" tag and agree and disagree. */
+function UiResults({
+  entries,
+  picked,
+  onPick,
+  agreement,
+  onLabel,
+}: {
+  entries: Entry[];
+  picked?: string | null;
+  onPick?: (key: string) => void;
+  agreement?: Record<string, LineAgreement>;
+  onLabel?: (line: string, agree: boolean | null) => void;
+}) {
+  if (!entries.length) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      {entries.map((entry, index) => {
+        const key = uiKey(entry, index);
+        const look = entry.kind === "page_look";
+        const said = look && entry.id ? agreement?.[entry.id] : undefined;
+        const answer = said && onLabel && entry.id ? said : undefined;
+        return (
+          <div
+            key={key}
+            data-testid="ui-result"
+            data-status={entry.status ?? "none"}
+            className={cn(
+              "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md",
+              picked === key && "bg-tint-soft",
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={picked === key}
+              className="flex min-w-0 items-start gap-2 text-start focus-visible:outline-2 focus-visible:outline-tint"
+              onClick={(event) => {
+                event.stopPropagation();
+                onPick?.(key);
+              }}
+            >
+              <OutcomeIcon status={entry.status} className="mt-[3px]" />
+              <span
+                className={cn(
+                  "min-w-0 [overflow-wrap:anywhere]",
+                  entry.status === "failed" && "text-fail",
+                  entry.status === "unjudged" && "text-ink-3",
+                )}
+              >
+                {uiWords(entry)}
+              </span>
+            </button>
+            {look ? <Chip className="h-6">model</Chip> : null}
+            {answer ? (
+              // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row's click off the thumbs
+              // biome-ignore lint/a11y/useKeyWithClickEvents: the thumbs are buttons of their own
+              <span className="ms-auto" onClick={(event) => event.stopPropagation()}>
+                <Agree
+                  agreement={answer}
+                  onPress={(agree) =>
+                    onLabel?.(entry.id ?? "", answer.mine === agree ? null : agree)
+                  }
+                />
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** An outcome as a small tick, cross or dash. */
@@ -281,15 +370,29 @@ export function RowBody({
   agreement,
   onLabel,
   highlights,
+  pickedCheck,
+  onPickCheck,
 }: {
   row: StepRow;
   isolation?: TryIsolation | null;
   agreement?: Record<string, LineAgreement>;
   onLabel?: (line: string, agree: boolean | null) => void;
   highlights?: { text: string; good: boolean }[];
+  /** The UI check picked in this row, by {@link uiKey}. */
+  pickedCheck?: string | null;
+  onPickCheck?: (key: string) => void;
 }) {
   const first = row.entries[0];
   if (!first) return null;
+  const ui = (
+    <UiResults
+      entries={row.entries.filter(isUi)}
+      picked={pickedCheck}
+      onPick={onPickCheck}
+      agreement={agreement}
+      onLabel={onLabel}
+    />
+  );
   switch (row.kind) {
     case "before": {
       const words = isolation ? beforeWords(isolation, first.text) : null;
@@ -340,11 +443,19 @@ export function RowBody({
             </div>
           ) : null}
           {frame ? <Frame entry={frame} /> : null}
+          {ui}
         </>
       );
     }
     case "frame":
-      return <Frame entry={first} />;
+      return (
+        <>
+          <Frame entry={first} />
+          {ui}
+        </>
+      );
+    case "ui":
+      return ui;
     case "state":
       return (
         <div className="flex flex-col gap-1.5">
@@ -393,6 +504,8 @@ export function StepList({
   onLabel,
   highlights,
   differs,
+  pickedCheck,
+  onPickCheck,
 }: {
   rows: StepRow[];
   appName: string;
@@ -405,13 +518,21 @@ export function StepList({
   highlights?: { text: string; good: boolean }[];
   /** The row where this try first differs from a passing one. */
   differs?: number | null;
+  /** The UI check picked in the selected row, by {@link uiKey}. */
+  pickedCheck?: string | null;
+  /** A UI check picked: its row is selected, and its turn's screenshot shown beside. */
+  onPickCheck?: (index: number, key: string) => void;
 }) {
   const lastReply = rows.findLastIndex((row) => row.kind === "reply");
   return (
     <ol className="m-0 flex list-none flex-col py-2 ps-0" aria-label="Step by step">
       {rows.map((row, index) => {
         const bad = row.status === "failed";
-        const square = row.kind === "state" || row.kind === "health" || row.kind === "before";
+        const square =
+          row.kind === "state" ||
+          row.kind === "health" ||
+          row.kind === "before" ||
+          row.kind === "ui";
         const label = `Step ${index + 1} · ${rowLabel(row, appName)}`;
         return (
           // biome-ignore lint/a11y/useKeyWithClickEvents: the row's own button takes the keyboard
@@ -465,6 +586,8 @@ export function StepList({
                 agreement={agreement}
                 onLabel={onLabel}
                 highlights={index === lastReply ? highlights : undefined}
+                pickedCheck={selected === index ? pickedCheck : null}
+                onPickCheck={(key) => (onPickCheck ? onPickCheck(index, key) : onSelect(index))}
               />
             </div>
           </li>

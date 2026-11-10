@@ -50,7 +50,8 @@ export type Doubt = { line: number; disagreed: number; labelled: number };
 /** What decided the try: what code checked, apart from what a model graded, and on what footing. */
 export function HowDecided({ explain, doubts = [] }: { explain: Explain; doubts?: Doubt[] }) {
   const { code, model } = explain;
-  const graded = model.total > 0 || !!model.reference;
+  const looks = model.checks ?? [];
+  const graded = model.total > 0 || !!model.reference || looks.length > 0;
   if (!code.checks.length && !graded) return null;
   const footing = [
     explain.judge ? `graded by ${explain.judge}` : null,
@@ -84,9 +85,12 @@ export function HowDecided({ explain, doubts = [] }: { explain: Explain; doubts?
                 : null
             }
           >
-            {model.reference ? (
+            {model.reference || looks.length ? (
               <ul className="m-0 flex list-none flex-col gap-1 p-0">
-                <Row check={model.reference} />
+                {model.reference ? <Row check={model.reference} /> : null}
+                {looks.map((check) => (
+                  <Row key={check.id} check={check} />
+                ))}
               </ul>
             ) : null}
             {model.unjudged ? (

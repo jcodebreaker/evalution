@@ -31,7 +31,7 @@ from evalution.core.judgement import (
     Role,
     Route,
 )
-from evalution.core.rules import judgement
+from evalution.core.rules import judgement, line_key
 from evalution.judging.labels import LABEL
 from evalution.results.migrate import upcast
 from evalution.results.store import RunStore
@@ -257,6 +257,64 @@ def test_a_line_the_grader_too_often_gets_wrong_stops_earning_passes(client, tmp
     assert client.delete(url.format(3)).status_code == 404
     assert client.get("/v1/evals/runs/r1").json()["totals"]["passed"] == 1
     assert client.get("/v1/evals/runs/r1/cases/greets").json()["verdict"] == "pass"
+
+
+def _looked(run: str) -> dict:
+    """A run of two tries whose grader answered yes to a question about the page's screenshot."""
+    look = CheckResult(
+        id="look:0", kind=CheckKind.PAGE_LOOK, decided_by=Decider.MODEL, role=Role.GUIDE,
+        outcome=Outcome.PASSED, why="A thumbs-up shows under the reply",
+    )  # fmt: skip
+    found = judgement([look], JudgeStamp(key="default", model="m"), Route.UNKNOWN)
+    doc = {**upcast(_run(None)), "run": run, "judge": {"key": "default"}}
+    entry = doc["cases"]["greets"]
+    entry["case"] = {
+        "name": "Greets",
+        "turns": [{"message": "hi"}],
+        "page": {"looks": [{"question": "Is there a  thumbs-up?"}]},
+    }
+    entry["tries"] = [
+        {"n": n, **TRY, "judgements": [found.model_dump(mode="json")], "rubric": []} for n in (1, 2)
+    ]
+    doc["totals"] = totals(doc)
+    return doc
+
+
+def test_a_person_agrees_or_not_with_the_model_on_a_look(client, tmp_path) -> None:
+    store = RunStore(_docs(tmp_path))
+    store.write(_looked("r1"))
+    url = "/v1/evals/runs/r1/cases/greets/tries/{}/rubric/{}/label"
+    assert client.put(url.format(1, "look:3"), json={"agree": False}).status_code == 404
+    assert client.put(url.format(1, "nope"), json={"agree": False}).status_code == 404
+    said = client.put(url.format(1, "look:0"), json={"agree": False})
+    assert said.status_code == 200, said.text
+    assert said.json() == {
+        "agreed": 0,
+        "labelled": 1,
+        "unreliable": False,
+        "mine": False,
+        "can": True,
+    }
+    (kept,) = [_docs(tmp_path).get(LABEL, key) for key in _docs(tmp_path).keys(LABEL)]
+    assert (kept["check"], kept["text"], kept["holds"]) == (
+        "look:0",
+        "Is there a thumbs-up?",
+        False,
+    )
+    assert kept["line"] == trust.look_key("Is there a thumbs-up?")
+    assert kept["line"] != line_key("Is there a thumbs-up?")
+    # Sent with the try, by the look's id, for the page's thumbs.
+    doc = store.load("r1")
+    assert trust.looks_view(_docs(tmp_path), doc, "greets", 1)["look:0"]["mine"] is False
+    assert trust.looks_view(_docs(tmp_path), doc, "greets", 2)["look:0"] == {
+        "agreed": 0, "labelled": 1, "unreliable": False, "mine": None, "can": True,
+    }  # fmt: skip
+    compared = client.get("/v1/evals/runs/r1/cases/greets/compare", params={"try": 1})
+    assert compared.status_code == 200, compared.text
+    assert compared.json()["agreement"]["look:0"]["mine"] is False
+    gone = client.delete(url.format(1, "look:0"))
+    assert gone.status_code == 200 and gone.json()["labelled"] == 0
+    assert client.delete(url.format(1, "look:0")).status_code == 404
 
 
 async def test_an_analysis_that_cannot_finish_says_so(tmp_path) -> None:

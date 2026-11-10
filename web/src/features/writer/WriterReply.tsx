@@ -1,12 +1,18 @@
 import { Check, ChevronRight, CircleAlert, Play, Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../../lib/api";
 import { count } from "../../lib/format";
-import type { AgentMessage, RunSummary } from "../../lib/schema";
+import type { AgentMessage, PageOffer, PageReach, RunSummary } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Markdown } from "../../ui/markdown";
 import { StatusDot } from "../../ui/status";
+import { useLearnPoll } from "../environment/LearnFlow";
+import { OfferRow, type PageOfferState } from "../home/OfferRow";
 import { Fold, Group, TextLink } from "../shared/group";
 import { MeaningChanges } from "../shared/MeaningChanges";
 import { SuspectTag } from "../shared/marks";
+import { UiSentenceLine } from "../test/UiChecks";
+import { uiSentences } from "../test/ui-checks";
 import { ROW_LINK, RunLink } from "./RunLink";
 
 type WeakLine = NonNullable<NonNullable<AgentMessage["plan"]>["weak_lines"]>[number];
@@ -62,6 +68,7 @@ export function WriterReply({
 }) {
   const { plan, review, run, saved, isolation, page_map: pageMap } = message;
   const changed = !!plan?.changes?.length;
+  const ui = uiSentences(plan?.page);
   return (
     <div className="flex flex-col gap-2.5 text-[13.5px] leading-[1.55]">
       {message.read?.length ? (
@@ -106,6 +113,18 @@ export function WriterReply({
               </div>
             </div>
           ))}
+          {ui.length ? (
+            <div className="flex flex-col gap-1.5 border-t border-separator px-3.5 py-2.5">
+              <span className="text-[12.5px] text-ink-2">On the page</span>
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[14px]">
+                {ui.map((sentence, index) => (
+                  <li key={index}>
+                    <UiSentenceLine sentence={sentence} withTurn />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {plan.timeout ? (
             <p className="m-0 border-t border-separator px-3.5 py-2.5 text-[12.5px] text-ink-2">
               Time limit {plan.timeout.seconds} s: {plan.timeout.from}
@@ -161,6 +180,9 @@ export function WriterReply({
             ) : null}
           </div>
         </Group>
+      ) : null}
+      {plan && ui.length && message.page_offer ? (
+        <PlanPageOffer offer={message.page_offer} />
       ) : null}
       {pageMap ? (
         <PageMapProposal proposal={pageMap} latest={latest} onApprove={onApprove} />
@@ -242,6 +264,56 @@ export function WriterReply({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** The offer to learn the app's page as the writer's reply carries it, followed from there the
+ * way Home follows its own (`usePageOffer`), without reading it first. */
+function useOfferFrom(seed: PageOffer): PageOfferState {
+  const target = seed.target;
+  const [offer, setOffer] = useState<PageOffer | null>(seed);
+  const [reach, setReach] = useState<PageReach | null>(null);
+  const follow = useCallback(async () => {
+    try {
+      setReach(await api.pageReach(target));
+    } catch {
+      // Read again at the next tick.
+    }
+  }, [target]);
+  const read = useCallback(async () => {
+    try {
+      const found = await api.pageOffer(target);
+      setOffer(found);
+      if (found.underway) await follow();
+    } catch {
+      setOffer(null);
+    }
+  }, [target, follow]);
+  // Set up earlier, and not done: the row picks it up where it is.
+  useEffect(() => {
+    if (seed.underway) void follow();
+  }, [seed.underway, follow]);
+  useLearnPoll(reach, follow);
+  return { offer, reach, setOffer, setReach, read, shows: reach !== null || offer?.offer === true };
+}
+
+/** A plan's UI checks need the app's page learned first: one line, and Set up UI testing. */
+function PlanPageOffer({ offer }: { offer: PageOffer }) {
+  const state = useOfferFrom(offer);
+  return (
+    <Group data-testid="plan-page-offer">
+      <p className="m-0 flex items-start gap-2 px-3.5 pt-2.5 text-[14px]">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+        <span className="min-w-0">
+          Its checks on the page need {offer.target}'s page learned first.
+        </span>
+      </p>
+      {state.shows ? (
+        <OfferRow target={offer.target} state={state} />
+      ) : offer.why_not ? (
+        <p className="m-0 px-3.5 pb-2.5 text-[12.5px] text-ink-2">{offer.why_not}</p>
+      ) : null}
+    </Group>
   );
 }
 

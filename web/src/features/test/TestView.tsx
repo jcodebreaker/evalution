@@ -32,6 +32,7 @@ import { Trajectory } from "./Trajectory";
 import { ModelSaw, RawSteps } from "./TryContext";
 import { Turns } from "./Turns";
 import { type Fact, playsFact, tryFacts } from "./try-words";
+import { uiSentences } from "./ui-checks";
 import { VerdictBanner } from "./VerdictBanner";
 
 /** The rubric lines that failed on the try shown although the grader is unreliable on them. */
@@ -105,6 +106,8 @@ export function TestView({
   const [tab, setTab] = useState<TestTab | null>(null);
   const [work, setWork] = useState<Work>("steps");
   const [picked, setPicked] = useState<number | null>(null);
+  // A UI check picked, whose screenshot the inspector shows while its row is the one picked.
+  const [check, setCheck] = useState<{ row: number; key: string } | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const key = `${id}:${run}`;
@@ -195,6 +198,7 @@ export function TestView({
   const failedRow = rows.findIndex((row) => row.status === "failed");
   const selected = picked ?? (rows.length ? Math.max(failedRow, 0) : null);
   const selectedRow = selected === null ? null : rows[selected];
+  const pickedCheck = check && check.row === selected ? check.key : null;
   const spans = shown?.detail?.timeline ?? [];
   const span =
     spans.find((entry) => entry.id === focus && entry.kind !== "missing") ??
@@ -363,8 +367,14 @@ export function TestView({
                         agreement={shown.agreement}
                         highlights={shown.output?.highlights}
                         differs={differs >= 0 ? differs : null}
+                        pickedCheck={pickedCheck}
+                        onPickCheck={(index, key) => {
+                          setPicked(index);
+                          setCheck({ row: index, key });
+                        }}
                         onLabel={(line, agree) => {
-                          const n = rubricLine(line);
+                          // A rubric line by its place; a look by its check's id (`look:0`).
+                          const n = /^look:\d+$/.test(line) ? line : rubricLine(line);
                           if (n === null || !shown.try) return;
                           void api
                             .label(shown.run, id, shown.try, n, agree)
@@ -379,6 +389,7 @@ export function TestView({
                         shown={shown}
                         appName={appName}
                         onAsk={ask}
+                        check={pickedCheck}
                       />
                     ) : null}
                   </div>
@@ -501,6 +512,7 @@ export function TestView({
                     names={ready(plan)?.names ?? {}}
                     appName={appName}
                     result={false}
+                    ui={uiSentences(test.page)}
                   />
                 ) : plan.status === "loading" ? (
                   <p className="m-0 shimmer py-3">Reading the test…</p>

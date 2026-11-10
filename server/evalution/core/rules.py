@@ -49,7 +49,9 @@ _OUTCOME_CHECKS = frozenset(
 _LAYERS = {
     "stored": frozenset({CheckKind.STATE}),
     "answered": frozenset({CheckKind.REPLY_TEXT, CheckKind.REPLY_LACKS, CheckKind.CONTEXT}),
-    "shown": frozenset({CheckKind.SHOWN, CheckKind.PAGE_HEALTH}),
+    "shown": frozenset(
+        {CheckKind.SHOWN, CheckKind.PAGE_HEALTH, CheckKind.PAGE_ELEMENT, CheckKind.PAGE_LOOK}
+    ),
 }
 
 NO_TRACES = "No traces arrived"
@@ -79,7 +81,10 @@ _UNJUDGED_LABEL = {
     WhyUnjudged.APP_BUSY: Label.SETUP_BLOCKED,
     WhyUnjudged.LEFTOVER_STATE: Label.SETUP_BLOCKED,
     WhyUnjudged.PAGE_MAP: Label.SETUP_BLOCKED,
+    WhyUnjudged.NO_PAGE_MAP: Label.SETUP_BLOCKED,
     WhyUnjudged.NO_REPLY: Label.MISSING_EVIDENCE,
+    WhyUnjudged.NO_SCREENSHOT: Label.MISSING_EVIDENCE,
+    WhyUnjudged.NO_VISION: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_FAILED: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.JUDGE_UNSURE: Label.GRADER_UNAVAILABLE,
     WhyUnjudged.GRADER_UNRELIABLE: Label.GRADER_UNRELIABLE,

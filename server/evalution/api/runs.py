@@ -85,6 +85,19 @@ def _read(files: Files, run: str, case: str, n: int, name: str) -> bytes:
         return found.read()
 
 
+def _line_of(line: str) -> int | str:
+    """A label's line as the path says it: a rubric line's place (``2``), or a question about how
+    the page looks by its check's id (``look:0``).
+
+    :raises HTTPException: 404, for anything else.
+    """
+    if line.isdigit():
+        return int(line)
+    if trust.LOOK_ID.fullmatch(line):
+        return line
+    raise not_found("Rubric line")
+
+
 def runs_router() -> APIRouter:
     router = APIRouter()
 
@@ -251,25 +264,28 @@ def runs_router() -> APIRouter:
 
     @router.put("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
     async def put_label(
-        ws: Current, run: str, case: str, n: int, line: int, body: dict[str, Any]
+        ws: Current, run: str, case: str, n: int, line: str, body: dict[str, Any]
     ) -> dict[str, Any]:
         """The person agrees, or not, with what the grader says of rubric line *line* (its place
-        in the try) on try *n*: a labelled example. The line's agreement after it."""
+        in the try), or of a question about how the page looks (``look:<i>``), on try *n*: a
+        labelled example. The line's agreement after it."""
         agree = body.get("agree")
         if not isinstance(agree, bool):
             raise invalid("agree: must be true or false")
+        index = _line_of(line)
         try:
-            return await trust.label(ws.runs.store, ws.targets.docs, run, case, n, line, agree)
+            return await trust.label(ws.runs.store, ws.targets.docs, run, case, n, index, agree)
         except LookupError as exc:
             raise not_found("Rubric line") from exc
         except ValueError as exc:
             raise invalid(str(exc)) from exc
 
     @router.delete("/evals/runs/{run}/cases/{case}/tries/{n}/rubric/{line}/label")
-    async def delete_label(ws: Current, run: str, case: str, n: int, line: int) -> dict[str, Any]:
+    async def delete_label(ws: Current, run: str, case: str, n: int, line: str) -> dict[str, Any]:
         """Forget the person's answer on that line. The line's agreement after it."""
+        index = _line_of(line)
         try:
-            return await trust.unlabel(ws.runs.store, ws.targets.docs, run, case, n, line)
+            return await trust.unlabel(ws.runs.store, ws.targets.docs, run, case, n, index)
         except LookupError as exc:
             raise not_found("Answer") from exc
         except ValueError as exc:
@@ -343,6 +359,7 @@ def runs_router() -> APIRouter:
         rows = await asyncio.to_thread(
             trust.lines_view, targets.docs, doc, case, list(rubric.values()), shown["try"]
         )
+        looks = await asyncio.to_thread(trust.looks_view, targets.docs, doc, case, shown["try"])
         # The plan's stores in plain words, for the ids the try's ``isolation.checked`` names.
         stores = await asyncio.to_thread(isolation_words.try_stores, targets, name)
         page = shown.get("page")
@@ -353,7 +370,8 @@ def runs_router() -> APIRouter:
         return {
             **shown,
             "isolation": {**shown["isolation"], "stores": stores},
-            "agreement": dict(zip(rubric, rows, strict=True)),
+            # A rubric line's by its plan id, a look's by its check's (``look:<i>``).
+            "agreement": {**dict(zip(rubric, rows, strict=True)), **looks},
             "run": run,
             "verdict": verdict_kind(entry),
             "divergence": entry.get("divergence"),

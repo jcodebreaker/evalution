@@ -255,6 +255,14 @@ async def save_plan(
                 f"Refused: {replace} changed since the plan was shown. Show a new plan, so "
                 "the admin sees the difference from what it is now."
             )
+    # The same rule as saving through the API: refused only when the test says it plays through
+    # the API alone; a target with no page map yet keeps it, its UI checks waiting for the page.
+    try:
+        why = cases.ui_refusal(cases.parse_case(test, "plan.file"))
+    except cases.CaseError:
+        why = None
+    if why:
+        return f"Refused: {why}"
     stem = await asyncio.to_thread(store.save_case, docs, target, session["set"], test, replace)
     if stem not in session["cases"]:
         session["cases"].append(stem)
@@ -468,13 +476,10 @@ class Tools:
 
     async def read_profile(self, turn: AgentTurn, _args: dict) -> Any:
         turn.read.append("Read the profile")
-        return fenced(
-            "the profile",
-            understanding.writer_profile(
-                self.targets, self._target(turn), said_lately(turn.session)
-            )
-            or "(none yet)",
-        )
+        target = self._target(turn)
+        found = understanding.writer_profile(self.targets, target, said_lately(turn.session))
+        page = await asyncio.to_thread(paging.page_words, self.targets, target)
+        return fenced("the profile", f"{found or '(none yet)'}\n\n{page}")
 
     async def read_understanding(self, turn: AgentTurn, args: dict) -> Any:
         area = args.get("area")
@@ -773,8 +778,21 @@ class Tools:
             plan["id"] = f"p{secrets.token_hex(4)}"
             if file is not None:
                 file, base = await self._checked_plan(session, plan, args["plan"])
+                # Its UI checks, for the admin's card to say in sentences.
+                block = file.get("page") if isinstance(file.get("page"), dict) else {}
+                if any(block.get(key) for key in ("shows", "hides", "looks")):
+                    plan["page"] = {
+                        key: list(block.get(key) or []) for key in ("shows", "hides", "looks")
+                    }
         review = _review(args["review"]) if args.get("review") else None
         run = args.get("run") if isinstance(args.get("run"), str) else None
+        # A test checking its page, or the writer asking: one button to learn the page now, as
+        # the page's own UI testing offer has it, while the target has no page map.
+        page_offer = None
+        if args.get("learn_page") is True or paging.checks_page(file):
+            page_offer = await asyncio.to_thread(
+                paging.learn_offer, self.targets, str(session["target"])
+            )
         say(
             session,
             "agent",
@@ -786,6 +804,7 @@ class Tools:
             saved=turn.saved,
             isolation=isolation,
             page_map=page_map,
+            page_offer=page_offer,
         )
         plans = session.setdefault("plans", {})
         if page_map is not None and not (plans.get(page_map["id"]) or {}).get("approved"):
@@ -824,11 +843,19 @@ class Tools:
                 f"Shown to the admin as page map {page_map['id']}. End your turn: rehearse it "
                 "only once they approve."
             )
+        offered = (
+            " The page isn't learned yet: the admin was given a button to learn it, and the "
+            "test's page checks wait for that."
+            if page_offer is not None
+            else ""
+        )
         if plan is None:
-            return "Shown to the admin."
+            return f"Shown to the admin.{offered}"
         limit = plan.get("timeout", {}).get("seconds")
         said = f" Its time limit is {limit} s." if limit else ""
-        return f"Shown to the admin as plan {plan['id']}.{said} Saving takes plan_id alone."
+        return (
+            f"Shown to the admin as plan {plan['id']}.{said} Saving takes plan_id alone.{offered}"
+        )
 
     async def _checked_plan(
         self, session: dict[str, Any], plan: dict[str, Any], given: dict[str, Any]

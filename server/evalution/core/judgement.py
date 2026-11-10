@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Outcome(StrEnum):
@@ -56,6 +56,14 @@ class WhyUnjudged(StrEnum):
     #: A step names a tool by a bare name two of the try's MCP servers share: the test has to say
     #: which (``crm__search``).
     AMBIGUOUS_TOOL = "ambiguous_tool"
+    #: A UI check that asks about a turn's screenshot, and none was kept of it (``page.looks``).
+    NO_SCREENSHOT = "no_screenshot"
+    #: The grader's model can't read images, so a question about a screenshot went unasked.
+    NO_VISION = "no_vision"
+    #: A UI check (``page.shows``, ``hides``, ``looks``) on a target with no approved page map
+    #: yet: the try played through the API, so there was no page to read. Not ``page_map``,
+    #: which says a map exists and the page lacks what it names.
+    NO_PAGE_MAP = "no_page_map"
 
 
 class CheckKind(StrEnum):
@@ -76,6 +84,12 @@ class CheckKind(StrEnum):
     SHOWN = "shown"
     #: No console errors and no failed requests to the copy, over a page try.
     PAGE_HEALTH = "page_health"
+    #: An element the test's page must show or must not (``page.shows``, ``page.hides``), decided
+    #: by code from what was read on the page: ``element:shows:<i>``, ``element:hides:<i>``.
+    PAGE_ELEMENT = "page_element"
+    #: A yes/no question about a turn's screenshot (``page.looks``), answered by a vision model:
+    #: ``look:<i>``.
+    PAGE_LOOK = "page_look"
 
 
 class Basis(StrEnum):
@@ -186,6 +200,10 @@ class JudgeStamp(Frozen):
     key: str
     model: str | None = None
     prompt_hash: str | None = None
+    #: A hash of the prompt questions about the page's screenshots were asked by (``page.looks``),
+    #: when the try asked any; apart from ``prompt_hash``, which says how its reply was graded.
+    #: Left out of what is stored when there is none.
+    look_hash: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Judgement(Frozen):

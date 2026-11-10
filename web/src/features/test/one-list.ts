@@ -1,5 +1,6 @@
 import type {
   Actual,
+  CheckRow,
   Compare,
   PlanItem,
   PlanStep,
@@ -348,18 +349,98 @@ export function serverList(shown: TryResult, entries: readonly TimelineEntry[]):
   });
 }
 
+/** A UI check's result: an element the page showed or didn't (code), or a look a model graded. */
+const UI_KINDS = new Set(["page_element", "page_look"]);
+export const isUi = (entry: Pick<Entry, "kind">) => UI_KINDS.has(entry.kind);
+
+/** The turn a check looked at: as it says, else by its evidence (`page:2`, `turn:2`). */
+function checkTurn(row: CheckRow): number | null {
+  if (typeof row.turn === "number") return row.turn;
+  for (const { ref } of row.evidence ?? []) {
+    const found = /^(?:page|turn):(\d+)$/.exec(ref);
+    if (found) return Number(found[1]);
+  }
+  return null;
+}
+
+/** Where a UI check's screenshot is read: the one its evidence names, else its turn's. */
+function shotOf(shown: Compare, turn: number | null, shot: string | null): string | null {
+  const pages = shown.steps.flatMap((step) => (step.page ? [step.page] : []));
+  const named = shot ? pages.find((page) => page.shot === shot) : undefined;
+  if (named) return named.shot_url;
+  if (turn === null) return null;
+  return turnsOf(shown.steps).find((found) => found.n === turn)?.step.page?.shot_url ?? null;
+}
+
+/** The try's UI check results, from how it was decided, as the server sends them: the page's
+ * elements in `explain.code.checks`, its looks (a model's) in `explain.model.checks`, each with
+ * its message `turn`, `why`, `unjudged` and `evidence` (`page:<at>`, `shot:<file>`). */
+export function uiEntries(shown: Compare): Entry[] {
+  const rows = [...(shown.explain?.code.checks ?? []), ...(shown.explain?.model.checks ?? [])];
+  const seen = new Set<string>();
+  return rows.flatMap((row) => {
+    if (!UI_KINDS.has(row.kind ?? "") || seen.has(row.id)) return [];
+    seen.add(row.id);
+    const turn = checkTurn(row);
+    const ref = row.evidence?.find((found) => found.ref.startsWith("shot:"))?.ref;
+    const shot = ref ? ref.slice("shot:".length) : null;
+    return [
+      {
+        ...make({
+          kind: row.kind ?? "page_element",
+          status: row.outcome,
+          actor: row.kind === "page_look" ? "model" : "code",
+          turn,
+          text: row.text,
+          why: row.why || row.text || null,
+          shot,
+          id: row.id,
+          unjudged: row.unjudged ?? null,
+        }),
+        shot_url: shotOf(shown, turn, shot),
+      },
+    ];
+  });
+}
+
+/** `ui` placed in the list: each after what its turn's reply showed, the rest before the page's
+ * health at the end. */
+function placeUi(entries: readonly Entry[], ui: readonly Entry[]): Entry[] {
+  const placed = [...entries];
+  for (const entry of ui) {
+    let at =
+      entry.turn === null
+        ? -1
+        : placed.findLastIndex(
+            (found) =>
+              found.turn === entry.turn &&
+              (found.kind === "reply" || found.kind === "frame" || isUi(found)),
+          );
+    if (at < 0) {
+      const health = placed.findIndex((found) => found.kind === "health");
+      at = (health < 0 ? placed.length : health) - 1;
+    }
+    placed.splice(at + 1, 0, entry);
+  }
+  return placed;
+}
+
 /** The try's one list, and where it came from. */
 export function oneList(shown: TryResult): { entries: Entry[]; from: "server" | "client" } {
   if (shown.steps_timeline?.length) {
-    return { entries: serverList(shown, shown.steps_timeline), from: "server" };
+    // UI checks come from how the try was decided (`explain`), never from the server's list.
+    return {
+      entries: placeUi(serverList(shown, shown.steps_timeline), uiEntries(shown)),
+      from: "server",
+    };
   }
-  return { entries: clientList(shown), from: "client" };
+  return { entries: placeUi(clientList(shown), uiEntries(shown)), from: "client" };
 }
 
 /** A line of "Step by step": one entry, or calls or state checks that came together, or a reply
- * with what the page showed of it. */
+ * with what the page showed of it and its UI checks. */
 export type StepRow = {
-  kind: "before" | "message" | "calls" | "reply" | "frame" | "state" | "break" | "health";
+  kind: "before" | "message" | "calls" | "reply" | "frame" | "state" | "break" | "health" | "ui";
   entries: Entry[];
   status: TryOutcome | null;
   at: number | null;
@@ -374,6 +455,8 @@ const ROW_KIND: Record<string, StepRow["kind"]> = {
   state: "state",
   break: "break",
   health: "health",
+  page_element: "ui",
+  page_look: "ui",
 };
 
 /** The list in rows: calls in a run together, state checks together, a reply with its frame. */
@@ -390,6 +473,10 @@ export function rowsOf(entries: readonly Entry[]): StepRow[] {
         (kind === "frame" &&
           last.kind === "reply" &&
           last.entries.length === 1 &&
+          last.entries[0]?.turn === entry.turn) ||
+        // A turn's UI checks go with what its reply showed.
+        (kind === "ui" &&
+          (last.kind === "reply" || last.kind === "frame" || last.kind === "ui") &&
           last.entries[0]?.turn === entry.turn));
     if (joins && last) last.entries.push(entry);
     else rows.push({ kind, entries: [entry], status: null, at: entry.at });

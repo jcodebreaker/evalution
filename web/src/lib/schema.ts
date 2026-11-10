@@ -1146,6 +1146,13 @@ export const CaseFileViewSchema = z.object({
   plays: PlaysSchema,
   /** What a try played through the page keeps; none through the API (nothing to capture). */
   proof: TestProofSchema.nullable().default(null),
+  /** Its `page:` block's UI checks: what the page shows, hides and looks like; older files have
+   * none. */
+  page: z
+    .lazy(() => UiChecksSchema)
+    .nullable()
+    .catch(null)
+    .default(null),
 });
 export type CaseFileView = z.infer<typeof CaseFileViewSchema>;
 
@@ -1252,6 +1259,17 @@ const CheckRowSchema = z.object({
   outcome: TryOutcomeSchema,
   /** Recorded, and doesn't decide. */
   guide: z.boolean(),
+  /** Why it came out so, apart from `text` (a UI check's "found 1 button 'Thumbs up' …"). */
+  why: z.string().nullish().catch(null),
+  /** The turn it looked at: a UI check's. */
+  turn: z.number().nullish().catch(null),
+  /** Why it wasn't judged, as a reason code (`page_map`). */
+  unjudged: z.string().nullish().catch(null),
+  /** Where it looked: `page:2`, `shot:turn-2.png`. */
+  evidence: z
+    .array(z.object({ ref: z.string() }))
+    .catch([])
+    .optional(),
 });
 export type CheckRow = z.infer<typeof CheckRowSchema>;
 
@@ -1267,6 +1285,8 @@ export const ExplainSchema = z.object({
     reference: CheckRowSchema.nullable(),
     /** Characters of the evidence the grader wasn't shown. */
     cut: z.number(),
+    /** Other lines a model graded: a UI check's look at a screenshot (`page_look`). */
+    checks: z.array(CheckRowSchema).catch([]).optional(),
   }),
   judge: z.string().nullable(),
   rules: z.number(),
@@ -1599,6 +1619,12 @@ export const AgentMessageSchema = z.object({
       /** The test it would replace, and what that changes in what it checks. */
       replaces: z.string().optional(),
       changes: z.array(MeaningChangeSchema).optional(),
+      /** Its UI checks, as the test's `page:` block says them. */
+      page: z
+        .lazy(() => UiChecksSchema)
+        .nullable()
+        .catch(null)
+        .optional(),
     })
     .optional(),
   /** A change the writer proposes to the isolation plan, approved like a test plan. */
@@ -1648,6 +1674,9 @@ export const AgentMessageSchema = z.object({
       proposal: z.string().optional(),
     })
     .optional(),
+  /** A plan's UI checks need a page map the app lacks: the offer to learn its page, as
+   * `GET /v1/targets/{t}/page/offer` says it. */
+  page_offer: PageOfferSchema.nullable().catch(null).optional(),
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
@@ -2448,6 +2477,9 @@ export const TimelineEntrySchema = z.object({
   checked: z.array(z.string()).catch([]).default([]),
   problem: z.string().nullable().catch(null).default(null),
   why: z.string().nullable().catch(null).default(null),
+  /** A check's id (a UI check's), and why it wasn't judged, as a reason code. */
+  id: z.string().nullable().catch(null).default(null),
+  unjudged: z.string().nullable().catch(null).default(null),
 });
 export type TimelineEntry = z.infer<typeof TimelineEntrySchema>;
 
@@ -2560,3 +2592,40 @@ export const AgentChoicesSchema = z.object({
   choices: z.array(FocusChoiceSchema).default([]),
 });
 export type AgentChoices = z.infer<typeof AgentChoicesSchema>;
+
+// ---- UI checks: what the page shows, hides and looks like (appended; see docs/judging.md) ----
+
+/** How many of an element: exactly so many, or between `min` and `max`. */
+export const ElementCountSchema = z.union([
+  z.number(),
+  z.object({ min: z.number().optional(), max: z.number().optional() }),
+]);
+export type ElementCount = z.infer<typeof ElementCountSchema>;
+
+/** An element of the app's page, by its role and name, its test id or its text. `within`: under
+ * the turn's reply or anywhere on the page; no `turn`: every turn with a reply. */
+export const PageElementSchema = z.object({
+  role: z.string().optional().catch(undefined),
+  name: z.string().optional().catch(undefined),
+  test_id: z.string().optional().catch(undefined),
+  text: z.string().optional().catch(undefined),
+  within: z.enum(["reply", "page"]).optional().catch(undefined),
+  count: ElementCountSchema.optional().catch(undefined),
+  turn: z.number().optional().catch(undefined),
+});
+export type PageElement = z.infer<typeof PageElementSchema>;
+
+/** A question a model answers from a turn's screenshot. */
+export const PageLookSchema = z.object({
+  question: z.string(),
+  turn: z.number().optional().catch(undefined),
+});
+export type PageLook = z.infer<typeof PageLookSchema>;
+
+/** A test's UI checks, from its `page:` block. */
+export const UiChecksSchema = z.object({
+  shows: z.array(PageElementSchema).catch([]).default([]),
+  hides: z.array(PageElementSchema).catch([]).default([]),
+  looks: z.array(PageLookSchema).catch([]).default([]),
+});
+export type UiChecks = z.infer<typeof UiChecksSchema>;

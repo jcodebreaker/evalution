@@ -72,6 +72,9 @@ const WHY_UNJUDGED: Record<string, string> = {
   page_map: "the page lacks what its page map names",
   no_reply: "the turn had no reply to show",
   ambiguous_tool: "two tools share this name: the test must say which",
+  no_screenshot: "no screenshot of the turn was kept",
+  no_vision: "the grader model can't read images",
+  no_page_map: "the page hasn't been learned yet",
 };
 
 /** A line whose grader a person disagrees with too often: its passes don't count. */
@@ -352,6 +355,8 @@ export const CHECKED_ON_PAGE = "checked on the page";
 const KIND_WORD: Record<string, string> = {
   shown: "on the page",
   page_health: "the page's health",
+  page_element: "on the page",
+  page_look: "a look at the page",
 };
 
 /** A check kind's few words, for the kinds a reader should tell apart; `null` for the rest. */

@@ -15,20 +15,25 @@ from pathlib import Path
 from typing import Any
 
 from evalution.core.case import (
+    ARIA_ROLES,
     CLEAN_KINDS,
     CONTEXT_CHECKS,
     DEFAULT_PASS_MARKS,
     DEFAULT_TRIES,
     GRADERS,
+    LOOK_CHARS,
     MATCHERS,
     MOST_TRIES,
     ORDERS,
     PROOF_KEEPS,
     PROOF_PARTS,
     SLUG,
+    WITHIN,
     Case,
     CaseTurn,
     EvalSet,
+    UiElement,
+    UiLook,
 )
 
 BENCHMARK_PREFIX = "longmemeval-"
@@ -395,7 +400,7 @@ def _page(value: Any, where: str) -> dict[str, Any]:
         value = {}
     if not isinstance(value, dict):
         raise CaseError(f"{where}: must be an object")
-    unknown = set(value) - {"contains", "lacks", "decides", "proof"}
+    unknown = set(value) - {"contains", "lacks", "decides", "proof", "shows", "hides", "looks"}
     if unknown:
         raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
     found: dict[str, Any] = {}
@@ -409,7 +414,137 @@ def _page(value: Any, where: str) -> dict[str, Any]:
         raise CaseError(f"{where}.decides: must be true or false")
     found["decides"] = decides
     found["proof"] = _proof(value.get("proof"), f"{where}.proof")
+    for key in ("shows", "hides"):
+        items = value.get(key, [])
+        if not isinstance(items, list):
+            raise CaseError(f"{where}.{key}: must be a list of elements")
+        found[key] = tuple(
+            _element(item, f"{where}.{key}[{i}]", hides=key == "hides")
+            for i, item in enumerate(items)
+        )
+    looks = value.get("looks", [])
+    if not isinstance(looks, list):
+        raise CaseError(f"{where}.looks: must be a list of questions")
+    found["looks"] = tuple(_look(item, f"{where}.looks[{i}]") for i, item in enumerate(looks))
     return found
+
+
+_ELEMENT_FIELDS = {"role", "name", "test_id", "text", "within", "count", "turn"}
+_LOCATOR_FIELDS = ("role", "name", "test_id", "text")
+
+
+def _turn_number(value: Any, where: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise CaseError(f"{where}: must be a message turn's number, from 1")
+    return value
+
+
+def _element(value: Any, where: str, *, hides: bool) -> UiElement:
+    """One element of ``page.shows`` or ``page.hides``, named as the page map names one: a role
+    (one Playwright knows) with its accessible name, a test id, visible text, or more than one."""
+    if not isinstance(value, dict):
+        raise CaseError(f"{where}: must be an object")
+    unknown = set(value) - _ELEMENT_FIELDS
+    if unknown:
+        raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
+    if not any(key in value for key in _LOCATOR_FIELDS):
+        raise CaseError(f"{where}: name the element by role, name, test_id or text")
+    said: dict[str, str] = {}
+    for key in _LOCATOR_FIELDS:
+        if key in value:
+            if not isinstance(value[key], str) or not value[key].strip():
+                raise CaseError(f"{where}.{key}: must be a non-empty string")
+            said[key] = value[key]
+    role = said.get("role")
+    if role is not None and role not in ARIA_ROLES:
+        raise CaseError(f"{where}.role: {role!r} isn't an ARIA role (button, link, img, ...)")
+    if "name" in said and role is None:
+        raise CaseError(f'{where}.name: a name needs its role, like {{"role": "button", ...}}')
+    within = value.get("within", "reply")
+    if within not in WITHIN:
+        raise CaseError(f"{where}.within: must be one of {', '.join(WITHIN)}")
+    least, most = 1, None
+    if "count" in value:
+        if hides:
+            raise CaseError(f"{where}.count: an element the page hides shows none; leave it out")
+        least, most = _count(value["count"], f"{where}.count")
+    turn = _turn_number(value["turn"], f"{where}.turn") if "turn" in value else None
+    return UiElement(
+        role=role,
+        name=said.get("name"),
+        test_id=said.get("test_id"),
+        text=said.get("text"),
+        within=within,
+        least=least,
+        most=most,
+        turn=turn,
+    )
+
+
+def _count(value: Any, where: str) -> tuple[int, int | None]:
+    """``count``: a whole number (exactly that many), or ``{min, max}`` with either left out."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value < 1:
+            raise CaseError(f"{where}: must be at least 1; to say none show, use hides")
+        return value, value
+    if not isinstance(value, dict) or not value or set(value) - {"min", "max"}:
+        raise CaseError(f"{where}: a whole number, or an object with min and/or max")
+    for key, bound in value.items():
+        if isinstance(bound, bool) or not isinstance(bound, int) or bound < 0:
+            raise CaseError(f"{where}.{key}: must be a whole number")
+    least, most = value.get("min", 1), value.get("max")
+    if most is not None and (most < least or most < 1):
+        raise CaseError(f"{where}: max must be at least min, and at least 1")
+    return least, most
+
+
+def _look(value: Any, where: str) -> UiLook:
+    """One ``page.looks`` entry: a yes/no question about a turn's screenshot."""
+    if not isinstance(value, dict):
+        raise CaseError(f"{where}: must be an object with a question")
+    unknown = set(value) - {"question", "turn"}
+    if unknown:
+        raise CaseError(f"{where}.{sorted(unknown)[0]}: unknown field")
+    question = value.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise CaseError(f"{where}.question: must be a yes/no question")
+    question = " ".join(question.split())
+    if len(question) > LOOK_CHARS:
+        raise CaseError(f"{where}.question: one yes/no question of at most {LOOK_CHARS} characters")
+    turn = _turn_number(value["turn"], f"{where}.turn") if "turn" in value else None
+    return UiLook(question=question, turn=turn)
+
+
+#: Why a test that checks the page's elements or look can't be saved: it says it plays through
+#: the API alone.
+UI_NEEDS_PAGE = "UI checks need the test to play through the page"
+#: What a test may say of how it plays (``plays``): ``api``, through the app's API alone.
+PLAYS = ("api",)
+
+
+def ui_refusal(case: Case) -> str | None:
+    """Why *case* can't be saved; ``None`` when it can. A test with UI checks (``page.shows``,
+    ``hides``, ``looks``) is refused only when it says itself it plays through the API alone
+    (``plays: api``). A target with no page map yet never refuses one: it is saved, its UI checks
+    read as not judged (``no_page_map``) until the page is learned, and the rest of the test plays
+    through the API."""
+    if not case.ui_checks or case.plays != "api":
+        return None
+    return (
+        f"{UI_NEEDS_PAGE}: this test says it plays through the API alone (plays: api). Take out "
+        "plays, or page.shows, page.hides and page.looks."
+    )
+
+
+def _ui_turns(case: Case, where: str) -> None:
+    """A UI check's ``turn`` must be one of the test's message turns."""
+    most = case.message_turns
+    for key, items in (("shows", case.shows), ("hides", case.hides), ("looks", case.looks)):
+        for i, item in enumerate(items):
+            if item.turn is not None and item.turn > most:
+                raise CaseError(
+                    f"{where}: page.{key}[{i}].turn: the test has {most} message turn(s)"
+                )
 
 
 def _proof(value: Any, where: str) -> dict[str, str]:
@@ -446,6 +581,7 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         "needs_clean",
         "fold_at_tokens",
         "page",
+        "plays",
     }
     unknown = set(data) - known
     if unknown:
@@ -490,7 +626,10 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
     if not isinstance(must_hold, bool):
         raise CaseError(f"{where}: must_hold: must be true or false")
     page = _page(data.get("page"), f"{where}: page")
-    return Case(
+    plays = data.get("plays")
+    if plays is not None and plays not in PLAYS:
+        raise CaseError(f"{where}: plays: must be {' or '.join(PLAYS)}, or left out")
+    case = Case(
         case=stem,
         name=name.strip(),
         turns=_turns(data.get("turns"), f"{where}: turns"),
@@ -512,7 +651,13 @@ def parse_case(data: Any, where: str, stem: str = "", version: str = "") -> Case
         shown_lacks=page["lacks"],
         page_decides=page["decides"],
         page_proof=page["proof"],
+        shows=page["shows"],
+        hides=page["hides"],
+        looks=page["looks"],
+        plays=plays,
     )
+    _ui_turns(case, where)
+    return case
 
 
 def read_case(text: str, where: str, stem: str) -> Case:
@@ -562,6 +707,9 @@ _MEANING = (
     ("Words the page must show", _part("page", "contains")),
     ("Words the page must not show", _part("page", "lacks")),
     ("Page checks decide", _part("page", "decides")),
+    ("Elements the page must show", _part("page", "shows")),
+    ("Elements the page must not show", _part("page", "hides")),
+    ("Questions about how the page looks", _part("page", "looks")),
     ("Expected tools", _part("tools", "expected")),
     ("Tool order", _part("tools", "order")),
     ("Unexpected tool calls allowed", _part("tools", "extras")),

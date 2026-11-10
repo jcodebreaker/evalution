@@ -83,7 +83,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -107,10 +107,12 @@ from evalution.adapters.base import (
 from evalution.adapters.http import RUN_HEADER, TRY_HEADER
 from evalution.adapters.page import page_only_capabilities
 from evalution.config import ConfigError, KeyRing, TargetConfig
+from evalution.core.case import UiElement
 from evalution.core.evidence import (
     VIDEO,
     Clipped,
     ConsoleLine,
+    ElementReading,
     FailedRequest,
     Failure,
     PageRecord,
@@ -511,6 +513,9 @@ class PageTarget(Target):
         self._blocked: dict[str, list[str]] = {}
         #: What the next tries keep: the map's proof, or a test's own over it (:meth:`prove`).
         self.proof: Proof = self.page.proof
+        #: The elements the next tries' UI checks look for (:meth:`look_for`), read after each
+        #: turn.
+        self.elements: tuple[UiElement, ...] = ()
 
     @property
     def page_only(self) -> bool:
@@ -522,6 +527,12 @@ class PageTarget(Target):
         says, part by part, over the map's proof. A context records video, or not, when it opens:
         call this before opening the try's session."""
         self.proof = self.page.proof.over(given)
+
+    def look_for(self, elements: Sequence[UiElement]) -> None:
+        """The tries from now on read *elements* (a test's ``page.shows`` and ``page.hides``) on
+        the page after each turn's reply settles and before its screenshot, each once however
+        often the test names it; none when the test has no UI checks."""
+        self.elements = tuple({e.key: e for e in elements}.values())
 
     def persona(self, person: Person) -> None:
         """The inner adapter plays as *person*, and the page's language and time zone follow."""
@@ -757,6 +768,7 @@ class PageTarget(Target):
                 shot=step["shot"],
                 refused=step.get("refused"),
                 unanswered=bool(step.get("unanswered")),
+                elements=tuple(ElementReading(**e) for e in step.get("elements") or ()),
             )
             for step in found.turns
         )
@@ -1293,6 +1305,9 @@ class PageTarget(Target):
             page = await self._live(session)
             turn = await self._played(page, session, message, started, deadline, step)
             if record is not None:
+                if self.elements:
+                    # Read once the reply settled, before the screenshot shows the same moment.
+                    step["elements"] = await self._read_elements(page, turn.shown is not None)
                 step["shot"] = await self._shoot(page, record, len(record.turns))
         step["done"] = True
         return turn
@@ -1431,6 +1446,65 @@ class PageTarget(Target):
             return Turn("", started, ended, error=NOTHING_SHOWN, failure=Failure.APP, heard=True)
         session.extra["page"].pop("last_shown", None)
         return Turn(reply, started, ended, shown=reply)
+
+    # UI checks: the elements a test's page must show and must not
+
+    async def _reply_scope(self, page: Any) -> Any | None:
+        """The turn's reply on the page, as the map finds replies: the newest of the assistant's
+        replies when ``mine`` marks them, else the newest ``item``, else the replies' region
+        itself. ``None`` when there is none."""
+        region = self._locator(page, self.page.replies.in_).first
+        if not await region.count():
+            return None
+        mine = self._mine(region)
+        if mine is None and self.page.replies.item is not None:
+            mine = self._locator(region, self.page.replies.item)
+        if mine is None:
+            return region
+        count = int(await mine.count())
+        return mine.nth(count - 1) if count else None
+
+    async def _read_elements(self, page: Any, shown: bool) -> list[dict[str, Any]]:
+        """What the page holds now of each element the try's UI checks look for, as
+        :class:`~evalution.core.evidence.ElementReading` fields: how many are visible, under the
+        turn's reply (none to look under when the reply didn't *shown*) or on the whole page;
+        and when none is, the elements there most like it."""
+        api = _api()
+        under = await self._reply_scope(page) if shown else None
+        whole = page.locator("body")
+        found: list[dict[str, Any]] = []
+        for element in self.elements:
+            scope = whole if element.within == "page" else under
+            if scope is None:
+                found.append({"key": element.key, "count": 0, "scope": False})
+                continue
+            try:
+                count = int(await ui_locator(scope, element).filter(visible=True).count())
+                nearest = await self._nearest(scope, element) if not count else ()
+            except api.Error as exc:
+                if "has been closed" in str(exc):
+                    raise TargetGone(f"the page closed: {exc}") from exc
+                said = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+                found.append({"key": element.key, "error": said})
+                continue
+            found.append({"key": element.key, "count": count, "nearest": nearest})
+        return found
+
+    async def _nearest(self, scope: Any, element: UiElement) -> tuple[str, ...]:
+        """The elements in *scope* most like *element*, in plain words, from its accessibility
+        snapshot (and its test ids, when *element* names one)."""
+        api = _api()
+        try:
+            snapshot = str(await scope.aria_snapshot(timeout=LOCATE_SECONDS * 1000))
+        except api.Error:
+            snapshot = ""
+        ids: list[str] = []
+        if element.test_id is not None:
+            with contextlib.suppress(api.Error):
+                ids = await scope.locator("[data-testid]").evaluate_all(
+                    "els => els.map(e => e.getAttribute('data-testid'))"
+                )
+        return nearest(element, snapshot_candidates(snapshot), [str(i) for i in ids if i])
 
     async def _region_text(self, page: Any) -> str:
         """What the replies' region shows now; empty when it isn't there (yet)."""
@@ -1700,3 +1774,66 @@ TRIED = frozenset(
 def _quoted(value: str) -> str:
     """*value* as a quoted attribute value."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def ui_locator(scope: Any, element: UiElement) -> Any:
+    """*element* in *scope* (a Playwright page or locator), in the page map's locator language: a
+    role with its exact accessible name, a test id, visible text, or more than one together."""
+    if element.role is not None:
+        if element.name is not None:
+            found = scope.get_by_role(element.role, name=element.name, exact=True)
+        else:
+            found = scope.get_by_role(element.role)
+        if element.test_id is not None:
+            found = found.and_(scope.get_by_test_id(element.test_id))
+    elif element.test_id is not None:
+        found = scope.get_by_test_id(element.test_id)
+    else:
+        return scope.get_by_text(element.text)
+    return found.filter(has_text=element.text) if element.text is not None else found
+
+
+#: One line of an accessibility snapshot: ``- button "Copy"``, ``- paragraph: Some text``.
+_SNAPSHOT_LINE = re.compile(
+    r'^\s*-\s+([a-z]+)(?:\s+"((?:[^"\\]|\\.)*)")?(?:\s*\[[^\]]*\])*:?\s*(.*)$'
+)
+#: How many of the elements most like a missing one a reading keeps.
+NEAREST = 3
+
+
+def snapshot_candidates(snapshot: str) -> list[tuple[str, str]]:
+    """The named elements and texts of an accessibility snapshot, in order, once each: ``(role,
+    name)``, or ``("text", words)`` for text with no element of its own."""
+    found: list[tuple[str, str]] = []
+    for line in snapshot.splitlines():
+        match = _SNAPSHOT_LINE.match(line)
+        if not match:
+            continue
+        role, name, rest = match.group(1), match.group(2), match.group(3).strip()
+        if name:
+            found.append((role, name.replace('\\"', '"')))
+        elif rest and role in ("text", "paragraph", "heading", "listitem", "cell"):
+            found.append(("text", rest.strip('"')))
+    return list(dict.fromkeys(found))
+
+
+def nearest(
+    element: UiElement, candidates: Sequence[tuple[str, str]], test_ids: Sequence[str] = ()
+) -> tuple[str, ...]:
+    """The :data:`NEAREST` of *candidates* (and *test_ids*) most like *element*, in plain words
+    (``button 'Copy'``): one of its role first, then by how alike their names are."""
+    wanted = (element.name or element.text or element.test_id or "").lower()
+
+    def alike(text: str) -> float:
+        return difflib.SequenceMatcher(None, wanted, text.lower()).ratio() if wanted else 0.0
+
+    scored = [
+        (
+            (role == element.role) + alike(name),
+            f"text {name!r}" if role == "text" else f"{role} {name!r}",
+        )
+        for role, name in candidates
+    ]
+    scored += [(alike(i) + (element.test_id is not None), f"test id {i!r}") for i in test_ids]
+    ranked = sorted(scored, key=lambda pair: -pair[0])
+    return tuple(dict.fromkeys(said for _, said in ranked))[:NEAREST]

@@ -5,6 +5,7 @@ Reading and checking their text is :mod:`evalution.suite.cases`; keeping them,
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,6 +31,27 @@ CLEAN_KINDS = ("conversation", "memory", "files")
 #: every try, only for one that fails, or not taken at all (ADR 0010).
 PROOF_PARTS = ("screenshots", "video")
 PROOF_KEEPS = ("always", "failed", "off")
+#: Where a UI check looks for an element (``page.shows``, ``page.hides``): under the turn's reply,
+#: as the page map finds it, or anywhere on the page.
+WITHIN = ("reply", "page")
+#: The longest yes/no question a ``page.looks`` entry may ask of a screenshot.
+LOOK_CHARS = 300
+#: The ARIA roles Playwright finds an element by (its ``AriaRole``): the roles a UI check may name.
+ARIA_ROLES = frozenset(
+    {
+        "alert", "alertdialog", "application", "article", "banner", "blockquote", "button",
+        "caption", "cell", "checkbox", "code", "columnheader", "combobox", "complementary",
+        "contentinfo", "definition", "deletion", "dialog", "directory", "document", "emphasis",
+        "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img",
+        "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math",
+        "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation",
+        "none", "note", "option", "paragraph", "presentation", "progressbar", "radio",
+        "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search",
+        "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript",
+        "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox", "time",
+        "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem",
+    }
+)  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -88,6 +110,69 @@ class CaseTurn:
 
 
 @dataclass(frozen=True)
+class UiElement:
+    """One element a UI check looks for on the page (``page.shows`` or ``page.hides``), named the
+    way the page map names one: a role with its accessible name, a test id, visible text, or more
+    than one of them together.
+
+    :param within: ``reply``: under the turn's reply, where the page map finds replies; ``page``:
+        anywhere on the page.
+    :param least: How many must show for ``shows`` to hold (``count``; 1 when it says none).
+    :param most: How many may show at most; ``None``: any number.
+    :param turn: The message turn (from 1) it is looked for after; ``None``: every turn that has
+        a reply.
+    """
+
+    role: str | None = None
+    name: str | None = None
+    test_id: str | None = None
+    text: str | None = None
+    within: str = "reply"
+    least: int = 1
+    most: int | None = None
+    turn: int | None = None
+
+    @property
+    def key(self) -> str:
+        """What a reading of it on the page is kept under: its locator and where it looks. The
+        same element in ``shows`` and ``hides`` is read once, and a test that changes it is never
+        judged on what was read of another."""
+        found = {
+            "role": self.role,
+            "name": self.name,
+            "test_id": self.test_id,
+            "text": self.text,
+            "within": self.within,
+        }
+        return json.dumps({k: v for k, v in found.items() if v is not None}, sort_keys=True)
+
+    @property
+    def said(self) -> str:
+        """The element in plain words: ``button 'Thumbs up'``, ``element with test id 'rate'``."""
+        parts = []
+        if self.role is not None:
+            parts.append(f"{self.role} {self.name!r}" if self.name is not None else self.role)
+        if self.test_id is not None:
+            parts.append(
+                f"test id {self.test_id!r}" if parts else f"element with test id {self.test_id!r}"
+            )
+        if self.text is not None:
+            parts.append(f"text {self.text!r}")
+        return " with ".join(parts)
+
+
+@dataclass(frozen=True)
+class UiLook:
+    """A yes/no question a vision model answers about a turn's screenshot (``page.looks``).
+
+    :param turn: The message turn (from 1) whose screenshot it asks about; ``None``: the last.
+    """
+
+    question: str
+    turn: int | None = None
+
+
+@dataclass(frozen=True)
 class Case:
     """One ``<case>.case.json``.
 
@@ -133,3 +218,23 @@ class Case:
     #: What a try played through the page keeps, part by part (``page.proof``), over what the
     #: target's page map says: ``{"screenshots" | "video": "always" | "failed" | "off"}``.
     page_proof: dict[str, str] = field(default_factory=dict)
+    #: Elements the page must show (``page.shows``) and must not (``page.hides``), read on the page
+    #: by code; and yes/no questions a vision model answers about a turn's screenshot
+    #: (``page.looks``). Guides unless ``page.decides``, as the page's other checks are.
+    shows: tuple[UiElement, ...] = ()
+    hides: tuple[UiElement, ...] = ()
+    looks: tuple[UiLook, ...] = ()
+    #: How the test says it plays (``plays``): ``api``, through the app's API alone, which a test
+    #: with UI checks can't; ``None``: as its target plays.
+    plays: str | None = None
+
+    @property
+    def ui_checks(self) -> bool:
+        """Whether the test checks the page's elements or its look, which only a try played
+        through the page can."""
+        return bool(self.shows or self.hides or self.looks)
+
+    @property
+    def message_turns(self) -> int:
+        """How many message turns the test has: what a UI check's ``turn`` counts."""
+        return sum(1 for t in self.turns if t.is_message)

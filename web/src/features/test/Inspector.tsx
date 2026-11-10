@@ -6,9 +6,9 @@ import { beforeWords } from "../../lib/isolation";
 import type { Compare, Span } from "../../lib/schema";
 import { Button } from "../../ui/button";
 import { Kv, Label, Panel, PanelHead, Tag } from "../shared/kit";
-import type { Entry, StepRow } from "./one-list";
+import { type Entry, isUi, type StepRow } from "./one-list";
 import { pageLines } from "./Page";
-import { CallName, frameWords, OutcomeIcon, rowLabel, Thumb } from "./StepList";
+import { CallName, frameWords, OutcomeIcon, rowLabel, Thumb, uiKey, uiWords } from "./StepList";
 
 const STEP_SAID: Record<string, string> = {
   matched: "Matched",
@@ -285,7 +285,43 @@ function RowFacts({ row, shown }: { row: StepRow; shown: Compare }) {
       return (
         <p className="m-0 text-ink-2">{first.text || "A new conversation, the same person"}</p>
       );
+    case "ui":
+      return null;
   }
+}
+
+/** A UI check picked: its turn's screenshot, enlarged, and what the check found beside it. */
+function UiFacts({ entry }: { entry: Entry }) {
+  const turn = entry.turn === null ? "" : ` after message ${entry.turn}`;
+  return (
+    <div className="flex flex-col gap-2" data-testid="ui-facts">
+      <Label>{entry.kind === "page_look" ? "Graded by a model" : "Checked on the page"}</Label>
+      {entry.shot_url ? (
+        <img
+          src={entry.shot_url}
+          alt={`The page${turn}`}
+          data-testid="ui-shot"
+          className={cn(
+            "block w-full rounded-[9px] border bg-sunk",
+            entry.status === "failed"
+              ? "border-fail shadow-[0_0_0_3px_var(--fail-soft)]"
+              : "border-rule",
+          )}
+        />
+      ) : (
+        <p className="m-0 text-sm text-ink-3">No screenshot kept</p>
+      )}
+      <span
+        className={cn(
+          "flex items-start gap-2 text-sm",
+          entry.status === "failed" ? "text-fail" : "text-ink-2",
+        )}
+      >
+        <OutcomeIcon status={entry.status} className="mt-0.5" />
+        <span className="min-w-0 [overflow-wrap:anywhere]">{uiWords(entry)}</span>
+      </span>
+    </div>
+  );
 }
 
 function FrameFacts({ entry }: { entry: Entry }) {
@@ -317,14 +353,21 @@ export function StepInspector({
   shown,
   appName,
   onAsk,
+  check,
 }: {
   row: StepRow;
   index: number;
   shown: Compare;
   appName: string;
   onAsk?: (text: string) => void;
+  /** The UI check picked in the row, by its key: its screenshot shown first. */
+  check?: string | null;
 }) {
   const label = `Step ${index + 1} · ${rowLabel(row, appName)}`;
+  const ui = row.entries.filter(isUi);
+  const picked =
+    ui.find((entry, at) => uiKey(entry, at) === check) ??
+    (row.kind === "ui" ? (ui.find((entry) => entry.status === "failed") ?? ui[0]) : undefined);
   return (
     <Panel aria-label="Inspector" className="sticky top-4">
       <PanelHead title={label}>
@@ -334,6 +377,7 @@ export function StepInspector({
         </span>
       </PanelHead>
       <div className="flex flex-col gap-3.5 p-5">
+        {picked ? <UiFacts entry={picked} /> : null}
         <RowFacts row={row} shown={shown} />
         {onAsk && row.status === "failed" ? (
           <Button

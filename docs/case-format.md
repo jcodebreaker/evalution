@@ -57,7 +57,14 @@ Only these fields are allowed. `name` and `turns` are required.
     "contains": ["4,828.13"],
     "lacks": ["a word"]
   },
-  "page": {"contains": ["Biscuit"], "lacks": ["Couldn't load"], "decides": false},
+  "page": {
+    "contains": ["Biscuit"],
+    "lacks": ["Couldn't load"],
+    "shows": [{"role": "button", "name": "Thumbs up", "within": "reply"}],
+    "hides": [{"text": "Something went wrong", "within": "page"}],
+    "looks": [{"question": "Is the chart drawn with labelled axes?"}],
+    "decides": false
+  },
   "limits": {"tries": 3, "seconds": 120}
 }
 ```
@@ -111,8 +118,36 @@ Only read on a target that plays through the app's own page (ADR 0010). There, e
 - `contains`, `lacks`: words what the page showed of the last reply must and must not have, read without Markdown's marks, spacing and case aside. Code decides them. A reply that never showed fails both. The reply's own words stay `reply.contains` and `reply.lacks`, which read the reply the API returned.
 - `decides`: `true` makes the page's checks decide the try. Left out, they are a guide: shown with the try, never failing it, as steps that don't bind are.
 - `proof`: what a try keeps of the page, part by part, over what the target's page map keeps: `{"screenshots": "off", "video": "always"}`. Each is `always`, `failed` (deleted once a try passes) or `off` (not taken). A part left out follows the target's (by default every screenshot, and the video when a try fails). It changes nothing the test checks; the test's page sets it under "What it checks".
+- `shows`: elements that must be on the page. Code finds each with the page map's locator language and counts the visible ones after the turn's reply settles.
+- `hides`: elements that must not be. The same fields, without `count`.
+- `looks`: yes/no questions about a turn's screenshot, `{"question": "...", "turn": 2}`, answered by the set's grader model, which must read images. `yes` passes, `no` fails, and `unsure` is never either: it isn't judged. A question is one line of at most 300 characters; ask it so that yes is what you want. `turn` left out asks about the last message turn.
 
-On a target played through its API alone the block is not read.
+An element names at least one of `role`, `name`, `test_id` and `text`:
+
+| Field | Meaning |
+|---|---|
+| `role` | An ARIA role, one Playwright finds by (`button`, `link`, `img`, `heading`, `listitem`, ...) |
+| `name` | Its accessible name, exactly, with its `role` |
+| `test_id` | Its `data-testid` |
+| `text` | Text it shows (alone: any element showing it) |
+| `within` | `reply` (default): under the turn's reply, as the page map finds replies (the newest of the assistant's replies when the map marks them). `page`: anywhere on the page |
+| `count` | How many must show: a whole number (exactly that many), or `{"min": 1, "max": 3}`, either left out. Default: at least one. `shows` only |
+| `turn` | The message turn it is looked for after, from 1 (filler messages don't count). Left out: after every message turn that has a reply |
+
+For example, a person asked for "the page shows a thumbs-up under the reply":
+
+```json
+{
+  "name": "Shows a thumbs-up under the reply",
+  "turns": [{"message": "Make an HTML page about Acme"}],
+  "tools": {"expected": [{"name": "spawn_agent"}]},
+  "page": {"shows": [{"role": "button", "name": "Thumbs up", "within": "reply"}]}
+}
+```
+
+UI checks guide, as the page's other checks do, unless `decides` is `true`. Each is one check of the try (`element:shows:<i>`, `element:hides:<i>`, `look:<i>`; [judging.md](judging.md), "The page"). They need the test to play through the page, but a target with no page map yet never stops one being saved (draft first, learn after): until its page map is approved, they are each not judged, `no_page_map` ("the page hasn't been learned yet"), and the rest of the test plays through the API. Only a test that says itself it plays through the API alone, `"plays": "api"` at its top level, is refused with them ("UI checks need the test to play through the page"). `plays` takes `api` alone, or is left out.
+
+On a target played through its API alone the rest of the block is not read.
 
 ## What a test needs clean
 

@@ -49,8 +49,8 @@ async def test_the_writer_builds_its_prompt_and_calls_the_model(make_rig, monkey
     assert "a try starts clean of" in prompt
     assert "asks every test to start clean" not in prompt, "by default it asks for nothing"
     assert "Drift: 1 change(s)" in prompt
-    assert "what the person sends, what should happen, and what must not happen" in " ".join(
-        prompt.split()
+    assert "what the person sends, what should happen and what must not happen filled in" in (
+        " ".join(prompt.split())
     )
     assert "Plans trips for families" in prompt
     assert '"name": "Greets"' in prompt

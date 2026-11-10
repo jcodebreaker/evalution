@@ -204,6 +204,28 @@ class MemoryRecord(Frozen):
     compacted: bool | None = None
 
 
+class ElementReading(Frozen):
+    """What the page held of one element a test's UI checks look for (``page.shows``,
+    ``page.hides``), read by code after a turn's reply settled and before its screenshot. Enough
+    to judge the checks again without the browser.
+
+    :param key: The element, as :attr:`evalution.core.case.UiElement.key` says it: its locator and
+        where it was looked for.
+    :param count: How many of it were visible there; ``None`` when it couldn't be read.
+    :param scope: Whether there was somewhere to look: for an element under the reply, whether
+        the page showed the turn's reply at all (as the page map finds replies).
+    :param nearest: When none showed, the elements there most like it, in plain words
+        (``button 'Copy'``), closest first.
+    :param error: Why it couldn't be read.
+    """
+
+    key: str
+    count: int | None = None
+    scope: bool = True
+    nearest: tuple[str, ...] = ()
+    error: str | None = None
+
+
 class PageTurn(Frozen):
     """One turn of the try as the page showed it, at the same place in :attr:`PageRecord.turns`
     as in :attr:`TryEvidence.turns`. What it showed is :attr:`TurnRecord.shown`.
@@ -225,6 +247,9 @@ class PageTurn(Frozen):
     #: The app didn't answer the page's request that carried the message in the map's
     #: ``send_seconds``, or the request failed on the way: it didn't take the message.
     unanswered: bool = False
+    #: What the page held of each element the test's UI checks look for, read after the turn;
+    #: none when the test has no ``page.shows`` or ``page.hides``.
+    elements: tuple[ElementReading, ...] = ()
 
     @property
     def not_taken(self) -> bool:

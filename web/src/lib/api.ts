@@ -410,9 +410,11 @@ export const api = {
       one(CompareSchema),
       `/v1/evals/runs/${enc(run)}/cases/${enc(id)}/compare${query({ try: n })}`,
     ),
-  /** Agree (`true`) or not with the grader on rubric line `line` of try `n`; `null` clears it. */
-  label: (run: string, id: string, n: number, line: number, agree: boolean | null) => {
-    const path = `/v1/evals/runs/${enc(run)}/cases/${enc(id)}/tries/${n}/rubric/${line}/label`;
+  /** Agree (`true`) or not with the grader on rubric line `line` of try `n`, or on a look by its
+   * check's id (`look:0`); `null` clears it. */
+  label: (run: string, id: string, n: number, line: number | string, agree: boolean | null) => {
+    const at = enc(String(line));
+    const path = `/v1/evals/runs/${enc(run)}/cases/${enc(id)}/tries/${n}/rubric/${at}/label`;
     return (agree === null ? call("DELETE", path) : call("PUT", path, { agree })).then(
       one(LineAgreementSchema),
     );

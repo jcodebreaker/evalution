@@ -4,6 +4,8 @@ import type { Actual, LineAgreement, PlanStep, TryIsolation } from "../../lib/sc
 import { type Outcome, StatusDot } from "../../ui/status";
 import { PageShown } from "./Page";
 import { StepBody } from "./StepBody";
+import { UiCheckList } from "./UiChecks";
+import { byTurn, type UiSentence } from "./ui-checks";
 
 /** What a try started from, under its "Before" step. */
 function BeforeNote({ words }: { words: BeforeWords }) {
@@ -62,6 +64,32 @@ const SAID: Record<Outcome, string> = {
   none: "Nothing checked",
 };
 
+/** Where each turn's UI checks go: under its "What the reply should say" step, else under its
+ * message; the rest (no turn, or a turn the steps lack) go under "Every reply". */
+function uiPlaces(
+  steps: readonly PlanStep[],
+  ui: readonly UiSentence[],
+): { at: Map<number, UiSentence[]>; every: UiSentence[] } {
+  const { turns, every } = byTurn(ui);
+  const at = new Map<number, UiSentence[]>();
+  const left = [...every];
+  const says = steps.flatMap((step, index) => (step.kind === "say" ? [index] : []));
+  for (const [turn, found] of turns) {
+    const start = says[turn - 1];
+    if (start === undefined) {
+      left.push(...found);
+      continue;
+    }
+    const end = says[turn] ?? steps.length;
+    let place = start;
+    for (let index = start; index < end; index += 1) {
+      if (steps[index]?.kind === "reply") place = index;
+    }
+    at.set(place, [...(at.get(place) ?? []), ...found]);
+  }
+  return { at, every: left };
+}
+
 /** The test's steps on one vertical line; under each check, what happened when `result`. */
 export function Steps({
   steps,
@@ -72,6 +100,7 @@ export function Steps({
   agreement,
   onLabel,
   isolation,
+  ui = [],
 }: {
   steps: PlanStep[];
   names: Record<string, string>;
@@ -83,11 +112,35 @@ export function Steps({
   onLabel?: (item: string, agree: boolean | null) => void;
   /** How the try shown was kept from earlier ones, said in its "Before" step. */
   isolation?: TryIsolation | null;
+  /** The test's UI checks, each under the turn it's for. */
+  ui?: readonly UiSentence[];
 }) {
   let number = 0;
+  const places = uiPlaces(steps, ui);
+  // "Every reply" comes before "Passes when", which closes the list.
+  const passes = steps.findIndex((step) => step.kind === "passes");
+  const everyAt = passes >= 0 ? passes : steps.length;
+  const every = places.every.length ? (
+    <li
+      key="every-reply"
+      className="relative grid grid-cols-[20px_minmax(0,1fr)_auto] gap-x-3 py-2.5 before:absolute before:top-[30px] before:-bottom-[10px] before:left-[9.5px] before:w-px before:bg-separator last:before:hidden"
+    >
+      <span className="flex justify-center pt-[7px]">
+        <span aria-hidden className="size-2 rounded-full bg-rule-strong" />
+      </span>
+      <div className="flex min-w-0 flex-col">
+        <span className="text-sm text-ink-3">On the page</span>
+        <h3 className="m-0 text-sm font-medium">Every reply</h3>
+        <div className="mt-1.5 flex flex-col">
+          <UiCheckList sentences={places.every} />
+        </div>
+      </div>
+      <span />
+    </li>
+  ) : null;
   return (
     <ol className="m-0 flex list-none flex-col p-0">
-      {steps.map((step, index) => {
+      {steps.flatMap((step, index) => {
         const numbered = step.kind !== "before" && step.kind !== "passes";
         if (numbered) number += 1;
         // A try's "Before" says what it started from: put back and checked, a new person, or not.
@@ -105,7 +158,8 @@ export function Steps({
         const title = before ? before.title : step.title;
         // When the page showed the message's reply, from the try's first message.
         const at = result ? (step.page?.shown_at ?? null) : null;
-        return (
+        const checks = places.at.get(index) ?? [];
+        const item = (
           <li
             key={index}
             className="relative grid grid-cols-[20px_minmax(0,1fr)_auto] gap-x-3 py-2.5 before:absolute before:top-[30px] before:-bottom-[10px] before:left-[9.5px] before:w-px before:bg-separator last:before:hidden"
@@ -134,6 +188,11 @@ export function Steps({
                 />
                 {before ? <BeforeNote words={before} /> : null}
                 {result && step.page ? <PageShown page={step.page} /> : null}
+                {checks.length ? (
+                  <div className="mt-2">
+                    <UiCheckList sentences={checks} />
+                  </div>
+                ) : null}
               </div>
             </div>
             <span className="pt-0.5 font-mono text-xs text-ink-3 tabular-nums">
@@ -141,7 +200,9 @@ export function Steps({
             </span>
           </li>
         );
+        return index === everyAt && every ? [every, item] : [item];
       })}
+      {everyAt === steps.length ? every : null}
     </ol>
   );
 }

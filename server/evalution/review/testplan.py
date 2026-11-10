@@ -555,14 +555,43 @@ def _tool_rows(attempt: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _check_row(check: CheckResult) -> dict[str, Any]:
-    return {
+#: Checks of the page's elements and look (``page.shows``, ``hides``, ``looks``): their rows say
+#: which message turn they looked at, why they came out so, and where they looked.
+_UI_KINDS = (CheckKind.PAGE_ELEMENT, CheckKind.PAGE_LOOK)
+
+
+def _message_turn(check: CheckResult, kept: TryEvidence | None) -> int | None:
+    """The test's message turn (from 1) a UI check looked at, from its ``page:<at>`` evidence
+    (the try's turn, filler messages counted); ``None`` when it names none."""
+    at = next(
+        (
+            int(r.ref[5:])
+            for r in check.evidence
+            if r.ref.startswith("page:") and r.ref[5:].isdigit()
+        ),
+        None,
+    )
+    if at is None:
+        return None
+    if kept is None:
+        return at
+    return sum(1 for turn in kept.turns[:at] if turn.kind == "message") or None
+
+
+def _check_row(check: CheckResult, kept: TryEvidence | None = None) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "id": check.id,
         "kind": check.kind.value,
         "text": check.why or check.id,
         "outcome": check.outcome.value,
         "guide": check.role is Role.GUIDE,
     }
+    if check.kind in _UI_KINDS:
+        row["why"] = check.why
+        row["turn"] = _message_turn(check, kept)
+        row["unjudged"] = check.unjudged.value if check.unjudged else None
+        row["evidence"] = [{"ref": r.ref} for r in check.evidence]
+    return row
 
 
 def _steps_text(check: CheckResult, attempt: Mapping[str, Any], units: int, mark: float) -> str:
@@ -576,15 +605,21 @@ def _steps_text(check: CheckResult, attempt: Mapping[str, Any], units: int, mark
 
 
 def explain(
-    judged: Judgement, attempt: Mapping[str, Any], units: int, marks: Mapping[str, float]
+    judged: Judgement,
+    attempt: Mapping[str, Any],
+    units: int,
+    marks: Mapping[str, float],
+    kept: TryEvidence | None = None,
 ) -> dict[str, Any]:
     """How a try's checks came out, what code decided apart from what a model graded, each with what
-    it counted out of what, and who graded under which rules."""
+    it counted out of what, and who graded under which rules. A UI check's row says its message
+    turn by *kept*, the try's evidence: the page's elements under ``code.checks``, its looks (a
+    model's) under ``model.checks``."""
     code = [c for c in judged.checks if c.decided_by is Decider.CODE]
     musts = [c for c in code if c.role is Role.MUST]
     rows = []
     for check in code:
-        row = _check_row(check)
+        row = _check_row(check, kept)
         if check.kind is CheckKind.STEPS:
             row["text"] = _steps_text(check, attempt, units, marks.get("tools", 0.8))
         rows.append(row)
@@ -606,6 +641,7 @@ def explain(
             "summary": whole.why if whole else None,
             "reference": _check_row(reference) if reference else None,
             "cut": max((c.cut for c in model), default=0),
+            "checks": [_check_row(c, kept) for c in model if c.kind is CheckKind.PAGE_LOOK],
         },
         "judge": (judge.model or judge.key) if judge else None,
         "rules": judged.rules,
@@ -902,7 +938,13 @@ def compare(
         "trace_note": trace_words(attempt, judged),
         # How this try was kept from earlier ones (ADR 0009); an older run reads as none.
         "isolation": isolation_of(attempt),
-        "explain": explain(judged, attempt, len(ids), marks or {}),
+        "explain": explain(
+            judged,
+            attempt,
+            len(ids),
+            marks or {},
+            kept if kept is not None and kept.n == attempt["n"] else None,
+        ),
         "tool_rows": _tool_rows(attempt),
         # The one list "Step by step" is drawn from (docs/judging.md, "Timeline"); the stored
         # try's own ``timeline`` is its spans, so this goes by another name.

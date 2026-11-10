@@ -14,7 +14,7 @@ from evalution.connect import page
 from evalution.core.case import PROOF_KEEPS, PROOF_PARTS
 from evalution.project import drift
 from evalution.results.views import case_history, finding, latest_rows
-from evalution.suite.cases import CaseError
+from evalution.suite.cases import CaseError, parse_case, read_object, ui_refusal
 from evalution.suite.store import (
     case_text,
     changes_in_text,
@@ -26,6 +26,29 @@ from evalution.suite.store import (
 from evalution.suite.store import save_case as write_case
 from evalution.targets import Targets
 from evalution.writer.draft import draft, from_traces, from_try, sources
+
+
+def _ui_refused(data: Any) -> None:
+    """Refuse a test with UI checks that says it plays through the API alone
+    (:func:`evalution.suite.cases.ui_refusal`). A target with no page map yet never refuses one.
+    A test that doesn't read is left for saving to say why.
+
+    :raises HTTPException: 400, saying why.
+    """
+    try:
+        found = parse_case(data, "test")
+    except CaseError:
+        return
+    if why := ui_refusal(found):
+        raise invalid(why)
+
+
+def _ui_block(raw: Any) -> dict[str, list[Any]] | None:
+    """A test's UI checks as its file says them (``page.shows``, ``hides``, ``looks``)."""
+    block = raw.get("page") if isinstance(raw, dict) else None
+    if not isinstance(block, dict):
+        return None
+    return {key: list(block.get(key) or []) for key in ("shows", "hides", "looks")}
 
 
 def _case_text(targets: Targets, target: str, set_name: str, case: str) -> str:
@@ -84,6 +107,8 @@ def tests_router() -> APIRouter:
             # keeps: the target's proof with the test's own over it.
             "plays": page.plays(targets, name),
             "proof": page.proof_for_test(targets, name, found.page_proof),
+            # Its UI checks as its ``page:`` block says them; none when it has none.
+            "page": _ui_block(found.raw),
         }
 
     @router.put("/evals/sets/{set_name}/cases/{case}/proof")
@@ -151,6 +176,7 @@ def tests_router() -> APIRouter:
         base = await asyncio.to_thread(_case_text, targets, name, set_name, case)
         try:
             text = (await request.body()).decode("utf-8")
+            _ui_refused(read_object(text, "test"))
             changes = await asyncio.to_thread(
                 changes_in_text, targets.docs, name, set_name, case, text
             )
@@ -200,6 +226,7 @@ def tests_router() -> APIRouter:
         run = body.pop("run", False)
         if not isinstance(run, bool):
             raise invalid("run: must be true or false")
+        _ui_refused(body)
         try:
             stem = await asyncio.to_thread(write_case, targets.docs, name, set_name, body)
             if run:
